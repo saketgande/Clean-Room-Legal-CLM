@@ -1,0 +1,31 @@
+ASSISTANT_TOOLS: dict[str, dict] = {
+    "read_contract": {"category": "read_only", "permission": "contract:read"},
+    "find_in_contract": {"category": "read_only", "permission": "contract:read"},
+    "list_project_contracts": {"category": "read_only", "permission": "project:read"},
+    "generate_contract_docx": {"category": "draft_or_propose", "permission": "contract:create"},
+    "edit_contract": {"category": "mutating", "permission": "contract:redline"},
+    "replicate_contract_version": {"category": "draft_or_propose", "permission": "contract_file:create"},
+    "list_workflows": {"category": "read_only", "permission": "workflow:read"},
+    "run_workflow": {"category": "mutating", "permission": "workflow:read"},
+    "list_playbooks": {"category": "read_only", "permission": "playbook:read"},
+    "run_playbook_review": {"category": "mutating", "permission": "playbook:run"},
+    "redline_against_playbook": {"category": "mutating", "permission": "contract:redline"},
+    "ask_contract_brain": {"category": "read_only", "permission": "assistant:use"},
+    "get_contract_status": {"category": "read_only", "permission": "contract:read"},
+    "update_contract_metadata": {"category": "mutating", "permission": "contract:update"},
+    "submit_for_approval": {"category": "external_action", "permission": "contract:approve"},
+    "send_for_signature": {"category": "external_action", "permission": "contract:sign"},
+    "extract_obligations": {"category": "mutating", "permission": "obligation:update"},
+    "create_tabular_review": {"category": "mutating", "permission": "assistant:use_ai_tools"},
+    "read_table_cells": {"category": "read_only", "permission": "assistant:use"},
+}
+
+CONFIRMATION_REQUIRED_TOOLS = {
+    "submit_for_approval",
+    "send_for_signature",
+    "external_share",
+    "accept_all_redlines",
+    "reject_all_redlines",
+    "archive_delete",
+    "high_impact_metadata_overwrite",
+}

@@ -1,0 +1,10 @@
+AEGIS/
+mike/
+
+backend/.env
+backend/.local-contract-storage/
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.venv/

@@ -1,0 +1,1 @@
+"""Notifications and email records."""
