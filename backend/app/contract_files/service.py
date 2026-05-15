@@ -196,9 +196,9 @@ async def create_contract_from_upload(
             "extraction_quality_score": quality_score,
         },
     )
+    db.commit()
     queued_job_ids = [job.id for job in queued_jobs]
     queued_job_types = [job.job_type for job in queued_jobs]
-    db.commit()
 
     dispatched_job_types = []
     dispatch_errors = []
