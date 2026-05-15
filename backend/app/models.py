@@ -42,7 +42,7 @@ from app.playbooks.models import (
     PlaybookRun,
     PlaybookVersion,
 )
-from app.projects.models import Project, ProjectActivity, ProjectContract, ProjectFolder, ProjectMember
+from app.projects.models import Project, ProjectActivity, ProjectContract, ProjectFolder, ProjectMember, ProjectShare
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureEvent, SignatureRecipient, SignatureRequest
 from app.tabular_review.models import (
@@ -104,6 +104,7 @@ __all__ = [
     "ProjectContract",
     "ProjectFolder",
     "ProjectMember",
+    "ProjectShare",
     "RefreshToken",
     "RenewalEvent",
     "RequestLog",

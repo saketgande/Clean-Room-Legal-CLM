@@ -6,7 +6,8 @@ from app.contract_files.schemas import ContractShareCreate
 from app.contract_files.service import _text_snapshot_validation_status
 from app.core.enums import ShareAccessMode
 from app.integrations.storage import StorageService
-from app.projects.schemas import ProjectFolderUpdate
+from app.projects.access import PROJECT_SHARE_SHARE_LEVELS, PROJECT_UPDATE_SHARE_LEVELS
+from app.projects.schemas import ProjectFolderUpdate, ProjectShareCreate
 from app.search.routes import _text_matches
 
 
@@ -52,6 +53,20 @@ def test_project_folder_update_can_clear_parent_folder():
 
     assert "parent_folder_id" in explicit_root.model_dump(exclude_unset=True)
     assert "parent_folder_id" not in untouched.model_dump(exclude_unset=True)
+
+
+def test_project_share_access_levels_are_ordered():
+    assert PROJECT_UPDATE_SHARE_LEVELS == {"update", "share"}
+    assert PROJECT_SHARE_SHARE_LEVELS == {"share"}
+
+
+def test_project_share_schema_restricts_access_levels():
+    assert ProjectShareCreate(user_id="user-1", access_level="read").access_level == "read"
+    assert ProjectShareCreate(user_id="user-1", access_level="update").access_level == "update"
+    assert ProjectShareCreate(user_id="user-1", access_level="share").access_level == "share"
+
+    with pytest.raises(ValidationError):
+        ProjectShareCreate(user_id="user-1", access_level="admin")
 
 
 def test_text_matches_returns_limited_case_insensitive_excerpts():

@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.enums import ProjectType
@@ -78,3 +80,20 @@ class ProjectContractResponse(BaseModel):
     project_id: str
     contract_id: str
     folder_id: str | None
+
+
+class ProjectShareCreate(BaseModel):
+    user_id: str
+    access_level: str = Field(default="read", pattern="^(read|update|share)$")
+    expires_at: datetime | None = None
+
+
+class ProjectShareResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    shared_with_user_id: str
+    access_level: str
+    expires_at: datetime | None
+    revoked_at: datetime | None

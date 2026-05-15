@@ -8,7 +8,14 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.projects.access import get_project_for_user, project_scope_query
-from app.projects.models import Project, ProjectActivity, ProjectContract, ProjectFolder, ProjectMember
+from app.projects.models import (
+    Project,
+    ProjectActivity,
+    ProjectContract,
+    ProjectFolder,
+    ProjectMember,
+    ProjectShare,
+)
 from app.projects.schemas import (
     ProjectContractAdd,
     ProjectContractResponse,
@@ -20,6 +27,8 @@ from app.projects.schemas import (
     ProjectMemberResponse,
     ProjectMemberUpsert,
     ProjectResponse,
+    ProjectShareCreate,
+    ProjectShareResponse,
     ProjectUpdate,
 )
 
@@ -449,6 +458,116 @@ def remove_project_member(
         details={"user_id": user_id},
     )
     db.commit()
+
+
+@router.get("/{project_id}/shares", response_model=list[ProjectShareResponse])
+def list_project_shares(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("project:share")),
+):
+    _get_project(db, project_id=project_id, current_user=current_user, access="share")
+    return db.scalars(
+        select(ProjectShare)
+        .where(
+            ProjectShare.org_id == current_user.org_id,
+            ProjectShare.project_id == project_id,
+            ProjectShare.revoked_at.is_(None),
+        )
+        .order_by(ProjectShare.created_at.desc())
+    ).all()
+
+
+@router.post(
+    "/{project_id}/shares",
+    response_model=ProjectShareResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_project_share(
+    project_id: str,
+    payload: ProjectShareCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("project:share")),
+):
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="share"
+    )
+    user = db.get(User, payload.user_id)
+    if user is None or user.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+    share = ProjectShare(
+        org_id=current_user.org_id,
+        project_id=project_id,
+        shared_with_user_id=payload.user_id,
+        access_level=payload.access_level,
+        expires_at=payload.expires_at,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(share)
+    db.flush()
+    _record_project_activity(
+        db,
+        project=project,
+        actor_user_id=current_user.id,
+        activity_type="project.share_created",
+        title="Project share created",
+        details={"share_id": share.id, "user_id": payload.user_id, "access_level": payload.access_level},
+    )
+    write_audit_log(
+        db,
+        action="project.share_created",
+        resource_type="project_share",
+        resource_id=share.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={"project_id": project_id, "user_id": payload.user_id, "access_level": payload.access_level},
+    )
+    db.commit()
+    db.refresh(share)
+    return share
+
+
+@router.post("/{project_id}/shares/{share_id}/revoke", response_model=ProjectShareResponse)
+def revoke_project_share(
+    project_id: str,
+    share_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("project:share")),
+):
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="share"
+    )
+    share = db.get(ProjectShare, share_id)
+    if (
+        share is None
+        or share.org_id != current_user.org_id
+        or share.project_id != project_id
+        or share.revoked_at is not None
+    ):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project share not found")
+    share.revoked_at = utcnow()
+    share.updated_by_user_id = current_user.id
+    _record_project_activity(
+        db,
+        project=project,
+        actor_user_id=current_user.id,
+        activity_type="project.share_revoked",
+        title="Project share revoked",
+        details={"share_id": share.id, "user_id": share.shared_with_user_id},
+    )
+    write_audit_log(
+        db,
+        action="project.share_revoked",
+        resource_type="project_share",
+        resource_id=share.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={"project_id": project_id, "user_id": share.shared_with_user_id},
+    )
+    db.commit()
+    db.refresh(share)
+    return share
 
 
 @router.get("/{project_id}/contracts", response_model=list[ProjectContractResponse])

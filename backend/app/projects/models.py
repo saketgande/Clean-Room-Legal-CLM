@@ -44,6 +44,14 @@ class ProjectMember(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, 
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_member"),)
 
 
+class ProjectShare(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
+    project_id = Column(String(36), ForeignKey("project.id"), index=True, nullable=False)
+    shared_with_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
+    access_level = Column(String(40), nullable=False, default="read")
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class ProjectContract(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     project_id = Column(String(36), ForeignKey("project.id"), index=True, nullable=False)
     contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)

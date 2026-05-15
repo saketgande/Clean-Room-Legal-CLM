@@ -124,6 +124,7 @@ class AIValidationStatus(StrEnum):
 class AISkillRunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
+    WAITING_CONFIRMATION = "waiting_confirmation"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     NEEDS_REVIEW = "needs_review"

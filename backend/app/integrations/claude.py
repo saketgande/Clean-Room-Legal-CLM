@@ -265,6 +265,18 @@ class ClaudeClient:
         if "find" in user_text and "find_in_contract" in tool_names:
             selected_tool = "find_in_contract"
             tool_input = {"contract_handle": "contract-0", "query": _mock_query(user_text)}
+        elif ("edit" in user_text or "redline" in user_text) and "edit_contract" in tool_names:
+            selected_tool = "edit_contract"
+            tool_input = {"contract_handle": "contract-0", "instructions": "Apply the requested contract edit."}
+        elif ("generate" in user_text or "draft" in user_text) and "generate_contract_docx" in tool_names:
+            selected_tool = "generate_contract_docx"
+            tool_input = {
+                "title": "Generated Contract",
+                "instructions": "Generate a contract draft from the user request.",
+            }
+        elif "replicate" in user_text and "replicate_contract_version" in tool_names:
+            selected_tool = "replicate_contract_version"
+            tool_input = {"contract_handle": "contract-0"}
         elif "status" in user_text and "get_contract_status" in tool_names:
             selected_tool = "get_contract_status"
             tool_input = {"contract_handle": "contract-0"}

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.ai.citations import validate_citations
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.fallback import fallback_metadata_from_text
-from app.ai.models import AICitation, AISkillRun
+from app.ai.models import AIConfirmation, AICitation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
 from app.ai.registry import skill_registry
@@ -21,7 +21,7 @@ from app.ai.skill import SkillSpec
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
 from app.auth.models import User
-from app.assistant.models import AssistantRun
+from app.assistant.models import AssistantRun, AssistantToolCall
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
 from app.core.audit import write_audit_log, write_timeline_event
@@ -186,6 +186,13 @@ class AIController:
                             user=user,
                             session_id=session_id,
                             assistant_run_id=assistant_run_id,
+                            provider_tool_use_id=tool_use.get("id"),
+                            provider_state={
+                                "schema_version": 1,
+                                "pending_tool_use": tool_use,
+                                "messages": messages,
+                                "skill_run_id": skill_run.id,
+                            },
                         )
                         db.commit()
                         if result.get("confirmation_required"):
@@ -196,13 +203,25 @@ class AIController:
                                     "schema_version": 1,
                                     "pending_tool_use": tool_use,
                                     "messages": messages,
+                                    "skill_run_id": skill_run.id,
+                                    "confirmation_id": result.get("confirmation_id"),
                                 }
-                                db.commit()
+                            skill_run.status = AISkillRunStatus.WAITING_CONFIRMATION
+                            skill_run.validation_status = AIValidationStatus.NOT_VALIDATED
+                            skill_run.output_payload = {
+                                "status": "waiting_confirmation",
+                                "tool_name": tool_name,
+                                "tool_call_id": result.get("tool_call_id"),
+                                "confirmation_id": result.get("confirmation_id"),
+                            }
+                            skill_run.finished_at = utcnow()
+                            db.commit()
                             yield {
                                 "event": "confirmation_required",
                                 "payload": {
                                     "tool_name": tool_name,
                                     "tool_call_id": result.get("tool_call_id"),
+                                    "confirmation_id": result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
                                 },
                             }
@@ -249,8 +268,124 @@ class AIController:
             db.commit()
             raise
 
-    async def resume_assistant_run(self, *args, **kwargs):
-        raise NotImplementedError("Assistant run resume is persisted in schema and will be enabled with mutating tool execution.")
+    async def resume_assistant_run(
+        self,
+        db: Session,
+        *,
+        user: User,
+        assistant_run_id: str,
+        confirmation_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        run = db.get(AssistantRun, assistant_run_id)
+        if run is None or run.org_id != user.org_id:
+            raise RuntimeError("Assistant run not found")
+        provider_state = dict(run.provider_state or {})
+        resolved_confirmation_id = confirmation_id or provider_state.get("confirmation_id")
+        if not resolved_confirmation_id:
+            raise RuntimeError("No confirmation is available to resume")
+        confirmation = db.get(AIConfirmation, resolved_confirmation_id)
+        if confirmation is None or confirmation.org_id != user.org_id:
+            raise RuntimeError("Confirmation not found")
+        if confirmation.status != "confirmed":
+            raise RuntimeError("Confirmation must be confirmed before resume")
+        tool_call = db.get(AssistantToolCall, confirmation.tool_call_id)
+        if tool_call is None or tool_call.org_id != user.org_id:
+            raise RuntimeError("Tool call not found")
+        skill_run = (
+            db.get(AISkillRun, provider_state.get("skill_run_id"))
+            if provider_state.get("skill_run_id")
+            else None
+        )
+        if skill_run is not None:
+            skill_run.status = AISkillRunStatus.RUNNING
+            skill_run.finished_at = None
+
+        yield {
+            "event": "tool_started",
+            "payload": {"tool_name": tool_call.tool_name, "tool_use_id": tool_call.provider_tool_use_id},
+        }
+        result = tool_runtime.execute_confirmed(db, confirmation=confirmation, user=user)
+        db.commit()
+        yield {
+            "event": "tool_finished",
+            "payload": {
+                "tool_name": tool_call.tool_name,
+                "tool_use_id": tool_call.provider_tool_use_id,
+                "result": result,
+            },
+        }
+
+        messages = list(provider_state.get("messages") or [])
+        pending_tool_use = provider_state.get("pending_tool_use") or {}
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": pending_tool_use.get("id") or tool_call.provider_tool_use_id,
+                        "content": self._json_tool_result(result),
+                    }
+                ],
+            }
+        )
+
+        spec = skill_registry.get("assistant_streaming")
+        prompt_bundle = get_active_prompt_bundle(
+            db,
+            org_id=user.org_id,
+            prompt_key=skill_run.prompt_key if skill_run else spec.prompt_key,
+            default_version=skill_run.prompt_version if skill_run else spec.prompt_version,
+            model_config={"temperature": spec.temperature, "max_tokens": spec.max_tokens},
+        )
+        try:
+            provider_response = await claude_client.complete_with_tools(
+                system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                messages=messages,
+                tools=self._assistant_tool_schemas(user=user),
+                max_tokens=spec.max_tokens,
+                temperature=spec.temperature,
+                model=prompt_bundle.model_name,
+            )
+            if skill_run is not None:
+                self._log_assistant_ai_call(
+                    db,
+                    org_id=user.org_id,
+                    created_by_user_id=user.id,
+                    request_id=request_id,
+                    skill_run=skill_run,
+                    spec=spec,
+                    provider_response=provider_response,
+                    assistant_run_id=assistant_run_id,
+                    session_id=run.session_id,
+                )
+            text_delta = "".join(
+                block.get("text", "")
+                for block in provider_response.content_blocks
+                if block.get("type") == "text"
+            )
+            if text_delta:
+                yield {"event": "message_delta", "payload": {"text": text_delta}}
+            if provider_response.tool_use_blocks:
+                raise RuntimeError("Additional tool use after confirmation resume is not supported yet")
+            if skill_run is not None:
+                skill_run.status = AISkillRunStatus.SUCCEEDED
+                skill_run.validation_status = AIValidationStatus.VALID
+                skill_run.output_payload = {"answer": text_delta, "confirmed_tool_result": result}
+                skill_run.finished_at = utcnow()
+            run.status = "succeeded"
+            run.provider_state = {**provider_state, "resumed_at": utcnow().isoformat()}
+            run.completed_at = utcnow()
+            db.commit()
+        except Exception:
+            if skill_run is not None:
+                skill_run.status = AISkillRunStatus.FAILED
+                skill_run.validation_status = AIValidationStatus.INVALID
+                skill_run.finished_at = utcnow()
+            run.status = "failed"
+            db.commit()
+            raise
 
     def _assistant_tool_schemas(self, *, user: User) -> list[dict[str, Any]]:
         tools = []

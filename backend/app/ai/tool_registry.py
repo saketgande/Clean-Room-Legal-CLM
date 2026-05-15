@@ -127,7 +127,15 @@ _register("get_contract_status", "Read contract lifecycle and risk metadata.", A
 _register("list_workflows", "List reusable workflows.", AssistantToolCategory.READ_ONLY, "workflow:read", EmptyInput)
 _register("run_workflow", "Run an approved workflow.", AssistantToolCategory.MUTATING, "workflow:read", WorkflowRunInput)
 _register("generate_contract_docx", "Generate a new contract DOCX plan.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract:create", GenerateContractInput, feature_flag="feature.ai.docx_generation")
-_register("edit_contract", "Create tracked-change-ready edit suggestions.", AssistantToolCategory.MUTATING, "contract:redline", EditContractInput, feature_flag="feature.ai.edit_suggestions")
+_register(
+    "edit_contract",
+    "Create tracked-change-ready edit suggestions.",
+    AssistantToolCategory.MUTATING,
+    "contract:redline",
+    EditContractInput,
+    confirmation_policy="required",
+    feature_flag="feature.ai.edit_suggestions",
+)
 _register("replicate_contract_version", "Replicate a contract version.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract_file:create", ContractHandleInput)
 
 for future_tool_name, permission in [

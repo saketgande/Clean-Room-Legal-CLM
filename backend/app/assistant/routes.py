@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 from app.ai.confirmations import confirm_confirmation, reject_confirmation
 from app.ai.controller import ai_controller
 from app.ai.tool_registry import tool_registry
-from app.assistant.models import AssistantContractHandle, AssistantMessage, AssistantRun, AssistantSession
+from app.assistant.models import (
+    AssistantContractHandle,
+    AssistantMessage,
+    AssistantRun,
+    AssistantSession,
+    AssistantToolCall,
+)
 from app.core.deps import get_db, require_permission
 from app.core.enums import AssistantRunStatus
 
@@ -171,6 +177,7 @@ async def stream_session(
     async def event_stream() -> AsyncIterator[str]:
         yield _sse("session_started", {"session_id": session.id, "assistant_run_id": assistant_run.id})
         answer_parts: list[str] = []
+        citations: list[dict] = []
         waiting_for_confirmation = False
         try:
             async for event in ai_controller.stream_assistant_run(
@@ -190,6 +197,8 @@ async def stream_session(
                     answer_parts.append(event["payload"].get("text", ""))
                 if event["event"] == "confirmation_required":
                     waiting_for_confirmation = True
+                if event["event"] == "tool_finished":
+                    citations.extend(_citations_from_tool_result(event["payload"].get("result")))
                 yield _sse(event["event"], event["payload"])
             if waiting_for_confirmation:
                 assistant_run.status = AssistantRunStatus.WAITING_CONFIRMATION
@@ -206,7 +215,7 @@ async def stream_session(
                     session_id=session.id,
                     role="assistant",
                     content=answer,
-                    citations=[],
+                    citations=citations,
                     metadata_json={"assistant_run_id": assistant_run.id},
                     created_by_user_id=current_user.id,
                     updated_by_user_id=current_user.id,
@@ -214,6 +223,14 @@ async def stream_session(
                 db.add(assistant_message)
                 db.flush()
                 assistant_run.assistant_message_id = assistant_message.id
+                for call in db.scalars(
+                    select(AssistantToolCall).where(
+                        AssistantToolCall.org_id == current_user.org_id,
+                        AssistantToolCall.assistant_run_id == assistant_run.id,
+                        AssistantToolCall.message_id.is_(None),
+                    )
+                ):
+                    call.message_id = assistant_message.id
             assistant_run.status = AssistantRunStatus.SUCCEEDED
             db.commit()
             yield _sse(
@@ -226,6 +243,69 @@ async def stream_session(
             db.commit()
             yield _sse("error", {"message": str(exc), "assistant_run_id": assistant_run.id})
             yield _sse("done", {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@router.post("/runs/{assistant_run_id}/resume")
+async def resume_run(
+    assistant_run_id: str,
+    request: Request,
+    confirmation_id: str | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("assistant:use")),
+):
+    run = db.get(AssistantRun, assistant_run_id)
+    if run is None or run.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant run not found")
+
+    async def event_stream() -> AsyncIterator[str]:
+        answer_parts: list[str] = []
+        citations: list[dict] = []
+        try:
+            async for event in ai_controller.resume_assistant_run(
+                db,
+                user=current_user,
+                assistant_run_id=assistant_run_id,
+                confirmation_id=confirmation_id,
+                request_id=getattr(request.state, "request_id", None),
+            ):
+                if event["event"] == "message_delta":
+                    answer_parts.append(event["payload"].get("text", ""))
+                if event["event"] == "tool_finished":
+                    citations.extend(_citations_from_tool_result(event["payload"].get("result")))
+                yield _sse(event["event"], event["payload"])
+            answer = "".join(answer_parts)
+            if answer:
+                assistant_message = AssistantMessage(
+                    org_id=current_user.org_id,
+                    session_id=run.session_id,
+                    role="assistant",
+                    content=answer,
+                    citations=citations,
+                    metadata_json={"assistant_run_id": run.id, "resumed": True},
+                    created_by_user_id=current_user.id,
+                    updated_by_user_id=current_user.id,
+                )
+                db.add(assistant_message)
+                db.flush()
+                run.assistant_message_id = assistant_message.id
+                for call in db.scalars(
+                    select(AssistantToolCall).where(
+                        AssistantToolCall.org_id == current_user.org_id,
+                        AssistantToolCall.assistant_run_id == run.id,
+                        AssistantToolCall.message_id.is_(None),
+                    )
+                ):
+                    call.message_id = assistant_message.id
+                db.commit()
+            yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
+        except Exception as exc:
+            run.status = AssistantRunStatus.FAILED
+            run.error_message = str(exc)
+            db.commit()
+            yield _sse("error", {"message": str(exc), "assistant_run_id": run.id})
+            yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -270,3 +350,28 @@ def reject_assistant_action(
 
 def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
+
+
+def _citations_from_tool_result(result: dict | None) -> list[dict]:
+    if not isinstance(result, dict):
+        return []
+    citations: list[dict] = []
+    if result.get("text_snapshot_id"):
+        citations.append(
+            {
+                "type": "text_snapshot",
+                "contract_id": result.get("contract_id"),
+                "text_snapshot_id": result.get("text_snapshot_id"),
+            }
+        )
+    for match in result.get("matches") or []:
+        citations.append(
+            {
+                "type": "match",
+                "contract_id": result.get("contract_id"),
+                "start_char": match.get("start_char"),
+                "end_char": match.get("end_char"),
+                "excerpt": match.get("excerpt"),
+            }
+        )
+    return citations
