@@ -26,3 +26,12 @@ def create_job(
     )
     db.add(job)
     return job
+
+
+def dispatch_job(db: Session, *, job: JobRun) -> JobRun:
+    from app.jobs.tasks import run_ai_job
+
+    task = run_ai_job.delay(job.id)
+    job.celery_task_id = task.id
+    db.add(job)
+    return job

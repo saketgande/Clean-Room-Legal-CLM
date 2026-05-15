@@ -97,6 +97,46 @@ class ClaudeClient:
             model=model or settings.claude_model,
         )
 
+    async def complete_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> ClaudeProviderResponse:
+        if not tools:
+            return await self.complete_text(
+                system_prompt=system_prompt,
+                user_prompt=_last_user_text(messages),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                model=model,
+            )
+        if settings.mock_claude:
+            return self._mock_tool_response(messages=messages, tools=tools, model=model or settings.claude_model)
+
+        started = time.perf_counter()
+        response_json, request_id = await self._post_messages(
+            json_payload={
+                "model": model or settings.claude_model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": messages,
+                "tools": tools,
+                "tool_choice": {"type": "auto"},
+            }
+        )
+        return self._to_provider_response(
+            response_json,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            provider_request_id=request_id,
+            model=model or settings.claude_model,
+        )
+
     async def stream_with_tools(self, **kwargs) -> AsyncIterator[dict[str, Any]]:
         # The controller owns the durable stream loop. This provider exposes a small event
         # surface now and can later be swapped for Anthropic's native streaming endpoint.
@@ -194,6 +234,108 @@ class ClaudeClient:
             "usage": {"input_tokens": 0, "output_tokens": 0},
         }
         return self._to_provider_response(raw, latency_ms=0.0, provider_request_id=f"mock-{tool_name}", model=model)
+
+    def _mock_tool_response(
+        self,
+        *,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        model: str,
+    ) -> ClaudeProviderResponse:
+        has_tool_result = any(_message_has_tool_result(message) for message in messages)
+        if has_tool_result:
+            raw = {
+                "id": "mock-assistant-final",
+                "model": model,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Mock Claude mode used the available assistant tool and returned this final answer.",
+                    }
+                ],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+            return self._to_provider_response(raw, latency_ms=0.0, provider_request_id="mock-assistant-final", model=model)
+
+        user_text = _last_user_text(messages).lower()
+        tool_names = {tool["name"] for tool in tools}
+        selected_tool = None
+        tool_input: dict[str, Any] = {}
+        if "find" in user_text and "find_in_contract" in tool_names:
+            selected_tool = "find_in_contract"
+            tool_input = {"contract_handle": "contract-0", "query": _mock_query(user_text)}
+        elif "status" in user_text and "get_contract_status" in tool_names:
+            selected_tool = "get_contract_status"
+            tool_input = {"contract_handle": "contract-0"}
+        elif ("workflow" in user_text or "workflows" in user_text) and "list_workflows" in tool_names:
+            selected_tool = "list_workflows"
+            tool_input = {}
+        elif ("project" in user_text or "contracts" in user_text) and "list_project_contracts" in tool_names:
+            selected_tool = "list_project_contracts"
+            tool_input = {"project_id": "mock-project-id"}
+        elif ("contract" in user_text or "summar" in user_text or "read" in user_text) and "read_contract" in tool_names:
+            selected_tool = "read_contract"
+            tool_input = {"contract_handle": "contract-0"}
+
+        if selected_tool:
+            raw = {
+                "id": f"mock-{selected_tool}",
+                "model": model,
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": f"mock-tool-use-{selected_tool}",
+                        "name": selected_tool,
+                        "input": tool_input,
+                    }
+                ],
+                "stop_reason": "tool_use",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+        else:
+            raw = {
+                "id": "mock-assistant-no-tool",
+                "model": model,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Mock Claude mode is enabled, and no assistant tool was needed for this turn.",
+                    }
+                ],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+        return self._to_provider_response(raw, latency_ms=0.0, provider_request_id=raw["id"], model=model)
+
+
+def _last_user_text(messages: list[dict[str, Any]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                text_parts = [block.get("text", "") for block in content if block.get("type") == "text"]
+                return " ".join(text_parts)
+    return ""
+
+
+def _message_has_tool_result(message: dict[str, Any]) -> bool:
+    content = message.get("content")
+    return isinstance(content, list) and any(block.get("type") == "tool_result" for block in content)
+
+
+def _mock_query(user_text: str) -> str:
+    quoted = user_text.split('"')
+    if len(quoted) >= 3 and quoted[1].strip():
+        return quoted[1].strip()
+    words = [word.strip(".,?!:;") for word in user_text.split()]
+    ignored = {"find", "in", "the", "contract", "for", "show", "me", "search"}
+    for word in reversed(words):
+        if word and word not in ignored:
+            return word
+    return "agreement"
 
 
 claude_client = ClaudeClient()

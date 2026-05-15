@@ -170,44 +170,56 @@ async def stream_session(
 
     async def event_stream() -> AsyncIterator[str]:
         yield _sse("session_started", {"session_id": session.id, "assistant_run_id": assistant_run.id})
+        answer_parts: list[str] = []
+        waiting_for_confirmation = False
         try:
-            output = await ai_controller.run_structured_skill(
+            async for event in ai_controller.stream_assistant_run(
                 db,
-                skill_name="assistant_streaming",
+                user=current_user,
                 org_id=current_user.org_id,
                 created_by_user_id=current_user.id,
-                input_payload={
-                    "message": payload.message,
-                    "session_id": session.id,
-                    "project_id": payload.project_id or session.project_id,
-                    "contract_id": session.contract_id or (payload.contract_ids[0] if payload.contract_ids else None),
-                    "contract_ids": payload.contract_ids,
-                },
-                request_id=getattr(request.state, "request_id", None),
-                resource_type="assistant_session",
-                resource_id=session.id,
                 session_id=session.id,
                 assistant_run_id=assistant_run.id,
-            )
-            answer = output.answer
-            assistant_message = AssistantMessage(
-                org_id=current_user.org_id,
-                session_id=session.id,
-                role="assistant",
-                content=answer,
-                citations=[citation.model_dump(mode="json") for citation in output.citations],
-                metadata_json={"assistant_run_id": assistant_run.id},
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-            )
-            db.add(assistant_message)
+                message=payload.message,
+                request_id=getattr(request.state, "request_id", None),
+                project_id=payload.project_id or session.project_id,
+                contract_id=session.contract_id or (payload.contract_ids[0] if payload.contract_ids else None),
+                contract_ids=payload.contract_ids,
+            ):
+                if event["event"] == "message_delta":
+                    answer_parts.append(event["payload"].get("text", ""))
+                if event["event"] == "confirmation_required":
+                    waiting_for_confirmation = True
+                yield _sse(event["event"], event["payload"])
+            if waiting_for_confirmation:
+                assistant_run.status = AssistantRunStatus.WAITING_CONFIRMATION
+                db.commit()
+                yield _sse(
+                    "done",
+                    {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
+                )
+                return
+            answer = "".join(answer_parts)
+            if answer:
+                assistant_message = AssistantMessage(
+                    org_id=current_user.org_id,
+                    session_id=session.id,
+                    role="assistant",
+                    content=answer,
+                    citations=[],
+                    metadata_json={"assistant_run_id": assistant_run.id},
+                    created_by_user_id=current_user.id,
+                    updated_by_user_id=current_user.id,
+                )
+                db.add(assistant_message)
+                db.flush()
+                assistant_run.assistant_message_id = assistant_message.id
             assistant_run.status = AssistantRunStatus.SUCCEEDED
-            assistant_run.assistant_message_id = assistant_message.id
             db.commit()
-            yield _sse("message_delta", {"text": answer})
-            for citation in output.citations:
-                yield _sse("citation", citation.model_dump(mode="json"))
-            yield _sse("done", {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status})
+            yield _sse(
+                "done",
+                {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
+            )
         except Exception as exc:
             assistant_run.status = AssistantRunStatus.FAILED
             assistant_run.error_message = str(exc)

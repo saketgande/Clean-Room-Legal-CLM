@@ -16,8 +16,16 @@ from app.core.config import settings
 from app.core.enums import ContractLifecycleStage, ContractVersionSource, StorageBackend
 from app.integrations.reducto import reducto_client
 from app.integrations.storage import storage_service
-from app.jobs.service import create_job
+from app.jobs.models import JobRun
+from app.jobs.service import create_job, dispatch_job
 from app.projects.models import Project, ProjectContract
+
+
+INITIAL_CONTRACT_AI_JOB_TYPES = (
+    "metadata_extraction",
+    "clause_extraction",
+    "embeddings",
+)
 
 
 async def create_contract_from_upload(
@@ -188,7 +196,37 @@ async def create_contract_from_upload(
             "extraction_quality_score": quality_score,
         },
     )
+    queued_job_ids = [job.id for job in queued_jobs]
+    queued_job_types = [job.job_type for job in queued_jobs]
     db.commit()
+
+    dispatched_job_types = []
+    dispatch_errors = []
+    for job_id in queued_job_ids:
+        job = db.get(JobRun, job_id)
+        if job is None:
+            continue
+        try:
+            dispatch_job(db, job=job)
+            dispatched_job_types.append(job.job_type)
+        except Exception as exc:
+            dispatch_errors.append({"job_id": job_id, "job_type": job.job_type, "error": str(exc)})
+    if dispatched_job_types or dispatch_errors:
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.ai_jobs_dispatched",
+            title="Contract AI jobs dispatched",
+            actor_user_id=user.id,
+            request_id=request_id,
+            details={
+                "dispatched_job_types": dispatched_job_types,
+                "dispatch_errors": dispatch_errors,
+            },
+        )
+        db.commit()
     db.refresh(contract)
     return {
         "contract": contract,
@@ -197,7 +235,7 @@ async def create_contract_from_upload(
         "text_snapshot_id": snapshot.id,
         "extraction_method": extraction_method,
         "extraction_quality_score": quality_score,
-        "queued_jobs": [job.job_type for job in queued_jobs],
+        "queued_jobs": queued_job_types,
     }
 
 
@@ -210,12 +248,7 @@ def _queue_initial_contract_jobs(
     snapshot: ContractTextSnapshot,
 ):
     jobs = []
-    for job_type in [
-        "metadata_extraction",
-        "clause_extraction",
-        "embeddings",
-        "contract_brain_ingestion",
-    ]:
+    for job_type in INITIAL_CONTRACT_AI_JOB_TYPES:
         jobs.append(
             create_job(
                 db,

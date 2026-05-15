@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.core.enums import JobStatus
 from app.jobs.models import JobRun
-from app.jobs.tasks import run_ai_job
+from app.jobs.service import dispatch_job
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -64,8 +64,7 @@ def enqueue_job(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     if job.status not in {JobStatus.QUEUED, JobStatus.FAILED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only queued or failed jobs can be enqueued")
-    task = run_ai_job.delay(job.id)
-    job.celery_task_id = task.id
+    dispatch_job(db, job=job)
     job.updated_by_user_id = current_user.id
     db.commit()
     db.refresh(job)

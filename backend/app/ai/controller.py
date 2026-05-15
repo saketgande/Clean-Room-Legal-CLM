@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
-from app.ai.context import ContractAIContext, build_contract_context
+from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.fallback import fallback_metadata_from_text
 from app.ai.models import AICitation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
@@ -18,6 +18,10 @@ from app.ai.schemas import (
     ContractMetadataOutput,
 )
 from app.ai.skill import SkillSpec
+from app.ai.tool_registry import tool_registry
+from app.ai.tool_runtime import tool_runtime
+from app.auth.models import User
+from app.assistant.models import AssistantRun
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
 from app.core.audit import write_audit_log, write_timeline_event
@@ -25,6 +29,7 @@ from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
 from app.core.models import AICallLog, AdminSetting, UsageRecord
+from app.core.rbac import has_permission
 from app.integrations.claude import ClaudeProviderResponse, claude_client
 from app.jobs.models import JobRun
 
@@ -53,6 +58,7 @@ class AIController:
         self,
         db: Session,
         *,
+        user: User,
         org_id: str,
         created_by_user_id: str,
         session_id: str,
@@ -63,31 +69,303 @@ class AIController:
         contract_id: str | None = None,
         contract_ids: list[str] | None = None,
     ):
-        output = await self.run_structured_skill(
+        spec = skill_registry.get("assistant_streaming")
+        model_config = {"temperature": spec.temperature, "max_tokens": spec.max_tokens}
+        prompt_bundle = get_active_prompt_bundle(
             db,
-            skill_name="assistant_streaming",
             org_id=org_id,
-            created_by_user_id=created_by_user_id,
-            input_payload={
-                "message": message,
-                "session_id": session_id,
-                "project_id": project_id,
-                "contract_id": contract_id,
-                "contract_ids": contract_ids or [],
-            },
-            request_id=request_id,
+            prompt_key=spec.prompt_key,
+            default_version=spec.prompt_version,
+            model_config=model_config,
+        )
+        handles = list_contract_handles(db, session_id=session_id)
+        tools = self._assistant_tool_schemas(user=user)
+        skill_run = AISkillRun(
+            org_id=org_id,
+            skill_name=spec.name,
+            skill_version=spec.version,
+            execution_mode=spec.execution_mode,
+            status=AISkillRunStatus.RUNNING,
             resource_type="assistant_session",
             resource_id=session_id,
             session_id=session_id,
             assistant_run_id=assistant_run_id,
+            prompt_key=prompt_bundle.prompt_key,
+            prompt_version=prompt_bundle.version,
+            prompt_hash=prompt_bundle.prompt_hash,
+            model=prompt_bundle.model_name,
+            model_config_hash=prompt_bundle.model_config_hash,
+            input_payload={
+                "message": message,
+                "project_id": project_id,
+                "contract_id": contract_id,
+                "contract_ids": contract_ids or [],
+                "handles": handles,
+            },
+            started_at=utcnow(),
+            created_by_user_id=created_by_user_id,
+            updated_by_user_id=created_by_user_id,
         )
-        yield {"event": "message_delta", "payload": {"text": output.answer}}
-        for citation in output.citations:
-            yield {"event": "citation", "payload": citation.model_dump(mode="json")}
-        yield {"event": "done", "payload": {"assistant_run_id": assistant_run_id}}
+        db.add(skill_run)
+        db.flush()
+        db.commit()
+
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "content": self._assistant_user_prompt(
+                    message=message,
+                    project_id=project_id,
+                    contract_id=contract_id,
+                    contract_ids=contract_ids or [],
+                    handles=handles,
+                ),
+            }
+        ]
+        final_answer_parts: list[str] = []
+        tool_results: list[dict[str, Any]] = []
+
+        try:
+            for iteration in range(settings.ai_max_tool_iterations):
+                provider_response = await claude_client.complete_with_tools(
+                    system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                    messages=messages,
+                    tools=tools,
+                    max_tokens=spec.max_tokens,
+                    temperature=spec.temperature,
+                    model=prompt_bundle.model_name,
+                )
+                self._log_assistant_ai_call(
+                    db,
+                    org_id=org_id,
+                    created_by_user_id=created_by_user_id,
+                    request_id=request_id,
+                    skill_run=skill_run,
+                    spec=spec,
+                    provider_response=provider_response,
+                    assistant_run_id=assistant_run_id,
+                    session_id=session_id,
+                )
+                text_delta = "".join(
+                    block.get("text", "")
+                    for block in provider_response.content_blocks
+                    if block.get("type") == "text"
+                )
+                if not provider_response.tool_use_blocks:
+                    if text_delta:
+                        final_answer_parts.append(text_delta)
+                        yield {"event": "message_delta", "payload": {"text": text_delta}}
+                    skill_run.status = AISkillRunStatus.SUCCEEDED
+                    skill_run.validation_status = AIValidationStatus.VALID
+                    skill_run.output_payload = {
+                        "answer": "".join(final_answer_parts),
+                        "tool_results": tool_results,
+                    }
+                    skill_run.finished_at = utcnow()
+                    db.commit()
+                    return
+
+                if text_delta:
+                    final_answer_parts.append(text_delta)
+                    yield {"event": "message_delta", "payload": {"text": text_delta}}
+
+                messages.append({"role": "assistant", "content": provider_response.content_blocks})
+                tool_result_blocks = []
+                for tool_use in provider_response.tool_use_blocks:
+                    tool_name = tool_use.get("name")
+                    tool_input = tool_use.get("input") or {}
+                    yield {
+                        "event": "tool_started",
+                        "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id")},
+                    }
+                    try:
+                        result = tool_runtime.execute(
+                            db,
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            user=user,
+                            session_id=session_id,
+                            assistant_run_id=assistant_run_id,
+                        )
+                        db.commit()
+                        if result.get("confirmation_required"):
+                            run = db.get(AssistantRun, assistant_run_id)
+                            if run is not None:
+                                run.status = "waiting_confirmation"
+                                run.provider_state = {
+                                    "schema_version": 1,
+                                    "pending_tool_use": tool_use,
+                                    "messages": messages,
+                                }
+                                db.commit()
+                            yield {
+                                "event": "confirmation_required",
+                                "payload": {
+                                    "tool_name": tool_name,
+                                    "tool_call_id": result.get("tool_call_id"),
+                                    "assistant_run_id": assistant_run_id,
+                                },
+                            }
+                            return
+                        tool_results.append({"tool_name": tool_name, "result": result})
+                        yield {
+                            "event": "tool_finished",
+                            "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id"), "result": result},
+                        }
+                        tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use.get("id"),
+                                "content": self._json_tool_result(result),
+                            }
+                        )
+                    except Exception as exc:
+                        db.commit()
+                        error_result = {"error": str(exc), "tool_name": tool_name}
+                        tool_results.append(error_result)
+                        yield {
+                            "event": "tool_finished",
+                            "payload": {
+                                "tool_name": tool_name,
+                                "tool_use_id": tool_use.get("id"),
+                                "error": str(exc),
+                            },
+                        }
+                        tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": tool_use.get("id"),
+                                "content": self._json_tool_result(error_result),
+                                "is_error": True,
+                            }
+                        )
+                messages.append({"role": "user", "content": tool_result_blocks})
+
+            raise RuntimeError("Assistant tool loop exceeded maximum iterations")
+        except Exception:
+            skill_run.status = AISkillRunStatus.FAILED
+            skill_run.validation_status = AIValidationStatus.INVALID
+            skill_run.finished_at = utcnow()
+            db.commit()
+            raise
 
     async def resume_assistant_run(self, *args, **kwargs):
         raise NotImplementedError("Assistant run resume is persisted in schema and will be enabled with mutating tool execution.")
+
+    def _assistant_tool_schemas(self, *, user: User) -> list[dict[str, Any]]:
+        tools = []
+        for tool in tool_registry.all():
+            if not tool.enabled_by_default:
+                continue
+            if not has_permission(user.permission_values, tool.required_permission):
+                continue
+            tools.append(
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.input_model.model_json_schema(),
+                }
+            )
+        return tools
+
+    def _assistant_user_prompt(
+        self,
+        *,
+        message: str,
+        project_id: str | None,
+        contract_id: str | None,
+        contract_ids: list[str],
+        handles: list[dict[str, Any]],
+    ) -> str:
+        return "\n\n".join(
+            [
+                f"User message:\n{message}",
+                "Available contract handles for tool use:",
+                self._json_tool_result(handles),
+                "Session scope:",
+                self._json_tool_result(
+                    {
+                        "project_id": project_id,
+                        "contract_id": contract_id,
+                        "contract_ids": contract_ids,
+                    }
+                ),
+                "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
+            ]
+        )
+
+    def _log_assistant_ai_call(
+        self,
+        db: Session,
+        *,
+        org_id: str,
+        created_by_user_id: str | None,
+        request_id: str | None,
+        skill_run: AISkillRun,
+        spec: SkillSpec,
+        provider_response: ClaudeProviderResponse,
+        assistant_run_id: str,
+        session_id: str,
+    ) -> AICallLog:
+        text_output = "".join(
+            block.get("text", "")
+            for block in provider_response.content_blocks
+            if block.get("type") == "text"
+        )
+        row = AICallLog(
+            org_id=org_id,
+            request_id=request_id,
+            skill_run_id=skill_run.id,
+            session_id=session_id,
+            assistant_run_id=assistant_run_id,
+            resource_type="assistant_session",
+            resource_id=session_id,
+            provider=claude_client.provider,
+            model=provider_response.model,
+            model_config_hash=skill_run.model_config_hash,
+            prompt_key=skill_run.prompt_key,
+            prompt_version=skill_run.prompt_version,
+            prompt_hash=skill_run.prompt_hash,
+            input_payload=skill_run.input_payload,
+            output_schema_name=spec.output_schema_name,
+            prompt_tokens=provider_response.token_usage.get("prompt_tokens"),
+            completion_tokens=provider_response.token_usage.get("completion_tokens"),
+            total_tokens=provider_response.token_usage.get("total_tokens"),
+            latency_ms=provider_response.latency_ms,
+            status=AICallStatus.SUCCEEDED,
+            validation_status=AIValidationStatus.NOT_VALIDATED,
+            provider_request_id=provider_response.provider_request_id,
+            stop_reason=provider_response.stop_reason,
+            redaction_status="redacted",
+            raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None,
+            validated_output={
+                "text": text_output,
+                "tool_uses": [
+                    {"id": block.get("id"), "name": block.get("name")}
+                    for block in provider_response.tool_use_blocks
+                ],
+            },
+            created_by_user_id=created_by_user_id,
+            updated_by_user_id=created_by_user_id,
+        )
+        db.add(row)
+        db.flush()
+        self._record_usage(
+            db,
+            org_id=org_id,
+            created_by_user_id=created_by_user_id,
+            resource_type="assistant_session",
+            resource_id=session_id,
+            provider_response=provider_response,
+            skill_run=skill_run,
+        )
+        db.commit()
+        return row
+
+    def _json_tool_result(self, value: Any) -> str:
+        import json
+
+        return json.dumps(value, default=str, sort_keys=True)
 
     async def run_structured_skill(
         self,
