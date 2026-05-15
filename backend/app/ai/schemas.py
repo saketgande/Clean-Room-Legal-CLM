@@ -76,6 +76,24 @@ class ContractEditSuggestionsOutput(BaseModel):
     summary: str | None = None
 
 
+class PlaybookDeviationOutput(BaseModel):
+    rule_index: int | None = None
+    clause_type: str
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    issue: str
+    original_text: str | None = None
+    suggested_fix: str | None = None
+    approval_required: bool = False
+    citations: list[CitationInput] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
+class PlaybookReviewOutput(BaseModel):
+    deviations: list[PlaybookDeviationOutput] = Field(default_factory=list)
+    summary: str | None = None
+    citations: list[CitationInput] = Field(default_factory=list)
+
+
 class AssistantAnswerOutput(BaseModel):
     answer: str
     citations: list[CitationInput] = Field(default_factory=list)

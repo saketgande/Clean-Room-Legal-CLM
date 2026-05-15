@@ -15,6 +15,7 @@ from app.ai.tool_registry import (
     EditContractInput,
     FindInContractInput,
     GenerateContractInput,
+    PlaybookToolInput,
     ProjectContractsInput,
     WorkflowRunInput,
     tool_registry,
@@ -43,6 +44,7 @@ from app.core.enums import (
 )
 from app.core.rbac import has_permission
 from app.integrations.storage import storage_service
+from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
 from app.workflows.models import Workflow, WorkflowRun
@@ -189,6 +191,22 @@ class ToolRuntime:
             return self._edit_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "replicate_contract_version":
             return self._replicate_contract_version(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "run_playbook_review":
+            return self._run_playbook_review(
+                db,
+                payload=payload,
+                user=user,
+                session_id=session_id,
+                create_redline=False,
+            )
+        if tool_name == "redline_against_playbook":
+            return self._run_playbook_review(
+                db,
+                payload=payload,
+                user=user,
+                session_id=session_id,
+                create_redline=True,
+            )
         return {"status": "feature_not_enabled", "tool": tool_name}
 
     def _read_contract(
@@ -644,6 +662,69 @@ class ToolRuntime:
             "source_version_id": version.id,
             "contract_version_id": replicated.id,
         }
+
+    def _run_playbook_review(
+        self,
+        db: Session,
+        *,
+        payload: PlaybookToolInput,
+        user: User,
+        session_id: str,
+        create_redline: bool,
+    ) -> dict[str, Any]:
+        if not has_permission(user.permission_values, "contract:read"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: contract:read")
+        if not has_permission(user.permission_values, "playbook:run"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: playbook:run")
+        if create_redline and not has_permission(user.permission_values, "contract:redline"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: contract:redline")
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        playbook = get_playbook_for_user(db, playbook_id=payload.playbook_id, user=user)
+        version = select_run_version(
+            db,
+            playbook=playbook,
+            org_id=user.org_id,
+            version_id=payload.playbook_version_id,
+            test_mode=payload.test_mode,
+        )
+        artifacts = execute_playbook_run(
+            db,
+            user=user,
+            playbook=playbook,
+            version=version,
+            contract=contract,
+            create_redline=create_redline,
+        )
+        db.flush()
+        result = {
+            "status": artifacts.run.status,
+            "artifact_type": "playbook_redline" if artifacts.redline_version else "playbook_review",
+            "contract_id": contract.id,
+            "playbook_id": playbook.id,
+            "playbook_version_id": version.id,
+            "playbook_name": playbook.name,
+            "playbook_run_id": artifacts.run.id,
+            "deviation_count": len(artifacts.deviations),
+            "deviations": [
+                {
+                    "playbook_deviation_id": row.id,
+                    "clause_type": row.clause_type,
+                    "severity": row.severity,
+                    "issue": row.issue,
+                    "suggested_fix": row.suggested_fix,
+                }
+                for row in artifacts.deviations
+            ],
+        }
+        if artifacts.redline_version is not None:
+            result.update(
+                {
+                    "base_version_id": artifacts.contract_edit.contract_version_id if artifacts.contract_edit else None,
+                    "contract_version_id": artifacts.redline_version.id,
+                    "contract_edit_id": artifacts.contract_edit.id if artifacts.contract_edit else None,
+                }
+            )
+        return result
 
     def _resolve_contract(
         self,

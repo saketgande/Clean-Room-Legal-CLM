@@ -39,6 +39,12 @@ class EditContractInput(ContractHandleInput):
     instructions: str
 
 
+class PlaybookToolInput(ContractHandleInput):
+    playbook_id: str
+    playbook_version_id: str | None = None
+    test_mode: bool = False
+
+
 class GenericToolOutput(BaseModel):
     result: dict = Field(default_factory=dict)
 
@@ -137,10 +143,23 @@ _register(
     feature_flag="feature.ai.edit_suggestions",
 )
 _register("replicate_contract_version", "Replicate a contract version.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract_file:create", ContractHandleInput)
+_register(
+    "run_playbook_review",
+    "Run a governed playbook against a contract and store deviations.",
+    AssistantToolCategory.MUTATING,
+    "playbook:run",
+    PlaybookToolInput,
+)
+_register(
+    "redline_against_playbook",
+    "Run a playbook and create a tracked-change redline proposal.",
+    AssistantToolCategory.MUTATING,
+    "contract:redline",
+    PlaybookToolInput,
+    confirmation_policy="required",
+)
 
 for future_tool_name, permission in [
-    ("run_playbook_review", "playbook:run"),
-    ("redline_against_playbook", "contract:redline"),
     ("ask_contract_brain", "assistant:use"),
     ("submit_for_approval", "contract:approve"),
     ("send_for_signature", "contract:sign"),

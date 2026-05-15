@@ -708,7 +708,7 @@ def _events_from_tool_result(result: dict | None) -> list[dict]:
                 },
             }
         )
-    if artifact_type == "assistant_edit":
+    if artifact_type in {"assistant_edit", "playbook_redline"}:
         events.append(
             {
                 "event": "tracked_change_created",

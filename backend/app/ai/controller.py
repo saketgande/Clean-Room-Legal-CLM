@@ -47,6 +47,11 @@ INTERNAL_RESULT_KEYS = {
     "project_id",
     "workflow_id",
     "workflow_run_id",
+    "playbook_id",
+    "playbook_version_id",
+    "playbook_rule_id",
+    "playbook_run_id",
+    "playbook_deviation_id",
     "tool_call_id",
     "confirmation_id",
 }
@@ -1409,7 +1414,7 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
     root_citations = getattr(output, "citations", None)
     if root_citations:
         citations.extend(root_citations)
-    for item_name in ["clauses", "edits"]:
+    for item_name in ["clauses", "edits", "deviations"]:
         for item in getattr(output, item_name, []) or []:
             citations.extend(getattr(item, "citations", []) or [])
     return citations

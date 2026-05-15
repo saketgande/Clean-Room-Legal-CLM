@@ -321,6 +321,7 @@ def requeue_contract_ai_jobs(
     queued = _queue_initial_contract_jobs(
         db, user=user, contract=contract, version=version, snapshot=snapshot
     )
+    db.flush()
     job_ids = [job.id for job in queued]
     db.commit()
     for job_id in job_ids:

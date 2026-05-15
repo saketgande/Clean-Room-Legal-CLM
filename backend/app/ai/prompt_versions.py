@@ -39,6 +39,10 @@ If the answer cannot be found in the provided context, say not_found instead of 
 Return a title and ordered sections. The backend renders the actual DOCX file.""",
     "contract_edit_suggestions": """Suggest contract edits as tracked-change-ready records.
 Each edit must include the original text when changing existing language, a replacement or insertion, rationale, risk level, and citation when based on source text.""",
+    "playbook_review": """Compare the supplied untrusted contract text against the supplied playbook rules.
+Rules are passed with stable rule_index values; reference rule_index instead of internal IDs.
+Return one deviation for each material conflict, missing required position, prohibited phrase, or accepted fallback that needs tracking.
+Every deviation based on contract text must include a citation quote. If no deviation is found, return an empty deviations list.""",
 }
 
 

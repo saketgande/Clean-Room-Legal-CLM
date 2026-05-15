@@ -217,6 +217,11 @@ class ClaudeClient:
                 "citations": [],
             },
             "return_contract_edit_suggestions": {"edits": [], "summary": "Mock Claude mode returned no edits."},
+            "return_playbook_review": {
+                "deviations": [],
+                "summary": "Mock Claude mode returned no playbook deviations.",
+                "citations": [],
+            },
         }
         content = [
             {
@@ -265,6 +270,12 @@ class ClaudeClient:
         if "find" in user_text and "find_in_contract" in tool_names:
             selected_tool = "find_in_contract"
             tool_input = {"contract_handle": "contract-0", "query": _mock_query(user_text)}
+        elif "playbook" in user_text and "redline" in user_text and "redline_against_playbook" in tool_names:
+            selected_tool = "redline_against_playbook"
+            tool_input = {"contract_handle": "contract-0", "playbook_id": "mock-playbook-id"}
+        elif "playbook" in user_text and "run_playbook_review" in tool_names:
+            selected_tool = "run_playbook_review"
+            tool_input = {"contract_handle": "contract-0", "playbook_id": "mock-playbook-id"}
         elif ("edit" in user_text or "redline" in user_text) and "edit_contract" in tool_names:
             selected_tool = "edit_contract"
             tool_input = {"contract_handle": "contract-0", "instructions": "Apply the requested contract edit."}
