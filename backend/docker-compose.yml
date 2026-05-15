@@ -2,6 +2,7 @@ services:
   api:
     build:
       context: .
+    entrypoint: ["sh", "/app/scripts/entrypoint.sh"]
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     env_file:
       - path: .env.example
@@ -10,11 +11,23 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - .:/app
       - contract_file_storage:/data/contracts
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/debug/health')"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
 
   worker:
     build:
@@ -25,8 +38,12 @@ services:
       - path: .env
         required: false
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
     volumes:
       - .:/app
       - contract_file_storage:/data/contracts
@@ -41,11 +58,21 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_clm -d legal_clm"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
 volumes:
   postgres_data:
