@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 from app.ai.models import AIConfirmation
 from app.assistant.models import AssistantToolCall
 from app.auth.models import User
+from app.core.access import is_org_admin
+from app.core.audit import write_audit_log
 from app.core.database import utcnow
 from app.core.enums import AIConfirmationStatus, AssistantToolCallStatus
 
@@ -68,6 +70,20 @@ def confirm_confirmation(
         tool_call.status = AssistantToolCallStatus.CONFIRMED
         tool_call.confirmed_by_user_id = user.id
         tool_call.updated_by_user_id = user.id
+    write_audit_log(
+        db,
+        action="assistant.confirmation_confirmed",
+        resource_type="ai_confirmation",
+        resource_id=confirmation.id,
+        org_id=confirmation.org_id,
+        actor_user_id=user.id,
+        after={
+            "tool_name": confirmation.tool_name,
+            "tool_call_id": confirmation.tool_call_id,
+            "assistant_run_id": confirmation.assistant_run_id,
+            "requested_by_user_id": confirmation.created_by_user_id,
+        },
+    )
     return confirmation
 
 
@@ -89,6 +105,21 @@ def reject_confirmation(
         tool_call.status = AssistantToolCallStatus.REJECTED
         tool_call.error_message = reason
         tool_call.updated_by_user_id = user.id
+    write_audit_log(
+        db,
+        action="assistant.confirmation_rejected",
+        resource_type="ai_confirmation",
+        resource_id=confirmation.id,
+        org_id=confirmation.org_id,
+        actor_user_id=user.id,
+        after={
+            "tool_name": confirmation.tool_name,
+            "tool_call_id": confirmation.tool_call_id,
+            "assistant_run_id": confirmation.assistant_run_id,
+            "requested_by_user_id": confirmation.created_by_user_id,
+            "reason": reason,
+        },
+    )
     return confirmation
 
 
@@ -96,6 +127,11 @@ def _get_pending_confirmation(db: Session, *, confirmation_id: str, user: User) 
     confirmation = db.get(AIConfirmation, confirmation_id)
     if confirmation is None or confirmation.org_id != user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Confirmation not found")
+    if confirmation.created_by_user_id != user.id and not is_org_admin(user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Only the requesting user or an org admin can decide this confirmation",
+        )
     if confirmation.status != AIConfirmationStatus.PENDING:
         raise HTTPException(status.HTTP_409_CONFLICT, "Confirmation is already decided")
     if confirmation.expires_at and confirmation.expires_at < utcnow():

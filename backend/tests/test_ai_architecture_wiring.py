@@ -111,7 +111,11 @@ def test_assistant_edit_creates_new_stored_version_artifact():
     assert "_store_docx" in source
     assert "storage_object_id=storage_object.id" in source
     assert "ContractVersionSource.ASSISTANT_EDIT" in source
-    assert "contract_file.current_version_id = edit_version.id" in source
+    assert "is_authoritative=False" in source
+    assert 'status="proposed"' in source
+    # The proposed edit must NOT become the file's current version until it is
+    # explicitly accepted (no split-pointer to an unaccepted proposal).
+    assert "contract_file.current_version_id = edit_version.id" not in source
 
 
 def test_assistant_edit_docx_contains_native_word_revision_markup():

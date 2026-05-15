@@ -7,8 +7,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.citations import validate_citation
 from app.ai.confirmations import confirm_confirmation, reject_confirmation
 from app.ai.controller import ai_controller
+from app.ai.models import AICitation
+from app.ai.schemas import CitationInput
 from app.ai.tool_registry import tool_registry
 from app.assistant.models import (
     AssistantContractHandle,
@@ -17,16 +20,18 @@ from app.assistant.models import (
     AssistantSession,
     AssistantToolCall,
 )
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
-from app.core.enums import AssistantRunStatus
+from app.core.enums import AssistantRunStatus, AssistantSessionType
+from app.core.rbac import has_permission
 from app.projects.access import get_project_for_user
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 
 class AssistantSessionCreate(BaseModel):
-    session_type: str = "general"
+    session_type: AssistantSessionType = AssistantSessionType.GENERAL
     title: str | None = None
     project_id: str | None = None
     contract_id: str | None = None
@@ -250,6 +255,7 @@ async def stream_session(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
+    _require_ai_tools(current_user)
     session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
     if payload.project_id:
         get_project_for_user(db, project_id=payload.project_id, user=current_user)
@@ -314,8 +320,9 @@ async def stream_session(
                     for extra_event in _events_from_tool_result(event["payload"].get("result")):
                         yield _sse(extra_event["event"], extra_event["payload"])
             if waiting_for_confirmation:
-                assistant_run.status = AssistantRunStatus.WAITING_CONFIRMATION
-                db.commit()
+                # The controller already set the run to WAITING_CONFIRMATION and
+                # committed; just surface the current status to the client.
+                db.refresh(assistant_run)
                 yield _sse(
                     "done",
                     {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
@@ -323,6 +330,13 @@ async def stream_session(
                 return
             answer = "".join(answer_parts)
             if answer:
+                citations = _validate_and_store_assistant_citations(
+                    db,
+                    org_id=current_user.org_id,
+                    assistant_run_id=assistant_run.id,
+                    current_user=current_user,
+                    raw_citations=citations,
+                )
                 assistant_message = AssistantMessage(
                     org_id=current_user.org_id,
                     session_id=session.id,
@@ -368,6 +382,7 @@ async def resume_run(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
+    _require_ai_tools(current_user)
     run = _get_run_for_user(db, assistant_run_id=assistant_run_id, current_user=current_user)
 
     async def event_stream() -> AsyncIterator[str]:
@@ -392,6 +407,13 @@ async def resume_run(
                         yield _sse(extra_event["event"], extra_event["payload"])
             answer = "".join(answer_parts)
             if answer:
+                citations = _validate_and_store_assistant_citations(
+                    db,
+                    org_id=current_user.org_id,
+                    assistant_run_id=run.id,
+                    current_user=current_user,
+                    raw_citations=citations,
+                )
                 assistant_message = AssistantMessage(
                     org_id=current_user.org_id,
                     session_id=run.session_id,
@@ -461,6 +483,13 @@ def reject_assistant_action(
         "assistant_run_id": confirmation.assistant_run_id,
         "resume_required": False,
     }
+
+
+def _require_ai_tools(current_user) -> None:
+    if not has_permission(current_user.permission_values, "assistant:use_ai_tools"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Missing permission: assistant:use_ai_tools"
+        )
 
 
 def _sse(event: str, payload: dict) -> str:
@@ -568,6 +597,90 @@ def _citations_from_tool_result(result: dict | None) -> list[dict]:
             }
         )
     return citations
+
+
+def _validate_and_store_assistant_citations(
+    db: Session,
+    *,
+    org_id: str,
+    assistant_run_id: str,
+    current_user,
+    raw_citations: list[dict],
+) -> list[dict]:
+    """Validate assistant citation excerpts against source contract text using the
+    shared fuzzy validator, persist AICitation rows, and return enriched citations."""
+    source_cache: dict[str, tuple[str, str | None, bool]] = {}
+
+    def _source_for(contract_id: str) -> tuple[str, str | None, bool] | None:
+        if contract_id in source_cache:
+            return source_cache[contract_id]
+        try:
+            contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+        except Exception:
+            source_cache[contract_id] = None
+            return None
+        version = (
+            db.get(ContractVersion, contract.current_authoritative_version_id)
+            if contract.current_authoritative_version_id
+            else None
+        )
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        entry = (
+            (snapshot.text or "", snapshot.id, bool(snapshot.ocr_provider))
+            if snapshot is not None
+            else ("", None, False)
+        )
+        source_cache[contract_id] = entry
+        return entry
+
+    enriched: list[dict] = []
+    for citation in raw_citations:
+        quote = citation.get("excerpt")
+        contract_id = citation.get("contract_id")
+        if not quote or not contract_id:
+            enriched.append({**citation, "validation_status": "not_applicable"})
+            continue
+        source = _source_for(contract_id)
+        if not source or not source[0]:
+            enriched.append({**citation, "validation_status": "unverified"})
+            continue
+        source_text, snapshot_id, is_ocr = source
+        result = validate_citation(
+            CitationInput(quote=quote),
+            source_text,
+            is_ocr=is_ocr,
+        )
+        db.add(
+            AICitation(
+                org_id=org_id,
+                assistant_run_id=assistant_run_id,
+                resource_type="contract",
+                resource_id=contract_id,
+                contract_id=contract_id,
+                text_snapshot_id=snapshot_id,
+                quote=quote,
+                normalized_quote=result.normalized_quote,
+                start_char=citation.get("start_char"),
+                end_char=citation.get("end_char"),
+                validation_status=result.validation_status,
+                similarity_score=result.similarity_score,
+                metadata_json={"message": result.message, "source": "assistant_tool_result"},
+                created_by_user_id=current_user.id,
+                updated_by_user_id=current_user.id,
+            )
+        )
+        enriched.append(
+            {
+                **citation,
+                "validation_status": result.validation_status,
+                "similarity_score": result.similarity_score,
+            }
+        )
+    return enriched
 
 
 def _events_from_tool_result(result: dict | None) -> list[dict]:

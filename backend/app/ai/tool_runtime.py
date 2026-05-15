@@ -28,10 +28,12 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.service import next_version_number
+from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
+from app.jobs.models import JobRun
+from app.jobs.service import dispatch_job
 from app.core.database import utcnow
 from app.core.enums import (
     AssistantToolCallStatus,
@@ -402,7 +404,21 @@ class ToolRuntime:
             actor_user_id=user.id,
             details={"contract_version_id": version.id, "project_id": payload.project_id},
         )
-        db.flush()
+        queued_jobs = _queue_initial_contract_jobs(
+            db, user=user, contract=contract, version=version, snapshot=snapshot
+        )
+        queued_job_ids = [job.id for job in queued_jobs]
+        # Commit so the JobRun rows are visible before the Celery worker
+        # picks them up (same ordering guarantee as the upload pipeline).
+        db.commit()
+        for job_id in queued_job_ids:
+            job = db.get(JobRun, job_id)
+            if job is not None:
+                try:
+                    dispatch_job(db, job=job)
+                except Exception:
+                    pass
+        db.commit()
         return {
             "status": "created",
             "artifact_type": "generated_contract",
@@ -496,7 +512,8 @@ class ToolRuntime:
         db.add(snapshot)
         db.flush()
         edit_version.text_snapshot_id = snapshot.id
-        contract_file.current_version_id = edit_version.id
+        # The proposed edit is NOT authoritative and must not become the file's
+        # current version until it is explicitly accepted via accept_contract_edit.
         write_audit_log(
             db,
             action="assistant.contract_edit_created",
@@ -577,6 +594,29 @@ class ToolRuntime:
             db.add(snapshot)
             db.flush()
             replicated.text_snapshot_id = snapshot.id
+        write_audit_log(
+            db,
+            action="assistant.contract_version_replicated",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "source_version_id": version.id,
+                "contract_version_id": replicated.id,
+                "contract_file_id": contract_file.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_version_replicated",
+            title="Assistant replicated contract version",
+            actor_user_id=user.id,
+            details={"source_version_id": version.id, "contract_version_id": replicated.id},
+        )
         db.flush()
         return {
             "status": "created",
