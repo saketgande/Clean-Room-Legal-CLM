@@ -407,17 +407,37 @@ class ToolRuntime:
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
         )
+        db.flush()
         queued_job_ids = [job.id for job in queued_jobs]
         # Commit so the JobRun rows are visible before the Celery worker
         # picks them up (same ordering guarantee as the upload pipeline).
         db.commit()
+        dispatched_job_types = []
+        dispatch_errors = []
         for job_id in queued_job_ids:
             job = db.get(JobRun, job_id)
             if job is not None:
                 try:
                     dispatch_job(db, job=job)
-                except Exception:
-                    pass
+                    dispatched_job_types.append(job.job_type)
+                except Exception as exc:
+                    dispatch_errors.append(
+                        {"job_id": job.id, "job_type": job.job_type, "error": str(exc)}
+                    )
+        if dispatched_job_types or dispatch_errors:
+            write_timeline_event(
+                db,
+                org_id=user.org_id,
+                resource_type="contract",
+                resource_id=contract.id,
+                event_type="contract.ai_jobs_dispatched",
+                title="Contract AI jobs dispatched",
+                actor_user_id=user.id,
+                details={
+                    "dispatched_job_types": dispatched_job_types,
+                    "dispatch_errors": dispatch_errors,
+                },
+            )
         db.commit()
         return {
             "status": "created",

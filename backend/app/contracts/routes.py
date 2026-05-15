@@ -2,16 +2,21 @@ from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.contract_files.service import create_contract_from_upload
-from app.contracts.lifecycle import transition_contract_stage
+from app.contracts.lifecycle import allowed_transitions_for, transition_contract_stage
 from app.contracts.schemas import (
+    ContractActivityResponse,
     ContractResponse,
+    ContractStageHistoryResponse,
     ContractUpdate,
     ContractUploadResponse,
+    LifecycleOptionsResponse,
     LifecycleTransitionRequest,
 )
 from app.contracts.service import (
     contract_hub_summary,
     get_contract_for_user,
+    list_contract_activity,
+    list_contract_stage_history,
     list_contracts_for_user,
     update_contract_metadata,
 )
@@ -102,6 +107,40 @@ def transition_lifecycle(
     db.commit()
     db.refresh(contract)
     return contract
+
+
+@router.get("/{contract_id}/lifecycle", response_model=LifecycleOptionsResponse)
+def get_lifecycle_options(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return {
+        "current_stage": contract.lifecycle_stage,
+        "allowed_transitions": allowed_transitions_for(contract.lifecycle_stage),
+    }
+
+
+@router.get("/{contract_id}/stage-history", response_model=list[ContractStageHistoryResponse])
+def get_stage_history(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return list_contract_stage_history(db, contract=contract)
+
+
+@router.get("/{contract_id}/activity", response_model=list[ContractActivityResponse])
+def get_contract_activity(
+    contract_id: str,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return list_contract_activity(db, contract=contract, limit=limit)
 
 
 @hub_router.get("")

@@ -4,10 +4,15 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from app.ai import confirmations
-from app.ai.controller import ai_controller
+from app.ai.controller import INTERNAL_RESULT_KEYS, ai_controller
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import _build_edit_docx, tool_runtime
-from app.assistant.routes import _events_from_tool_result
+from app.assistant.routes import (
+    _citations_from_tool_result,
+    _events_from_tool_result,
+    confirm_assistant_action,
+    reject_assistant_action,
+)
 from app.contract_files.routes import _decision_summary
 from app.contract_files.service import INITIAL_CONTRACT_AI_JOB_TYPES
 from app.integrations.claude import claude_client
@@ -118,6 +123,16 @@ def test_assistant_edit_creates_new_stored_version_artifact():
     assert "contract_file.current_version_id = edit_version.id" not in source
 
 
+def test_assistant_generated_contract_flushes_jobs_before_dispatch_ids():
+    source = inspect.getsource(tool_runtime._generate_contract_docx)
+
+    assert "queued_jobs = _queue_initial_contract_jobs" in source
+    assert "db.flush()" in source
+    assert source.index("db.flush()", source.index("queued_jobs = _queue_initial_contract_jobs")) < source.index(
+        "queued_job_ids = [job.id for job in queued_jobs]"
+    )
+
+
 def test_assistant_edit_docx_contains_native_word_revision_markup():
     content = _build_edit_docx(
         contract_title="Vendor Agreement",
@@ -156,6 +171,36 @@ def test_resume_requires_confirmed_confirmation_before_execution():
     assert source.index('confirmation.status != "confirmed"') < source.index("execute_confirmed")
 
 
+def test_confirmation_decisions_require_ai_tool_permission():
+    confirm_source = inspect.getsource(confirm_assistant_action)
+    reject_source = inspect.getsource(reject_assistant_action)
+
+    assert "_require_ai_tools(current_user)" in confirm_source
+    assert "_require_ai_tools(current_user)" in reject_source
+
+
+def test_assistant_prompt_uses_handles_not_internal_ids():
+    contract_id = "11111111-1111-1111-1111-111111111111"
+    project_id = "22222222-2222-2222-2222-222222222222"
+    prompt = ai_controller._assistant_user_prompt(
+        message="Summarize this contract",
+        project_id=project_id,
+        contract_id=contract_id,
+        contract_ids=[contract_id],
+        handles=[{"handle": "contract-0", "contract_id": contract_id, "metadata": {}}],
+    )
+
+    assert "contract-0" in prompt
+    assert contract_id not in prompt
+    assert project_id not in prompt
+
+
+def test_model_safe_result_strips_internal_identifier_keys():
+    assert "current_authoritative_version_id" in INTERNAL_RESULT_KEYS
+    assert "contract_version_id" in INTERNAL_RESULT_KEYS
+    assert "project_id" in INTERNAL_RESULT_KEYS
+
+
 def test_phase3_tool_results_emit_frontend_artifact_events():
     generated_events = _events_from_tool_result(
         {
@@ -177,6 +222,20 @@ def test_phase3_tool_results_emit_frontend_artifact_events():
 
     assert generated_events[0]["event"] == "contract_generated"
     assert edit_events[0]["event"] == "tracked_change_created"
+
+
+def test_read_contract_result_creates_verifiable_text_snapshot_citation():
+    citations = _citations_from_tool_result(
+        {
+            "contract_id": "contract-1",
+            "text_snapshot_id": "snapshot-1",
+            "text_excerpt": "This agreement includes a confidentiality clause.",
+        }
+    )
+
+    assert citations[0]["type"] == "text_snapshot"
+    assert citations[0]["excerpt"] == "This agreement includes a confidentiality clause."
+    assert citations[0]["start_char"] == 0
 
 
 def test_tracked_edit_decision_summary_preserves_existing_summary():

@@ -24,6 +24,7 @@ from app.auth.models import User
 from app.assistant.models import AssistantContractHandle, AssistantRun, AssistantToolCall
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
+from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -42,6 +43,9 @@ INTERNAL_RESULT_KEYS = {
     "source_version_id",
     "base_version_id",
     "contract_edit_id",
+    "current_authoritative_version_id",
+    "project_id",
+    "workflow_id",
     "workflow_run_id",
     "tool_call_id",
     "confirmation_id",
@@ -124,6 +128,7 @@ class AIController:
         db.flush()
         db.commit()
 
+        contract_summaries = self._contract_context_summaries(db, org_id=org_id, handles=handles)
         messages: list[dict[str, Any]] = [
             {
                 "role": "user",
@@ -133,6 +138,7 @@ class AIController:
                     contract_id=contract_id,
                     contract_ids=contract_ids or [],
                     handles=handles,
+                    contract_summaries=contract_summaries,
                 ),
             }
         ]
@@ -581,23 +587,27 @@ class AIController:
         contract_id: str | None,
         contract_ids: list[str],
         handles: list[dict[str, Any]],
+        contract_summaries: list[dict[str, Any]] | None = None,
     ) -> str:
-        safe_handles = [
-            {"handle": h.get("handle"), "metadata": h.get("metadata")} for h in handles
-        ]
+        safe_handles = [{"handle": h.get("handle")} for h in handles]
+        scope = {
+            "has_project_scope": bool(project_id),
+            "primary_contract_handle": _handle_for_contract_id(contract_id, handles),
+            "contract_handles": [
+                handle
+                for contract in contract_ids
+                if (handle := _handle_for_contract_id(contract, handles))
+            ],
+        }
         return "\n\n".join(
             [
                 f"User message:\n{message}",
                 "Available contract handles for tool use:",
                 self._json_tool_result(safe_handles),
                 "Session scope:",
-                self._json_tool_result(
-                    {
-                        "project_id": project_id,
-                        "contract_id": contract_id,
-                        "contract_ids": contract_ids,
-                    }
-                ),
+                self._json_tool_result(scope),
+                "Contract status context:",
+                self._json_tool_result(contract_summaries or []),
                 "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
             ]
         )
@@ -709,6 +719,38 @@ class AIController:
         )
         db.flush()
         return handle_value
+
+    def _contract_context_summaries(
+        self,
+        db: Session,
+        *,
+        org_id: str,
+        handles: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        summaries = []
+        for handle in handles:
+            contract_id = handle.get("contract_id")
+            if not contract_id:
+                continue
+            contract = db.get(Contract, contract_id)
+            if contract is None or contract.org_id != org_id or contract.deleted_at is not None:
+                continue
+            summaries.append(
+                {
+                    "handle": handle.get("handle"),
+                    "title": contract.title,
+                    "contract_type": contract.contract_type,
+                    "lifecycle_stage": contract.lifecycle_stage,
+                    "risk_level": contract.risk_level,
+                    "counterparty_name": contract.counterparty_name,
+                    "jurisdiction": contract.jurisdiction,
+                    "effective_date": contract.effective_date,
+                    "expiration_date": contract.expiration_date,
+                    "value_amount": contract.value_amount,
+                    "currency": contract.currency,
+                }
+            )
+        return summaries
 
     def _model_safe_result(
         self,
@@ -1149,6 +1191,10 @@ class AIController:
             "counterparty_name": contract.counterparty_name,
             "jurisdiction": contract.jurisdiction,
             "risk_level": contract.risk_level,
+            "value_amount": contract.value_amount,
+            "currency": contract.currency,
+            "effective_date": contract.effective_date,
+            "expiration_date": contract.expiration_date,
         }
         suggestions = metadata.model_dump(mode="json", exclude_none=True)
         existing_metadata = dict(contract.metadata_json or {})
@@ -1181,6 +1227,22 @@ class AIController:
             before=before,
             after=suggestions,
             metadata={"skill_run_id": skill_run.id},
+        )
+        write_timeline_event(
+            db,
+            org_id=contract.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.ai_metadata_extracted",
+            title="AI metadata extracted",
+            actor_user_id=created_by_user_id,
+            request_id=request_id,
+            skill_run_id=skill_run.id,
+            details={
+                "confidence": metadata.confidence,
+                "applied_to_contract": metadata.confidence == "high" and bool(metadata.citations),
+                "fields": sorted(suggestions.keys()),
+            },
         )
 
     def _persist_clauses(
@@ -1312,6 +1374,16 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
         for item in getattr(output, item_name, []) or []:
             citations.extend(getattr(item, "citations", []) or [])
     return citations
+
+
+def _handle_for_contract_id(contract_id: str | None, handles: list[dict[str, Any]]) -> str | None:
+    if not contract_id:
+        return None
+    for handle in handles:
+        metadata = handle.get("metadata") or {}
+        if handle.get("contract_id") == contract_id or metadata.get("contract_id") == contract_id:
+            return handle.get("handle")
+    return None
 
 
 def _redacted_input(payload: dict[str, Any]) -> dict[str, Any]:

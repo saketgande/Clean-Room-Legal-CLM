@@ -453,6 +453,7 @@ def confirm_assistant_action(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
+    _require_ai_tools(current_user)
     confirmation = confirm_confirmation(db, confirmation_id=confirmation_id, user=current_user)
     db.commit()
     return {
@@ -470,6 +471,7 @@ def reject_assistant_action(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
+    _require_ai_tools(current_user)
     confirmation = reject_confirmation(
         db,
         confirmation_id=confirmation_id,
@@ -579,11 +581,15 @@ def _citations_from_tool_result(result: dict | None) -> list[dict]:
         return []
     citations: list[dict] = []
     if result.get("text_snapshot_id"):
+        excerpt = (result.get("text_excerpt") or "")[:1200]
         citations.append(
             {
                 "type": "text_snapshot",
                 "contract_id": result.get("contract_id"),
                 "text_snapshot_id": result.get("text_snapshot_id"),
+                "start_char": 0 if excerpt else None,
+                "end_char": len(excerpt) if excerpt else None,
+                "excerpt": excerpt,
             }
         )
     for match in result.get("matches") or []:

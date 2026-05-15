@@ -57,6 +57,10 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+def allowed_transitions_for(stage: str) -> list[str]:
+    return sorted(ALLOWED_TRANSITIONS.get(stage, set()))
+
+
 def transition_contract_stage(
     db: Session,
     *,
