@@ -24,6 +24,7 @@ PROJECT_PERMISSIONS = {
     "project:read",
     "project:create",
     "project:update",
+    "project:delete",
     "project:share",
 }
 

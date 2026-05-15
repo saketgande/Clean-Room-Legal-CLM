@@ -19,7 +19,7 @@ class StoredBytes:
 
 class StorageService:
     def __init__(self, root: Path | None = None):
-        self.root = root or settings.storage_root
+        self.root = (root or settings.storage_root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
 
     def save_bytes(self, *, org_id: str, filename: str, mime_type: str, content: bytes) -> StoredBytes:
@@ -33,7 +33,7 @@ class StorageService:
                 f"{new_uuid()}_{safe_filename}",
             ]
         )
-        absolute_path = self.root / storage_key
+        absolute_path = self._resolve_storage_key(storage_key, must_exist=False)
         absolute_path.parent.mkdir(parents=True, exist_ok=True)
         absolute_path.write_bytes(content)
         return StoredBytes(
@@ -44,13 +44,24 @@ class StorageService:
             sha256_hash=hashlib.sha256(content).hexdigest(),
         )
 
-    def read_bytes(self, storage_key: str) -> bytes:
-        return (self.root / storage_key).read_bytes()
+    def path_for_read(self, storage_key: str) -> Path:
+        return self._resolve_storage_key(storage_key, must_exist=True)
 
-    def delete_bytes(self, storage_key: str) -> None:
-        path = self.root / storage_key
+    def read_bytes(self, storage_key: str) -> bytes:
+        return self.path_for_read(storage_key).read_bytes()
+
+    def delete_bytes_permanently(self, storage_key: str) -> None:
+        path = self._resolve_storage_key(storage_key, must_exist=False)
         if path.exists():
             path.unlink()
+
+    def _resolve_storage_key(self, storage_key: str, *, must_exist: bool) -> Path:
+        candidate = (self.root / storage_key).resolve()
+        if not candidate.is_relative_to(self.root):
+            raise ValueError("Storage key resolves outside the storage root")
+        if must_exist and not candidate.exists():
+            raise FileNotFoundError(storage_key)
+        return candidate
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

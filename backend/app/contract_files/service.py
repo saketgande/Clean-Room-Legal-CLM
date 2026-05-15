@@ -18,7 +18,8 @@ from app.integrations.reducto import reducto_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.projects.models import Project, ProjectContract
+from app.projects.access import get_project_for_user
+from app.projects.models import ProjectContract
 
 
 INITIAL_CONTRACT_AI_JOB_TYPES = (
@@ -26,6 +27,7 @@ INITIAL_CONTRACT_AI_JOB_TYPES = (
     "clause_extraction",
     "embeddings",
 )
+TEXT_EXTRACTION_COMPLETE_THRESHOLD = 0.55
 
 
 async def create_contract_from_upload(
@@ -46,11 +48,8 @@ async def create_contract_from_upload(
     if len(content) > settings.max_upload_size_bytes:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds size limit")
 
-    project = None
     if project_id:
-        project = db.get(Project, project_id)
-        if project is None or project.org_id != user.org_id or project.deleted_at is not None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+        get_project_for_user(db, project_id=project_id, user=user, access="update")
 
     stored = storage_service.save_bytes(
         org_id=user.org_id,
@@ -58,145 +57,166 @@ async def create_contract_from_upload(
         mime_type=mime_type,
         content=content,
     )
-    storage_object = StorageObject(
-        org_id=user.org_id,
-        storage_key=stored.storage_key,
-        filename=stored.filename,
-        mime_type=stored.mime_type,
-        size_bytes=stored.size_bytes,
-        sha256_hash=stored.sha256_hash,
-        storage_backend=StorageBackend.LOCAL_VOLUME,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(storage_object)
-    db.flush()
-
-    contract = Contract(
-        org_id=user.org_id,
-        title=title or stored.filename,
-        counterparty_name=counterparty_name,
-        lifecycle_stage=ContractLifecycleStage.INTAKE,
-        owner_user_id=user.id,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(contract)
-    db.flush()
-
-    contract_file = ContractFile(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        file_label=stored.filename,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(contract_file)
-    db.flush()
-
-    version = ContractVersion(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        contract_file_id=contract_file.id,
-        version_number=1,
-        storage_object_id=storage_object.id,
-        source=ContractVersionSource.UPLOAD,
-        change_summary="Original upload",
-        is_authoritative=True,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(version)
-    db.flush()
-
-    extraction = extract_text(content, mime_type=mime_type, filename=stored.filename)
-    ocr_provider = None
-    if extraction.needs_ocr:
-        ocr = await reducto_client.extract_text(
+    try:
+        storage_object = StorageObject(
+            org_id=user.org_id,
+            storage_key=stored.storage_key,
             filename=stored.filename,
-            mime_type=mime_type,
-            content=content,
+            mime_type=stored.mime_type,
+            size_bytes=stored.size_bytes,
+            sha256_hash=stored.sha256_hash,
+            storage_backend=StorageBackend.LOCAL_VOLUME,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
         )
-        if ocr.text:
-            extraction_method = "reducto_ocr"
-            extracted_text = ocr.text
-            quality_score = ocr.quality_score
-            ocr_provider = ocr.provider
+        db.add(storage_object)
+        db.flush()
+
+        contract = Contract(
+            org_id=user.org_id,
+            title=title or stored.filename,
+            counterparty_name=counterparty_name,
+            lifecycle_stage=ContractLifecycleStage.INTAKE,
+            owner_user_id=user.id,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract)
+        db.flush()
+
+        contract_file = ContractFile(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            file_label=stored.filename,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract_file)
+        db.flush()
+
+        version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=1,
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.UPLOAD,
+            change_summary="Original upload",
+            is_authoritative=True,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(version)
+        db.flush()
+
+        extraction = extract_text(content, mime_type=mime_type, filename=stored.filename)
+        ocr_provider = None
+        ocr_error = None
+        if extraction.needs_ocr:
+            try:
+                ocr = await reducto_client.extract_text(
+                    filename=stored.filename,
+                    mime_type=mime_type,
+                    content=content,
+                )
+            except Exception as exc:
+                extraction_method = f"{extraction.method}_ocr_failed"
+                extracted_text = extraction.text
+                quality_score = extraction.quality_score
+                ocr_provider = reducto_client.provider
+                ocr_error = str(exc)
+            else:
+                if ocr.text:
+                    extraction_method = "reducto_ocr"
+                    extracted_text = ocr.text
+                    quality_score = ocr.quality_score
+                    ocr_provider = ocr.provider
+                else:
+                    extraction_method = extraction.method
+                    extracted_text = extraction.text
+                    quality_score = extraction.quality_score
+                    ocr_provider = ocr.provider
         else:
             extraction_method = extraction.method
             extracted_text = extraction.text
             quality_score = extraction.quality_score
-            ocr_provider = ocr.provider
-    else:
-        extraction_method = extraction.method
-        extracted_text = extraction.text
-        quality_score = extraction.quality_score
 
-    snapshot = ContractTextSnapshot(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        contract_version_id=version.id,
-        extraction_method=extraction_method,
-        extraction_quality_score=quality_score,
-        text=extracted_text,
-        page_map=extraction.page_map,
-        ocr_provider=ocr_provider,
-        validation_status="complete" if extracted_text else "needs_review",
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(snapshot)
-    db.flush()
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            extraction_method=extraction_method,
+            extraction_quality_score=quality_score,
+            text=extracted_text,
+            page_map=extraction.page_map,
+            ocr_provider=ocr_provider,
+            validation_status=_text_snapshot_validation_status(extracted_text, quality_score),
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
 
-    version.text_snapshot_id = snapshot.id
-    contract_file.current_version_id = version.id
-    contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = version.id
+        version.text_snapshot_id = snapshot.id
+        contract_file.current_version_id = version.id
+        contract.current_contract_file_id = contract_file.id
+        contract.current_authoritative_version_id = version.id
 
-    if project_id:
-        db.add(
-            ProjectContract(
-                org_id=user.org_id,
-                project_id=project_id,
-                contract_id=contract.id,
-                created_by_user_id=user.id,
-                updated_by_user_id=user.id,
+        if project_id:
+            db.add(
+                ProjectContract(
+                    org_id=user.org_id,
+                    project_id=project_id,
+                    contract_id=contract.id,
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
             )
+
+        queued_jobs = _queue_initial_contract_jobs(
+            db, user=user, contract=contract, version=version, snapshot=snapshot
         )
 
-    queued_jobs = _queue_initial_contract_jobs(db, user=user, contract=contract, version=version, snapshot=snapshot)
-
-    write_audit_log(
-        db,
-        action="contract.uploaded",
-        resource_type="contract",
-        resource_id=contract.id,
-        org_id=user.org_id,
-        actor_user_id=user.id,
-        request_id=request_id,
-        after={
-            "contract_file_id": contract_file.id,
-            "contract_version_id": version.id,
-            "storage_object_id": storage_object.id,
-        },
-    )
-    write_timeline_event(
-        db,
-        org_id=user.org_id,
-        resource_type="contract",
-        resource_id=contract.id,
-        event_type="contract.uploaded",
-        title="Contract uploaded",
-        actor_user_id=user.id,
-        request_id=request_id,
-        details={
+        write_audit_log(
+            db,
+            action="contract.uploaded",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            request_id=request_id,
+            after={
+                "contract_file_id": contract_file.id,
+                "contract_version_id": version.id,
+                "storage_object_id": storage_object.id,
+            },
+        )
+        timeline_details = {
             "filename": stored.filename,
             "mime_type": mime_type,
             "extraction_method": extraction_method,
             "extraction_quality_score": quality_score,
-        },
-    )
-    db.commit()
+            "validation_status": snapshot.validation_status,
+        }
+        if ocr_error:
+            timeline_details["ocr_error"] = ocr_error
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.uploaded",
+            title="Contract uploaded",
+            actor_user_id=user.id,
+            request_id=request_id,
+            details=timeline_details,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        storage_service.delete_bytes_permanently(stored.storage_key)
+        raise
+
     queued_job_ids = [job.id for job in queued_jobs]
     queued_job_types = [job.job_type for job in queued_jobs]
 
@@ -265,6 +285,12 @@ def _queue_initial_contract_jobs(
             )
         )
     return jobs
+
+
+def _text_snapshot_validation_status(text: str, quality_score: float) -> str:
+    if not text or quality_score < TEXT_EXTRACTION_COMPLETE_THRESHOLD:
+        return "needs_review"
+    return "complete"
 
 
 def next_version_number(db: Session, contract_file_id: str) -> int:

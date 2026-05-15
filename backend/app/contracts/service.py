@@ -4,13 +4,19 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.contract_files.models import ContractVersion
+from app.contracts.access import accessible_contract_filter, user_can_access_contract
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 
 
 def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contract:
     contract = db.get(Contract, contract_id)
-    if contract is None or contract.org_id != user.org_id or contract.deleted_at is not None:
+    if (
+        contract is None
+        or contract.org_id != user.org_id
+        or contract.deleted_at is not None
+        or not user_can_access_contract(db, contract=contract, user=user)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
     return contract
 
@@ -18,7 +24,11 @@ def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contr
 def list_contracts_for_user(db: Session, *, user: User) -> list[Contract]:
     return db.scalars(
         select(Contract)
-        .where(Contract.org_id == user.org_id, Contract.deleted_at.is_(None))
+        .where(
+            Contract.org_id == user.org_id,
+            Contract.deleted_at.is_(None),
+            accessible_contract_filter(user),
+        )
         .order_by(Contract.updated_at.desc())
     ).all()
 

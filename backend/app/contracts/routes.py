@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.contract_files.service import create_contract_from_upload
@@ -29,7 +29,11 @@ def list_contracts(
     return list_contracts_for_user(db, user=current_user)
 
 
-@router.post("/upload", response_model=ContractUploadResponse)
+@router.post(
+    "/upload",
+    response_model=ContractUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def upload_contract(
     request: Request,
     file: UploadFile = File(...),

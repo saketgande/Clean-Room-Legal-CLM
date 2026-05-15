@@ -1,10 +1,9 @@
-from pathlib import Path
 import hashlib
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.contract_files.models import (
@@ -23,13 +22,14 @@ from app.contract_files.schemas import (
     ContractVersionResponse,
     ExternalShareResponse,
 )
+from app.contract_files.service import next_version_number
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
-from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
-from app.core.enums import ShareAccessMode
+from app.core.enums import ContractVersionSource, ShareAccessMode
+from app.integrations.storage import storage_service
 
 router = APIRouter(prefix="/contracts/{contract_id}", tags=["contract-files"])
 external_share_router = APIRouter(prefix="/external-shares", tags=["external-shares"])
@@ -102,8 +102,9 @@ def download_contract_version(
     storage_object = db.get(StorageObject, version.storage_object_id)
     if storage_object is None or storage_object.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
-    path = Path(settings.storage_root) / storage_object.storage_key
-    if not path.exists():
+    try:
+        path = storage_service.path_for_read(storage_object.storage_key)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
     return FileResponse(path, media_type=storage_object.mime_type, filename=storage_object.filename)
 
@@ -122,29 +123,70 @@ def restore_contract_version(
     contract_file = db.get(ContractFile, version.contract_file_id)
     if contract_file is None or contract_file.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
-    versions = db.scalars(
+    restored_version = ContractVersion(
+        org_id=current_user.org_id,
+        contract_id=contract_id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=version.storage_object_id,
+        source=ContractVersionSource.RESTORED,
+        change_summary=f"Restored from version {version.version_number}",
+        is_authoritative=True,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(restored_version)
+    db.flush()
+
+    source_snapshot = (
+        db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+    )
+    if source_snapshot is not None:
+        restored_snapshot = ContractTextSnapshot(
+            org_id=current_user.org_id,
+            contract_id=contract_id,
+            contract_version_id=restored_version.id,
+            extraction_method=source_snapshot.extraction_method,
+            extraction_quality_score=source_snapshot.extraction_quality_score,
+            text=source_snapshot.text,
+            page_map=source_snapshot.page_map,
+            ocr_provider=source_snapshot.ocr_provider,
+            validation_status=source_snapshot.validation_status,
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+        )
+        db.add(restored_snapshot)
+        db.flush()
+        restored_version.text_snapshot_id = restored_snapshot.id
+
+    existing_versions = db.scalars(
         select(ContractVersion).where(
             ContractVersion.org_id == current_user.org_id,
             ContractVersion.contract_id == contract_id,
             ContractVersion.deleted_at.is_(None),
         )
     ).all()
-    for row in versions:
-        row.is_authoritative = row.id == version.id
+    for row in existing_versions:
+        row.is_authoritative = row.id == restored_version.id
         row.updated_by_user_id = current_user.id
-    contract_file.current_version_id = version.id
+    contract_file.current_version_id = restored_version.id
     contract_file.updated_by_user_id = current_user.id
     contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = version.id
+    contract.current_authoritative_version_id = restored_version.id
     contract.updated_by_user_id = current_user.id
     write_audit_log(
         db,
         action="contract.version_restored",
         resource_type="contract_version",
-        resource_id=version.id,
+        resource_id=restored_version.id,
         org_id=current_user.org_id,
         actor_user_id=current_user.id,
-        metadata={"contract_id": contract.id, "contract_file_id": contract_file.id},
+        metadata={
+            "contract_id": contract.id,
+            "contract_file_id": contract_file.id,
+            "restored_from_version_id": version.id,
+            "restored_from_version_number": version.version_number,
+        },
     )
     write_timeline_event(
         db,
@@ -154,11 +196,80 @@ def restore_contract_version(
         event_type="contract.version_restored",
         title="Contract version restored",
         actor_user_id=current_user.id,
+        details={
+            "contract_version_id": restored_version.id,
+            "version_number": restored_version.version_number,
+            "restored_from_version_id": version.id,
+            "restored_from_version_number": version.version_number,
+        },
+    )
+    db.commit()
+    db.refresh(restored_version)
+    return restored_version
+
+
+@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_contract_version(
+    contract_id: str,
+    version_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:delete")),
+):
+    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    version = db.get(ContractVersion, version_id)
+    if version is None or version.contract_id != contract_id or version.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
+    if version.is_authoritative:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Authoritative version cannot be deleted")
+    contract_file = db.get(ContractFile, version.contract_file_id)
+    if contract_file is not None and contract_file.current_version_id == version_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Current file version cannot be deleted")
+
+    version.deleted_at = utcnow()
+    version.deleted_by_user_id = current_user.id
+    version.updated_by_user_id = current_user.id
+    if version.text_snapshot_id:
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
+        if snapshot is not None and snapshot.deleted_at is None:
+            snapshot.deleted_at = version.deleted_at
+            snapshot.deleted_by_user_id = current_user.id
+            snapshot.updated_by_user_id = current_user.id
+
+    active_storage_refs = db.scalar(
+        select(func.count(ContractVersion.id)).where(
+            ContractVersion.org_id == current_user.org_id,
+            ContractVersion.storage_object_id == version.storage_object_id,
+            ContractVersion.deleted_at.is_(None),
+            ContractVersion.id != version.id,
+        )
+    )
+    if not active_storage_refs:
+        storage_object = db.get(StorageObject, version.storage_object_id)
+        if storage_object is not None and storage_object.deleted_at is None:
+            storage_object.deleted_at = version.deleted_at
+            storage_object.deleted_by_user_id = current_user.id
+            storage_object.updated_by_user_id = current_user.id
+
+    write_audit_log(
+        db,
+        action="contract.version_deleted",
+        resource_type="contract_version",
+        resource_id=version.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={"contract_id": contract_id, "storage_object_id": version.storage_object_id},
+    )
+    write_timeline_event(
+        db,
+        org_id=current_user.org_id,
+        resource_type="contract",
+        resource_id=contract_id,
+        event_type="contract.version_deleted",
+        title="Contract version deleted",
+        actor_user_id=current_user.id,
         details={"contract_version_id": version.id, "version_number": version.version_number},
     )
     db.commit()
-    db.refresh(version)
-    return version
 
 
 @router.get("/shares", response_model=list[ContractShareResponse])
@@ -179,7 +290,11 @@ def list_contract_shares(
     ).all()
 
 
-@router.post("/shares", response_model=ContractShareCreateResponse)
+@router.post(
+    "/shares",
+    response_model=ContractShareCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_contract_share(
     contract_id: str,
     payload: ContractShareCreate,
@@ -189,6 +304,8 @@ def create_contract_share(
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     if payload.contract_version_id:
         version = db.get(ContractVersion, payload.contract_version_id)
+        if version is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
     elif contract.current_authoritative_version_id:
         version = db.get(ContractVersion, contract.current_authoritative_version_id)
     else:
@@ -326,8 +443,9 @@ def download_external_share(
     storage_object = db.get(StorageObject, version.storage_object_id)
     if storage_object is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
-    path = Path(settings.storage_root) / storage_object.storage_key
-    if not path.exists():
+    try:
+        path = storage_service.path_for_read(storage_object.storage_key)
+    except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
     write_audit_log(
         db,
@@ -353,7 +471,9 @@ def _get_active_share(db: Session, *, token: str, passcode: str | None) -> Contr
     now = utcnow()
     if share.revoked_at is not None or (share.expires_at is not None and share.expires_at < now):
         raise HTTPException(status.HTTP_410_GONE, "Share is no longer active")
-    if share.passcode_hash and _hash_secret(passcode or "") != share.passcode_hash:
+    if share.passcode_hash and not secrets.compare_digest(
+        _hash_secret(passcode or ""), share.passcode_hash
+    ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Passcode required")
     return share
 

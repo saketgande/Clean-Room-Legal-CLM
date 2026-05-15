@@ -3,10 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.contracts.models import Contract
+from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
+from app.projects.access import get_project_for_user, project_scope_query
 from app.projects.models import Project, ProjectActivity, ProjectContract, ProjectFolder, ProjectMember
 from app.projects.schemas import (
     ProjectContractAdd,
@@ -30,18 +31,11 @@ def list_projects(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    return db.scalars(
-        select(Project)
-        .where(Project.org_id == current_user.org_id, Project.deleted_at.is_(None))
-        .order_by(Project.updated_at.desc())
-    ).all()
+    return db.scalars(project_scope_query(db, user=current_user).order_by(Project.updated_at.desc())).all()
 
 
-def _get_project(db: Session, *, project_id: str, org_id: str) -> Project:
-    project = db.get(Project, project_id)
-    if project is None or project.org_id != org_id or project.deleted_at is not None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    return project
+def _get_project(db: Session, *, project_id: str, current_user, access: str = "read") -> Project:
+    return get_project_for_user(db, project_id=project_id, user=current_user, access=access)
 
 
 def _get_project_folder(
@@ -91,7 +85,7 @@ def _record_project_activity(
     )
 
 
-@router.post("", response_model=ProjectResponse)
+@router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 def create_project(
     payload: ProjectCreate,
     db: Session = Depends(get_db),
@@ -147,7 +141,7 @@ def get_project(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    return _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    return _get_project(db, project_id=project_id, current_user=current_user)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -157,7 +151,9 @@ def update_project(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(project, key, value)
     project.updated_by_user_id = current_user.id
@@ -178,9 +174,11 @@ def update_project(
 def delete_project(
     project_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(require_permission("project:update")),
+    current_user=Depends(require_permission("project:delete")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     project.deleted_at = utcnow()
     project.deleted_by_user_id = current_user.id
     project.updated_by_user_id = current_user.id
@@ -201,7 +199,7 @@ def list_project_folders(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    _get_project(db, project_id=project_id, current_user=current_user)
     return db.scalars(
         select(ProjectFolder)
         .where(
@@ -213,14 +211,20 @@ def list_project_folders(
     ).all()
 
 
-@router.post("/{project_id}/folders", response_model=ProjectFolderResponse)
+@router.post(
+    "/{project_id}/folders",
+    response_model=ProjectFolderResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_project_folder(
     project_id: str,
     payload: ProjectFolderCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     _get_project_folder(
         db,
         folder_id=payload.parent_folder_id,
@@ -267,7 +271,9 @@ def update_project_folder(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     folder = _get_project_folder(
         db,
         folder_id=folder_id,
@@ -308,7 +314,9 @@ def delete_project_folder(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     folder = _get_project_folder(
         db,
         folder_id=folder_id,
@@ -345,7 +353,7 @@ def list_project_members(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    _get_project(db, project_id=project_id, current_user=current_user)
     return db.scalars(
         select(ProjectMember)
         .where(ProjectMember.org_id == current_user.org_id, ProjectMember.project_id == project_id)
@@ -360,7 +368,9 @@ def upsert_project_member(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="share"
+    )
     user = db.get(User, payload.user_id)
     if user is None or user.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
@@ -415,7 +425,9 @@ def remove_project_member(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="share"
+    )
     member = db.scalar(
         select(ProjectMember).where(
             ProjectMember.org_id == current_user.org_id,
@@ -445,7 +457,7 @@ def list_project_contracts(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    _get_project(db, project_id=project_id, current_user=current_user)
     return db.scalars(
         select(ProjectContract)
         .where(ProjectContract.org_id == current_user.org_id, ProjectContract.project_id == project_id)
@@ -460,10 +472,10 @@ def add_project_contract(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
-    contract = db.get(Contract, payload.contract_id)
-    if contract is None or contract.org_id != current_user.org_id or contract.deleted_at is not None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
+    get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
     _get_project_folder(
         db,
         folder_id=payload.folder_id,
@@ -513,7 +525,9 @@ def update_project_contract(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     _get_project_folder(
         db,
         folder_id=payload.folder_id,
@@ -551,7 +565,9 @@ def remove_project_contract(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
 ):
-    project = _get_project(db, project_id=project_id, org_id=current_user.org_id)
+    project = _get_project(
+        db, project_id=project_id, current_user=current_user, access="update"
+    )
     row = db.scalar(
         select(ProjectContract).where(
             ProjectContract.org_id == current_user.org_id,

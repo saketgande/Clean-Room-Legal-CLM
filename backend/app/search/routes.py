@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.core.deps import get_db, require_permission
+from app.projects.access import get_project_for_user, project_scope_query
 from app.projects.models import Project, ProjectContract
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -34,8 +36,10 @@ def search_contracts(
     query = select(Contract).where(
         Contract.org_id == current_user.org_id,
         Contract.deleted_at.is_(None),
+        accessible_contract_filter(current_user),
     )
     if project_id:
+        get_project_for_user(db, project_id=project_id, user=current_user)
         query = query.join(ProjectContract, ProjectContract.contract_id == Contract.id).where(
             ProjectContract.org_id == current_user.org_id,
             ProjectContract.project_id == project_id,
@@ -93,12 +97,14 @@ def search_contract_text(
             ContractTextSnapshot.org_id == current_user.org_id,
             ContractTextSnapshot.deleted_at.is_(None),
             Contract.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
             ContractTextSnapshot.text.ilike(f"%{q}%"),
         )
     )
     if contract_id:
         query = query.where(ContractTextSnapshot.contract_id == contract_id)
     if project_id:
+        get_project_for_user(db, project_id=project_id, user=current_user)
         query = query.join(ProjectContract, ProjectContract.contract_id == Contract.id).where(
             ProjectContract.org_id == current_user.org_id,
             ProjectContract.project_id == project_id,
@@ -133,6 +139,7 @@ def search_clauses(
             ClauseExtraction.org_id == current_user.org_id,
             ClauseExtraction.is_stale.is_(False),
             Contract.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
         )
     )
     if q:
@@ -148,6 +155,7 @@ def search_clauses(
     if contract_id:
         query = query.where(ClauseExtraction.contract_id == contract_id)
     if project_id:
+        get_project_for_user(db, project_id=project_id, user=current_user)
         query = query.join(ProjectContract, ProjectContract.contract_id == Contract.id).where(
             ProjectContract.org_id == current_user.org_id,
             ProjectContract.project_id == project_id,
@@ -177,7 +185,7 @@ def search_projects(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:read")),
 ):
-    query = select(Project).where(Project.org_id == current_user.org_id, Project.deleted_at.is_(None))
+    query = project_scope_query(db, user=current_user)
     if q:
         query = query.where(or_(Project.name.ilike(f"%{q}%"), Project.description.ilike(f"%{q}%")))
     if project_type:
@@ -201,6 +209,7 @@ def search_contract_versions(
             ContractVersion.org_id == current_user.org_id,
             ContractVersion.deleted_at.is_(None),
             Contract.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
         )
     )
     if q:

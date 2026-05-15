@@ -44,7 +44,11 @@ class ContractFile(
     Base,
 ):
     contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
-    current_version_id = Column(String(36), nullable=True)
+    current_version_id = Column(
+        String(36),
+        ForeignKey("contract_version.id", name="fk_contract_file_current_version_id", use_alter=True),
+        nullable=True,
+    )
     file_label = Column(String(255), nullable=False)
 
 
@@ -61,7 +65,11 @@ class ContractVersion(
     contract_file_id = Column(String(36), ForeignKey("contract_file.id"), index=True, nullable=False)
     version_number = Column(Integer, nullable=False)
     storage_object_id = Column(String(36), ForeignKey("storage_object.id"), nullable=False)
-    text_snapshot_id = Column(String(36), nullable=True)
+    text_snapshot_id = Column(
+        String(36),
+        ForeignKey("contract_text_snapshot.id", name="fk_contract_version_text_snapshot_id", use_alter=True),
+        nullable=True,
+    )
     source = Column(String(80), index=True, nullable=False, default=ContractVersionSource.UPLOAD)
     change_summary = Column(Text, nullable=True)
     is_authoritative = Column(Boolean, nullable=False, default=False)

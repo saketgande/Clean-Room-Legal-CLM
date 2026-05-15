@@ -34,8 +34,20 @@ class Contract(
     currency = Column(String(3), nullable=True)
     effective_date = Column(Date, nullable=True)
     expiration_date = Column(Date, nullable=True)
-    current_contract_file_id = Column(String(36), nullable=True)
-    current_authoritative_version_id = Column(String(36), nullable=True)
+    current_contract_file_id = Column(
+        String(36),
+        ForeignKey("contract_file.id", name="fk_contract_current_contract_file_id", use_alter=True),
+        nullable=True,
+    )
+    current_authoritative_version_id = Column(
+        String(36),
+        ForeignKey(
+            "contract_version.id",
+            name="fk_contract_current_authoritative_version_id",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
     metadata_json = Column(JSON, nullable=False, default=dict)
 
 

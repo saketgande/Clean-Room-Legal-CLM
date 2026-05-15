@@ -3,7 +3,9 @@ from pydantic import ValidationError
 
 from app.contract_files.routes import EXTERNAL_TEXT_EXCERPT_CHARS, _hash_secret
 from app.contract_files.schemas import ContractShareCreate
+from app.contract_files.service import _text_snapshot_validation_status
 from app.core.enums import ShareAccessMode
+from app.integrations.storage import StorageService
 from app.projects.schemas import ProjectFolderUpdate
 from app.search.routes import _text_matches
 
@@ -17,6 +19,19 @@ def test_external_share_secret_hashing_is_deterministic_and_non_plaintext():
 
 def test_external_share_response_excerpt_limit_is_bounded():
     assert EXTERNAL_TEXT_EXCERPT_CHARS == 12_000
+
+
+def test_storage_service_rejects_path_traversal(tmp_path):
+    service = StorageService(root=tmp_path)
+
+    with pytest.raises(ValueError):
+        service.path_for_read("../outside.txt")
+
+
+def test_text_snapshot_quality_threshold_controls_validation_status():
+    assert _text_snapshot_validation_status("Readable enough", 0.54) == "needs_review"
+    assert _text_snapshot_validation_status("", 0.99) == "needs_review"
+    assert _text_snapshot_validation_status("Readable enough", 0.55) == "complete"
 
 
 def test_contract_share_schema_defaults_to_view_only_without_download():
