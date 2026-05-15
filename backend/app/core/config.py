@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     claude_api_key: str | None = None
     claude_model: str = "claude-3-5-sonnet-latest"
     mock_claude: bool = True
+    ai_store_raw_outputs: bool = True
+    ai_max_tool_iterations: int = 8
+    ai_default_temperature: float = 0.0
 
     reducto_api_key: str | None = None
     mock_reducto: bool = True

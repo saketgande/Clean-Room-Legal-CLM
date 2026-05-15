@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.ai.models import AISkillRun
+from app.assistant.models import AssistantRun
 from app.core.config import settings
 from app.core.deps import get_db, get_current_user
 from app.core.models import AICallLog, RequestLog, ResourceTimelineEvent
@@ -70,6 +72,40 @@ def ai_call_trace(
     if row is None or row.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "AI call not found")
     return row
+
+
+@router.get("/ai-skill-runs/{skill_run_id}")
+def ai_skill_run_trace(
+    skill_run_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    row = db.get(AISkillRun, skill_run_id)
+    if row is None or row.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "AI skill run not found")
+    calls = db.scalars(
+        select(AICallLog)
+        .where(AICallLog.org_id == current_user.org_id, AICallLog.skill_run_id == skill_run_id)
+        .order_by(AICallLog.created_at.asc())
+    ).all()
+    return {"skill_run": row, "ai_calls": calls}
+
+
+@router.get("/assistant-runs/{assistant_run_id}")
+def assistant_run_trace(
+    assistant_run_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    row = db.get(AssistantRun, assistant_run_id)
+    if row is None or row.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant run not found")
+    calls = db.scalars(
+        select(AICallLog)
+        .where(AICallLog.org_id == current_user.org_id, AICallLog.assistant_run_id == assistant_run_id)
+        .order_by(AICallLog.created_at.asc())
+    ).all()
+    return {"assistant_run": row, "ai_calls": calls}
 
 
 @router.get("/resources/{resource_type}/{resource_id}/timeline")

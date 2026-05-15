@@ -1,7 +1,9 @@
 from app.approvals.models import ApprovalDecision, ApprovalRequest, ApprovalRoutingRule, ApprovalToken
+from app.ai.models import AIConfirmation, AICitation, AIPromptVersion, AISkillRun
 from app.assistant.models import (
     AssistantContractHandle,
     AssistantMessage,
+    AssistantRun,
     AssistantSession,
     AssistantToolCall,
 )
@@ -52,7 +54,11 @@ from app.workflows.models import Workflow, WorkflowRun
 
 __all__ = [
     "AdminSetting",
+    "AIConfirmation",
+    "AICitation",
     "AICallLog",
+    "AIPromptVersion",
+    "AISkillRun",
     "ApiKey",
     "ApprovalDecision",
     "ApprovalRequest",
@@ -60,6 +66,7 @@ __all__ = [
     "ApprovalToken",
     "AssistantContractHandle",
     "AssistantMessage",
+    "AssistantRun",
     "AssistantSession",
     "AssistantToolCall",
     "AuditLog",

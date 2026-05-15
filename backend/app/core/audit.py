@@ -44,6 +44,8 @@ def write_timeline_event(
     actor_user_id: str | None = None,
     request_id: str | None = None,
     job_id: str | None = None,
+    skill_run_id: str | None = None,
+    assistant_run_id: str | None = None,
     ai_call_id: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> ResourceTimelineEvent:
@@ -56,6 +58,8 @@ def write_timeline_event(
         details=details,
         request_id=request_id,
         job_id=job_id,
+        skill_run_id=skill_run_id,
+        assistant_run_id=assistant_run_id,
         ai_call_id=ai_call_id,
         created_by_user_id=actor_user_id,
         updated_by_user_id=actor_user_id,

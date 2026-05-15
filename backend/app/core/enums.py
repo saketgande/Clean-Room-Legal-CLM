@@ -59,6 +59,25 @@ class AssistantToolCategory(StrEnum):
     DESTRUCTIVE = "destructive"
 
 
+class AssistantRunStatus(StrEnum):
+    RUNNING = "running"
+    WAITING_CONFIRMATION = "waiting_confirmation"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    INTERRUPTED = "interrupted"
+    CANCELLED = "cancelled"
+
+
+class AssistantToolCallStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CONFIRMATION_REQUIRED = "confirmation_required"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+
+
 class WorkflowType(StrEnum):
     ASSISTANT = "assistant"
     TABULAR_REVIEW = "tabular_review"
@@ -100,6 +119,38 @@ class AIValidationStatus(StrEnum):
     VALID = "valid"
     INVALID = "invalid"
     NEEDS_REVIEW = "needs_review"
+
+
+class AISkillRunStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    NEEDS_REVIEW = "needs_review"
+    CANCELLED = "cancelled"
+
+
+class AIPromptStatus(StrEnum):
+    DRAFT = "draft"
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    ROLLED_BACK = "rolled_back"
+
+
+class AIConfirmationStatus(StrEnum):
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+class AICallStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    VALIDATION_FAILED = "validation_failed"
+    CITATION_FAILED = "citation_failed"
 
 
 class StorageBackend(StrEnum):

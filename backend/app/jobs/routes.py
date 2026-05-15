@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_db, get_current_user
 from app.core.enums import JobStatus
 from app.jobs.models import JobRun
+from app.jobs.tasks import run_ai_job
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -46,6 +47,25 @@ def cancel_job(
     if job.status in {JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Job is already terminal")
     job.status = JobStatus.CANCELLED
+    job.updated_by_user_id = current_user.id
+    db.commit()
+    db.refresh(job)
+    return job
+
+
+@router.post("/{job_id}/run")
+def enqueue_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    job = db.get(JobRun, job_id)
+    if job is None or job.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
+    if job.status not in {JobStatus.QUEUED, JobStatus.FAILED}:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only queued or failed jobs can be enqueued")
+    task = run_ai_job.delay(job.id)
+    job.celery_task_id = task.id
     job.updated_by_user_id = current_user.id
     db.commit()
     db.refresh(job)

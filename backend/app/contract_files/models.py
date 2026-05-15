@@ -122,5 +122,5 @@ class ContractEmbedding(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMix
     text_snapshot_id = Column(String(36), ForeignKey("contract_text_snapshot.id"), index=True, nullable=False)
     chunk_index = Column(Integer, nullable=False)
     chunk_text = Column(Text, nullable=False)
-    embedding = Column(Vector(1536), nullable=True)
+    embedding = Column(Vector(384), nullable=True)
     metadata_json = Column(JSON, nullable=False, default=dict)

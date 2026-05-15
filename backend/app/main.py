@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.admin.routes import router as admin_router
+from app.ai.routes import router as ai_router
 from app.approvals.routes import router as approvals_router
 from app.assistant.routes import router as assistant_router
 from app.auth.routes import router as auth_router
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix=prefix)
     app.include_router(contracts_router, prefix=prefix)
     app.include_router(contract_files_router, prefix=prefix)
+    app.include_router(ai_router, prefix=prefix)
     app.include_router(assistant_router, prefix=prefix)
     app.include_router(workflows_router, prefix=prefix)
     app.include_router(playbooks_router, prefix=prefix)

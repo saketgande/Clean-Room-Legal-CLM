@@ -6,6 +6,8 @@ Build a new Python FastAPI backend from scratch. AEGIS and Mike are product refe
 
 This is a **contract-first legal AI + CLM backend**. Users should not think in terms of “documents vs contracts.” In the product, everything is a **Contract**. Internally, the backend separates the business/legal contract record from the file/version layer using clearer contract-centered names.
 
+AI execution is specified in `PLAN_AI_ARCHITECTURE.md`. `PLAN.md` owns product/backend scope; `PLAN_AI_ARCHITECTURE.md` owns Claude orchestration, prompts, skills, tool runtime, validation, citations, usage, and AI observability.
+
 Fixed choices:
 
 ```text
@@ -102,6 +104,7 @@ backend/app/
   projects/
   contracts/
   contract_files/
+  ai/
   assistant/
   workflows/
   playbooks/
@@ -131,7 +134,9 @@ backend/app/
 
 `contract_files/`: file storage, versions, extracted text, OCR, generated DOCX, tracked changes, signed PDFs, shares.
 
-`assistant/`: Claude orchestration, SSE streaming, sessions, contract handles, citations, tool calls.
+`ai/`: AIController, skill registry, prompt builder/versioning, Claude provider orchestration, Pydantic schemas, citation validation, embeddings, tool registry/runtime, confirmations, usage, eval hooks.
+
+`assistant/`: assistant product surface, SSE routes, sessions, messages, runs, contract handles, tool-call records, confirmation endpoints.
 
 `workflows/`: reusable user-created AI workflows.
 
@@ -1183,6 +1188,30 @@ audit logs
 debug health/readiness
 ```
 
+Phase 1.5: AI Architecture Spine
+
+```text
+app/ai module
+AIController as only Claude caller
+provider-only ClaudeClient
+SkillRegistry and ToolRegistry
+shared legal system prompt
+task-specific prompt versions
+Pydantic output schemas
+fuzzy citation validation
+AISkillRun
+AIPromptVersion
+AIConfirmation
+AICitation
+AssistantRun
+extended AICallLog
+384-dimension local embeddings
+assistant SSE run persistence
+confirmation pause/resume data model
+AI debug traces
+golden eval harness foundation
+```
+
 Phase 2: Contracts, Files, Projects
 
 ```text
@@ -1299,6 +1328,11 @@ file hash/size/MIME validation
 version restore
 tracked-change accept/reject
 assistant citations and confirmation-required tools
+AIController is the only Claude caller
+prompt version/hash stored on AI calls
+fuzzy citation validation
+AI confirmation server-side policy
+AI skill run and AI call debug traces
 AI validation failure handling
 workflow run persistence
 playbook draft/publish/run/deviation decisions
@@ -1327,6 +1361,9 @@ Users see Contracts and Contract Versions, not Documents.
 Backend uses ContractFile/ContractVersion for the file layer.
 V1 is single-org private deployment by default.
 Claude is the only AI provider for initial release.
+AI execution follows PLAN_AI_ARCHITECTURE.md.
+Assistant product routes live in app/assistant; AI execution internals live in app/ai.
+Embeddings use a 384-dimension local model for v1.
 Reducto is OCR.
 Resend is email.
 DocuSign is signing.
