@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.contract_files.service import create_contract_from_upload
 from app.contracts.lifecycle import allowed_transitions_for, transition_contract_stage
+from app.core.rbac import has_permission
 from app.contracts.schemas import (
     ContractActivityResponse,
     ContractResponse,
@@ -102,6 +103,10 @@ def transition_lifecycle(
         actor_user_id=current_user.id,
         reason=payload.reason,
         override=payload.override,
+        override_authorized=has_permission(
+            current_user.permission_values, "contract:lifecycle_override"
+        ),
+        signed_confirmation=payload.signed_confirmation,
         request_id=getattr(request.state, "request_id", None),
     )
     db.commit()

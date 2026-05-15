@@ -97,6 +97,7 @@ async def send_for_signature(
         actor_user_id=current_user.id,
         reason="Sent for signature",
         override=True,
+        override_authorized=True,
     )
     db.commit()
     db.refresh(signature)

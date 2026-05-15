@@ -10,6 +10,7 @@ CONTRACT_PERMISSIONS = {
     "contract:sign",
     "contract:renew",
     "contract:archive",
+    "contract:lifecycle_override",
 }
 
 CONTRACT_FILE_PERMISSIONS = {
@@ -86,6 +87,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract:read",
         "contract:update",
         "contract:redline",
+        "contract:lifecycle_override",
         "contract_file:read",
         "contract_file:create",
         "project:read",

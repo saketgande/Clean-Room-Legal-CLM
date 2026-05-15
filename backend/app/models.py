@@ -28,7 +28,7 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contracts.models import Contract, ContractActivity, ContractParty, ContractStageHistory
+from app.contracts.models import Contract, ContractParty, ContractStageHistory
 from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
 from app.jobs.models import JobRun
 from app.notifications.models import Notification
@@ -74,7 +74,6 @@ __all__ = [
     "BrainQuery",
     "ClauseExtraction",
     "Contract",
-    "ContractActivity",
     "ContractEdit",
     "ContractEmbedding",
     "ContractFile",

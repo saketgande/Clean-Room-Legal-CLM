@@ -1,11 +1,13 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.contract_files.models import ContractVersion
 from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
-from app.core.enums import ContractLifecycleStage
+from app.core.enums import ContractLifecycleStage, ContractVersionSource
 
 
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
@@ -69,15 +71,41 @@ def transition_contract_stage(
     actor_user_id: str,
     reason: str | None = None,
     override: bool = False,
+    override_authorized: bool = False,
+    signed_confirmation: bool = False,
     request_id: str | None = None,
 ) -> Contract:
     from_stage = contract.lifecycle_stage
     allowed = ALLOWED_TRANSITIONS.get(from_stage, set())
-    if to_stage not in allowed and not override:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Invalid lifecycle transition from {from_stage} to {to_stage}",
+    if to_stage not in allowed:
+        if not override:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Invalid lifecycle transition from {from_stage} to {to_stage}",
+            )
+        if not override_authorized:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Lifecycle override requires the contract:lifecycle_override permission",
+            )
+    authorized_override = override and override_authorized
+    if to_stage == ContractLifecycleStage.ACTIVE and not authorized_override:
+        has_signed_version = (
+            db.scalar(
+                select(ContractVersion.id)
+                .where(
+                    ContractVersion.contract_id == contract.id,
+                    ContractVersion.source == ContractVersionSource.SIGNED,
+                )
+                .limit(1)
+            )
+            is not None
         )
+        if not has_signed_version and not signed_confirmation:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Activating a contract requires a signed version or an explicit signed confirmation",
+            )
     contract.lifecycle_stage = to_stage
     contract.updated_by_user_id = actor_user_id
     db.add(
@@ -104,7 +132,12 @@ def transition_contract_stage(
         request_id=request_id,
         before={"lifecycle_stage": from_stage},
         after={"lifecycle_stage": to_stage},
-        metadata={"reason": reason, "override": override},
+        metadata={
+            "reason": reason,
+            "override": override,
+            "override_authorized": override_authorized,
+            "signed_confirmation": signed_confirmation,
+        },
     )
     write_timeline_event(
         db,

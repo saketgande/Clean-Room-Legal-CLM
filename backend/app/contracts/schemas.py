@@ -53,6 +53,7 @@ class LifecycleTransitionRequest(BaseModel):
     to_stage: ContractLifecycleStage
     reason: str | None = None
     override: bool = False
+    signed_confirmation: bool = False
 
 
 class LifecycleOptionsResponse(BaseModel):

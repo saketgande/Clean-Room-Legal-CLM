@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.approvals.models import ApprovalRequest
 from app.auth.models import User
-from app.contract_brain.models import ClauseExtraction
+from app.playbooks.models import PlaybookDeviation
 from app.contract_files.models import ContractVersion
 from app.contracts.access import accessible_contract_filter, user_can_access_contract
 from app.contracts.models import Contract, ContractStageHistory
@@ -100,16 +100,16 @@ def update_contract_metadata(
 
 
 def contract_hub_summary(db: Session, *, user: User) -> dict:
-    accessible_contract_ids = (
-        select(Contract.id)
-        .where(
-            Contract.org_id == user.org_id,
-            Contract.deleted_at.is_(None),
-            accessible_contract_filter(user),
-        )
-        .subquery()
+    accessible_ids = list(
+        db.scalars(
+            select(Contract.id).where(
+                Contract.org_id == user.org_id,
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(user),
+            )
+        ).all()
     )
-    contract_filter = Contract.id.in_(select(accessible_contract_ids.c.id))
+    contract_filter = Contract.id.in_(accessible_ids)
     by_stage = dict(
         db.execute(
             select(Contract.lifecycle_stage, func.count(Contract.id))
@@ -127,7 +127,7 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
     total_versions = db.scalar(
         select(func.count(ContractVersion.id)).where(
             ContractVersion.org_id == user.org_id,
-            ContractVersion.contract_id.in_(select(accessible_contract_ids.c.id)),
+            ContractVersion.contract_id.in_(accessible_ids),
         )
     )
     today = datetime.now(UTC).date()
@@ -136,21 +136,21 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
         select(func.count(ApprovalRequest.id)).where(
             ApprovalRequest.org_id == user.org_id,
             ApprovalRequest.status == ApprovalStatus.PENDING,
-            ApprovalRequest.contract_id.in_(select(accessible_contract_ids.c.id)),
+            ApprovalRequest.contract_id.in_(accessible_ids),
         )
     ) or 0
     pending_signatures = db.scalar(
         select(func.count(SignatureRequest.id)).where(
             SignatureRequest.org_id == user.org_id,
             SignatureRequest.status.in_([SignatureStatus.DRAFT, SignatureStatus.SENT, SignatureStatus.DELIVERED]),
-            SignatureRequest.contract_id.in_(select(accessible_contract_ids.c.id)),
+            SignatureRequest.contract_id.in_(accessible_ids),
         )
     ) or 0
     upcoming_renewals = db.scalar(
         select(func.count(RenewalEvent.id)).where(
             RenewalEvent.org_id == user.org_id,
             RenewalEvent.decision == RenewalDecision.UNDECIDED,
-            RenewalEvent.contract_id.in_(select(accessible_contract_ids.c.id)),
+            RenewalEvent.contract_id.in_(accessible_ids),
             RenewalEvent.notice_date.is_not(None),
             RenewalEvent.notice_date >= today,
             RenewalEvent.notice_date <= renewal_horizon,
@@ -161,7 +161,7 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
             Obligation.org_id == user.org_id,
             Obligation.deleted_at.is_(None),
             Obligation.status.in_([ObligationStatus.OPEN, ObligationStatus.DUE_SOON, ObligationStatus.OVERDUE]),
-            Obligation.contract_id.in_(select(accessible_contract_ids.c.id)),
+            Obligation.contract_id.in_(accessible_ids),
             Obligation.due_date.is_not(None),
             Obligation.due_date < today,
         )
@@ -180,7 +180,7 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
             .where(
                 ResourceTimelineEvent.org_id == user.org_id,
                 ResourceTimelineEvent.resource_type == "contract",
-                ResourceTimelineEvent.resource_id.in_(select(accessible_contract_ids.c.id)),
+                ResourceTimelineEvent.resource_id.in_(accessible_ids),
             )
             .order_by(ResourceTimelineEvent.created_at.desc())
             .limit(10)
@@ -189,14 +189,14 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
     top_deviated_clauses = [
         {"clause_type": clause_type or "unknown", "count": count}
         for clause_type, count in db.execute(
-            select(ClauseExtraction.clause_type, func.count(ClauseExtraction.id))
+            select(PlaybookDeviation.clause_type, func.count(PlaybookDeviation.id))
             .where(
-                ClauseExtraction.org_id == user.org_id,
-                ClauseExtraction.contract_id.in_(select(accessible_contract_ids.c.id)),
-                ClauseExtraction.risk_level.in_(["high", "critical"]),
+                PlaybookDeviation.org_id == user.org_id,
+                PlaybookDeviation.contract_id.in_(accessible_ids),
+                PlaybookDeviation.severity.in_(["high", "critical"]),
             )
-            .group_by(ClauseExtraction.clause_type)
-            .order_by(desc(func.count(ClauseExtraction.id)))
+            .group_by(PlaybookDeviation.clause_type)
+            .order_by(desc(func.count(PlaybookDeviation.id)))
             .limit(5)
         ).all()
     ]
@@ -215,6 +215,35 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
             .limit(5)
         ).all()
     ]
+    average_cycle_time_days: float | None = None
+    if accessible_ids:
+        activated = db.execute(
+            select(
+                ContractStageHistory.contract_id,
+                func.min(ContractStageHistory.changed_at),
+            )
+            .where(
+                ContractStageHistory.org_id == user.org_id,
+                ContractStageHistory.contract_id.in_(accessible_ids),
+                ContractStageHistory.to_stage == ContractLifecycleStage.ACTIVE,
+            )
+            .group_by(ContractStageHistory.contract_id)
+        ).all()
+        if activated:
+            created_map = dict(
+                db.execute(
+                    select(Contract.id, Contract.created_at).where(
+                        Contract.id.in_([cid for cid, _ in activated])
+                    )
+                ).all()
+            )
+            durations = [
+                (activated_at - created_map[cid]).total_seconds() / 86400.0
+                for cid, activated_at in activated
+                if created_map.get(cid) is not None and activated_at is not None
+            ]
+            if durations:
+                average_cycle_time_days = round(sum(durations) / len(durations), 1)
     return {
         "contracts_by_stage": by_stage,
         "contracts_by_risk": by_risk,
@@ -225,7 +254,7 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
             "upcoming_renewals": upcoming_renewals,
             "overdue_obligations": overdue_obligations,
             "top_deviated_clauses": top_deviated_clauses,
-            "average_cycle_time_days": None,
+            "average_cycle_time_days": average_cycle_time_days,
             "counterparty_friction": counterparty_friction,
             "recent_activity": recent_activity,
         },

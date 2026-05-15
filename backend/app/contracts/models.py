@@ -67,11 +67,3 @@ class ContractStageHistory(TableNameMixin, IdMixin, OrgScopedMixin, ActorTracked
     changed_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     changed_at = Column(DateTime(timezone=True), nullable=False)
     override_used = Column(Boolean, nullable=False, default=False)
-
-
-class ContractActivity(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
-    contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
-    actor_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    activity_type = Column(String(120), index=True, nullable=False)
-    title = Column(String(255), nullable=False)
-    details = Column(JSON, nullable=True)

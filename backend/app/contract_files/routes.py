@@ -25,7 +25,7 @@ from app.contract_files.schemas import (
     ContractVersionResponse,
     ExternalShareResponse,
 )
-from app.contract_files.service import next_version_number
+from app.contract_files.service import next_version_number, requeue_contract_ai_jobs
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
@@ -192,6 +192,9 @@ def accept_contract_edit(
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
     )
+    requeue_contract_ai_jobs(
+        db, user=current_user, contract=contract, version=proposal_version
+    )
     db.commit()
     db.refresh(edit)
     return edit
@@ -339,6 +342,9 @@ def restore_contract_version(
             "restored_from_version_id": version.id,
             "restored_from_version_number": version.version_number,
         },
+    )
+    requeue_contract_ai_jobs(
+        db, user=current_user, contract=contract, version=restored_version
     )
     db.commit()
     db.refresh(restored_version)

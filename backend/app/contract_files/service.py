@@ -300,3 +300,34 @@ def next_version_number(db: Session, contract_file_id: str) -> int:
         )
     )
     return int(max_version or 0) + 1
+
+
+def requeue_contract_ai_jobs(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    version: ContractVersion,
+) -> None:
+    """Re-run metadata/clause/embeddings extraction for a newly-authoritative
+    version so derived data does not go stale after an accepted edit or restore."""
+    snapshot = (
+        db.get(ContractTextSnapshot, version.text_snapshot_id)
+        if version.text_snapshot_id
+        else None
+    )
+    if snapshot is None:
+        return
+    queued = _queue_initial_contract_jobs(
+        db, user=user, contract=contract, version=version, snapshot=snapshot
+    )
+    job_ids = [job.id for job in queued]
+    db.commit()
+    for job_id in job_ids:
+        job = db.get(JobRun, job_id)
+        if job is not None:
+            try:
+                dispatch_job(db, job=job)
+            except Exception:
+                pass
+    db.commit()

@@ -61,6 +61,7 @@ def submit_for_approval(
         actor_user_id=current_user.id,
         reason="Submitted for approval",
         override=True,
+        override_authorized=True,
     )
     db.commit()
     db.refresh(approval)
@@ -104,6 +105,7 @@ def decide_approval(
         actor_user_id=current_user.id,
         reason=payload.comment,
         override=True,
+        override_authorized=True,
     )
     db.commit()
     db.refresh(approval)

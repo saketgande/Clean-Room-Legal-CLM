@@ -24,7 +24,7 @@ from app.auth.models import User
 from app.assistant.models import AssistantContractHandle, AssistantRun, AssistantToolCall
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
-from app.contracts.models import Contract
+from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -549,7 +549,15 @@ class AIController:
                             {
                                 "type": "tool_result",
                                 "tool_use_id": tool_use.get("id"),
-                                "content": self._json_tool_result(error_result),
+                                "content": self._json_tool_result(
+                                    self._model_safe_result(
+                                        db,
+                                        value=error_result,
+                                        org_id=user.org_id,
+                                        session_id=run.session_id,
+                                        user_id=user.id,
+                                    )
+                                ),
                                 "is_error": True,
                             }
                         )
@@ -735,6 +743,28 @@ class AIController:
             contract = db.get(Contract, contract_id)
             if contract is None or contract.org_id != org_id or contract.deleted_at is not None:
                 continue
+            try:
+                ctx = build_contract_context(db, org_id=org_id, contract_id=contract_id)
+            except Exception:
+                ctx = None
+            parties = db.scalars(
+                select(ContractParty).where(
+                    ContractParty.org_id == org_id,
+                    ContractParty.contract_id == contract_id,
+                )
+            ).all()
+            clause_types: list[str] = []
+            if ctx is not None and ctx.version is not None:
+                rows = db.scalars(
+                    select(ClauseExtraction.clause_type).where(
+                        ClauseExtraction.contract_id == contract_id,
+                        ClauseExtraction.contract_version_id == ctx.version.id,
+                        ClauseExtraction.is_stale.is_(False),
+                    )
+                ).all()
+                clause_types = sorted({c for c in rows if c})
+            ai_suggestions = (contract.metadata_json or {}).get("ai_suggestions", {}).get("metadata")
+            excerpt = ctx.text[:6000] if ctx and ctx.text else None
             summaries.append(
                 {
                     "handle": handle.get("handle"),
@@ -748,6 +778,15 @@ class AIController:
                     "expiration_date": contract.expiration_date,
                     "value_amount": contract.value_amount,
                     "currency": contract.currency,
+                    "parties": [
+                        {"name": p.name, "party_type": p.party_type} for p in parties
+                    ],
+                    "clause_types_present": clause_types,
+                    "ai_metadata_suggestions": ai_suggestions,
+                    "text_excerpt": excerpt,
+                    "text_truncated": bool(
+                        ctx and (ctx.text_was_truncated or (ctx.text and len(ctx.text) > 6000))
+                    ),
                 }
             )
         return summaries
