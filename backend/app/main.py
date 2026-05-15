@@ -8,7 +8,7 @@ from app.assistant.routes import router as assistant_router
 from app.auth.routes import router as auth_router
 from app.auth.routes import users_router
 from app.contract_brain.routes import router as contract_brain_router
-from app.contract_files.routes import router as contract_files_router
+from app.contract_files.routes import external_share_router, router as contract_files_router
 from app.contracts.routes import hub_router, router as contracts_router
 from app.core.config import settings
 from app.core.middleware import RequestContextMiddleware
@@ -44,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(projects_router, prefix=prefix)
     app.include_router(contracts_router, prefix=prefix)
     app.include_router(contract_files_router, prefix=prefix)
+    app.include_router(external_share_router, prefix=prefix)
     app.include_router(ai_router, prefix=prefix)
     app.include_router(assistant_router, prefix=prefix)
     app.include_router(workflows_router, prefix=prefix)

@@ -1,4 +1,8 @@
-from pydantic import BaseModel, ConfigDict
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.core.enums import ShareAccessMode
 
 
 class StorageObjectResponse(BaseModel):
@@ -45,3 +49,39 @@ class ContractTextSnapshotResponse(BaseModel):
     extraction_quality_score: float
     ocr_provider: str | None
     validation_status: str | None
+
+
+class ContractShareCreate(BaseModel):
+    contract_version_id: str | None = None
+    access_mode: ShareAccessMode = ShareAccessMode.VIEW_ONLY
+    expires_at: datetime | None = None
+    passcode: str | None = Field(default=None, min_length=4, max_length=128)
+    download_allowed: bool = False
+
+
+class ContractShareResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    contract_id: str
+    contract_version_id: str | None
+    access_mode: str
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    download_allowed: bool
+
+
+class ContractShareCreateResponse(BaseModel):
+    share: ContractShareResponse
+    token: str
+
+
+class ExternalShareResponse(BaseModel):
+    contract_id: str
+    contract_version_id: str | None
+    title: str
+    filename: str | None = None
+    access_mode: str
+    download_allowed: bool
+    text_excerpt: str | None = None
+    text_truncated: bool = False
