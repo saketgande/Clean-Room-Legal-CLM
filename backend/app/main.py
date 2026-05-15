@@ -10,7 +10,9 @@ from app.auth.routes import users_router
 from app.contract_brain.routes import router as contract_brain_router
 from app.contract_files.routes import external_share_router, router as contract_files_router
 from app.contracts.routes import hub_router, router as contracts_router
-from app.core.config import settings
+from app.core.config import settings, validate_runtime_settings
+from app.core.exceptions import register_exception_handlers
+from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.debug.routes import router as debug_router
 from app.jobs.routes import router as jobs_router
@@ -27,7 +29,10 @@ from app.workflows.routes import router as workflows_router
 
 
 def create_app() -> FastAPI:
+    configure_logging()
+    validate_runtime_settings(settings)
     app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
+    register_exception_handlers(app)
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         CORSMiddleware,

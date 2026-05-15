@@ -1,3 +1,4 @@
+import logging
 import time
 import uuid
 
@@ -6,6 +7,8 @@ from starlette.requests import Request
 
 from app.core.database import SessionLocal
 from app.core.models import RequestLog
+
+logger = logging.getLogger("app.requests")
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -24,9 +27,22 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             raise
         finally:
             latency_ms = (time.perf_counter() - started) * 1000
+            current_user = getattr(request.state, "current_user", None)
+            logger.info(
+                "request.completed",
+                extra={
+                    "request_id": request_id,
+                    "user_id": getattr(current_user, "id", None),
+                    "org_id": getattr(current_user, "org_id", None),
+                    "method": request.method,
+                    "route": str(request.url.path),
+                    "status_code": status_code,
+                    "latency_ms": round(latency_ms, 2),
+                    "error_class": error_class,
+                },
+            )
             db = SessionLocal()
             try:
-                current_user = getattr(request.state, "current_user", None)
                 db.add(
                     RequestLog(
                         request_id=request_id,

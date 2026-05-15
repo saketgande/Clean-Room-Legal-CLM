@@ -82,6 +82,8 @@ def get_version_text_snapshot(
     version = db.get(ContractVersion, version_id)
     if version is None or version.contract_id != contract_id or version.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
+    if version.text_snapshot_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Text snapshot not found")
     snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
     if snapshot is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Text snapshot not found")

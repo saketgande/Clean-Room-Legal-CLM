@@ -52,6 +52,10 @@ class User(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Timestamp
 
     @property
     def permission_values(self) -> set[str]:
+        if self.active_role_id:
+            active_role = next((role for role in self.roles if role.id == self.active_role_id), None)
+            if active_role is not None:
+                return {permission.value for permission in active_role.permissions}
         values: set[str] = set()
         for role in self.roles:
             for permission in role.permissions:
@@ -64,6 +68,13 @@ class RefreshToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base
     token_hash = Column(String(255), nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class PasswordResetToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
+    user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
+    token_hash = Column(String(255), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class ApiKey(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

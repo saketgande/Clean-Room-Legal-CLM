@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, event
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -22,6 +22,16 @@ class AuditLog(TableNameMixin, IdMixin, TimestampMixin, Base):
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)
     metadata_json = Column(JSON, nullable=True)
+
+
+@event.listens_for(AuditLog, "before_update", propagate=True)
+def _prevent_audit_log_update(mapper, connection, target) -> None:  # noqa: ANN001
+    raise RuntimeError("Audit logs are immutable")
+
+
+@event.listens_for(AuditLog, "before_delete", propagate=True)
+def _prevent_audit_log_delete(mapper, connection, target) -> None:  # noqa: ANN001
+    raise RuntimeError("Audit logs are immutable")
 
 
 class UsageRecord(

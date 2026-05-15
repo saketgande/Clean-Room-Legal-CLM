@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.auth.service import authenticate_api_key
 from app.auth.models import User
 from app.core.database import SessionLocal
 from app.core.enums import UserStatus
@@ -31,12 +32,19 @@ def get_current_user(
     try:
         payload = decode_access_token(credentials.credentials)
     except ValueError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from exc
+        api_key_user = authenticate_api_key(db, credentials.credentials)
+        if api_key_user is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from exc
+        request.state.current_user = api_key_user
+        return api_key_user
 
     user_id = payload.get("sub")
     user = db.get(User, user_id)
     if user is None or user.status != UserStatus.ACTIVE:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Active user required")
+    role_id = payload.get("role_id")
+    if role_id and user.active_role_id != role_id:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token role is no longer active")
     request.state.current_user = user
     return user
 

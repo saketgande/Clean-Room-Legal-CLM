@@ -68,6 +68,19 @@ class Settings(BaseSettings):
         return value
 
 
+def validate_runtime_settings(settings: Settings) -> None:
+    if settings.environment.lower() in {"local", "development", "dev", "test"}:
+        return
+    insecure_values = []
+    if settings.secret_key == "change-me-before-production" or len(settings.secret_key) < 32:
+        insecure_values.append("SECRET_KEY")
+    if settings.setup_token == "local-setup-token" or len(settings.setup_token) < 24:
+        insecure_values.append("SETUP_TOKEN")
+    if insecure_values:
+        joined = ", ".join(insecure_values)
+        raise RuntimeError(f"Insecure production configuration: replace {joined}")
+
+
 @lru_cache
 def get_settings() -> Settings:
     settings = Settings()

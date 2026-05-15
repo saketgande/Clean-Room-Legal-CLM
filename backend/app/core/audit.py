@@ -2,6 +2,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.core.database import SessionLocal
 from app.core.models import AuditLog, ResourceTimelineEvent
 
 
@@ -29,7 +30,17 @@ def write_audit_log(
         after=after,
         metadata_json=metadata,
     )
-    db.add(row)
+    durable_db = SessionLocal()
+    try:
+        durable_db.add(row)
+        durable_db.commit()
+        durable_db.refresh(row)
+        durable_db.expunge(row)
+    except Exception:
+        durable_db.rollback()
+        raise
+    finally:
+        durable_db.close()
     return row
 
 

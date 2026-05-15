@@ -10,6 +10,7 @@ from app.assistant.models import (
 from app.auth.models import (
     ApiKey,
     OrgJoinRequest,
+    PasswordResetToken,
     Permission,
     RefreshToken,
     Role,
@@ -90,6 +91,7 @@ __all__ = [
     "ObligationReminder",
     "Organization",
     "OrgJoinRequest",
+    "PasswordResetToken",
     "Permission",
     "Playbook",
     "PlaybookDecision",
