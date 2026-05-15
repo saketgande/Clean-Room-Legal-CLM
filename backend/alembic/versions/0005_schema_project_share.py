@@ -161,4 +161,9 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.execute("DROP INDEX IF EXISTS ix_contract_embedding_embedding_hnsw")
-    op.execute("DROP TABLE IF EXISTS project_share")
+    op.execute("DROP TABLE IF EXISTS project_share CASCADE")
+    op.execute("DROP TABLE IF EXISTS user_approval_decision CASCADE")
+    op.execute("DROP TABLE IF EXISTS org_join_request CASCADE")
+    op.execute("DROP TABLE IF EXISTS user_invitation CASCADE")
+    op.execute("DROP TABLE IF EXISTS api_key CASCADE")
+    op.execute("DROP TABLE IF EXISTS refresh_token CASCADE")

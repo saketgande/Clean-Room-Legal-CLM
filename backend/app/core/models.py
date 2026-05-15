@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, JSON, String, Text, event
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, event
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -7,10 +7,11 @@ from app.core.database import (
     OrgScopedMixin,
     TableNameMixin,
     TimestampMixin,
+    utcnow,
 )
 
 
-class AuditLog(TableNameMixin, IdMixin, TimestampMixin, Base):
+class AuditLog(TableNameMixin, IdMixin, Base):
     org_id = Column(String(36), index=True, nullable=True)
     actor_user_id = Column(String(36), index=True, nullable=True)
     action = Column(String(120), index=True, nullable=False)
@@ -22,6 +23,10 @@ class AuditLog(TableNameMixin, IdMixin, TimestampMixin, Base):
     before = Column(JSON, nullable=True)
     after = Column(JSON, nullable=True)
     metadata_json = Column(JSON, nullable=True)
+    prev_hash = Column(String(64), nullable=True)
+    row_hash = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 @event.listens_for(AuditLog, "before_update", propagate=True)

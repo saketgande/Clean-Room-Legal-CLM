@@ -1,8 +1,11 @@
+import hashlib
+import json
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.database import SessionLocal
+from app.core.database import SessionLocal, new_uuid, utcnow
 from app.core.models import AuditLog, ResourceTimelineEvent
 
 
@@ -19,19 +22,28 @@ def write_audit_log(
     after: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> AuditLog:
-    row = AuditLog(
-        action=action,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        org_id=org_id,
-        actor_user_id=actor_user_id,
-        request_id=request_id,
-        before=before,
-        after=after,
-        metadata_json=metadata,
-    )
     durable_db = SessionLocal()
     try:
+        previous_hash = durable_db.scalar(
+            select(AuditLog.row_hash).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(1)
+        )
+        created_at = utcnow()
+        row = AuditLog(
+            id=new_uuid(),
+            action=action,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            request_id=request_id,
+            before=before,
+            after=after,
+            metadata_json=metadata,
+            prev_hash=previous_hash,
+            created_at=created_at,
+            updated_at=created_at,
+        )
+        row.row_hash = compute_audit_row_hash(row)
         durable_db.add(row)
         durable_db.commit()
         durable_db.refresh(row)
@@ -43,6 +55,38 @@ def write_audit_log(
         durable_db.close()
     return row
 
+
+def compute_audit_row_hash(row: AuditLog) -> str:
+    payload = {
+        "id": row.id,
+        "org_id": row.org_id,
+        "actor_user_id": row.actor_user_id,
+        "action": row.action,
+        "resource_type": row.resource_type,
+        "resource_id": row.resource_id,
+        "request_id": row.request_id,
+        "ip_address": row.ip_address,
+        "user_agent": row.user_agent,
+        "before": row.before,
+        "after": row.after,
+        "metadata_json": row.metadata_json,
+        "prev_hash": row.prev_hash,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def verify_audit_hash_chain(db: Session) -> bool:
+    previous_hash = None
+    rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc())).all()
+    for row in rows:
+        if row.prev_hash != previous_hash:
+            return False
+        if row.row_hash != compute_audit_row_hash(row):
+            return False
+        previous_hash = row.row_hash
+    return True
 
 def write_timeline_event(
     db: Session,

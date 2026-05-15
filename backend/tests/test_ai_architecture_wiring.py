@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 
+from app.ai import confirmations
 from app.ai.controller import ai_controller
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
@@ -98,3 +99,21 @@ def test_mutating_assistant_tools_are_not_stubbed():
     assert "_generate_contract_docx" in source
     assert "_edit_contract" in source
     assert "_replicate_contract_version" in source
+
+
+def test_confirmation_reject_and_expiry_paths_are_explicit():
+    reject_source = inspect.getsource(confirmations.reject_confirmation)
+    pending_source = inspect.getsource(confirmations._get_pending_confirmation)
+
+    assert "AIConfirmationStatus.REJECTED" in reject_source
+    assert "AssistantToolCallStatus.REJECTED" in reject_source
+    assert "AIConfirmationStatus.EXPIRED" in pending_source
+    assert "Confirmation expired" in pending_source
+
+
+def test_resume_requires_confirmed_confirmation_before_execution():
+    source = inspect.getsource(ai_controller.resume_assistant_run)
+
+    assert 'confirmation.status != "confirmed"' in source
+    assert "Confirmation must be confirmed before resume" in source
+    assert source.index('confirmation.status != "confirmed"') < source.index("execute_confirmed")
