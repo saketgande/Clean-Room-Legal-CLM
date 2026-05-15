@@ -7,6 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.contract_files.models import (
+    ContractEdit,
     ContractFile,
     ContractShare,
     ContractTextSnapshot,
@@ -15,6 +16,8 @@ from app.contract_files.models import (
 )
 from app.contract_files.schemas import (
     ContractFileResponse,
+    ContractEditDecisionRequest,
+    ContractEditResponse,
     ContractShareCreate,
     ContractShareCreateResponse,
     ContractShareResponse,
@@ -109,6 +112,138 @@ def download_contract_version(
     except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
     return FileResponse(path, media_type=storage_object.mime_type, filename=storage_object.filename)
+
+
+@router.get("/edits", response_model=list[ContractEditResponse])
+def list_contract_edits(
+    contract_id: str,
+    status_filter: str | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    query = select(ContractEdit).where(
+        ContractEdit.org_id == current_user.org_id,
+        ContractEdit.contract_id == contract_id,
+    )
+    if status_filter:
+        query = query.where(ContractEdit.status == status_filter)
+    return db.scalars(query.order_by(ContractEdit.created_at.desc())).all()
+
+
+@router.post("/edits/{edit_id}/accept", response_model=ContractEditResponse)
+def accept_contract_edit(
+    contract_id: str,
+    edit_id: str,
+    payload: ContractEditDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    edit = _get_contract_edit(db, contract_id=contract_id, edit_id=edit_id, org_id=current_user.org_id)
+    if edit.status != "proposed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be accepted")
+    proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
+    contract_file = db.get(ContractFile, proposal_version.contract_file_id)
+    if contract_file is None or contract_file.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
+    versions = db.scalars(
+        select(ContractVersion).where(
+            ContractVersion.org_id == current_user.org_id,
+            ContractVersion.contract_id == contract_id,
+            ContractVersion.deleted_at.is_(None),
+        )
+    ).all()
+    for version in versions:
+        version.is_authoritative = version.id == proposal_version.id
+        version.updated_by_user_id = current_user.id
+    proposal_version.change_summary = _decision_summary(
+        proposal_version.change_summary,
+        decision="accepted",
+        comment=payload.comment,
+    )
+    contract.current_authoritative_version_id = proposal_version.id
+    contract.current_contract_file_id = contract_file.id
+    contract_file.current_version_id = proposal_version.id
+    edit.status = "accepted"
+    edit.updated_by_user_id = current_user.id
+    contract.updated_by_user_id = current_user.id
+    contract_file.updated_by_user_id = current_user.id
+    write_audit_log(
+        db,
+        action="contract.edit_accepted",
+        resource_type="contract_edit",
+        resource_id=edit.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={
+            "contract_id": contract_id,
+            "contract_version_id": proposal_version.id,
+            "comment": payload.comment,
+        },
+    )
+    write_timeline_event(
+        db,
+        org_id=current_user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.edit_accepted",
+        title="Assistant tracked change accepted",
+        actor_user_id=current_user.id,
+        details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
+    )
+    db.commit()
+    db.refresh(edit)
+    return edit
+
+
+@router.post("/edits/{edit_id}/reject", response_model=ContractEditResponse)
+def reject_contract_edit(
+    contract_id: str,
+    edit_id: str,
+    payload: ContractEditDecisionRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    edit = _get_contract_edit(db, contract_id=contract_id, edit_id=edit_id, org_id=current_user.org_id)
+    if edit.status != "proposed":
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be rejected")
+    proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
+    proposal_version.change_summary = _decision_summary(
+        proposal_version.change_summary,
+        decision="rejected",
+        comment=payload.comment,
+    )
+    edit.status = "rejected"
+    edit.updated_by_user_id = current_user.id
+    proposal_version.updated_by_user_id = current_user.id
+    write_audit_log(
+        db,
+        action="contract.edit_rejected",
+        resource_type="contract_edit",
+        resource_id=edit.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={
+            "contract_id": contract_id,
+            "contract_version_id": proposal_version.id,
+            "comment": payload.comment,
+        },
+    )
+    write_timeline_event(
+        db,
+        org_id=current_user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.edit_rejected",
+        title="Assistant tracked change rejected",
+        actor_user_id=current_user.id,
+        details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
+    )
+    db.commit()
+    db.refresh(edit)
+    return edit
 
 
 @router.post("/versions/{version_id}/restore", response_model=ContractVersionResponse)
@@ -488,6 +623,36 @@ def _share_version(db: Session, *, share: ContractShare, contract: Contract) -> 
     if version is None or version.org_id != share.org_id or version.contract_id != contract.id:
         return None
     return version
+
+
+def _get_contract_edit(db: Session, *, contract_id: str, edit_id: str, org_id: str) -> ContractEdit:
+    edit = db.get(ContractEdit, edit_id)
+    if edit is None or edit.org_id != org_id or edit.contract_id != contract_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract edit not found")
+    return edit
+
+
+def _proposal_version_for_edit(db: Session, *, edit: ContractEdit, org_id: str) -> ContractVersion:
+    proposal_version_id = None
+    for citation in edit.citation or []:
+        if isinstance(citation, dict) and citation.get("type") == "assistant_edit_version":
+            proposal_version_id = citation.get("contract_version_id")
+            break
+    if not proposal_version_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Edit has no assistant version to apply")
+    version = db.get(ContractVersion, proposal_version_id)
+    if version is None or version.org_id != org_id or version.contract_id != edit.contract_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant edit version not found")
+    return version
+
+
+def _decision_summary(summary: str | None, *, decision: str, comment: str | None) -> str:
+    suffix = f"Assistant edit {decision}."
+    if comment:
+        suffix = f"{suffix} Comment: {comment}"
+    if not summary:
+        return suffix
+    return f"{summary}\n{suffix}"
 
 
 def _hash_secret(value: str) -> str:

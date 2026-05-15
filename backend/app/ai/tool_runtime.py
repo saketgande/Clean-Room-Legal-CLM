@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from io import BytesIO
 from typing import Any
 
@@ -30,6 +31,7 @@ from app.contract_files.models import (
 from app.contract_files.service import next_version_number
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.enums import (
     AssistantToolCallStatus,
@@ -305,40 +307,17 @@ class ToolRuntime:
     ) -> dict[str, Any]:
         if payload.project_id:
             get_project_for_user(db, project_id=payload.project_id, user=user, access="update")
-        body_text = "\n\n".join(
-            [
-                payload.title,
-                "Generated from assistant instructions:",
-                payload.instructions,
-            ]
+        body_text, content = _build_generated_contract_docx(
+            title=payload.title,
+            instructions=payload.instructions,
         )
-        buffer = BytesIO()
-        from docx import Document
-
-        document = Document()
-        document.add_heading(payload.title, level=1)
-        document.add_paragraph(payload.instructions)
-        document.save(buffer)
-        content = buffer.getvalue()
-        stored = storage_service.save_bytes(
+        storage_object = _store_docx(
+            db,
             org_id=user.org_id,
-            filename=f"{payload.title}.docx",
-            mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            user_id=user.id,
+            filename=f"{_safe_filename(payload.title)}.docx",
             content=content,
         )
-        storage_object = StorageObject(
-            org_id=user.org_id,
-            storage_key=stored.storage_key,
-            filename=stored.filename,
-            mime_type=stored.mime_type,
-            size_bytes=stored.size_bytes,
-            sha256_hash=stored.sha256_hash,
-            storage_backend=StorageBackend.LOCAL_VOLUME,
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
-        )
-        db.add(storage_object)
-        db.flush()
         contract = Contract(
             org_id=user.org_id,
             title=payload.title,
@@ -352,7 +331,7 @@ class ToolRuntime:
         contract_file = ContractFile(
             org_id=user.org_id,
             contract_id=contract.id,
-            file_label=stored.filename,
+            file_label=storage_object.filename,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -400,9 +379,33 @@ class ToolRuntime:
                     updated_by_user_id=user.id,
                 )
             )
+        write_audit_log(
+            db,
+            action="assistant.contract_generated",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_file_id": contract_file.id,
+                "contract_version_id": version.id,
+                "storage_object_id": storage_object.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_generated",
+            title="Assistant generated contract",
+            actor_user_id=user.id,
+            details={"contract_version_id": version.id, "project_id": payload.project_id},
+        )
         db.flush()
         return {
             "status": "created",
+            "artifact_type": "generated_contract",
             "contract_id": contract.id,
             "contract_file_id": contract_file.id,
             "contract_version_id": version.id,
@@ -424,12 +427,32 @@ class ToolRuntime:
         contract_file = db.get(ContractFile, version.contract_file_id)
         if contract_file is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
+        source_snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+        proposed_text = _assistant_edit_text(
+            source_text=source_snapshot.text if source_snapshot else "",
+            instructions=payload.instructions,
+        )
+        edit_docx = _build_edit_docx(
+            contract_title=contract.title,
+            base_version_number=version.version_number,
+            instructions=payload.instructions,
+            source_text=source_snapshot.text if source_snapshot else "",
+        )
+        storage_object = _store_docx(
+            db,
+            org_id=user.org_id,
+            user_id=user.id,
+            filename=f"{_safe_filename(contract.title)}-assistant-edit-v{version.version_number}.docx",
+            content=edit_docx,
+        )
         edit = ContractEdit(
             org_id=user.org_id,
             contract_id=contract.id,
             contract_version_id=version.id,
             edit_type="assistant_instruction",
             status="proposed",
+            original_text=(source_snapshot.text[:4000] if source_snapshot else None),
+            replacement_text=proposed_text,
             rationale=payload.instructions,
             citation=[],
             created_by_user_id=user.id,
@@ -442,7 +465,7 @@ class ToolRuntime:
             contract_id=contract.id,
             contract_file_id=contract_file.id,
             version_number=next_version_number(db, contract_file.id),
-            storage_object_id=version.storage_object_id,
+            storage_object_id=storage_object.id,
             source=ContractVersionSource.ASSISTANT_EDIT,
             change_summary=f"Assistant edit proposal: {payload.instructions[:240]}",
             is_authoritative=False,
@@ -451,27 +474,56 @@ class ToolRuntime:
         )
         db.add(edit_version)
         db.flush()
-        source_snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
-        if source_snapshot is not None:
-            snapshot = ContractTextSnapshot(
-                org_id=user.org_id,
-                contract_id=contract.id,
-                contract_version_id=edit_version.id,
-                extraction_method=source_snapshot.extraction_method,
-                extraction_quality_score=source_snapshot.extraction_quality_score,
-                text=source_snapshot.text + f"\n\n[Assistant proposed edit]\n{payload.instructions}",
-                page_map=source_snapshot.page_map,
-                ocr_provider=source_snapshot.ocr_provider,
-                validation_status=source_snapshot.validation_status,
-                created_by_user_id=user.id,
-                updated_by_user_id=user.id,
-            )
-            db.add(snapshot)
-            db.flush()
-            edit_version.text_snapshot_id = snapshot.id
+        edit.citation = [
+            {
+                "type": "assistant_edit_version",
+                "contract_version_id": edit_version.id,
+            }
+        ]
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=edit_version.id,
+            extraction_method="assistant_edit_text",
+            extraction_quality_score=1.0,
+            text=proposed_text,
+            page_map=source_snapshot.page_map if source_snapshot else None,
+            ocr_provider=source_snapshot.ocr_provider if source_snapshot else None,
+            validation_status="complete",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        edit_version.text_snapshot_id = snapshot.id
+        contract_file.current_version_id = edit_version.id
+        write_audit_log(
+            db,
+            action="assistant.contract_edit_created",
+            resource_type="contract_edit",
+            resource_id=edit.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "base_version_id": version.id,
+                "contract_version_id": edit_version.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.tracked_change_created",
+            title="Assistant tracked-change version created",
+            actor_user_id=user.id,
+            details={"contract_edit_id": edit.id, "contract_version_id": edit_version.id},
+        )
         db.flush()
         return {
             "status": "created",
+            "artifact_type": "assistant_edit",
             "contract_id": contract.id,
             "base_version_id": version.id,
             "contract_version_id": edit_version.id,
@@ -561,6 +613,172 @@ class ToolRuntime:
 def _idempotency_key(tool_name: str, session_id: str, payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(f"{tool_name}:{session_id}:{canonical}".encode("utf-8")).hexdigest()
+
+
+def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, content: bytes) -> StorageObject:
+    stored = storage_service.save_bytes(
+        org_id=org_id,
+        filename=filename,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content=content,
+    )
+    storage_object = StorageObject(
+        org_id=org_id,
+        storage_key=stored.storage_key,
+        filename=stored.filename,
+        mime_type=stored.mime_type,
+        size_bytes=stored.size_bytes,
+        sha256_hash=stored.sha256_hash,
+        storage_backend=StorageBackend.LOCAL_VOLUME,
+        created_by_user_id=user_id,
+        updated_by_user_id=user_id,
+    )
+    db.add(storage_object)
+    db.flush()
+    return storage_object
+
+
+def _build_generated_contract_docx(*, title: str, instructions: str) -> tuple[str, bytes]:
+    from docx import Document
+
+    sections = [
+        ("Parties", "Identify the contracting parties and fill in any missing legal names."),
+        ("Purpose", "Describe the commercial purpose of this contract."),
+        ("Key Terms", instructions),
+        ("Obligations", "List each party's main obligations clearly and separately."),
+        ("Payment and Fees", "State payment amounts, timing, taxes, and invoicing rules if applicable."),
+        ("Confidentiality", "Include confidentiality duties, exclusions, and survival period."),
+        ("Term and Termination", "State effective date, renewal, termination rights, and notice periods."),
+        ("Governing Law", "State governing law and dispute forum."),
+        ("Open Issues", "Confirm all bracketed or business-specific terms before signature."),
+    ]
+    text_parts = [title]
+    document = Document()
+    document.add_heading(title, level=1)
+    document.add_paragraph("Assistant-generated working draft. Review before use.")
+    for heading, body in sections:
+        document.add_heading(heading, level=2)
+        document.add_paragraph(body)
+        text_parts.extend([heading, body])
+    buffer = BytesIO()
+    document.save(buffer)
+    return "\n\n".join(text_parts), buffer.getvalue()
+
+
+def _build_edit_docx(
+    *,
+    contract_title: str,
+    base_version_number: int,
+    instructions: str,
+    source_text: str,
+) -> bytes:
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
+    document.add_heading(f"{contract_title} - Assistant Redline Proposal", level=1)
+    document.add_paragraph(f"Base version: V{base_version_number}")
+    document.add_heading("Requested Change", level=2)
+    document.add_paragraph(instructions)
+    document.add_heading("Native Word Tracked Changes", level=2)
+    document.add_paragraph(
+        "This version contains native Word revision markup. "
+        "Use accept/reject endpoints to make the proposal authoritative or close it."
+    )
+    revision_paragraph = document.add_paragraph()
+    _append_deleted_text(
+        revision_paragraph,
+        source_text or "No source text snapshot was available.",
+        author="Legal AI Assistant",
+        revision_id="1",
+        OxmlElement=OxmlElement,
+        qn=qn,
+    )
+    _append_inserted_text(
+        revision_paragraph,
+        _assistant_edit_text(source_text=source_text, instructions=instructions),
+        author="Legal AI Assistant",
+        revision_id="2",
+        OxmlElement=OxmlElement,
+        qn=qn,
+    )
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _enable_word_track_revisions(document: Any, *, OxmlElement: Any, qn: Any) -> None:
+    settings = document.settings.element
+    if settings.find(qn("w:trackRevisions")) is None:
+        settings.append(OxmlElement("w:trackRevisions"))
+
+
+def _append_deleted_text(
+    paragraph: Any,
+    text: str,
+    *,
+    author: str,
+    revision_id: str,
+    OxmlElement: Any,
+    qn: Any,
+) -> None:
+    deletion = OxmlElement("w:del")
+    _set_revision_attrs(deletion, author=author, revision_id=revision_id, qn=qn)
+    _append_revision_runs(deletion, text, text_tag="w:delText", OxmlElement=OxmlElement)
+    paragraph._p.append(deletion)
+
+
+def _append_inserted_text(
+    paragraph: Any,
+    text: str,
+    *,
+    author: str,
+    revision_id: str,
+    OxmlElement: Any,
+    qn: Any,
+) -> None:
+    insertion = OxmlElement("w:ins")
+    _set_revision_attrs(insertion, author=author, revision_id=revision_id, qn=qn)
+    _append_revision_runs(insertion, text, text_tag="w:t", OxmlElement=OxmlElement)
+    paragraph._p.append(insertion)
+
+
+def _set_revision_attrs(element: Any, *, author: str, revision_id: str, qn: Any) -> None:
+    element.set(qn("w:id"), revision_id)
+    element.set(qn("w:author"), author)
+    element.set(qn("w:date"), utcnow().replace(microsecond=0).isoformat())
+
+
+def _append_revision_runs(parent: Any, text: str, *, text_tag: str, OxmlElement: Any) -> None:
+    xml_space = "{http://www.w3.org/XML/1998/namespace}space"
+    for line_index, line in enumerate(text.splitlines() or [""]):
+        if line_index:
+            break_run = OxmlElement("w:r")
+            break_run.append(OxmlElement("w:br"))
+            parent.append(break_run)
+        run = OxmlElement("w:r")
+        text_element = OxmlElement(text_tag)
+        text_element.set(xml_space, "preserve")
+        text_element.text = line
+        run.append(text_element)
+        parent.append(run)
+
+
+def _assistant_edit_text(*, source_text: str, instructions: str) -> str:
+    return "\n\n".join(
+        [
+            source_text,
+            "[Assistant proposed tracked change]",
+            instructions,
+        ]
+    ).strip()
+
+
+def _safe_filename(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
+    return cleaned[:120] or "contract"
 
 
 tool_runtime = ToolRuntime()

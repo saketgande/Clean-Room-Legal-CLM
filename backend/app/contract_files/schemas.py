@@ -51,6 +51,24 @@ class ContractTextSnapshotResponse(BaseModel):
     validation_status: str | None
 
 
+class ContractEditResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    contract_id: str
+    contract_version_id: str
+    edit_type: str
+    status: str
+    original_text: str | None
+    replacement_text: str | None
+    rationale: str | None
+    citation: list | None
+
+
+class ContractEditDecisionRequest(BaseModel):
+    comment: str | None = Field(default=None, max_length=2000)
+
+
 class ContractShareCreate(BaseModel):
     contract_version_id: str | None = None
     access_mode: ShareAccessMode = ShareAccessMode.VIEW_ONLY
