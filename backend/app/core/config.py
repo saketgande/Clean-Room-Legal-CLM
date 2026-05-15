@@ -1,8 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     setup_token: str = "local-setup-token"
 
-    allowed_mime_types: list[str] = Field(
+    allowed_mime_types: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "application/pdf",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

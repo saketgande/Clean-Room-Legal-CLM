@@ -1,22 +1,29 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.core.config import settings
 
 
 ALGORITHM = "HS256"
-password_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _bcrypt_secret(password: str) -> bytes:
+    # bcrypt only uses the first 72 bytes; longer inputs raise in bcrypt 4+.
+    return password.encode("utf-8")[:72]
 
 
 def hash_password(password: str) -> str:
-    return password_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_secret(password), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return password_context.verify(password, password_hash)
+    try:
+        return bcrypt.checkpw(_bcrypt_secret(password), password_hash.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_access_token(subject: str, claims: dict[str, Any] | None = None) -> str:
