@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     docusign_private_key_path: str | None = None
     docusign_oauth_base_url: str = "https://account-d.docusign.com"
     docusign_rest_base_url: str = "https://demo.docusign.net/restapi"
+    docusign_connect_hmac_key: str | None = None
     mock_docusign: bool = True
 
     verbose_debug_logging: bool = False
@@ -78,9 +79,24 @@ def validate_runtime_settings(settings: Settings) -> None:
         insecure_values.append("SECRET_KEY")
     if settings.setup_token == "local-setup-token" or len(settings.setup_token) < 24:
         insecure_values.append("SETUP_TOKEN")
+    enabled_mocks = [
+        name
+        for name, on in (
+            ("MOCK_CLAUDE", settings.mock_claude),
+            ("MOCK_DOCUSIGN", settings.mock_docusign),
+            ("MOCK_REDUCTO", settings.mock_reducto),
+            ("MOCK_RESEND", settings.mock_resend),
+        )
+        if on
+    ]
+    problems = []
     if insecure_values:
-        joined = ", ".join(insecure_values)
-        raise RuntimeError(f"Insecure production configuration: replace {joined}")
+        problems.append(f"replace {', '.join(insecure_values)}")
+    if enabled_mocks:
+        problems.append(f"disable mock integrations {', '.join(enabled_mocks)}")
+    # HMAC key intentionally optional: Connect is plan-gated; the webhook self-rejects when unset.
+    if problems:
+        raise RuntimeError("Insecure production configuration: " + "; ".join(problems))
 
 
 @lru_cache

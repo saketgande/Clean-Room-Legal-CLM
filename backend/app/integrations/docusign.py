@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import base64
+import hashlib
+import hmac
 from pathlib import Path
 
 import httpx
@@ -122,3 +124,18 @@ class DocuSignClient:
 
 
 docusign_client = DocuSignClient()
+
+
+def verify_connect_signature(*, body: bytes, signature_header: str | None) -> bool:
+    """Verify a DocuSign Connect HMAC (Base64 HMAC-SHA256 of the raw body).
+
+    Returns False when no shared key is configured or the header is absent —
+    the webhook must reject anything it cannot cryptographically attribute.
+    """
+    key = settings.docusign_connect_hmac_key
+    if not key or not signature_header:
+        return False
+    expected = base64.b64encode(
+        hmac.new(key.encode("utf-8"), body, hashlib.sha256).digest()
+    ).decode("ascii")
+    return hmac.compare_digest(expected, signature_header.strip())

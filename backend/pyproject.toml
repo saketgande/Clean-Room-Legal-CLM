@@ -23,6 +23,7 @@ dependencies = [
   "python-multipart>=0.0.12",
   "rapidfuzz>=3.10.1",
   "redis>=5.1.1",
+  "reductoai>=0.22.0",
   "sqlalchemy>=2.0.35",
   "uvicorn[standard]>=0.30.6",
 ]

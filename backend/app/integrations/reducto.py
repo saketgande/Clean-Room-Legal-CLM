@@ -1,6 +1,7 @@
+import inspect
+import tempfile
 from dataclasses import dataclass
-
-import httpx
+from pathlib import Path
 
 from app.core.config import settings
 
@@ -11,6 +12,10 @@ class OCRResult:
     provider: str
     quality_score: float
     metadata: dict
+
+
+async def _maybe_await(value):
+    return await value if inspect.isawaitable(value) else value
 
 
 class ReductoClient:
@@ -27,20 +32,35 @@ class ReductoClient:
         if not settings.reducto_api_key:
             raise RuntimeError("REDUCTO_API_KEY is required when mock Reducto mode is disabled")
 
-        async with httpx.AsyncClient(timeout=120) as client:
-            response = await client.post(
-                "https://platform.reducto.ai/v1/parse",
-                headers={"Authorization": f"Bearer {settings.reducto_api_key}"},
-                files={"file": (filename, content, mime_type)},
-            )
-            response.raise_for_status()
-            payload = response.json()
-        text = payload.get("text") or payload.get("content") or ""
+        from reducto import AsyncReducto
+
+        suffix = Path(filename).suffix or ".pdf"
+        client = AsyncReducto(api_key=settings.reducto_api_key)
+        try:
+            with tempfile.NamedTemporaryFile(suffix=suffix) as tmp:
+                tmp.write(content)
+                tmp.flush()
+                upload = await _maybe_await(client.upload(file=Path(tmp.name)))
+            file_input = getattr(upload, "file_id", None) or upload
+            parsed = await _maybe_await(client.parse.run(input=file_input))
+        finally:
+            close = getattr(client, "close", None)
+            if close is not None:
+                await _maybe_await(close())
+
+        result = getattr(parsed, "result", None)
+        chunks = getattr(result, "chunks", None) or []
+        text = "\n".join((getattr(c, "content", "") or "") for c in chunks).strip()
+        usage = getattr(parsed, "usage", None)
         return OCRResult(
             text=text,
             provider=self.provider,
             quality_score=0.9 if text else 0.0,
-            metadata=payload,
+            metadata={
+                "job_id": getattr(parsed, "job_id", None),
+                "num_pages": getattr(usage, "num_pages", None),
+                "credits": getattr(usage, "credits", None),
+            },
         )
 
 

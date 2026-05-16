@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -68,6 +69,7 @@ from app.playbooks.service import execute_playbook_run, get_playbook_for_user, s
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
 from app.signatures.models import SignatureRecipient, SignatureRequest
+from app.signatures.service import validate_signature_recipients
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 from app.tabular_review.service import dispatch_cells
 from app.workflows.models import Workflow, WorkflowRun
@@ -852,6 +854,9 @@ class ToolRuntime:
         storage_object = db.get(StorageObject, version.storage_object_id)
         if storage_object is None or storage_object.org_id != user.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
+        validate_signature_recipients(
+            db, contract=contract, org_id=user.org_id, recipients=payload.recipients
+        )
         content = storage_service.read_bytes(storage_object.storage_key)
         envelope = await docusign_client.create_envelope(
             filename=storage_object.filename,
@@ -886,22 +891,29 @@ class ToolRuntime:
                     updated_by_user_id=user.id,
                 )
             )
-            await resend_client.send_email(
-                to=str(recipient.email),
-                subject=f"Signature requested: {contract.title}",
-                html=(
-                    f"<p>You have been requested to sign <b>{contract.title}</b>.</p>"
-                    f"<p>Envelope: {envelope.envelope_id or 'mock'}</p>"
-                ),
-            )
+            try:
+                await resend_client.send_email(
+                    to=str(recipient.email),
+                    subject=f"Signature requested: {contract.title}",
+                    html=(
+                        f"<p>You have been requested to sign <b>{contract.title}</b>.</p>"
+                        f"<p>Envelope: {envelope.envelope_id or 'mock'}</p>"
+                    ),
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "assistant signature notification email failed for %s: %s",
+                    recipient.email,
+                    exc,
+                )
         transition_contract_stage(
             db,
             contract=contract,
             to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
             actor_user_id=user.id,
             reason="Sent for signature by assistant",
-            override=True,
-            override_authorized=True,
+            override=payload.override_lifecycle,
+            override_authorized=payload.override_lifecycle,
         )
         db.flush()
         return {

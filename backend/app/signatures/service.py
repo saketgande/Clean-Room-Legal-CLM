@@ -16,7 +16,7 @@ from app.contract_files.service import (
     requeue_contract_ai_jobs,
 )
 from app.contracts.lifecycle import transition_contract_stage
-from app.contracts.models import Contract
+from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import (
     ContractLifecycleStage,
@@ -24,6 +24,54 @@ from app.core.enums import (
     SignatureStatus,
 )
 from app.signatures.models import SignatureEvent, SignatureRecipient, SignatureRequest
+
+
+def validate_signature_recipients(
+    db: Session,
+    *,
+    contract: Contract,
+    org_id: str,
+    recipients: list,
+) -> None:
+    """Every recipient must be a contract party or an organization user.
+
+    The signing document and a signature link are emailed to these addresses,
+    so an arbitrary caller- or model-supplied address is a document
+    exfiltration vector. The allowlist is server-derived, never trusted input.
+    """
+    if not recipients:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "At least one recipient is required"
+        )
+    allowed = {
+        email.lower()
+        for email in db.scalars(
+            select(ContractParty.contact_email).where(
+                ContractParty.org_id == org_id,
+                ContractParty.contract_id == contract.id,
+                ContractParty.contact_email.is_not(None),
+            )
+        )
+        if email
+    }
+    allowed |= {
+        email.lower()
+        for email in db.scalars(select(User.email).where(User.org_id == org_id))
+        if email
+    }
+    invalid = sorted(
+        {
+            str(recipient.email).lower()
+            for recipient in recipients
+            if str(recipient.email).lower() not in allowed
+        }
+    )
+    if invalid:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Recipients must be a contract party or an organization user: "
+            + ", ".join(invalid),
+        )
 
 
 def _create_signed_version(
@@ -194,8 +242,6 @@ def sync_signature_request(
         to_stage=ContractLifecycleStage.ACTIVE,
         actor_user_id=user.id,
         reason="Signature completed",
-        override=True,
-        override_authorized=True,
         request_id=request_id,
     )
     write_audit_log(
