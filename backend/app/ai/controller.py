@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -16,6 +17,8 @@ from app.ai.schemas import (
     ClauseExtractionOutput,
     ContractEditSuggestionsOutput,
     ContractMetadataOutput,
+    ObligationExtractionOutput,
+    RenewalExtractionOutput,
 )
 from app.ai.skill import SkillSpec
 from app.ai.tool_registry import tool_registry
@@ -25,6 +28,8 @@ from app.assistant.models import AssistantContractHandle, AssistantRun, Assistan
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
 from app.contracts.models import Contract, ContractParty
+from app.obligations.models import Obligation, ObligationReminder
+from app.renewals.models import RenewalEvent
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -1216,6 +1221,10 @@ class AIController:
             self._persist_clauses(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
         elif spec.name == "contract_edit_suggestions":
             self._persist_contract_edits(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
+        elif spec.name == "obligation_extraction":
+            self._persist_obligations(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
+        elif spec.name == "renewal_extraction":
+            self._persist_renewal(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
 
     def _persist_metadata(
         self,
@@ -1396,6 +1405,195 @@ class AIController:
         job.finished_at = utcnow()
         job.error_message = error_message
 
+    def _persist_obligations(
+        self,
+        db: Session,
+        *,
+        output: BaseModel,
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+        request_id: str | None,
+        skill_run: AISkillRun,
+    ) -> None:
+        extracted = (
+            output
+            if isinstance(output, ObligationExtractionOutput)
+            else ObligationExtractionOutput.model_validate(output)
+        )
+        contract = context.contract
+        # Replace prior AI-extracted, still-open obligations so re-extraction
+        # on a new authoritative version does not duplicate.
+        existing = db.scalars(
+            select(Obligation).where(
+                Obligation.org_id == contract.org_id,
+                Obligation.contract_id == contract.id,
+                Obligation.deleted_at.is_(None),
+            )
+        ).all()
+        today = utcnow().date()
+        for ob in existing:
+            if (ob.metadata_json or {}).get("source") == "ai_extraction" and ob.status not in {
+                "completed",
+                "cancelled",
+            }:
+                ob.deleted_at = utcnow()
+                ob.deleted_by_user_id = created_by_user_id
+                ob.updated_by_user_id = created_by_user_id
+        created = 0
+        for item in extracted.obligations:
+            citation = item.citations[0].model_dump(mode="json") if item.citations else None
+            obligation = Obligation(
+                org_id=contract.org_id,
+                contract_id=contract.id,
+                contract_version_id=context.version.id if context.version else None,
+                owner_user_id=contract.owner_user_id,
+                responsible_party=item.responsible_party,
+                obligation_type=item.obligation_type,
+                description=item.description,
+                due_date=item.due_date,
+                recurrence=item.recurrence,
+                status="open",
+                source_citation=citation,
+                metadata_json={
+                    "source": "ai_extraction",
+                    "confidence": item.confidence,
+                    "source_clause_type": item.source_clause_type,
+                    "skill_run_id": skill_run.id,
+                },
+                created_by_user_id=created_by_user_id,
+                updated_by_user_id=created_by_user_id,
+            )
+            db.add(obligation)
+            db.flush()
+            created += 1
+            if item.due_date is not None:
+                remind_at = item.due_date - timedelta(days=7)
+                if remind_at < today:
+                    remind_at = today
+                db.add(
+                    ObligationReminder(
+                        org_id=contract.org_id,
+                        obligation_id=obligation.id,
+                        remind_at=remind_at,
+                        channel="email",
+                        created_by_user_id=created_by_user_id,
+                        updated_by_user_id=created_by_user_id,
+                    )
+                )
+        write_audit_log(
+            db,
+            action="contract.obligations_extracted",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=contract.org_id,
+            actor_user_id=created_by_user_id,
+            request_id=request_id,
+            after={"obligation_count": created, "skill_run_id": skill_run.id},
+        )
+        write_timeline_event(
+            db,
+            org_id=contract.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.obligations_extracted",
+            title=f"Obligations extracted ({created})",
+            actor_user_id=created_by_user_id,
+            request_id=request_id,
+            skill_run_id=skill_run.id,
+            details={"obligation_count": created},
+        )
+
+    def _persist_renewal(
+        self,
+        db: Session,
+        *,
+        output: BaseModel,
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+        request_id: str | None,
+        skill_run: AISkillRun,
+    ) -> None:
+        renewal = (
+            output
+            if isinstance(output, RenewalExtractionOutput)
+            else RenewalExtractionOutput.model_validate(output)
+        )
+        contract = context.contract
+        window_start = renewal.notice_date
+        if (
+            window_start is None
+            and renewal.expiration_date is not None
+            and renewal.notice_period_days
+        ):
+            window_start = renewal.expiration_date - timedelta(days=renewal.notice_period_days)
+        event = db.scalar(
+            select(RenewalEvent).where(
+                RenewalEvent.org_id == contract.org_id,
+                RenewalEvent.contract_id == contract.id,
+            )
+        )
+        meta = {
+            "auto_renewal": renewal.auto_renewal,
+            "renewal_term": renewal.renewal_term,
+            "termination_rights_summary": renewal.termination_rights_summary,
+            "confidence": renewal.confidence,
+            "needs_review": renewal.needs_review,
+            "skill_run_id": skill_run.id,
+            "citations": [c.model_dump(mode="json") for c in renewal.citations],
+        }
+        if event is None:
+            event = RenewalEvent(
+                org_id=contract.org_id,
+                contract_id=contract.id,
+                contract_version_id=context.version.id if context.version else None,
+                expiration_date=renewal.expiration_date,
+                notice_date=renewal.notice_date,
+                renewal_window_starts_at=window_start,
+                owner_user_id=contract.owner_user_id,
+                metadata_json=meta,
+                created_by_user_id=created_by_user_id,
+                updated_by_user_id=created_by_user_id,
+            )
+            db.add(event)
+        else:
+            event.expiration_date = renewal.expiration_date
+            event.notice_date = renewal.notice_date
+            event.renewal_window_starts_at = window_start
+            event.contract_version_id = context.version.id if context.version else event.contract_version_id
+            event.metadata_json = meta
+            event.updated_by_user_id = created_by_user_id
+        db.flush()
+        write_audit_log(
+            db,
+            action="contract.renewal_extracted",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=contract.org_id,
+            actor_user_id=created_by_user_id,
+            request_id=request_id,
+            after={
+                "expiration_date": str(renewal.expiration_date),
+                "notice_date": str(renewal.notice_date),
+                "skill_run_id": skill_run.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=contract.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.renewal_extracted",
+            title="Renewal terms extracted",
+            actor_user_id=created_by_user_id,
+            request_id=request_id,
+            skill_run_id=skill_run.id,
+            details={
+                "expiration_date": str(renewal.expiration_date),
+                "notice_date": str(renewal.notice_date),
+                "needs_review": renewal.needs_review,
+            },
+        )
+
     def _fallback_output(
         self,
         spec: SkillSpec,
@@ -1414,7 +1612,7 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
     root_citations = getattr(output, "citations", None)
     if root_citations:
         citations.extend(root_citations)
-    for item_name in ["clauses", "edits", "deviations"]:
+    for item_name in ["clauses", "edits", "deviations", "obligations"]:
         for item in getattr(output, item_name, []) or []:
             citations.extend(getattr(item, "citations", []) or [])
     return citations

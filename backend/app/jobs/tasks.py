@@ -6,11 +6,15 @@ from sqlalchemy import select
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AISkillRun
-from app.contract_files.models import ContractTextSnapshot
+from app.contract_brain.ingestion import ingest_contract_brain
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contracts.models import Contract
+from app.ai.schemas import TabularCellOutput
 from app.core.database import SessionLocal, utcnow
-from app.core.enums import AISkillRunStatus, JobStatus
+from app.core.enums import AISkillRunStatus, JobStatus, TabularCellStatus
 from app.jobs.celery_app import celery_app
 from app.jobs.models import JobRun
+from app.tabular_review.models import TabularReviewCell, TabularReviewColumn
 
 
 @celery_app.task(bind=True, autoretry_for=(Exception,), retry_backoff=True, retry_kwargs={"max_retries": 3})
@@ -56,6 +60,30 @@ async def _run_ai_job(job_id: str) -> dict:
                 },
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
+        elif job.job_type == "obligation_extraction":
+            await ai_controller.run_job_skill(
+                db,
+                job=job,
+                skill_name="obligation_extraction",
+                input_payload={
+                    "contract_id": job.resource_id,
+                    "contract_version_id": job.metadata_json.get("contract_version_id"),
+                    "text_snapshot_id": job.metadata_json.get("text_snapshot_id"),
+                },
+            )
+            _sync_job_from_skill_runs(db, job_id=job.id)
+        elif job.job_type == "renewal_extraction":
+            await ai_controller.run_job_skill(
+                db,
+                job=job,
+                skill_name="renewal_extraction",
+                input_payload={
+                    "contract_id": job.resource_id,
+                    "contract_version_id": job.metadata_json.get("contract_version_id"),
+                    "text_snapshot_id": job.metadata_json.get("text_snapshot_id"),
+                },
+            )
+            _sync_job_from_skill_runs(db, job_id=job.id)
         elif job.job_type == "embeddings":
             snapshot = db.get(ContractTextSnapshot, job.metadata_json.get("text_snapshot_id"))
             if snapshot is None:
@@ -65,13 +93,70 @@ async def _run_ai_job(job_id: str) -> dict:
             job.metadata_json = {**(job.metadata_json or {}), "embedding_count": len(rows)}
             db.commit()
         elif job.job_type == "contract_brain_ingestion":
+            contract = db.get(Contract, job.resource_id)
+            version = db.get(ContractVersion, job.metadata_json.get("contract_version_id"))
+            snapshot = (
+                db.get(ContractTextSnapshot, job.metadata_json.get("text_snapshot_id"))
+                if job.metadata_json.get("text_snapshot_id")
+                else None
+            )
+            if contract is None or version is None:
+                raise RuntimeError("Contract or version not found for brain ingestion job")
+            counts = ingest_contract_brain(
+                db,
+                org_id=job.org_id,
+                created_by_user_id=job.created_by_user_id,
+                contract=contract,
+                version=version,
+                snapshot=snapshot,
+            )
             _mark_job_succeeded(job)
-            job.metadata_json = {
-                **(job.metadata_json or {}),
-                "skipped": True,
-                "skip_reason": "Contract Brain ingestion is disabled until the Contract Brain phase.",
-            }
+            job.metadata_json = {**(job.metadata_json or {}), "graph_node_counts": counts}
             db.commit()
+        elif job.job_type == "tabular_cell_extraction":
+            cell = db.get(TabularReviewCell, job.metadata_json.get("cell_id"))
+            if cell is None:
+                raise RuntimeError("Tabular review cell not found")
+            column = db.get(TabularReviewColumn, cell.column_id)
+            if column is None:
+                raise RuntimeError("Tabular review column not found")
+            cell.status = TabularCellStatus.RUNNING
+            db.commit()
+            try:
+                output = await ai_controller.run_job_skill(
+                    db,
+                    job=job,
+                    skill_name="tabular_cell_extraction",
+                    input_payload={
+                        "question": column.prompt,
+                        "contract_id": cell.contract_id,
+                    },
+                )
+                out = (
+                    output
+                    if isinstance(output, TabularCellOutput)
+                    else TabularCellOutput.model_validate(output)
+                )
+                cell.answer = out.answer
+                cell.reasoning = out.reasoning
+                cell.confidence = out.confidence
+                cell.citations = [c.model_dump(mode="json") for c in out.citations]
+                cell.raw_ai_output = out.model_dump(mode="json")
+                cell.error_message = None
+                # A cell must be cited or explicitly not_found; otherwise flag it.
+                if out.not_found or out.citations:
+                    cell.status = TabularCellStatus.COMPLETE
+                else:
+                    cell.status = TabularCellStatus.NEEDS_REVIEW
+                cell.updated_by_user_id = job.created_by_user_id
+                _mark_job_succeeded(job)
+                db.commit()
+            except Exception as cell_exc:
+                cell.status = TabularCellStatus.FAILED
+                cell.error_message = str(cell_exc)
+                cell.updated_by_user_id = job.created_by_user_id
+                db.commit()
+                raise
         else:
             job.status = JobStatus.FAILED
             job.error_message = f"Unsupported job type for AI architecture spine: {job.job_type}"

@@ -94,6 +94,64 @@ class PlaybookReviewOutput(BaseModel):
     citations: list[CitationInput] = Field(default_factory=list)
 
 
+class ObligationOutput(BaseModel):
+    obligation_type: str | None = None
+    description: str = Field(min_length=1)
+    responsible_party: str | None = None
+    due_date: date | None = None
+    recurrence: str | None = None
+    source_clause_type: str | None = None
+    confidence: Literal["high", "medium", "low"] = "medium"
+    citations: list[CitationInput] = Field(default_factory=list)
+
+
+class ObligationExtractionOutput(BaseModel):
+    obligations: list[ObligationOutput] = Field(default_factory=list)
+    extraction_notes: str | None = None
+
+
+class RenewalExtractionOutput(BaseModel):
+    expiration_date: date | None = None
+    auto_renewal: bool = False
+    renewal_term: str | None = None
+    notice_date: date | None = None
+    notice_period_days: int | None = None
+    termination_rights_summary: str | None = None
+    confidence: Literal["high", "medium", "low"] = "low"
+    needs_review: bool = False
+    citations: list[CitationInput] = Field(default_factory=list)
+
+
+class BrainQueryParseOutput(BaseModel):
+    query_scope: Literal["contract", "project", "portfolio"] = "portfolio"
+    target_clause_types: list[str] = Field(default_factory=list)
+    party_filters: list[str] = Field(default_factory=list)
+    needs_vector_search: bool = True
+    needs_graph_search: bool = True
+    needs_full_text_search: bool = True
+
+
+class BrainAnswerOutput(BaseModel):
+    answer: str = Field(min_length=1)
+    citations: list[CitationInput] = Field(default_factory=list)
+    related_contract_ids: list[str] = Field(default_factory=list)
+    confidence: Literal["high", "medium", "low"] = "low"
+    limitations: str | None = None
+
+
+class TabularCellOutput(BaseModel):
+    answer: str = ""
+    reasoning: str | None = None
+    not_found: bool = False
+    confidence: Literal["high", "medium", "low"] = "low"
+    citations: list[CitationInput] = Field(default_factory=list)
+
+
+class TabularChatOutput(BaseModel):
+    answer: str = Field(min_length=1)
+    citations: list[CitationInput] = Field(default_factory=list)
+
+
 class AssistantAnswerOutput(BaseModel):
     answer: str
     citations: list[CitationInput] = Field(default_factory=list)

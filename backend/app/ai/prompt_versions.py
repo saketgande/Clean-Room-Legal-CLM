@@ -39,6 +39,22 @@ If the answer cannot be found in the provided context, say not_found instead of 
 Return a title and ordered sections. The backend renders the actual DOCX file.""",
     "contract_edit_suggestions": """Suggest contract edits as tracked-change-ready records.
 Each edit must include the original text when changing existing language, a replacement or insertion, rationale, risk level, and citation when based on source text.""",
+    "obligation_extraction": """Extract concrete contractual obligations from the supplied contract text.
+For each obligation include: a clear description, the responsible party, an obligation type, a due date in ISO format if stated, recurrence if periodic, and the source clause type.
+Every obligation must include a citation quote from the contract text. If no clear obligations exist, return an empty obligations list with extraction notes.""",
+    "renewal_extraction": """Extract the contract's expiration date, whether it auto-renews, the renewal term, the renewal/termination notice date, the notice period in days, and a short termination-rights summary.
+Use ISO date format. Expiration and notice dates must include a citation quote. If a value is not clearly present, return null and set needs_review=true.""",
+    "contract_brain_query_parse": """Classify the user's Contract Brain question.
+Decide the query scope (contract, project, or portfolio), any target clause types, party filters, and which retrieval methods are useful (vector, graph, full text).
+Return only the structured classification.""",
+    "contract_brain_answer": """Answer the user's question using ONLY the supplied retrieved context (clauses, graph facts, and snippets).
+Every contract-specific claim must include a citation quote drawn from the retrieved context.
+If the retrieved context does not contain the answer, say it is not found rather than guessing. List any limitations.""",
+    "tabular_cell_extraction": """Answer the single tabular-review question for THIS contract only, using the supplied contract context.
+Return a concise answer, brief reasoning, and a citation quote from the contract text.
+If the contract does not address the question, set not_found=true and leave the answer empty rather than guessing.""",
+    "tabular_review_chat": """Answer the user's question about a tabular review using ONLY the supplied table of per-contract cell answers and their citations.
+Cite the contract/cell the claim comes from. If the table does not contain the answer, say it is not found.""",
     "playbook_review": """Compare the supplied untrusted contract text against the supplied playbook rules.
 Rules are passed with stable rule_index values; reference rule_index instead of internal IDs.
 Return one deviation for each material conflict, missing required position, prohibited phrase, or accepted fallback that needs tracking.

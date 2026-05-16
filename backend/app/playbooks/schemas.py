@@ -115,7 +115,7 @@ class PlaybookRunResponse(BaseModel):
     playbook_id: str
     playbook_version_id: str
     contract_id: str
-    contract_version_id: str | None
+    contract_version_id: str
     status: str
     validation_status: str | None
     model_name: str | None

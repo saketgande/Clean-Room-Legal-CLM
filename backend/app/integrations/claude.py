@@ -205,6 +205,34 @@ class ClaudeClient:
                 "notes": "Mock Claude mode returned no extracted metadata.",
             },
             "return_clause_extraction": {"clauses": [], "extraction_notes": "Mock Claude mode returned no clauses."},
+            "return_obligation_extraction": {
+                "obligations": [],
+                "extraction_notes": "Mock Claude mode returned no obligations.",
+            },
+            "return_renewal_extraction": {"confidence": "low", "needs_review": True},
+            "return_tabular_cell_extraction": {
+                "answer": "",
+                "not_found": True,
+                "confidence": "low",
+                "citations": [],
+            },
+            "return_tabular_review_chat": {
+                "answer": "Mock Claude mode is enabled, so no live tabular-review answer was generated.",
+                "citations": [],
+            },
+            "return_contract_brain_query_parse": {
+                "query_scope": "portfolio",
+                "target_clause_types": [],
+                "needs_vector_search": True,
+                "needs_graph_search": True,
+                "needs_full_text_search": True,
+            },
+            "return_contract_brain_answer": {
+                "answer": "Mock Claude mode is enabled, so no live Contract Brain answer was generated.",
+                "citations": [],
+                "confidence": "low",
+                "limitations": "Mock mode: no model reasoning performed.",
+            },
             "return_assistant_streaming": {
                 "answer": "Mock Claude mode is enabled, so no live legal answer was generated.",
                 "citations": [],

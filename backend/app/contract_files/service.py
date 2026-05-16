@@ -287,6 +287,59 @@ def _queue_initial_contract_jobs(
     return jobs
 
 
+ACTIVATION_AI_JOB_TYPES = (
+    "obligation_extraction",
+    "renewal_extraction",
+    "contract_brain_ingestion",
+)
+
+
+def queue_activation_ai_jobs(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    version: ContractVersion,
+) -> None:
+    """When a contract becomes ACTIVE, extract obligations and renewal terms
+    from the authoritative version."""
+    snapshot = (
+        db.get(ContractTextSnapshot, version.text_snapshot_id)
+        if version.text_snapshot_id
+        else None
+    )
+    if snapshot is None:
+        return
+    jobs = []
+    for job_type in ACTIVATION_AI_JOB_TYPES:
+        jobs.append(
+            create_job(
+                db,
+                org_id=user.org_id,
+                job_type=job_type,
+                resource_type="contract",
+                resource_id=contract.id,
+                created_by_user_id=user.id,
+                idempotency_key=f"{job_type}:{version.id}:{snapshot.id}",
+                metadata={
+                    "contract_version_id": version.id,
+                    "text_snapshot_id": snapshot.id,
+                },
+            )
+        )
+    db.flush()
+    job_ids = [job.id for job in jobs]
+    db.commit()
+    for job_id in job_ids:
+        job = db.get(JobRun, job_id)
+        if job is not None:
+            try:
+                dispatch_job(db, job=job)
+            except Exception:
+                pass
+    db.commit()
+
+
 def _text_snapshot_validation_status(text: str, quality_score: float) -> str:
     if not text or quality_score < TEXT_EXTRACTION_COMPLETE_THRESHOLD:
         return "needs_review"

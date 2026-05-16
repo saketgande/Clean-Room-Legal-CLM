@@ -7,7 +7,8 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.ai.schemas import PlaybookReviewOutput
+from app.ai.citations import validate_citation
+from app.ai.schemas import CitationInput, PlaybookReviewOutput
 from app.auth.models import User
 from app.contract_files.models import (
     ContractEdit,
@@ -367,7 +368,10 @@ def ai_deviations_to_evaluated(
         evaluated.append(
             EvaluatedDeviation(
                 rule=rule,
-                severity=deviation.severity,
+                severity=_normalize_severity(
+                    deviation.severity,
+                    approval_required=bool(rule.approval_required) if rule else False,
+                ),
                 clause_type=deviation.clause_type or (rule.clause_type if rule else "unknown"),
                 issue=deviation.issue,
                 suggested_fix=deviation.suggested_fix,
@@ -377,6 +381,23 @@ def ai_deviations_to_evaluated(
             )
         )
     return evaluated
+
+
+def _ai_citation_status(snapshot: ContractTextSnapshot, citation: dict[str, Any] | None) -> str:
+    """Fuzzy-validate an AI deviation's quoted text against the contract snapshot.
+    Returns 'valid', 'invalid', or 'missing'. Enforces the plan invariant that
+    every AI playbook deviation must cite verifiable contract text."""
+    if not citation or citation.get("type") != "ai_citation":
+        return "missing"
+    quote = (citation.get("quote") or "").strip()
+    if not quote:
+        return "missing"
+    result = validate_citation(
+        CitationInput(quote=quote),
+        snapshot.text or "",
+        is_ocr=bool(getattr(snapshot, "ocr_provider", None)),
+    )
+    return "valid" if result.validation_status == "valid" else "invalid"
 
 
 def execute_playbook_run(
@@ -422,16 +443,27 @@ def execute_playbook_run(
     if not evaluated:
         evaluated = evaluate_rules_against_text(rules=rules, text=snapshot.text)
         deviation_source = "deterministic"
-    deviations = [
-        _create_deviation(
-            db,
-            user=user,
-            run=run,
-            contract=contract,
-            evaluated=deviation,
+    run_validation = "valid"
+    deviations = []
+    for deviation in evaluated:
+        if deviation_source == "claude":
+            citation_status = _ai_citation_status(snapshot, deviation.citation)
+            if citation_status != "valid":
+                run_validation = "needs_review"
+        else:
+            citation_status = "not_applicable"
+        deviations.append(
+            _create_deviation(
+                db,
+                user=user,
+                run=run,
+                contract=contract,
+                evaluated=deviation,
+                citation_status=citation_status,
+            )
         )
-        for deviation in evaluated
-    ]
+    if ai_error:
+        run_validation = "needs_review"
     redline_version = None
     contract_edit = None
     if create_redline and deviations:
@@ -446,10 +478,12 @@ def execute_playbook_run(
             deviations=deviations,
         )
     run.status = "succeeded"
-    run.validation_status = "valid"
+    run.validation_status = run_validation
     run.validated_output = {
         "deviation_count": len(deviations),
         "deviation_source": deviation_source,
+        "citation_review": run_validation,
+        "ai_error": ai_error,
         "redline_contract_version_id": redline_version.id if redline_version else None,
         "contract_edit_id": contract_edit.id if contract_edit else None,
     }
@@ -538,7 +572,13 @@ def _create_deviation(
     run: PlaybookRun,
     contract: Contract,
     evaluated: EvaluatedDeviation,
+    citation_status: str = "not_applicable",
 ) -> PlaybookDeviation:
+    # An AI deviation without a verified contract-text citation must not become
+    # an authoritative "open" finding; surface it as needs_review instead.
+    row_status = "open" if citation_status in {"valid", "not_applicable"} else "needs_review"
+    citation = dict(evaluated.citation) if evaluated.citation else {"type": "missing"}
+    citation["validation_status"] = citation_status
     row = PlaybookDeviation(
         org_id=user.org_id,
         playbook_run_id=run.id,
@@ -548,8 +588,8 @@ def _create_deviation(
         clause_type=evaluated.clause_type,
         issue=evaluated.issue,
         suggested_fix=evaluated.suggested_fix,
-        citation=evaluated.citation,
-        status="open",
+        citation=citation,
+        status=row_status,
         created_by_user_id=user.id,
         updated_by_user_id=user.id,
     )
