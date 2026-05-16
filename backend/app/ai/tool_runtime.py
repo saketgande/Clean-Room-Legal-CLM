@@ -1,6 +1,8 @@
 import hashlib
 import json
 import re
+import secrets
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
 
@@ -11,18 +13,30 @@ from sqlalchemy.orm import Session
 from app.ai.confirmations import create_confirmation
 from app.ai.models import AIConfirmation
 from app.ai.tool_registry import (
+    ApprovalSubmitInput,
+    ArchiveContractInput,
+    BrainAskInput,
     ContractHandleInput,
     EditContractInput,
+    ExternalShareInput,
+    ExtractObligationsInput,
     FindInContractInput,
     GenerateContractInput,
     PlaybookToolInput,
     ProjectContractsInput,
+    ReadTableCellsInput,
+    SignatureSendInput,
+    TabularReviewInput,
     WorkflowRunInput,
     tool_registry,
 )
+from app.ai.schemas import BrainQueryParseOutput
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
+from app.approvals.service import submit_contract_for_approval
+from app.contract_brain.retrieval import assemble_context
 from app.contract_files.models import (
+    ContractShare,
     ContractEdit,
     ContractFile,
     ContractTextSnapshot,
@@ -31,27 +45,36 @@ from app.contract_files.models import (
 )
 from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.models import Contract
+from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.jobs.models import JobRun
-from app.jobs.service import dispatch_job
+from app.jobs.service import create_job, dispatch_job
 from app.core.database import utcnow
 from app.core.enums import (
     AssistantToolCallStatus,
     ContractLifecycleStage,
     ContractVersionSource,
+    ShareAccessMode,
+    SignatureStatus,
     StorageBackend,
+    TabularCellStatus,
 )
 from app.core.rbac import has_permission
+from app.integrations.docusign import docusign_client
+from app.integrations.resend import resend_client
 from app.integrations.storage import storage_service
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
+from app.signatures.models import SignatureRecipient, SignatureRequest
+from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
+from app.tabular_review.service import dispatch_cells
 from app.workflows.models import Workflow, WorkflowRun
 
 
 class ToolRuntime:
-    def execute(
+    async def execute(
         self,
         db: Session,
         *,
@@ -105,7 +128,7 @@ class ToolRuntime:
             }
 
         try:
-            result = self._execute_validated(
+            result = await self._execute_validated(
                 db,
                 tool_name=tool_name,
                 payload=validated_input,
@@ -124,7 +147,7 @@ class ToolRuntime:
             db.flush()
             raise
 
-    def execute_confirmed(
+    async def execute_confirmed(
         self,
         db: Session,
         *,
@@ -143,7 +166,7 @@ class ToolRuntime:
         call.status = AssistantToolCallStatus.RUNNING
         call.started_at = call.started_at or utcnow()
         try:
-            result = self._execute_validated(
+            result = await self._execute_validated(
                 db,
                 tool_name=call.tool_name,
                 payload=validated_input,
@@ -164,7 +187,7 @@ class ToolRuntime:
             db.flush()
             raise
 
-    def _execute_validated(
+    async def _execute_validated(
         self,
         db: Session,
         *,
@@ -207,6 +230,22 @@ class ToolRuntime:
                 session_id=session_id,
                 create_redline=True,
             )
+        if tool_name == "ask_contract_brain":
+            return self._ask_contract_brain(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "submit_for_approval":
+            return await self._submit_for_approval(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "send_for_signature":
+            return await self._send_for_signature(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "extract_obligations":
+            return self._extract_obligations(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "create_tabular_review":
+            return self._create_tabular_review(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "read_table_cells":
+            return self._read_table_cells(db, payload=payload, user=user)
+        if tool_name == "external_share":
+            return self._external_share(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "archive_contract":
+            return self._archive_contract(db, payload=payload, user=user, session_id=session_id)
         return {"status": "feature_not_enabled", "tool": tool_name}
 
     def _read_contract(
@@ -726,6 +765,380 @@ class ToolRuntime:
             )
         return result
 
+    def _ask_contract_brain(
+        self,
+        db: Session,
+        *,
+        payload: BrainAskInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract_id = payload.contract_id
+        if payload.contract_handle or (payload.query_scope == "contract" and contract_id):
+            contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+            contract_id = contract.id
+        if payload.query_scope == "contract" and not contract_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
+        if payload.project_id:
+            get_project_for_user(db, project_id=payload.project_id, user=user)
+        parsed = BrainQueryParseOutput(query_scope=payload.query_scope)
+        context = assemble_context(
+            db,
+            user=user,
+            question=payload.question,
+            scope=payload.query_scope,
+            contract_id=contract_id,
+            project_id=payload.project_id,
+            parsed=parsed,
+        )
+        return {
+            "status": "retrieved",
+            "scope": payload.query_scope,
+            "source_count": context["source_count"],
+            "graph_fact_count": len(context["graph_facts"]),
+            "vector_chunk_count": len(context["vector_chunks"]),
+            "fulltext_clause_count": len(context["fulltext_clauses"]),
+            "context_text": context["context_text"][:12000],
+            "context_truncated": len(context["context_text"]) > 12000,
+        }
+
+    async def _submit_for_approval(
+        self,
+        db: Session,
+        *,
+        payload: ApprovalSubmitInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        requests = await submit_contract_for_approval(
+            db,
+            user=user,
+            contract=contract,
+            contract_version_id=contract.current_authoritative_version_id,
+            approver_user_id=payload.approver_user_id,
+            approver_role=payload.approver_role,
+        )
+        db.flush()
+        return {
+            "status": "submitted",
+            "contract_id": contract.id,
+            "approval_request_ids": [approval.id for approval in requests],
+            "approval_count": len(requests),
+        }
+
+    async def _send_for_signature(
+        self,
+        db: Session,
+        *,
+        payload: SignatureSendInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        if payload.override_lifecycle and not has_permission(
+            user.permission_values, "contract:lifecycle_override"
+        ):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Overriding the approved-before-signature gate requires contract:lifecycle_override",
+            )
+        if contract.lifecycle_stage != ContractLifecycleStage.APPROVED and not payload.override_lifecycle:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Contract must be approved before signature")
+        version_id = contract.current_authoritative_version_id
+        version = db.get(ContractVersion, version_id)
+        if version is None or version.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
+        storage_object = db.get(StorageObject, version.storage_object_id)
+        if storage_object is None or storage_object.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
+        content = storage_service.read_bytes(storage_object.storage_key)
+        envelope = await docusign_client.create_envelope(
+            filename=storage_object.filename,
+            recipients=[recipient.model_dump(mode="json") for recipient in payload.recipients],
+            content=content,
+        )
+        signature = SignatureRequest(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            provider_envelope_id=envelope.envelope_id,
+            status=SignatureStatus.SENT,
+            sent_by_user_id=user.id,
+            sent_at=datetime.now(UTC),
+            metadata_json=envelope.metadata,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(signature)
+        db.flush()
+        for index, recipient in enumerate(payload.recipients, start=1):
+            db.add(
+                SignatureRecipient(
+                    org_id=user.org_id,
+                    signature_request_id=signature.id,
+                    name=recipient.name,
+                    email=str(recipient.email),
+                    role=recipient.role,
+                    routing_order=str(index),
+                    status="sent",
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
+            )
+            await resend_client.send_email(
+                to=str(recipient.email),
+                subject=f"Signature requested: {contract.title}",
+                html=(
+                    f"<p>You have been requested to sign <b>{contract.title}</b>.</p>"
+                    f"<p>Envelope: {envelope.envelope_id or 'mock'}</p>"
+                ),
+            )
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
+            actor_user_id=user.id,
+            reason="Sent for signature by assistant",
+            override=True,
+            override_authorized=True,
+        )
+        db.flush()
+        return {
+            "status": "sent",
+            "contract_id": contract.id,
+            "signature_request_id": signature.id,
+            "recipient_count": len(payload.recipients),
+            "provider_status": envelope.status,
+        }
+
+    def _extract_obligations(
+        self,
+        db: Session,
+        *,
+        payload: ExtractObligationsInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
+        if version is None or snapshot is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no extractable authoritative version")
+        job = create_job(
+            db,
+            org_id=user.org_id,
+            job_type="obligation_extraction",
+            resource_type="contract",
+            resource_id=contract.id,
+            created_by_user_id=user.id,
+            idempotency_key=f"obligation_extraction:{version.id}:{snapshot.id}:assistant:{utcnow().timestamp()}",
+            metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
+        )
+        db.flush()
+        dispatch_job(db, job=job)
+        db.flush()
+        return {"status": "queued", "contract_id": contract.id, "job_id": job.id, "job_type": job.job_type}
+
+    def _create_tabular_review(
+        self,
+        db: Session,
+        *,
+        payload: TabularReviewInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract_ids = list(dict.fromkeys(payload.contract_ids))
+        for handle in payload.contract_handles:
+            contract = self._resolve_contract(
+                db,
+                payload=ContractHandleInput(contract_handle=handle),
+                user=user,
+                session_id=session_id,
+            )
+            contract_ids.append(contract.id)
+        contract_ids = list(dict.fromkeys(contract_ids))
+        if payload.project_id:
+            get_project_for_user(db, project_id=payload.project_id, user=user)
+            if not contract_ids:
+                contract_ids = list(
+                    db.scalars(
+                        select(ProjectContract.contract_id).where(
+                            ProjectContract.org_id == user.org_id,
+                            ProjectContract.project_id == payload.project_id,
+                        )
+                    ).all()
+                )
+        if not contract_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
+        for contract_id in contract_ids:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+        review = TabularReview(
+            org_id=user.org_id,
+            name=payload.name,
+            project_id=payload.project_id,
+            source_contract_ids=contract_ids,
+            status="running",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(review)
+        db.flush()
+        columns = []
+        for position, column_payload in enumerate(payload.columns):
+            column = TabularReviewColumn(
+                org_id=user.org_id,
+                tabular_review_id=review.id,
+                name=column_payload.name,
+                prompt=column_payload.prompt,
+                position=position,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(column)
+            db.flush()
+            columns.append(column)
+        cells = []
+        for contract_id in contract_ids:
+            for column in columns:
+                cell = TabularReviewCell(
+                    org_id=user.org_id,
+                    tabular_review_id=review.id,
+                    column_id=column.id,
+                    contract_id=contract_id,
+                    status=TabularCellStatus.PENDING,
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
+                db.add(cell)
+                db.flush()
+                cells.append(cell)
+        dispatch_cells(db, user=user, review=review, cells=cells)
+        return {
+            "status": "created",
+            "tabular_review_id": review.id,
+            "contract_count": len(contract_ids),
+            "column_count": len(columns),
+            "cell_count": len(cells),
+        }
+
+    def _read_table_cells(
+        self,
+        db: Session,
+        *,
+        payload: ReadTableCellsInput,
+        user: User,
+    ) -> dict[str, Any]:
+        review = db.get(TabularReview, payload.tabular_review_id)
+        if review is None or review.org_id != user.org_id or review.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular review not found")
+        for contract_id in review.source_contract_ids or []:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+        columns = db.scalars(
+            select(TabularReviewColumn)
+            .where(TabularReviewColumn.tabular_review_id == review.id)
+            .order_by(TabularReviewColumn.position.asc())
+        ).all()
+        cells = db.scalars(
+            select(TabularReviewCell).where(
+                TabularReviewCell.org_id == user.org_id,
+                TabularReviewCell.tabular_review_id == review.id,
+            )
+        ).all()
+        return {
+            "tabular_review_id": review.id,
+            "columns": [{"column_id": column.id, "name": column.name} for column in columns],
+            "cells": [
+                {
+                    "column_id": cell.column_id,
+                    "contract_id": cell.contract_id,
+                    "status": cell.status,
+                    "answer": cell.answer,
+                    "confidence": cell.confidence,
+                    "citation_count": len(cell.citations or []),
+                }
+                for cell in cells
+            ],
+        }
+
+    def _external_share(
+        self,
+        db: Session,
+        *,
+        payload: ExternalShareInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        token = secrets.token_urlsafe(32)
+        expires_at = (
+            datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+            if payload.expires_in_days
+            else None
+        )
+        share = ContractShare(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id if version else None,
+            token_hash=_hash_secret(token),
+            passcode_hash=_hash_secret(payload.passcode) if payload.passcode else None,
+            access_mode=ShareAccessMode.DOWNLOAD_ALLOWED if payload.download_allowed else ShareAccessMode.VIEW_ONLY,
+            expires_at=expires_at,
+            download_allowed=payload.download_allowed,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(share)
+        db.flush()
+        write_audit_log(
+            db,
+            action="contract.share_created",
+            resource_type="contract_share",
+            resource_id=share.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "contract_version_id": share.contract_version_id,
+                "download_allowed": share.download_allowed,
+                "expires_at": share.expires_at.isoformat() if share.expires_at else None,
+                "created_by": "assistant_tool",
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.share_created",
+            title="Contract share created by assistant",
+            actor_user_id=user.id,
+            details={"share_id": share.id, "download_allowed": share.download_allowed},
+        )
+        return {"status": "created", "contract_id": contract.id, "contract_share_id": share.id, "external_share_token": token}
+
+    def _archive_contract(
+        self,
+        db: Session,
+        *,
+        payload: ArchiveContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.ARCHIVED,
+            actor_user_id=user.id,
+            reason=payload.reason or "Archived by assistant",
+            override=True,
+            override_authorized=True,
+        )
+        db.flush()
+        return {"status": "archived", "contract_id": contract.id, "lifecycle_stage": contract.lifecycle_stage}
+
     def _resolve_contract(
         self,
         db: Session,
@@ -754,6 +1167,10 @@ class ToolRuntime:
 def _idempotency_key(tool_name: str, session_id: str, payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(f"{tool_name}:{session_id}:{canonical}".encode("utf-8")).hexdigest()
+
+
+def _hash_secret(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, content: bytes) -> StorageObject:

@@ -60,6 +60,7 @@ async def _run_ai_job(job_id: str) -> dict:
                 },
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
+            _queue_contract_brain_ingestion(db, job=job, reason="after_clause_extraction")
         elif job.job_type == "obligation_extraction":
             await ai_controller.run_job_skill(
                 db,
@@ -72,6 +73,7 @@ async def _run_ai_job(job_id: str) -> dict:
                 },
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
+            _queue_contract_brain_ingestion(db, job=job, reason="after_obligation_extraction")
         elif job.job_type == "renewal_extraction":
             await ai_controller.run_job_skill(
                 db,
@@ -84,6 +86,7 @@ async def _run_ai_job(job_id: str) -> dict:
                 },
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
+            _queue_contract_brain_ingestion(db, job=job, reason="after_renewal_extraction")
         elif job.job_type == "embeddings":
             snapshot = db.get(ContractTextSnapshot, job.metadata_json.get("text_snapshot_id"))
             if snapshot is None:
@@ -208,3 +211,41 @@ def _mark_job_succeeded(job: JobRun) -> None:
     job.finished_at = utcnow()
     job.error_message = None
     job.error_stack = None
+
+
+def _queue_contract_brain_ingestion(db, *, job: JobRun, reason: str) -> None:
+    if job.status != JobStatus.SUCCEEDED:
+        return
+    version_id = job.metadata_json.get("contract_version_id")
+    snapshot_id = job.metadata_json.get("text_snapshot_id")
+    if not version_id:
+        return
+    idempotency_key = f"contract_brain_ingestion:{version_id}:{snapshot_id}:{reason}"
+    existing = db.scalar(select(JobRun).where(JobRun.idempotency_key == idempotency_key))
+    if existing is not None:
+        return
+    from app.jobs.service import create_job, dispatch_job
+
+    brain_job = create_job(
+        db,
+        org_id=job.org_id,
+        job_type="contract_brain_ingestion",
+        resource_type="contract",
+        resource_id=job.resource_id,
+        created_by_user_id=job.created_by_user_id,
+        idempotency_key=idempotency_key,
+        metadata={
+            "contract_version_id": version_id,
+            "text_snapshot_id": snapshot_id,
+            "triggered_by_job_id": job.id,
+            "trigger_reason": reason,
+        },
+    )
+    db.flush()
+    brain_job_id = brain_job.id
+    db.commit()
+    brain_job = db.get(JobRun, brain_job_id)
+    if brain_job is None:
+        return
+    dispatch_job(db, job=brain_job)
+    db.commit()

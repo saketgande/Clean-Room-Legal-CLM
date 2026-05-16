@@ -290,7 +290,6 @@ def _queue_initial_contract_jobs(
 ACTIVATION_AI_JOB_TYPES = (
     "obligation_extraction",
     "renewal_extraction",
-    "contract_brain_ingestion",
 )
 
 

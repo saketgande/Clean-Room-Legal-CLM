@@ -57,6 +57,14 @@ INTERNAL_RESULT_KEYS = {
     "playbook_rule_id",
     "playbook_run_id",
     "playbook_deviation_id",
+    "approval_request_id",
+    "approval_request_ids",
+    "signature_request_id",
+    "job_id",
+    "tabular_review_id",
+    "column_id",
+    "contract_share_id",
+    "external_share_token",
     "tool_call_id",
     "confirmation_id",
 }
@@ -209,7 +217,7 @@ class AIController:
                         "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id")},
                     }
                     try:
-                        result = tool_runtime.execute(
+                        result = await tool_runtime.execute(
                             db,
                             tool_name=tool_name,
                             tool_input=tool_input,
@@ -384,7 +392,7 @@ class AIController:
             "event": "tool_started",
             "payload": {"tool_name": tool_call.tool_name, "tool_use_id": tool_call.provider_tool_use_id},
         }
-        result = tool_runtime.execute_confirmed(db, confirmation=confirmation, user=user)
+        result = await tool_runtime.execute_confirmed(db, confirmation=confirmation, user=user)
         db.commit()
         write_audit_log(
             db,
@@ -487,7 +495,7 @@ class AIController:
                         "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id")},
                     }
                     try:
-                        loop_result = tool_runtime.execute(
+                        loop_result = await tool_runtime.execute(
                             db,
                             tool_name=tool_name,
                             tool_input=tool_input,
@@ -1311,8 +1319,8 @@ class AIController:
             return
         existing = db.scalars(
             select(ClauseExtraction).where(
+                ClauseExtraction.org_id == context.contract.org_id,
                 ClauseExtraction.contract_id == context.contract.id,
-                ClauseExtraction.contract_version_id == context.version.id,
                 ClauseExtraction.is_stale.is_(False),
             )
         ).all()

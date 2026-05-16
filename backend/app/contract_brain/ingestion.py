@@ -1,4 +1,4 @@
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.approvals.models import ApprovalRequest
@@ -22,13 +22,28 @@ def ingest_contract_brain(
     request_id: str | None = None,
 ) -> dict:
     """Build the contract's knowledge-graph slice from already-extracted data,
-    tied to the current authoritative version. Old graph entries for the
-    contract are removed so answers always reflect the authoritative version."""
+    tied to the current authoritative version. Prior graph entries are marked
+    stale instead of deleted so historical versions remain inspectable."""
     snapshot_id = snapshot.id if snapshot is not None else version.text_snapshot_id
 
-    # Drop the prior graph slice for this contract (edges first: FK to nodes).
-    db.execute(delete(KnowledgeEdge).where(KnowledgeEdge.contract_id == contract.id))
-    db.execute(delete(KnowledgeNode).where(KnowledgeNode.contract_id == contract.id))
+    for edge in db.scalars(
+        select(KnowledgeEdge).where(
+            KnowledgeEdge.org_id == org_id,
+            KnowledgeEdge.contract_id == contract.id,
+            KnowledgeEdge.is_stale.is_(False),
+        )
+    ):
+        edge.is_stale = True
+        edge.updated_by_user_id = created_by_user_id
+    for node in db.scalars(
+        select(KnowledgeNode).where(
+            KnowledgeNode.org_id == org_id,
+            KnowledgeNode.contract_id == contract.id,
+            KnowledgeNode.is_stale.is_(False),
+        )
+    ):
+        node.is_stale = True
+        node.updated_by_user_id = created_by_user_id
     db.flush()
 
     def add_node(node_type: str, label: str, properties: dict) -> KnowledgeNode:

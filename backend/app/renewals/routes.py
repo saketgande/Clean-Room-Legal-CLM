@@ -4,8 +4,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.contracts.access import accessible_contract_filter
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
+from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
@@ -25,6 +27,7 @@ def _get_renewal(db: Session, *, renewal_id: str, current_user: User) -> Renewal
     row = db.get(RenewalEvent, renewal_id)
     if row is None or row.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Renewal event not found")
+    get_contract_for_user(db, contract_id=row.contract_id, user=current_user)
     return row
 
 
@@ -34,8 +37,16 @@ def list_renewals(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
-    query = select(RenewalEvent).where(RenewalEvent.org_id == current_user.org_id)
+    query = (
+        select(RenewalEvent)
+        .join(Contract, Contract.id == RenewalEvent.contract_id)
+        .where(
+            RenewalEvent.org_id == current_user.org_id,
+            accessible_contract_filter(current_user),
+        )
+    )
     if contract_id:
+        get_contract_for_user(db, contract_id=contract_id, user=current_user)
         query = query.where(RenewalEvent.contract_id == contract_id)
     return db.scalars(query.order_by(RenewalEvent.notice_date.asc())).all()
 

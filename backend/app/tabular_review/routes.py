@@ -9,6 +9,7 @@ from app.ai.citations import validate_citation
 from app.ai.controller import ai_controller
 from app.ai.schemas import CitationInput, TabularChatOutput
 from app.contracts.service import get_contract_for_user
+from app.core.access import is_org_admin
 from app.core.deps import get_db, require_permission
 from app.core.enums import TabularCellStatus
 from app.projects.access import get_project_for_user
@@ -44,7 +45,26 @@ def _get_review_for_user(db: Session, *, review_id: str, current_user) -> Tabula
     review = db.get(TabularReview, review_id)
     if review is None or review.org_id != current_user.org_id or review.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular review not found")
+    if not _review_is_accessible(db, review=review, current_user=current_user):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular review not found")
     return review
+
+
+def _review_is_accessible(db: Session, *, review: TabularReview, current_user) -> bool:
+    if is_org_admin(current_user) or review.created_by_user_id == current_user.id:
+        return True
+    if review.project_id:
+        try:
+            get_project_for_user(db, project_id=review.project_id, user=current_user)
+        except HTTPException:
+            return False
+        return True
+    for contract_id in review.source_contract_ids or []:
+        try:
+            get_contract_for_user(db, contract_id=contract_id, user=current_user)
+        except HTTPException:
+            return False
+    return bool(review.source_contract_ids)
 
 
 @router.get("")
@@ -52,12 +72,13 @@ def list_reviews(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
-    return db.scalars(
+    reviews = db.scalars(
         select(TabularReview).where(
             TabularReview.org_id == current_user.org_id,
             TabularReview.deleted_at.is_(None),
         )
     ).all()
+    return [review for review in reviews if _review_is_accessible(db, review=review, current_user=current_user)]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -167,6 +188,7 @@ def rerun_cell(
         or cell.tabular_review_id != review.id
     ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular cell not found")
+    get_contract_for_user(db, contract_id=cell.contract_id, user=current_user)
     cell.status = TabularCellStatus.PENDING
     cell.answer = None
     cell.reasoning = None

@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     docusign_user_id: str | None = None
     docusign_account_id: str | None = None
     docusign_private_key_path: str | None = None
+    docusign_oauth_base_url: str = "https://account-d.docusign.com"
+    docusign_rest_base_url: str = "https://demo.docusign.net/restapi"
     mock_docusign: bool = True
 
     verbose_debug_logging: bool = False

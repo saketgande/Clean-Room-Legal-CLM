@@ -6,8 +6,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
-from app.core.audit import write_audit_log, write_timeline_event
+from app.core.audit import write_audit_log
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.integrations.resend import resend_client
@@ -33,6 +35,7 @@ def _get_obligation(db: Session, *, obligation_id: str, current_user: User) -> O
     ob = db.get(Obligation, obligation_id)
     if ob is None or ob.org_id != current_user.org_id or ob.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
+    get_contract_for_user(db, contract_id=ob.contract_id, user=current_user)
     return ob
 
 
@@ -43,11 +46,17 @@ def list_obligations(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("obligation:read")),
 ):
-    query = select(Obligation).where(
+    query = (
+        select(Obligation)
+        .join(Contract, Contract.id == Obligation.contract_id)
+        .where(
         Obligation.org_id == current_user.org_id,
         Obligation.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
+        )
     )
     if contract_id:
+        get_contract_for_user(db, contract_id=contract_id, user=current_user)
         query = query.where(Obligation.contract_id == contract_id)
     if status_filter:
         query = query.where(Obligation.status == status_filter)

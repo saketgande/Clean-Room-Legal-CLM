@@ -9,6 +9,7 @@ from app.contract_brain.models import BrainQuery
 from app.contract_brain.retrieval import assemble_context, precedent_contracts
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
+from app.core.access import is_org_admin
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.jobs.models import JobRun
@@ -136,8 +137,10 @@ def list_brain_queries(
 
     q = select(BrainQuery).where(BrainQuery.org_id == current_user.org_id)
     if contract_id:
+        get_contract_for_user(db, contract_id=contract_id, user=current_user)
         q = q.where(BrainQuery.contract_id == contract_id)
-    return db.scalars(q.order_by(BrainQuery.created_at.desc()).limit(min(limit, 200))).all()
+    rows = db.scalars(q.order_by(BrainQuery.created_at.desc()).limit(min(limit, 200))).all()
+    return [row for row in rows if _can_view_brain_query(db, query=row, current_user=current_user)]
 
 
 @router.get("/precedents")
@@ -196,3 +199,21 @@ def trigger_brain_ingestion(
     dispatch_job(db, job=job)
     db.commit()
     return {"job_id": job.id, "status": job.status}
+
+
+def _can_view_brain_query(db: Session, *, query: BrainQuery, current_user) -> bool:
+    if is_org_admin(current_user) or query.created_by_user_id == current_user.id:
+        return True
+    if query.contract_id:
+        try:
+            get_contract_for_user(db, contract_id=query.contract_id, user=current_user)
+        except HTTPException:
+            return False
+        return True
+    if query.project_id:
+        try:
+            get_project_for_user(db, project_id=query.project_id, user=current_user)
+        except HTTPException:
+            return False
+        return True
+    return False

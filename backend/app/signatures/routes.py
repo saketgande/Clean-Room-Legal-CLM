@@ -6,7 +6,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contract_files.models import ContractVersion, StorageObject
+from app.contracts.access import user_can_access_contract
 from app.contracts.lifecycle import transition_contract_stage
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractLifecycleStage, SignatureStatus
@@ -38,9 +40,15 @@ def list_signature_requests(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:sign")),
 ):
-    return db.scalars(
+    rows = db.scalars(
         select(SignatureRequest).where(SignatureRequest.org_id == current_user.org_id)
     ).all()
+    visible = []
+    for row in rows:
+        contract = db.get(Contract, row.contract_id)
+        if contract is not None and user_can_access_contract(db, contract=contract, user=current_user):
+            visible.append(row)
+    return visible
 
 
 @router.post("/requests")
@@ -139,6 +147,7 @@ def sync_signature(
     signature = db.get(SignatureRequest, signature_request_id)
     if signature is None or signature.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Signature request not found")
+    get_contract_for_user(db, contract_id=signature.contract_id, user=current_user)
     sync_signature_request(
         db,
         user=current_user,

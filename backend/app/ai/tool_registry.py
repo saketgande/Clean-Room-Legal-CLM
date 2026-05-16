@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Type
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.core.enums import AssistantToolCategory
 
@@ -43,6 +43,59 @@ class PlaybookToolInput(ContractHandleInput):
     playbook_id: str
     playbook_version_id: str | None = None
     test_mode: bool = False
+
+
+class BrainAskInput(ContractHandleInput):
+    question: str = Field(min_length=3)
+    query_scope: str = Field(default="contract", pattern="^(contract|project|portfolio)$")
+    project_id: str | None = None
+
+
+class ApprovalSubmitInput(ContractHandleInput):
+    approver_user_id: str | None = None
+    approver_role: str | None = None
+
+
+class SignatureRecipientInput(BaseModel):
+    name: str
+    email: EmailStr
+    role: str | None = None
+
+
+class SignatureSendInput(ContractHandleInput):
+    recipients: list[SignatureRecipientInput] = Field(min_length=1)
+    override_lifecycle: bool = False
+
+
+class ExtractObligationsInput(ContractHandleInput):
+    pass
+
+
+class TabularColumnInput(BaseModel):
+    name: str
+    prompt: str = Field(min_length=3)
+
+
+class TabularReviewInput(BaseModel):
+    name: str
+    project_id: str | None = None
+    contract_handles: list[str] = Field(default_factory=list)
+    contract_ids: list[str] = Field(default_factory=list)
+    columns: list[TabularColumnInput] = Field(min_length=1)
+
+
+class ReadTableCellsInput(BaseModel):
+    tabular_review_id: str
+
+
+class ExternalShareInput(ContractHandleInput):
+    expires_in_days: int | None = Field(default=7, ge=1, le=365)
+    passcode: str | None = Field(default=None, min_length=4)
+    download_allowed: bool = False
+
+
+class ArchiveContractInput(ContractHandleInput):
+    reason: str | None = None
 
 
 class GenericToolOutput(BaseModel):
@@ -159,23 +212,39 @@ _register(
     confirmation_policy="required",
 )
 
-for future_tool_name, permission in [
-    ("ask_contract_brain", "assistant:use"),
-    ("submit_for_approval", "contract:approve"),
-    ("send_for_signature", "contract:sign"),
-    ("extract_obligations", "obligation:update"),
-    ("create_tabular_review", "assistant:use_ai_tools"),
-    ("read_table_cells", "assistant:use"),
-    ("external_share", "contract_file:share"),
-    ("archive_contract", "contract:archive"),
-]:
-    _register(
-        future_tool_name,
-        "Registered for a later product phase.",
-        AssistantToolCategory.MUTATING,
-        permission,
-        EmptyInput,
-        confirmation_policy="required" if future_tool_name in {"submit_for_approval", "send_for_signature", "external_share", "archive_contract"} else "none",
-        feature_flag=f"feature.ai.{future_tool_name}",
-        enabled_by_default=False,
-    )
+_register("ask_contract_brain", "Retrieve Contract Brain context for a legal question.", AssistantToolCategory.READ_ONLY, "assistant:use", BrainAskInput)
+_register(
+    "submit_for_approval",
+    "Submit a contract for approval.",
+    AssistantToolCategory.MUTATING,
+    "contract:approve",
+    ApprovalSubmitInput,
+    confirmation_policy="required",
+)
+_register(
+    "send_for_signature",
+    "Send a contract to DocuSign for signature.",
+    AssistantToolCategory.EXTERNAL_ACTION,
+    "contract:sign",
+    SignatureSendInput,
+    confirmation_policy="required",
+)
+_register("extract_obligations", "Queue obligation extraction for a contract.", AssistantToolCategory.MUTATING, "obligation:update", ExtractObligationsInput)
+_register("create_tabular_review", "Create a tabular review from selected contracts.", AssistantToolCategory.MUTATING, "assistant:use_ai_tools", TabularReviewInput)
+_register("read_table_cells", "Read a tabular review's generated cells.", AssistantToolCategory.READ_ONLY, "assistant:use", ReadTableCellsInput)
+_register(
+    "external_share",
+    "Create an expiring external contract share link.",
+    AssistantToolCategory.EXTERNAL_ACTION,
+    "contract_file:share",
+    ExternalShareInput,
+    confirmation_policy="required",
+)
+_register(
+    "archive_contract",
+    "Archive a contract.",
+    AssistantToolCategory.DESTRUCTIVE,
+    "contract:archive",
+    ArchiveContractInput,
+    confirmation_policy="required",
+)
