@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.jobs.models import JobRun
@@ -14,6 +15,19 @@ def create_job(
     idempotency_key: str | None = None,
     metadata: dict | None = None,
 ) -> JobRun:
+    # Honour the idempotency key: re-running a flow (e.g. accepting an edit
+    # re-queues a version's extraction jobs) must reuse the existing run
+    # instead of inserting a duplicate, which would violate the unique
+    # ix_job_run_idempotency_key constraint and 500 the request.
+    if idempotency_key is not None:
+        existing = db.scalar(
+            select(JobRun).where(
+                JobRun.org_id == org_id,
+                JobRun.idempotency_key == idempotency_key,
+            )
+        )
+        if existing is not None:
+            return existing
     job = JobRun(
         org_id=org_id,
         job_type=job_type,

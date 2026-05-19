@@ -184,11 +184,31 @@ _register("find_in_contract", "Find text in a contract.", AssistantToolCategory.
 _register("list_project_contracts", "List contracts in a project.", AssistantToolCategory.READ_ONLY, "project:read", ProjectContractsInput)
 _register("get_contract_status", "Read contract lifecycle and risk metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)
 _register("list_workflows", "List reusable workflows.", AssistantToolCategory.READ_ONLY, "workflow:read", EmptyInput)
+_register(
+    "list_playbooks",
+    "List the org's playbooks and each playbook's versions (id, version "
+    "number, status). Call this when the user wants to redline against a "
+    "playbook but has not named one — present the playbooks and versions and "
+    "ask them to choose before calling redline_against_playbook.",
+    AssistantToolCategory.READ_ONLY,
+    "playbook:read",
+    EmptyInput,
+)
 _register("run_workflow", "Run an approved workflow.", AssistantToolCategory.MUTATING, "workflow:read", WorkflowRunInput)
 _register("generate_contract_docx", "Generate a new contract DOCX plan.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract:create", GenerateContractInput, feature_flag="feature.ai.docx_generation")
 _register(
     "edit_contract",
-    "Create tracked-change-ready edit suggestions.",
+    "Create tracked-change edit suggestions for a contract from a natural-"
+    "language instruction. Call this DIRECTLY whenever the user asks to "
+    "remove, revise, change, shorten, lengthen, tighten, soften, add, or "
+    "rewrite contract language — even if they did not name an exact section "
+    "or quote the exact words. Pass their instruction as `instructions`; the "
+    "skill locates the relevant clause itself. Do NOT interrogate the user "
+    "with multiple clarifying questions (which section / what words / what "
+    "goal) — make a reasonable interpretation and propose the edits; the "
+    "user reviews and accepts/rejects each one. Ask a clarifying question "
+    "only if the request is genuinely ambiguous (e.g. it could mean two "
+    "opposite changes).",
     AssistantToolCategory.MUTATING,
     "contract:redline",
     EditContractInput,
@@ -205,7 +225,11 @@ _register(
 )
 _register(
     "redline_against_playbook",
-    "Run a playbook and create a tracked-change redline proposal.",
+    "Run a playbook and create a tracked-change redline proposal. Requires a "
+    "playbook_id (and optionally playbook_version_id). If the user has not "
+    "chosen a playbook, call list_playbooks first and ask them to pick a "
+    "playbook and version. For free-form redlines not tied to a playbook, use "
+    "edit_contract with the user's instructions instead.",
     AssistantToolCategory.MUTATING,
     "contract:redline",
     PlaybookToolInput,

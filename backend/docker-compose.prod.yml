@@ -1,0 +1,87 @@
+# Production compose. Differences vs docker-compose.yml (dev):
+#   - no --reload, multiple uvicorn workers
+#   - no source bind-mount (image is the source of truth)
+#   - restart policies; postgres/redis not published to the host
+#   - secrets come from a real .env (NOT .env.example); POSTGRES_PASSWORD required
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Put the API behind a TLS-terminating reverse proxy; set in .env:
+#   ENVIRONMENT=production  DEBUG=false  FORCE_HTTPS=true
+#   CORS_ORIGINS=https://app.yourdomain.com  ALLOWED_HOSTS=api.yourdomain.com
+services:
+  api:
+    build:
+      context: .
+    entrypoint: ["sh", "/app/scripts/entrypoint.sh"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    env_file:
+      - path: .env
+        required: true
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - contract_file_storage:/data/contracts
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-c"
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/debug/health')"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  worker:
+    build:
+      context: .
+    command: celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=4
+    env_file:
+      - path: .env
+        required: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    volumes:
+      - contract_file_storage:/data/contracts
+    restart: unless-stopped
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-legal_clm}
+      POSTGRES_USER: ${POSTGRES_USER:-legal_clm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-legal_clm} -d ${POSTGRES_DB:-legal_clm}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  contract_file_storage:

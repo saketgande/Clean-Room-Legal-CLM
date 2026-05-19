@@ -65,6 +65,7 @@ from app.core.rbac import has_permission
 from app.integrations.docusign import docusign_client
 from app.integrations.resend import resend_client
 from app.integrations.storage import storage_service
+from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
@@ -208,12 +209,14 @@ class ToolRuntime:
             return self._get_contract_status(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_workflows":
             return self._list_workflows(db, user=user)
+        if tool_name == "list_playbooks":
+            return self._list_playbooks(db, user=user)
         if tool_name == "run_workflow":
             return self._run_workflow(db, payload=payload, user=user)
         if tool_name == "generate_contract_docx":
-            return self._generate_contract_docx(db, payload=payload, user=user)
+            return await self._generate_contract_docx(db, payload=payload, user=user)
         if tool_name == "edit_contract":
-            return self._edit_contract(db, payload=payload, user=user, session_id=session_id)
+            return await self._edit_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "replicate_contract_version":
             return self._replicate_contract_version(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "run_playbook_review":
@@ -342,6 +345,42 @@ class ToolRuntime:
         ).all()
         return {"workflows": [{"workflow_id": row.id, "name": row.name, "workflow_type": row.workflow_type} for row in workflows]}
 
+    def _list_playbooks(self, db: Session, *, user: User) -> dict[str, Any]:
+        playbooks = db.scalars(
+            select(Playbook)
+            .where(Playbook.org_id == user.org_id, Playbook.deleted_at.is_(None))
+            .order_by(Playbook.updated_at.desc())
+        ).all()
+        out: list[dict[str, Any]] = []
+        for pb in playbooks:
+            versions = db.scalars(
+                select(PlaybookVersion)
+                .where(
+                    PlaybookVersion.org_id == user.org_id,
+                    PlaybookVersion.playbook_id == pb.id,
+                )
+                .order_by(PlaybookVersion.version_number.desc())
+            ).all()
+            out.append(
+                {
+                    "playbook_id": pb.id,
+                    "name": pb.name,
+                    "status": pb.status,
+                    "description": pb.description,
+                    "versions": [
+                        {
+                            "playbook_version_id": v.id,
+                            "version_number": v.version_number,
+                            "status": v.status,
+                            "summary": v.summary,
+                            "is_current": v.id == pb.current_version_id,
+                        }
+                        for v in versions
+                    ],
+                }
+            )
+        return {"playbooks": out}
+
     def _run_workflow(self, db: Session, *, payload: WorkflowRunInput, user: User) -> dict[str, Any]:
         workflow = db.get(Workflow, payload.workflow_id)
         if workflow is None or workflow.org_id != user.org_id or workflow.deleted_at is not None:
@@ -359,7 +398,7 @@ class ToolRuntime:
         db.flush()
         return {"workflow_run_id": run.id, "status": run.status}
 
-    def _generate_contract_docx(
+    async def _generate_contract_docx(
         self,
         db: Session,
         *,
@@ -368,9 +407,43 @@ class ToolRuntime:
     ) -> dict[str, Any]:
         if payload.project_id:
             get_project_for_user(db, project_id=payload.project_id, user=user, access="update")
-        body_text, content = _build_generated_contract_docx(
-            title=payload.title,
-            instructions=payload.instructions,
+        # Draft the real contract with the AI skill. Fall back to a structured
+        # skeleton only if the skill is unavailable or returns nothing usable,
+        # so the tool never hard-fails mid-conversation.
+        drafted = None
+        try:
+            from app.ai.controller import ai_controller
+
+            drafted = await ai_controller.run_structured_skill(
+                db,
+                skill_name="contract_docx_generation",
+                org_id=user.org_id,
+                created_by_user_id=user.id,
+                input_payload={
+                    "title": payload.title,
+                    "instructions": payload.instructions,
+                },
+                commit=False,
+            )
+        except Exception:  # noqa: BLE001 — drafting must degrade, not crash
+            logging.getLogger(__name__).warning(
+                "contract_docx_generation skill failed; using skeleton", exc_info=True
+            )
+        if drafted is None or not getattr(drafted, "sections", None):
+            # The model returned no sections (commonly: the request is too
+            # large for one pass). Fail loudly instead of silently emitting a
+            # placeholder skeleton that looks like a real contract and then
+            # gets redlined/accepted.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "The drafting model returned no contract sections. This usually "
+                "means the request was too broad for a single pass — try again "
+                "or split it into a tighter scope (fewer/known sections).",
+            )
+        body_text, content = _render_structured_contract_docx(
+            title=getattr(drafted, "title", None) or payload.title,
+            sections=[(s.heading, s.body) for s in drafted.sections],
+            assumptions=list(getattr(drafted, "assumptions", []) or []),
         )
         storage_object = _store_docx(
             db,
@@ -507,7 +580,7 @@ class ToolRuntime:
             "storage_object_id": storage_object.id,
         }
 
-    def _edit_contract(
+    async def _edit_contract(
         self,
         db: Session,
         *,
@@ -523,16 +596,62 @@ class ToolRuntime:
         if contract_file is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
         source_snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
-        proposed_text = _assistant_edit_text(
-            source_text=source_snapshot.text if source_snapshot else "",
-            instructions=payload.instructions,
-        )
-        edit_docx = _build_edit_docx(
-            contract_title=contract.title,
+        source_text = source_snapshot.text if source_snapshot else ""
+
+        # Ask the AI for targeted, exactly-quoted edits and anchor each one to
+        # its real position in the source so the redline lands in the right
+        # place. Fall back to a single whole-document proposal if the skill is
+        # unavailable, so the tool never hard-fails mid-conversation.
+        anchored: list[dict[str, Any]] = []
+        summary: str | None = None
+        if source_text.strip():
+            try:
+                from app.ai.controller import ai_controller
+
+                suggestion_out = await ai_controller.run_structured_skill(
+                    db,
+                    skill_name="contract_edit_suggestions",
+                    org_id=user.org_id,
+                    created_by_user_id=user.id,
+                    input_payload={
+                        "contract_id": contract.id,
+                        "instructions": payload.instructions,
+                    },
+                    resource_type="contract",
+                    resource_id=contract.id,
+                    commit=False,
+                )
+                summary = getattr(suggestion_out, "summary", None)
+                anchored = _anchor_suggestions(
+                    source_text, list(getattr(suggestion_out, "edits", []) or [])
+                )
+            except Exception:  # noqa: BLE001 — redline must degrade, not crash
+                logging.getLogger(__name__).warning(
+                    "contract_edit_suggestions skill failed; using fallback",
+                    exc_info=True,
+                )
+
+        applied = [a for a in anchored if a.get("applied")]
+        if not applied:
+            # No anchored edits the model could quote exactly (commonly: the
+            # source is a placeholder/skeleton, or the request was too broad).
+            # Fail loudly instead of echoing the whole document back as a fake
+            # single "tracked change" that can be accepted.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Couldn't produce tracked changes — the model could not locate "
+                "specific language to revise. The document may be a placeholder "
+                "draft, or the instruction may be too broad. Re-draft the "
+                "contract properly first, or give a more targeted change.",
+            )
+        proposed_text = _apply_anchored(source_text, anchored)
+        edit_docx = _build_redline_docx(
+            title=contract.title,
             base_version_number=version.version_number,
-            instructions=payload.instructions,
-            source_text=source_snapshot.text if source_snapshot else "",
+            source_text=source_text,
+            anchored=anchored,
         )
+
         storage_object = _store_docx(
             db,
             org_id=user.org_id,
@@ -540,21 +659,6 @@ class ToolRuntime:
             filename=f"{_safe_filename(contract.title)}-assistant-edit-v{version.version_number}.docx",
             content=edit_docx,
         )
-        edit = ContractEdit(
-            org_id=user.org_id,
-            contract_id=contract.id,
-            contract_version_id=version.id,
-            edit_type="assistant_instruction",
-            status="proposed",
-            original_text=(source_snapshot.text[:4000] if source_snapshot else None),
-            replacement_text=proposed_text,
-            rationale=payload.instructions,
-            citation=[],
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
-        )
-        db.add(edit)
-        db.flush()
         edit_version = ContractVersion(
             org_id=user.org_id,
             contract_id=contract.id,
@@ -562,19 +666,16 @@ class ToolRuntime:
             version_number=next_version_number(db, contract_file.id),
             storage_object_id=storage_object.id,
             source=ContractVersionSource.ASSISTANT_EDIT,
-            change_summary=f"Assistant edit proposal: {payload.instructions[:240]}",
+            change_summary=(
+                summary
+                or f"Assistant edit proposal: {payload.instructions[:240]}"
+            )[:240],
             is_authoritative=False,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
         db.add(edit_version)
         db.flush()
-        edit.citation = [
-            {
-                "type": "assistant_edit_version",
-                "contract_version_id": edit_version.id,
-            }
-        ]
         snapshot = ContractTextSnapshot(
             org_id=user.org_id,
             contract_id=contract.id,
@@ -591,19 +692,61 @@ class ToolRuntime:
         db.add(snapshot)
         db.flush()
         edit_version.text_snapshot_id = snapshot.id
+
+        # One ContractEdit per suggestion, carrying its anchor so the document
+        # view can highlight exactly where the change applies. Every row links
+        # back to the single proposal version (accept adopts the redline).
+        edit_rows: list[ContractEdit] = []
+        for a in anchored:
+            row = ContractEdit(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                contract_version_id=version.id,
+                edit_type=a.get("edit_type") or "replace",
+                status="proposed",
+                original_text=a.get("original_text"),
+                replacement_text=a.get("replacement_text"),
+                rationale=a.get("rationale"),
+                citation=[
+                    {
+                        "type": "assistant_edit_version",
+                        "contract_version_id": edit_version.id,
+                    },
+                    {
+                        "type": "anchor",
+                        "start": a.get("start", -1),
+                        "end": a.get("end", -1),
+                        "matched": bool(a.get("matched")),
+                        "applied": bool(a.get("applied")),
+                        "risk_level": a.get("risk_level", "medium"),
+                    },
+                    *[
+                        {"type": "source_quote", "quote": q}
+                        for q in (a.get("citations") or [])
+                    ],
+                ],
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(row)
+            edit_rows.append(row)
+        db.flush()
+
         # The proposed edit is NOT authoritative and must not become the file's
         # current version until it is explicitly accepted via accept_contract_edit.
+        primary_edit = edit_rows[0]
         write_audit_log(
             db,
             action="assistant.contract_edit_created",
             resource_type="contract_edit",
-            resource_id=edit.id,
+            resource_id=primary_edit.id,
             org_id=user.org_id,
             actor_user_id=user.id,
             after={
                 "contract_id": contract.id,
                 "base_version_id": version.id,
                 "contract_version_id": edit_version.id,
+                "edits": len(edit_rows),
             },
         )
         write_timeline_event(
@@ -614,16 +757,29 @@ class ToolRuntime:
             event_type="assistant.tracked_change_created",
             title="Assistant tracked-change version created",
             actor_user_id=user.id,
-            details={"contract_edit_id": edit.id, "contract_version_id": edit_version.id},
+            details={
+                "contract_edit_id": primary_edit.id,
+                "contract_version_id": edit_version.id,
+                "edits": len(edit_rows),
+            },
         )
         db.flush()
+        result_citations = [
+            {"type": "edit", "excerpt": q}
+            for a in anchored
+            for q in (a.get("citations") or [])
+            if q
+        ]
         return {
             "status": "created",
             "artifact_type": "assistant_edit",
             "contract_id": contract.id,
             "base_version_id": version.id,
             "contract_version_id": edit_version.id,
-            "contract_edit_id": edit.id,
+            "contract_edit_id": primary_edit.id,
+            "edits": len(edit_rows),
+            "summary": summary,
+            "citations": result_citations,
         }
 
     def _replicate_contract_version(
@@ -1208,6 +1364,46 @@ def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, conten
     return storage_object
 
 
+def _render_structured_contract_docx(
+    *,
+    title: str,
+    sections: list[tuple[str, str]],
+    assumptions: list[str],
+) -> tuple[str, bytes]:
+    """Render an AI-drafted contract (real operative text) into a DOCX and a
+    plain-text snapshot used by clause/metadata extraction."""
+    from docx import Document
+
+    text_parts = [title]
+    document = Document()
+    document.add_heading(title, level=1)
+    for heading, body in sections:
+        heading = (heading or "").strip()
+        body = (body or "").strip()
+        if not body and not heading:
+            continue
+        if heading:
+            document.add_heading(heading, level=2)
+            text_parts.append(heading)
+        if body:
+            for para in body.split("\n\n"):
+                para = para.strip()
+                if para:
+                    document.add_paragraph(para)
+            text_parts.append(body)
+    if assumptions:
+        document.add_heading("Drafting Assumptions", level=2)
+        text_parts.append("Drafting Assumptions")
+        for note in assumptions:
+            note = (note or "").strip()
+            if note:
+                document.add_paragraph(note, style="List Bullet")
+                text_parts.append(f"- {note}")
+    buffer = BytesIO()
+    document.save(buffer)
+    return "\n\n".join(text_parts), buffer.getvalue()
+
+
 def _build_generated_contract_docx(*, title: str, instructions: str) -> tuple[str, bytes]:
     from docx import Document
 
@@ -1233,6 +1429,162 @@ def _build_generated_contract_docx(*, title: str, instructions: str) -> tuple[st
     buffer = BytesIO()
     document.save(buffer)
     return "\n\n".join(text_parts), buffer.getvalue()
+
+
+def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
+    """Locate needle in haystack. Exact match first; then a whitespace-tolerant
+    match (the model may quote across reflowed line breaks)."""
+    if not needle:
+        return None
+    i = haystack.find(needle)
+    if i != -1:
+        return (i, i + len(needle))
+    tokens = needle.split()
+    if not tokens:
+        return None
+    pattern = re.compile(r"\s+".join(re.escape(t) for t in tokens))
+    m = pattern.search(haystack)
+    return (m.start(), m.end()) if m else None
+
+
+def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[str, Any]]:
+    """Resolve each AI edit suggestion to a character span in the source so the
+    change can be applied — and rendered — at the right place. Overlapping or
+    unlocatable edits are kept (for display) but not applied to the text."""
+    anchored: list[dict[str, Any]] = []
+    for s in suggestions:
+        original = (getattr(s, "original_text", None) or "")
+        replacement = getattr(s, "replacement_text", None)
+        replacement = "" if replacement is None else replacement
+        rec: dict[str, Any] = {
+            "edit_type": getattr(s, "edit_type", None) or "replace",
+            "original_text": original or None,
+            "replacement_text": replacement,
+            "rationale": getattr(s, "rationale", None),
+            "risk_level": getattr(s, "risk_level", "medium"),
+            "citations": [
+                c.get("quote") if isinstance(c, dict) else getattr(c, "quote", None)
+                for c in (getattr(s, "citations", []) or [])
+            ],
+            "start": -1,
+            "end": -1,
+            "matched": False,
+            "applied": False,
+        }
+        rec["citations"] = [q for q in rec["citations"] if q]
+        if original == "":
+            rec["start"] = rec["end"] = 0
+            rec["matched"] = True
+        else:
+            span = _find_span(source_text, original)
+            if span is not None:
+                rec["start"], rec["end"] = span
+                rec["matched"] = True
+        anchored.append(rec)
+
+    # Mark which matched edits can actually be applied (no overlap, in order).
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a["matched"]], key=lambda a: (a["start"], a["end"])
+    ):
+        if rec["start"] >= cursor:
+            rec["applied"] = True
+            cursor = max(cursor, rec["end"])
+    return anchored
+
+
+def _apply_anchored(source_text: str, anchored: list[dict[str, Any]]) -> str:
+    """Produce the edited document by applying every applied edit in place."""
+    out: list[str] = []
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a.get("applied")], key=lambda a: a["start"]
+    ):
+        start, end = rec["start"], rec["end"]
+        if start < cursor:
+            continue
+        out.append(source_text[cursor:start])
+        out.append(rec.get("replacement_text") or "")
+        cursor = end
+    out.append(source_text[cursor:])
+    return "".join(out)
+
+
+def _build_redline_docx(
+    *,
+    title: str,
+    base_version_number: int,
+    source_text: str,
+    anchored: list[dict[str, Any]],
+) -> bytes:
+    """Render the full source as a Word document with native tracked changes
+    at each edit's true position — deletions struck, insertions marked."""
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
+    document.add_heading(title, level=1)
+    document.add_paragraph(
+        f"Tracked-change redline against V{base_version_number}. "
+        "Use accept/reject to adopt or close this proposal."
+    )
+
+    nodes: list[tuple[str, str]] = []
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a.get("applied")], key=lambda a: a["start"]
+    ):
+        start, end = rec["start"], rec["end"]
+        if start < cursor:
+            continue
+        if start > cursor:
+            nodes.append(("text", source_text[cursor:start]))
+        if rec.get("original_text"):
+            nodes.append(("del", rec["original_text"]))
+        if rec.get("replacement_text"):
+            nodes.append(("ins", rec["replacement_text"]))
+        cursor = end
+    nodes.append(("text", source_text[cursor:]))
+
+    paragraph = document.add_paragraph()
+    revision_id = 1
+    for kind, value in nodes:
+        if kind == "text":
+            blocks = value.split("\n\n")
+            for bi, block in enumerate(blocks):
+                if bi:
+                    paragraph = document.add_paragraph()
+                for li, line in enumerate(block.split("\n")):
+                    if li:
+                        paragraph.add_run().add_break()
+                    if line:
+                        paragraph.add_run(line)
+        elif kind == "del":
+            _append_deleted_text(
+                paragraph,
+                value,
+                author="Legal AI Assistant",
+                revision_id=str(revision_id),
+                OxmlElement=OxmlElement,
+                qn=qn,
+            )
+            revision_id += 1
+        elif kind == "ins":
+            _append_inserted_text(
+                paragraph,
+                value,
+                author="Legal AI Assistant",
+                revision_id=str(revision_id),
+                OxmlElement=OxmlElement,
+                qn=qn,
+            )
+            revision_id += 1
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
 
 
 def _build_edit_docx(

@@ -269,7 +269,7 @@ def publish_playbook(
     current_user=Depends(require_permission("playbook:publish")),
 ):
     playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    version_id = payload.version_id if payload else playbook.current_version_id
+    version_id = (payload.version_id if payload else None) or playbook.current_version_id
     if not version_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "Playbook has no version to publish")
     version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)

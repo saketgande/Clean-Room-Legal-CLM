@@ -1,10 +1,29 @@
 AEGIS/
 mike/
+.claude/
+# OS / editor
+.DS_Store
+**/.DS_Store
 
+# Secrets & environment (never commit)
 backend/.env
+backend/.env.*
+!backend/.env.example
+backend/secrets/
+**/*.pem
+**/*.key
+
+# Backend caches / local data
 backend/.local-contract-storage/
 backend/__pycache__/
 backend/**/*.py[cod]
 backend/.pytest_cache/
 backend/.ruff_cache/
 backend/.venv/
+
+# Frontend build / deps
+frontend/node_modules/
+frontend/.next/
+frontend/.turbo/
+frontend/*.tsbuildinfo
+frontend/.env.local

@@ -149,7 +149,11 @@ class ClaudeClient:
     async def _post_messages(self, *, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         if not settings.claude_api_key:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
-        async with httpx.AsyncClient(timeout=120) as client:
+        # Non-streaming call: a large structured generation (e.g. a full
+        # multi-section contract at high max_tokens) must complete before the
+        # response returns, so allow a long read while keeping connect fast.
+        timeout = httpx.Timeout(600.0, connect=10.0)
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={

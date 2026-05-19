@@ -645,7 +645,32 @@ def _proposal_version_for_edit(db: Session, *, edit: ContractEdit, org_id: str) 
             proposal_version_id = citation.get("contract_version_id")
             break
     if not proposal_version_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Edit has no assistant version to apply")
+        # Resilience for edits whose citation lost the version link: fall back
+        # to the most recent non-authoritative assistant-edit/redline version
+        # for this contract (the proposal version a redline batch produced).
+        fallback = db.scalar(
+            select(ContractVersion)
+            .where(
+                ContractVersion.org_id == org_id,
+                ContractVersion.contract_id == edit.contract_id,
+                ContractVersion.is_authoritative.is_(False),
+                ContractVersion.deleted_at.is_(None),
+                ContractVersion.source.in_(
+                    [
+                        ContractVersionSource.ASSISTANT_EDIT,
+                        ContractVersionSource.PLAYBOOK_REDLINE,
+                        ContractVersionSource.ASSISTANT_GENERATED,
+                    ]
+                ),
+            )
+            .order_by(ContractVersion.created_at.desc())
+        )
+        if fallback is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Edit has no assistant version to apply",
+            )
+        return fallback
     version = db.get(ContractVersion, proposal_version_id)
     if version is None or version.org_id != org_id or version.contract_id != edit.contract_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant edit version not found")

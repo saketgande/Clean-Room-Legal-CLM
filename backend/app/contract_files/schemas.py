@@ -49,6 +49,7 @@ class ContractTextSnapshotResponse(BaseModel):
     extraction_quality_score: float
     ocr_provider: str | None
     validation_status: str | None
+    text: str = ""
 
 
 class ContractEditResponse(BaseModel):

@@ -1227,8 +1227,11 @@ class AIController:
             self._persist_metadata(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
         elif spec.name == "clause_extraction":
             self._persist_clauses(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
-        elif spec.name == "contract_edit_suggestions":
-            self._persist_contract_edits(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
+        # NOTE: contract_edit_suggestions is intentionally NOT auto-persisted
+        # here. The edit_contract tool (its only caller) persists anchored,
+        # version-linked ContractEdit rows itself. Auto-persisting here created
+        # duplicate, un-acceptable edits (no assistant_edit_version → "Edit has
+        # no assistant version to apply").
         elif spec.name == "obligation_extraction":
             self._persist_obligations(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
         elif spec.name == "renewal_extraction":

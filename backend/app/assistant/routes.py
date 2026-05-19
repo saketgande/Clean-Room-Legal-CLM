@@ -293,6 +293,7 @@ async def stream_session(
         yield _sse("session_started", {"session_id": session.id, "assistant_run_id": assistant_run.id})
         answer_parts: list[str] = []
         citations: list[dict] = []
+        blocks: list[dict] = []
         waiting_for_confirmation = False
         try:
             async for event in ai_controller.stream_assistant_run(
@@ -315,6 +316,7 @@ async def stream_session(
                 if event["event"] == "tool_finished":
                     result = event["payload"].get("result")
                     citations.extend(_citations_from_tool_result(result))
+                _accumulate_block(blocks, event)
                 yield _sse(event["event"], event["payload"])
                 if event["event"] == "tool_finished":
                     for extra_event in _events_from_tool_result(event["payload"].get("result")):
@@ -343,7 +345,10 @@ async def stream_session(
                     role="assistant",
                     content=answer,
                     citations=citations,
-                    metadata_json={"assistant_run_id": assistant_run.id},
+                    metadata_json={
+                        "assistant_run_id": assistant_run.id,
+                        "blocks": blocks,
+                    },
                     created_by_user_id=current_user.id,
                     updated_by_user_id=current_user.id,
                 )
@@ -388,6 +393,7 @@ async def resume_run(
     async def event_stream() -> AsyncIterator[str]:
         answer_parts: list[str] = []
         citations: list[dict] = []
+        blocks: list[dict] = []
         try:
             async for event in ai_controller.resume_assistant_run(
                 db,
@@ -401,6 +407,7 @@ async def resume_run(
                 if event["event"] == "tool_finished":
                     result = event["payload"].get("result")
                     citations.extend(_citations_from_tool_result(result))
+                _accumulate_block(blocks, event)
                 yield _sse(event["event"], event["payload"])
                 if event["event"] == "tool_finished":
                     for extra_event in _events_from_tool_result(event["payload"].get("result")):
@@ -420,7 +427,11 @@ async def resume_run(
                     role="assistant",
                     content=answer,
                     citations=citations,
-                    metadata_json={"assistant_run_id": run.id, "resumed": True},
+                    metadata_json={
+                        "assistant_run_id": run.id,
+                        "resumed": True,
+                        "blocks": blocks,
+                    },
                     created_by_user_id=current_user.id,
                     updated_by_user_id=current_user.id,
                 )
@@ -602,6 +613,15 @@ def _citations_from_tool_result(result: dict | None) -> list[dict]:
                 "excerpt": match.get("excerpt"),
             }
         )
+    for cit in result.get("citations") or []:
+        if isinstance(cit, dict) and (cit.get("excerpt") or cit.get("quote")):
+            citations.append(
+                {
+                    "type": cit.get("type", "citation"),
+                    "contract_id": result.get("contract_id"),
+                    "excerpt": cit.get("excerpt") or cit.get("quote"),
+                }
+            )
     return citations
 
 
@@ -689,6 +709,48 @@ def _validate_and_store_assistant_citations(
     return enriched
 
 
+def _accumulate_block(blocks: list[dict], event: dict) -> None:
+    """Build an ordered, persistable timeline of the assistant turn (content
+    interleaved with tool steps) so the Mike-style trace survives reload."""
+    name = event.get("event")
+    payload = event.get("payload") or {}
+    if name == "message_delta":
+        text = payload.get("text", "")
+        if not text:
+            return
+        if blocks and blocks[-1].get("type") == "content":
+            blocks[-1]["text"] += text
+        else:
+            blocks.append({"type": "content", "text": text})
+    elif name == "tool_started":
+        blocks.append(
+            {
+                "type": "tool",
+                "name": payload.get("tool_name", "tool"),
+                "status": "running",
+            }
+        )
+    elif name == "tool_finished":
+        result = payload.get("result")
+        for b in reversed(blocks):
+            if b.get("type") == "tool" and b.get("status") == "running":
+                b["status"] = "error" if payload.get("error") else "done"
+                if isinstance(result, dict):
+                    art = {
+                        k: result.get(k)
+                        for k in (
+                            "artifact_type",
+                            "contract_id",
+                            "edits",
+                            "summary",
+                        )
+                        if result.get(k) is not None
+                    }
+                    if art:
+                        b["artifact"] = art
+                break
+
+
 def _events_from_tool_result(result: dict | None) -> list[dict]:
     if not isinstance(result, dict):
         return []
@@ -718,6 +780,13 @@ def _events_from_tool_result(result: dict | None) -> list[dict]:
                     "contract_version_id": result.get("contract_version_id"),
                     "contract_edit_id": result.get("contract_edit_id"),
                 },
+            }
+        )
+    if result.get("playbooks"):
+        events.append(
+            {
+                "event": "playbooks_offered",
+                "payload": {"playbooks": result["playbooks"]},
             }
         )
     return events

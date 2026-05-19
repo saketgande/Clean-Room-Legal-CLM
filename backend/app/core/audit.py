@@ -9,6 +9,18 @@ from app.core.database import SessionLocal, new_uuid, utcnow
 from app.core.models import AuditLog, ResourceTimelineEvent
 
 
+def _json_safe(value: Any) -> Any:
+    """Coerce a payload into JSON-serializable form (dates, Decimals, etc.).
+
+    Audit/timeline payloads land in JSON columns; a raw ``date`` from a model
+    snapshot would otherwise raise ``TypeError`` at write time and 500 the
+    request. Audit logging must never break the operation it records.
+    """
+    if value is None:
+        return None
+    return json.loads(json.dumps(value, default=str))
+
+
 def write_audit_log(
     db: Session,
     *,
@@ -36,9 +48,9 @@ def write_audit_log(
             org_id=org_id,
             actor_user_id=actor_user_id,
             request_id=request_id,
-            before=before,
-            after=after,
-            metadata_json=metadata,
+            before=_json_safe(before),
+            after=_json_safe(after),
+            metadata_json=_json_safe(metadata),
             prev_hash=previous_hash,
             created_at=created_at,
             updated_at=created_at,
@@ -110,7 +122,7 @@ def write_timeline_event(
         resource_id=resource_id,
         event_type=event_type,
         title=title,
-        details=details,
+        details=_json_safe(details),
         request_id=request_id,
         job_id=job_id,
         skill_run_id=skill_run_id,

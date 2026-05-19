@@ -124,7 +124,7 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.docx_generation",
         enabled_by_default=True,
-        max_tokens=4096,
+        max_tokens=16000,
     ),
     SkillSpec(
         name="contract_edit_suggestions",
@@ -141,7 +141,7 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.edit_suggestions",
         enabled_by_default=True,
-        max_tokens=4096,
+        max_tokens=16000,
     ),
     SkillSpec(
         name="obligation_extraction",

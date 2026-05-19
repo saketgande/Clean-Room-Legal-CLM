@@ -1,8 +1,9 @@
 import time
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citation
@@ -10,6 +11,7 @@ from app.ai.controller import ai_controller
 from app.ai.schemas import CitationInput, TabularChatOutput
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
+from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import TabularCellStatus
 from app.projects.access import get_project_for_user
@@ -24,6 +26,63 @@ from app.tabular_review.service import build_table_context, build_xlsx, dispatch
 
 router = APIRouter(prefix="/tabular-reviews", tags=["tabular-reviews"])
 
+# A review whose cells have not all finished within this window is treated
+# as stuck (e.g. a worker died) so it can resolve instead of showing
+# "Running" forever.
+STUCK_REVIEW_TTL = timedelta(minutes=20)
+_TERMINAL_CELL = {
+    TabularCellStatus.COMPLETE,
+    TabularCellStatus.NEEDS_REVIEW,
+    TabularCellStatus.FAILED,
+}
+_ACTIVE_REVIEW_STATUSES = {"running", "pending", "draft"}
+
+
+def _reconcile_review_status(db: Session, *, review: TabularReview) -> bool:
+    """Derive a review's status from its cells.
+
+    Cells are processed by independent Celery jobs and nothing transitions
+    the parent review off ``running`` on its own, so a review whose worker
+    died would otherwise display "Running" forever. This also reaps cells
+    stuck past the TTL so the run can resolve and individual cells re-run.
+    Returns True if the review row was mutated (caller commits).
+    """
+    if review.status not in _ACTIVE_REVIEW_STATUSES:
+        return False
+    cells = db.scalars(
+        select(TabularReviewCell).where(
+            TabularReviewCell.org_id == review.org_id,
+            TabularReviewCell.tabular_review_id == review.id,
+        )
+    ).all()
+    if not cells:
+        return False
+    pending = [c for c in cells if c.status not in _TERMINAL_CELL]
+    changed = False
+    if pending:
+        last_active = review.updated_at or review.created_at
+        if utcnow() - last_active < STUCK_REVIEW_TTL:
+            if review.status != "running":
+                review.status = "running"
+                return True
+            return False
+        for cell in pending:
+            cell.status = TabularCellStatus.FAILED
+            cell.error_message = (
+                "Timed out — no result within the expected window "
+                "(the worker may have stopped). Re-run this cell to retry."
+            )
+        changed = True
+    answered = any(
+        c.status in {TabularCellStatus.COMPLETE, TabularCellStatus.NEEDS_REVIEW}
+        for c in cells
+    )
+    new_status = "completed" if answered else "failed"
+    if review.status != new_status:
+        review.status = new_status
+        changed = True
+    return changed
+
 
 class TabularColumnCreate(BaseModel):
     name: str
@@ -35,6 +94,14 @@ class TabularReviewCreate(BaseModel):
     project_id: str | None = None
     contract_ids: list[str] = Field(default_factory=list)
     columns: list[TabularColumnCreate] = Field(min_length=1)
+
+
+class TabularColumnsAdd(BaseModel):
+    columns: list[TabularColumnCreate] = Field(min_length=1)
+
+
+class TabularContractsAdd(BaseModel):
+    contract_ids: list[str] = Field(min_length=1)
 
 
 class TabularChatRequest(BaseModel):
@@ -78,7 +145,15 @@ def list_reviews(
             TabularReview.deleted_at.is_(None),
         )
     ).all()
-    return [review for review in reviews if _review_is_accessible(db, review=review, current_user=current_user)]
+    visible = [
+        review
+        for review in reviews
+        if _review_is_accessible(db, review=review, current_user=current_user)
+    ]
+    mutated = [_reconcile_review_status(db, review=review) for review in visible]
+    if any(mutated):
+        db.commit()
+    return visible
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -151,6 +226,139 @@ def create_review(
     return review
 
 
+def _review_payload(db: Session, *, review: TabularReview, org_id: str) -> dict:
+    columns = db.scalars(
+        select(TabularReviewColumn)
+        .where(TabularReviewColumn.tabular_review_id == review.id)
+        .order_by(TabularReviewColumn.position.asc())
+    ).all()
+    cells = db.scalars(
+        select(TabularReviewCell).where(
+            TabularReviewCell.org_id == org_id,
+            TabularReviewCell.tabular_review_id == review.id,
+        )
+    ).all()
+    return {"review": review, "columns": columns, "cells": cells}
+
+
+@router.post("/{review_id}/columns", status_code=status.HTTP_201_CREATED)
+def add_columns(
+    review_id: str,
+    payload: TabularColumnsAdd,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("assistant:use_ai_tools")),
+):
+    """Add columns to an existing review and back-fill only the new cells.
+
+    Existing answers are never re-run — only the new (contract x column)
+    cells are created and dispatched, mirroring the reference behaviour.
+    """
+    review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
+    contract_ids: list[str] = list(review.source_contract_ids or [])
+    next_pos = db.scalar(
+        select(func.max(TabularReviewColumn.position)).where(
+            TabularReviewColumn.tabular_review_id == review.id
+        )
+    )
+    next_pos = (next_pos + 1) if next_pos is not None else 0
+
+    new_columns = []
+    for offset, col in enumerate(payload.columns):
+        column = TabularReviewColumn(
+            org_id=current_user.org_id,
+            tabular_review_id=review.id,
+            name=col.name,
+            prompt=col.prompt,
+            position=next_pos + offset,
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+        )
+        db.add(column)
+        db.flush()
+        new_columns.append(column)
+
+    cells = []
+    for contract_id in contract_ids:
+        for column in new_columns:
+            cell = TabularReviewCell(
+                org_id=current_user.org_id,
+                tabular_review_id=review.id,
+                column_id=column.id,
+                contract_id=contract_id,
+                status=TabularCellStatus.PENDING,
+                created_by_user_id=current_user.id,
+                updated_by_user_id=current_user.id,
+            )
+            db.add(cell)
+            db.flush()
+            cells.append(cell)
+    if cells:
+        review.status = "running"
+    review.updated_by_user_id = current_user.id
+    db.commit()
+    if cells:
+        dispatch_cells(db, user=current_user, review=review, cells=cells)
+    db.refresh(review)
+    return _review_payload(db, review=review, org_id=current_user.org_id)
+
+
+@router.post("/{review_id}/contracts", status_code=status.HTTP_201_CREATED)
+def add_contracts(
+    review_id: str,
+    payload: TabularContractsAdd,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("assistant:use_ai_tools")),
+):
+    """Add contracts (files) to an existing review and back-fill new cells."""
+    review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
+    existing = list(review.source_contract_ids or [])
+    existing_set = set(existing)
+    new_contract_ids = [
+        cid
+        for cid in dict.fromkeys(payload.contract_ids)
+        if cid not in existing_set
+    ]
+    if not new_contract_ids:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Those contracts are already in this review",
+        )
+    for cid in new_contract_ids:
+        get_contract_for_user(db, contract_id=cid, user=current_user)
+
+    columns = db.scalars(
+        select(TabularReviewColumn)
+        .where(TabularReviewColumn.tabular_review_id == review.id)
+        .order_by(TabularReviewColumn.position.asc())
+    ).all()
+
+    cells = []
+    for contract_id in new_contract_ids:
+        for column in columns:
+            cell = TabularReviewCell(
+                org_id=current_user.org_id,
+                tabular_review_id=review.id,
+                column_id=column.id,
+                contract_id=contract_id,
+                status=TabularCellStatus.PENDING,
+                created_by_user_id=current_user.id,
+                updated_by_user_id=current_user.id,
+            )
+            db.add(cell)
+            db.flush()
+            cells.append(cell)
+
+    review.source_contract_ids = existing + new_contract_ids
+    if cells:
+        review.status = "running"
+    review.updated_by_user_id = current_user.id
+    db.commit()
+    if cells:
+        dispatch_cells(db, user=current_user, review=review, cells=cells)
+    db.refresh(review)
+    return _review_payload(db, review=review, org_id=current_user.org_id)
+
+
 @router.get("/{review_id}")
 def get_review(
     review_id: str,
@@ -158,6 +366,9 @@ def get_review(
     current_user=Depends(require_permission("assistant:use")),
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
+    if _reconcile_review_status(db, review=review):
+        db.commit()
+        db.refresh(review)
     columns = db.scalars(
         select(TabularReviewColumn)
         .where(TabularReviewColumn.tabular_review_id == review.id)
@@ -195,6 +406,10 @@ def rerun_cell(
     cell.citations = None
     cell.error_message = None
     cell.updated_by_user_id = current_user.id
+    # Re-open the parent run so it tracks the re-running cell again
+    # (committing bumps updated_at, restarting the stuck-run TTL window).
+    review.status = "running"
+    review.updated_by_user_id = current_user.id
     db.commit()
     suffix = f":rerun:{int(time.time() * 1000)}"
     dispatch_cells(db, user=current_user, review=review, cells=[cell], suffix=suffix)

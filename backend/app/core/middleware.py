@@ -28,12 +28,24 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         finally:
             latency_ms = (time.perf_counter() - started) * 1000
             current_user = getattr(request.state, "current_user", None)
+
+            def _attr(obj: object, name: str) -> str | None:
+                # Observability must never crash a request. A committed-then-
+                # expired ORM instance read here raises DetachedInstanceError
+                # (not AttributeError), which getattr's default won't catch.
+                try:
+                    return getattr(obj, name, None)
+                except Exception:
+                    return None
+
+            user_id = _attr(current_user, "id")
+            org_id = _attr(current_user, "org_id")
             logger.info(
                 "request.completed",
                 extra={
                     "request_id": request_id,
-                    "user_id": getattr(current_user, "id", None),
-                    "org_id": getattr(current_user, "org_id", None),
+                    "user_id": user_id,
+                    "org_id": org_id,
                     "method": request.method,
                     "route": str(request.url.path),
                     "status_code": status_code,
@@ -46,8 +58,8 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 db.add(
                     RequestLog(
                         request_id=request_id,
-                        user_id=getattr(current_user, "id", None),
-                        org_id=getattr(current_user, "org_id", None),
+                        user_id=user_id,
+                        org_id=org_id,
                         method=request.method,
                         route=str(request.url.path),
                         status_code=status_code,

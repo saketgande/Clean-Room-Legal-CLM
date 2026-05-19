@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 
 from app.admin.routes import router as admin_router
 from app.ai.routes import router as ai_router
@@ -34,13 +36,25 @@ def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
     register_exception_handlers(app)
     app.add_middleware(RequestContextMiddleware)
+
+    cors_origins = [
+        o.strip() for o in settings.cors_origins.split(",") if o.strip()
+    ]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    allowed_hosts = [
+        h.strip() for h in settings.allowed_hosts.split(",") if h.strip()
+    ] or ["*"]
+    if allowed_hosts != ["*"]:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts)
+    if settings.force_https:
+        app.add_middleware(HTTPSRedirectMiddleware)
 
     prefix = settings.api_v1_prefix
     app.include_router(auth_router, prefix=prefix)

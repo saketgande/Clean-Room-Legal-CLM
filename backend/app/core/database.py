@@ -67,4 +67,10 @@ class TableNameMixin:
 
 
 engine = create_engine(settings.database_url, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# expire_on_commit=False: keep ORM instances usable after commit for the rest
+# of the request (response serialization, request-context logging middleware).
+# Without this, any endpoint that commits leaves request.state.current_user
+# expired and post-response access raises DetachedInstanceError.
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
+)

@@ -47,9 +47,25 @@ Use ISO date format. Expiration and notice dates must include a citation quote. 
     "contract_brain_query_parse": """Classify the user's Contract Brain question.
 Decide the query scope (contract, project, or portfolio), any target clause types, party filters, and which retrieval methods are useful (vector, graph, full text).
 Return only the structured classification.""",
-    "contract_brain_answer": """Answer the user's question using ONLY the supplied retrieved context (clauses, graph facts, and snippets).
-Every contract-specific claim must include a citation quote drawn from the retrieved context.
-If the retrieved context does not contain the answer, say it is not found rather than guessing. List any limitations.""",
+    "contract_brain_answer": """The retrieved context below (clauses, graph facts, and snippets from the
+user's own contracts) IS your authoritative source material — it is
+available to you; treat it as the contracts themselves.
+
+Answer the question directly and specifically from that context: name the
+relevant contracts and give the concrete values (periods, amounts, dates,
+parties). For each contract-specific claim, attach a short verbatim quote
+from the context as its citation.
+
+Set confidence by how well the context supports the answer: "high" when
+clauses state it explicitly, "medium" when reasonably inferred, "low" only
+when the context is genuinely too thin.
+
+Do NOT add meta-disclaimers such as "I don't have the context",
+"without the actual context", or "this cannot be substantiated" — the
+context above IS the context. If one specific item the user asked about is
+absent from the context, simply omit that item and note that single gap in
+`limitations`; never negate or caveat the whole answer over it. Only return
+a not-found answer if the context contains nothing relevant at all.""",
     "tabular_cell_extraction": """Answer the single tabular-review question for THIS contract only, using the supplied contract context.
 Return a concise answer, brief reasoning, and a citation quote from the contract text.
 If the contract does not address the question, set not_found=true and leave the answer empty rather than guessing.""",

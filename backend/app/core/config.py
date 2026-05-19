@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     debug: bool = False
     api_v1_prefix: str = "/api/v1"
 
+    # Comma-separated. Override per-environment; no wildcard in production.
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    allowed_hosts: str = "*"
+    force_https: bool = False
+
     database_url: str = "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm"
     redis_url: str = "redis://localhost:6379/0"
     storage_root: Path = Path("./.local-contract-storage")

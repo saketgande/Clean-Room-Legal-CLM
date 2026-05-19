@@ -14,6 +14,9 @@ from app.projects.models import ProjectContract
 MAX_VECTOR_CHUNKS = 8
 MAX_GRAPH_FACTS = 40
 MAX_CLAUSES = 12
+# Candidate clauses pulled before relevance ranking (portfolio scope spans
+# many contracts, so the ranked top-N must be chosen from a wide pool).
+CLAUSE_CANDIDATE_POOL = 600
 
 
 def resolve_scope_contract_ids(
@@ -78,40 +81,43 @@ def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> li
 def _fulltext_clauses(db: Session, *, question: str, contract_ids: list[str]) -> list[dict]:
     if not contract_ids:
         return []
-    terms = [t for t in question.lower().split() if len(t) > 3][:6]
+    terms = [t for t in question.lower().split() if len(t) > 3][:8]
+    # Score across a broad candidate pool, THEN take the best — applying
+    # the small cap at the DB level returned ~MAX_CLAUSES arbitrary clauses
+    # (so portfolio-wide questions matched almost nothing and the answer
+    # hedged). Pull a wide pool scoped to the contracts and rank in Python.
     query = (
         select(ClauseExtraction)
         .where(
             ClauseExtraction.contract_id.in_(contract_ids),
             ClauseExtraction.is_stale.is_(False),
         )
-        .limit(MAX_CLAUSES)
+        .limit(CLAUSE_CANDIDATE_POOL)
     )
     clauses = db.scalars(query).all()
     scored = []
     for cl in clauses:
         text_l = (cl.text or "").lower()
+        type_l = (cl.clause_type or "").lower().replace("_", " ")
         hits = sum(1 for t in terms if t in text_l)
+        hits += sum(2 for t in terms if t in type_l)  # clause-type match weighs more
         scored.append((hits, cl))
     scored.sort(key=lambda x: x[0], reverse=True)
-    return [
-        {
+
+    def _fmt(cl) -> dict:
+        return {
             "contract_id": cl.contract_id,
             "clause_type": cl.clause_type,
             "clause_id": cl.id,
-            "text": cl.text[:1200],
+            "text": (cl.text or "")[:1200],
         }
-        for hits, cl in scored
-        if hits > 0
-    ][:MAX_CLAUSES] or [
-        {
-            "contract_id": cl.contract_id,
-            "clause_type": cl.clause_type,
-            "clause_id": cl.id,
-            "text": cl.text[:1200],
-        }
-        for _, cl in scored[:3]
-    ]
+
+    matched = [_fmt(cl) for hits, cl in scored if hits > 0][:MAX_CLAUSES]
+    if matched:
+        return matched
+    # No keyword hits: still return a representative slice so the answer
+    # is grounded rather than a hedge.
+    return [_fmt(cl) for _, cl in scored[:MAX_CLAUSES]]
 
 
 def _graph_facts(db: Session, *, contract_ids: list[str], clause_types: list[str]) -> list[dict]:
