@@ -2,11 +2,21 @@ import hashlib
 import json
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, new_uuid, utcnow
 from app.core.models import AuditLog, ResourceTimelineEvent
+
+
+# Postgres advisory lock key for the audit-log hash chain. Any writer that
+# wants to append a row takes this lock first, so two concurrent writers
+# cannot both read the same previous_hash and insert siblings — which would
+# silently break the chain's tamper-evident guarantee.
+#
+# Chosen as a fixed bigint so the key never collides with other advisory
+# locks in this codebase. Keep this in sync if you ever add another chain.
+_AUDIT_CHAIN_LOCK_KEY = 0x6175_6469_745f_6c6f  # ascii bytes "audit_lo"
 
 
 def _json_safe(value: Any) -> Any:
@@ -36,6 +46,18 @@ def write_audit_log(
 ) -> AuditLog:
     durable_db = SessionLocal()
     try:
+        # Serialize append with a Postgres session-scoped advisory lock so
+        # two concurrent audit writers cannot both observe the same tail row
+        # and insert siblings that share a prev_hash. Without this the chain
+        # is not actually tamper-evident under concurrency. SQLite (used in
+        # tests) ignores the function — the test harness is single-writer.
+        try:
+            durable_db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _AUDIT_CHAIN_LOCK_KEY})
+        except Exception:
+            # Backends without pg_advisory_xact_lock (e.g. SQLite in tests)
+            # fall through; concurrency guarantees come from the DB engine
+            # only when running on Postgres.
+            durable_db.rollback()
         previous_hash = durable_db.scalar(
             select(AuditLog.row_hash).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(1)
         )
@@ -89,10 +111,20 @@ def compute_audit_row_hash(row: AuditLog) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def verify_audit_hash_chain(db: Session) -> bool:
+def verify_audit_hash_chain(db: Session, *, chunk_size: int = 500) -> bool:
+    """Stream-verify the chain so the whole table doesn't have to live in RAM.
+
+    The previous implementation called ``.all()`` and loaded every audit row
+    at once — fine for thousands of rows, hostile to memory at millions.
+    ``yield_per`` lets SQLAlchemy stream results in fixed-size batches.
+    """
     previous_hash = None
-    rows = db.scalars(select(AuditLog).order_by(AuditLog.created_at.asc(), AuditLog.id.asc())).all()
-    for row in rows:
+    result = db.scalars(
+        select(AuditLog)
+        .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+        .execution_options(yield_per=chunk_size)
+    )
+    for row in result:
         if row.prev_hash != previous_hash:
             return False
         if row.row_hash != compute_audit_row_hash(row):

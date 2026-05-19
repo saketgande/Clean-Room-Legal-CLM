@@ -70,6 +70,22 @@ class RefreshToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
 
+class RevokedAccessToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
+    """Per-jti revocation row for an access token.
+
+    Access tokens are short-lived (default 60 min) but a stolen one is valid
+    for that whole window. Persisting the jti on revocation lets logout and
+    password reset cut off in-flight tokens immediately. The table is pruned
+    once ``expires_at`` passes — there's no point keeping rows that the JWT
+    decoder will already reject on `exp` alone.
+    """
+
+    user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=True)
+    jti = Column(String(80), unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime(timezone=True), index=True, nullable=False)
+    reason = Column(String(120), nullable=True)
+
+
 class PasswordResetToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
     user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
     token_hash = Column(String(255), nullable=False, unique=True, index=True)

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -25,6 +25,7 @@ import {
 import {
   aiApi,
   approvalsApi,
+  assistantApi,
   brainApi,
   contractsApi,
   obligationsApi,
@@ -59,6 +60,8 @@ import {
 import { useToast } from "@/components/toast";
 import { useLayout } from "@/lib/layout";
 import { ContractDocument } from "@/components/contract-document";
+import { Markdown } from "@/components/markdown";
+import { apiStream } from "@/lib/api";
 import type { Citation } from "@/lib/types";
 
 type PanelId = "overview" | "versions" | "redlines" | "activity" | "brain";
@@ -1043,13 +1046,27 @@ function BrainTab({ contractId }: { contractId: string }) {
   );
 }
 
-// ---- Ask AI (docked, contract-scoped chat) -------------------------------
-type ChatTurn = { role: "user" | "assistant"; text: string; citations?: Citation[] };
+// ---- Ask AI (docked, contract-scoped FULL assistant) ---------------------
+// Drives a real contract-scoped assistant session (tools: edit_contract,
+// redline, summarize, …) — not the read-only Brain Q&A — so it can edit the
+// open document. Tracked changes land in the Redlines panel.
+type AskItem = {
+  id: string;
+  role: "user" | "assistant" | "tool" | "system";
+  text: string;
+  tool?: { name: string; status: "running" | "done" | "error" };
+  citations?: Citation[];
+};
+type AskPending = {
+  confirmationId: string;
+  assistantRunId: string;
+  toolName: string;
+};
 
 const ASK_SUGGESTIONS = [
+  "Remove the drafting assumptions from the document",
+  "Tighten the confidentiality clause and show tracked changes",
   "Summarize the key risks in this contract",
-  "What are the termination and renewal terms?",
-  "What changed in the latest version?",
 ];
 
 function AskAIPanel({
@@ -1062,39 +1079,180 @@ function AskAIPanel({
   onClose: () => void;
 }) {
   const { notify } = useToast();
-  const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const qc = useQueryClient();
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [items, setItems] = useState<AskItem[]>([]);
   const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const [pending, setPending] = useState<AskPending | null>(null);
+  const abortRef = useRef<(() => void) | null>(null);
+  const bootRef = useRef(false);
+  const endRef = useRef<HTMLDivElement | null>(null);
 
-  async function send(text: string) {
-    const q = text.trim();
-    if (q.length < 3 || busy) return;
-    setInput("");
-    setTurns((t) => [...t, { role: "user", text: q }]);
-    setBusy(true);
-    try {
-      const res = await brainApi.ask({
-        question: q,
-        query_scope: "contract",
+  useEffect(() => {
+    if (bootRef.current) return;
+    bootRef.current = true;
+    assistantApi
+      .createSession({
+        session_type: "contract",
         contract_id: contractId,
+        title: `Edit · ${contractTitle}`.slice(0, 60),
+      })
+      .then((s) => setSessionId(s.id))
+      .catch((e) =>
+        notify(
+          e instanceof Error ? e.message : "Could not start assistant",
+          "error",
+        ),
+      );
+    return () => abortRef.current?.();
+  }, [contractId, contractTitle, notify]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "end" });
+  }, [items, pending]);
+
+  function handleEvent(event: string, data: Record<string, unknown>) {
+    if (event === "message_delta") {
+      const text = String(data.text ?? "");
+      setItems((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === "assistant" && !last.tool)
+          return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+        return [
+          ...prev,
+          { id: crypto.randomUUID(), role: "assistant", text },
+        ];
       });
-      setTurns((t) => [
-        ...t,
-        { role: "assistant", text: res.answer, citations: res.citations },
-      ]);
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Query failed", "error");
-      setTurns((t) => [
-        ...t,
+    } else if (event === "tool_started") {
+      const name = String(data.tool_name ?? "tool");
+      setItems((prev) => [
+        ...prev,
         {
-          role: "assistant",
-          text: "I couldn't answer that just now. Please try again.",
+          id: crypto.randomUUID(),
+          role: "tool",
+          text: name,
+          tool: { name, status: "running" },
         },
       ]);
-    } finally {
-      setBusy(false);
+    } else if (event === "tool_finished") {
+      setItems((prev) =>
+        prev.map((it) =>
+          it.tool && it.tool.status === "running"
+            ? {
+                ...it,
+                tool: { ...it.tool, status: data.error ? "error" : "done" },
+              }
+            : it,
+        ),
+      );
+    } else if (event === "citation") {
+      setItems((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last.role === "assistant")
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...last,
+              citations: [...(last.citations ?? []), data as Citation],
+            },
+          ];
+        return prev;
+      });
+    } else if (event === "tracked_change_created") {
+      qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
+      qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      setItems((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          text: "Tracked change created — review it in the Redlines panel.",
+        },
+      ]);
+    } else if (event === "contract_generated") {
+      setItems((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "system",
+          text: "A document was generated — see Versions.",
+        },
+      ]);
+    } else if (event === "confirmation_required") {
+      setPending({
+        confirmationId: String(data.confirmation_id),
+        assistantRunId: String(data.assistant_run_id),
+        toolName: String(data.tool_name),
+      });
+      setStreaming(false);
+    } else if (event === "error") {
+      notify(String(data.message ?? "Assistant error"), "error");
+      setStreaming(false);
+    } else if (event === "done") {
+      setStreaming(false);
     }
   }
+
+  async function send(text: string) {
+    const t = text.trim();
+    if (!t || streaming || pending || !sessionId) return;
+    setInput("");
+    setItems((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), role: "user", text: t },
+    ]);
+    setStreaming(true);
+    try {
+      abortRef.current = await apiStream(
+        `/assistant/sessions/${sessionId}/stream`,
+        { message: t, contract_ids: [contractId] },
+        { onEvent: handleEvent, onClose: () => setStreaming(false) },
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Send failed", "error");
+      setStreaming(false);
+    }
+  }
+
+  async function resolveConfirmation(approve: boolean) {
+    if (!pending) return;
+    const p = pending;
+    setPending(null);
+    try {
+      if (approve) {
+        await assistantApi.confirm(p.confirmationId);
+        setItems((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            text: `Confirmed ${titleCase(p.toolName.replace(/_/g, " "))} — applying…`,
+          },
+        ]);
+        setStreaming(true);
+        abortRef.current = await apiStream(
+          `/assistant/runs/${p.assistantRunId}/resume?confirmation_id=${p.confirmationId}`,
+          {},
+          { onEvent: handleEvent, onClose: () => setStreaming(false) },
+        );
+      } else {
+        await assistantApi.reject(p.confirmationId, "Rejected by user");
+        setItems((prev) => [
+          ...prev,
+          {
+            id: crypto.randomUUID(),
+            role: "system",
+            text: "Cancelled — no changes were made.",
+          },
+        ]);
+      }
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Action failed", "error");
+    }
+  }
+
+  const busy = streaming || !!pending;
 
   return (
     <aside className="flex w-full flex-col border-l border-slate-200 bg-white lg:w-[26rem] lg:flex-none lg:shrink-0">
@@ -1107,7 +1265,7 @@ function AskAIPanel({
             Ask AEGIS
           </p>
           <p className="truncate text-xs text-slate-400">
-            Scoped to · {contractTitle}
+            Editing · {contractTitle}
           </p>
         </div>
         <button
@@ -1119,12 +1277,18 @@ function AskAIPanel({
         </button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto p-4">
-        {turns.length === 0 && (
+      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        {items.length === 0 && !sessionId && (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Spinner className="h-3.5 w-3.5" />
+            Connecting the assistant…
+          </div>
+        )}
+        {items.length === 0 && sessionId && (
           <div className="space-y-3">
             <p className="text-sm text-slate-500">
-              Ask anything about this contract — answers are grounded in the
-              document and cite their source.
+              The full assistant — ask it to analyze <em>or edit</em> this
+              contract. Edits return as tracked changes you approve.
             </p>
             <div className="space-y-1.5">
               {ASK_SUGGESTIONS.map((s) => (
@@ -1141,25 +1305,52 @@ function AskAIPanel({
           </div>
         )}
 
-        {turns.map((turn, i) =>
-          turn.role === "user" ? (
-            <div key={i} className="flex justify-end">
-              <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-3.5 py-2 text-sm leading-relaxed text-white">
-                {turn.text}
+        {items.map((it) => {
+          if (it.role === "user")
+            return (
+              <div key={it.id} className="flex justify-end">
+                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-brand-600 px-3.5 py-2 text-sm leading-relaxed text-white">
+                  {it.text}
+                </div>
               </div>
-            </div>
-          ) : (
-            <div key={i} className="space-y-2">
+            );
+          if (it.role === "tool")
+            return (
+              <div
+                key={it.id}
+                className="flex items-center gap-2 text-xs text-slate-500"
+              >
+                {it.tool?.status === "running" ? (
+                  <Spinner className="h-3 w-3" />
+                ) : it.tool?.status === "error" ? (
+                  <X className="h-3.5 w-3.5 text-red-500" />
+                ) : (
+                  <Check className="h-3.5 w-3.5 text-brand-600" />
+                )}
+                {titleCase(it.text.replace(/_/g, " "))}
+              </div>
+            );
+          if (it.role === "system")
+            return (
+              <div
+                key={it.id}
+                className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500"
+              >
+                {it.text}
+              </div>
+            );
+          return (
+            <div key={it.id} className="space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
                 <Sparkles className="h-3 w-3 text-brand-600" />
                 AEGIS
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-800">
-                {turn.text}
-              </p>
-              {turn.citations && turn.citations.length > 0 && (
+              <div className="text-sm leading-relaxed text-slate-800">
+                <Markdown>{it.text}</Markdown>
+              </div>
+              {it.citations && it.citations.length > 0 && (
                 <div className="space-y-2 border-t border-slate-100 pt-2.5">
-                  {turn.citations.map((c, ci) => (
+                  {it.citations.map((c, ci) => (
                     <blockquote
                       key={ci}
                       className="border-l-2 border-brand-400 pl-3 text-xs text-slate-600"
@@ -1170,22 +1361,48 @@ function AskAIPanel({
                 </div>
               )}
             </div>
-          ),
-        )}
+          );
+        })}
 
-        {busy && (
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <Spinner className="h-3.5 w-3.5" />
-            Thinking…
+        {pending && (
+          <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <p className="text-sm font-medium text-amber-900">
+              Approve {titleCase(pending.toolName.replace(/_/g, " "))}?
+            </p>
+            <p className="text-xs text-amber-700">
+              The assistant needs your confirmation before changing the
+              contract.
+            </p>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => resolveConfirmation(true)}>
+                <Check className="h-3.5 w-3.5" />
+                Approve
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => resolveConfirmation(false)}
+              >
+                Cancel
+              </Button>
+            </div>
           </div>
         )}
+
+        {streaming && !pending && (
+          <div className="flex items-center gap-2 text-sm text-slate-400">
+            <Spinner className="h-3.5 w-3.5" />
+            Working…
+          </div>
+        )}
+        <div ref={endRef} />
       </div>
 
       <div className="shrink-0 border-t border-slate-100 p-3">
         <div className="rounded-xl border border-slate-200 bg-white p-2 transition focus-within:border-slate-300">
           <Textarea
             rows={1}
-            placeholder="Ask about this contract…"
+            placeholder="Ask or instruct an edit…"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) =>
@@ -1197,12 +1414,12 @@ function AskAIPanel({
           />
           <div className="flex items-center justify-between px-1 pt-1">
             <span className="text-[11px] text-slate-400">
-              ⏎ send · cites this contract
+              ⏎ send · edits this contract
             </span>
             <Button
               size="icon"
               onClick={() => send(input)}
-              disabled={input.trim().length < 3 || busy}
+              disabled={!input.trim() || busy || !sessionId}
               className="h-8 w-8 rounded-full"
             >
               <Send className="h-4 w-4" />

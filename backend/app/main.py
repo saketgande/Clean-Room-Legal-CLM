@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.admin.routes import router as admin_router
 from app.ai.routes import router as ai_router
@@ -16,6 +18,7 @@ from app.core.config import settings, validate_runtime_settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
+from app.core.rate_limit import limiter, rate_limit_exceeded_handler
 from app.debug.routes import router as debug_router
 from app.jobs.routes import router as jobs_router
 from app.notifications.routes import router as notifications_router
@@ -35,17 +38,31 @@ def create_app() -> FastAPI:
     validate_runtime_settings(settings)
     app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
     register_exception_handlers(app)
+
+    # Rate limit: shared limiter instance bound onto the app so decorators in
+    # auth/routes.py can resolve it.
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    if settings.rate_limit_enabled:
+        app.add_middleware(SlowAPIMiddleware)
+
     app.add_middleware(RequestContextMiddleware)
 
     cors_origins = [
         o.strip() for o in settings.cors_origins.split(",") if o.strip()
     ]
+    cors_methods = [
+        m.strip() for m in settings.cors_allow_methods.split(",") if m.strip()
+    ] or ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"]
+    cors_headers = [
+        h.strip() for h in settings.cors_allow_headers.split(",") if h.strip()
+    ] or ["Authorization", "Content-Type", "X-Request-ID"]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=cors_methods,
+        allow_headers=cors_headers,
     )
 
     allowed_hosts = [

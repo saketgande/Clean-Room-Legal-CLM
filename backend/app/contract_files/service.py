@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,6 +24,66 @@ from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
 
 
+logger = logging.getLogger(__name__)
+
+
+# Magic-byte signatures for the MIME types we accept. Used to refuse a file
+# whose declared content-type doesn't match the actual bytes — the client's
+# content-type header alone is untrustworthy.
+_MAGIC_BYTE_SIGNATURES: dict[str, tuple[bytes, ...]] = {
+    "application/pdf": (b"%PDF-",),
+    # DOCX, XLSX, PPTX are ZIP-based.
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (b"PK\x03\x04",),
+    # Legacy .doc — OLE compound document magic.
+    "application/msword": (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/jpeg": (b"\xff\xd8\xff",),
+    # text/plain has no magic — accepted by default.
+}
+
+
+def _sniff_mime_type(content: bytes, claimed: str) -> str:
+    """Return the canonical mime type for ``content``, or the claimed one
+    if we don't have a signature on file.
+
+    Raises HTTPException(415) on a clear mismatch.
+    """
+    # text/* has no reliable magic; accept the claim.
+    if claimed.startswith("text/"):
+        return claimed
+    signatures = _MAGIC_BYTE_SIGNATURES.get(claimed)
+    if signatures is None:
+        return claimed
+    head = content[: max(len(sig) for sig in signatures)]
+    if not any(head.startswith(sig) for sig in signatures):
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            f"Uploaded file bytes do not match the declared {claimed} content-type.",
+        )
+    return claimed
+
+
+async def _read_upload_with_limit(upload: UploadFile, *, limit: int, chunk_size: int) -> bytes:
+    """Read the upload in chunks, refusing once we cross ``limit`` bytes.
+
+    Replaces the previous ``await upload.read()`` which buffered the entire
+    stream before the size check — a 5 GB body was fully resident before
+    rejection. Now we cut off as soon as the threshold is exceeded.
+    """
+    buffer = bytearray()
+    while True:
+        chunk = await upload.read(chunk_size)
+        if not chunk:
+            break
+        if len(buffer) + len(chunk) > limit:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                "Upload exceeds size limit",
+            )
+        buffer.extend(chunk)
+    return bytes(buffer)
+
+
 INITIAL_CONTRACT_AI_JOB_TYPES = (
     "metadata_extraction",
     "clause_extraction",
@@ -44,9 +106,15 @@ async def create_contract_from_upload(
     if mime_type not in settings.allowed_mime_types:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}")
 
-    content = await upload.read()
-    if len(content) > settings.max_upload_size_bytes:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "Upload exceeds size limit")
+    content = await _read_upload_with_limit(
+        upload,
+        limit=settings.max_upload_size_bytes,
+        chunk_size=settings.upload_stream_chunk_bytes,
+    )
+    # Re-verify the MIME against the actual bytes — the client's content-type
+    # header is untrustworthy. A user with contract:create could otherwise
+    # upload arbitrary bytes labelled as application/pdf.
+    mime_type = _sniff_mime_type(content, mime_type)
 
     if project_id:
         get_project_for_user(db, project_id=project_id, user=user, access="update")
@@ -256,6 +324,10 @@ async def create_contract_from_upload(
         "extraction_method": extraction_method,
         "extraction_quality_score": quality_score,
         "queued_jobs": queued_job_types,
+        # Surface dispatch errors so the API client can detect a partial
+        # success (contract intake landed; one or more AI jobs failed to
+        # enqueue) rather than seeing a 201 with no signal.
+        "dispatch_errors": dispatch_errors,
     }
 
 

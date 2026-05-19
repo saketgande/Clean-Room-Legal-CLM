@@ -73,11 +73,14 @@ app/core/exceptions.py
 app/core/logging.py
 app/core/middleware.py
 app/core/models.py
+app/core/rate_limit.py
 app/core/rbac.py
+app/core/sanitize.py
 app/core/security.py
 app/debug/__init__.py
 app/debug/routes.py
 app/integrations/__init__.py
+app/integrations/_claude_mock.py
 app/integrations/claude.py
 app/integrations/docusign.py
 app/integrations/reducto.py
@@ -122,6 +125,7 @@ app/tabular_review/models.py
 app/tabular_review/routes.py
 app/tabular_review/service.py
 app/workflows/__init__.py
+app/workflows/builtin.py
 app/workflows/models.py
 app/workflows/routes.py
 clean_room_legal_clm_backend.egg-info/PKG-INFO
@@ -131,6 +135,7 @@ clean_room_legal_clm_backend.egg-info/requires.txt
 clean_room_legal_clm_backend.egg-info/top_level.txt
 tests/test_ai_architecture_wiring.py
 tests/test_migration_deployability.py
+tests/test_phase10_security_hardening.py
 tests/test_phase1_auth_foundation.py
 tests/test_phase2_api_shapes.py
 tests/test_phase4_contract_lifecycle_hub.py

@@ -34,6 +34,9 @@ class ContractUploadResponse(BaseModel):
     extraction_method: str
     extraction_quality_score: float
     queued_jobs: list[str] = Field(default_factory=list)
+    # Per-job errors raised during best-effort dispatch after the upload was
+    # persisted. Empty on a fully successful upload.
+    dispatch_errors: list[dict] = Field(default_factory=list)
 
 
 class ContractUpdate(BaseModel):

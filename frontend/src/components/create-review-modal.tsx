@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2, FileText, Wand2 } from "lucide-react";
+import { Plus, Trash2, FileText, Wand2, Upload } from "lucide-react";
 import {
   contractsApi,
   projectsApi,
@@ -11,6 +11,7 @@ import {
 } from "@/lib/endpoints";
 import { Button, Field, Input, Modal, Select } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { ImportContractModal } from "@/components/import-contract-modal";
 
 type Column = { name: string; prompt: string };
 
@@ -40,6 +41,7 @@ export function CreateReviewModal({
   const [projectId, setProjectId] = useState(defaultProjectId ?? "");
   const [workflowId, setWorkflowId] = useState("");
   const [contractIds, setContractIds] = useState<string[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
   const [columns, setColumns] = useState<Column[]>([{ name: "", prompt: "" }]);
   const [busy, setBusy] = useState(false);
 
@@ -151,6 +153,7 @@ export function CreateReviewModal({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -233,6 +236,14 @@ export function CreateReviewModal({
               : "Pick the contracts to run every column against"
           }
         >
+          <button
+            type="button"
+            onClick={() => setImportOpen(true)}
+            className="mb-2 inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Import a new file
+          </button>
           <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
             {(contracts ?? []).length === 0 ? (
               <p className="px-2 py-3 text-sm text-slate-400">
@@ -316,5 +327,17 @@ export function CreateReviewModal({
         )}
       </div>
     </Modal>
+    <ImportContractModal
+      open={importOpen}
+      onClose={() => setImportOpen(false)}
+      defaultProjectId={projectId || undefined}
+      onUploaded={(c) => {
+        qc.invalidateQueries({ queryKey: ["contracts"] });
+        setContractIds((prev) =>
+          prev.includes(c.id) ? prev : [...prev, c.id],
+        );
+      }}
+    />
+    </>
   );
 }

@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   ListChecks,
   PanelLeft,
+  Upload,
 } from "lucide-react";
 import {
   assistantApi,
@@ -36,6 +37,7 @@ import { apiStream } from "@/lib/api";
 import { Badge, Button, CenterSpinner, Input, Modal, Select, Spinner } from "@/components/ui";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
+import { ImportContractModal } from "@/components/import-contract-modal";
 import { useLayout } from "@/lib/layout";
 import { cn, fmtRelative, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
@@ -1882,6 +1884,8 @@ function DocPickerModal({
   onPick: (c: ContractResponse) => void;
 }) {
   const [q, setQ] = useState("");
+  const qc = useQueryClient();
+  const [importOpen, setImportOpen] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
@@ -1895,6 +1899,7 @@ function DocPickerModal({
   const LIMIT = 25;
   const items = matched.slice(0, LIMIT);
   return (
+    <>
     <Modal open={open} onClose={onClose} title="Add a document to this chat">
       <div className="space-y-3">
         <Input
@@ -1903,6 +1908,14 @@ function DocPickerModal({
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Import a new file
+        </button>
         {matched.length > LIMIT && (
           <p className="text-xs text-slate-400">
             Showing first {LIMIT} of {matched.length} — type to narrow.
@@ -1938,11 +1951,21 @@ function DocPickerModal({
           )}
         </div>
         <p className="text-xs text-slate-400">
-          To upload a brand-new file, image, or folder, use Contract Hub →
-          Upload; it then appears here to attach.
+          Import brings a new file in and attaches it to this chat
+          immediately.
         </p>
       </div>
     </Modal>
+    <ImportContractModal
+      open={importOpen}
+      onClose={() => setImportOpen(false)}
+      onUploaded={(c) => {
+        qc.invalidateQueries({ queryKey: ["contracts"] });
+        onPick(c);
+        onClose();
+      }}
+    />
+    </>
   );
 }
 

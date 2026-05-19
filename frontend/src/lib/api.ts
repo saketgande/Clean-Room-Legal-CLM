@@ -8,26 +8,29 @@ export const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
 const ACCESS_KEY = "aegis.access_token";
-const REFRESH_KEY = "aegis.refresh_token";
 
+// Refresh tokens are NOT stored client-side any more — they live in an
+// HttpOnly cookie set by the backend. The frontend never reads or writes the
+// refresh token directly; we just send `credentials: 'include'` on /auth/refresh
+// so the cookie is attached automatically. This removes the previous risk where
+// any XSS could exfiltrate a 30-day persistent session from localStorage.
+//
+// Access tokens still live in localStorage because they're sent on every
+// request as `Authorization: Bearer ...`. They're short-lived (default 60min)
+// and revocable server-side via the access-token jti list, which limits blast
+// radius if an XSS does land.
 export const tokenStore = {
   get access() {
     if (typeof window === "undefined") return null;
     return window.localStorage.getItem(ACCESS_KEY);
   },
-  get refresh() {
-    if (typeof window === "undefined") return null;
-    return window.localStorage.getItem(REFRESH_KEY);
-  },
-  set(tokens: { access_token: string; refresh_token: string }) {
+  set(tokens: { access_token: string }) {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(ACCESS_KEY, tokens.access_token);
-    window.localStorage.setItem(REFRESH_KEY, tokens.refresh_token);
   },
   clear() {
     if (typeof window === "undefined") return;
     window.localStorage.removeItem(ACCESS_KEY);
-    window.localStorage.removeItem(REFRESH_KEY);
   },
 };
 
@@ -67,15 +70,17 @@ async function parseError(res: Response): Promise<HttpError> {
 let refreshing: Promise<boolean> | null = null;
 
 async function tryRefresh(): Promise<boolean> {
-  const refresh_token = tokenStore.refresh;
-  if (!refresh_token) return false;
+  // The refresh token is in an HttpOnly cookie set by /auth/login. We just
+  // need to include credentials on this request — the backend reads the
+  // cookie, mints a new access token, and rotates the cookie.
   if (!refreshing) {
     refreshing = (async () => {
       try {
         const res = await fetch(`${API_BASE}/auth/refresh`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token }),
+          credentials: "include",
+          body: JSON.stringify({}),
         });
         if (!res.ok) return false;
         const data = (await res.json()) as TokenResponse;
@@ -111,7 +116,14 @@ export async function apiFetch<T>(
   }
 
   const doFetch = () => {
-    const init: RequestInit = { ...rest, headers: authHeaders(headers) };
+    const init: RequestInit = {
+      ...rest,
+      headers: authHeaders(headers),
+      // Include the refresh-token cookie on every request — the backend
+      // only reads it on /auth/refresh and /auth/logout, but sending it
+      // uniformly avoids special-casing those paths.
+      credentials: "include",
+    };
     if (form) {
       init.body = form;
     } else if (body !== undefined) {

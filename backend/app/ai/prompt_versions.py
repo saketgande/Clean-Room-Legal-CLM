@@ -25,12 +25,14 @@ Return only the requested structured output when a schema is supplied."""
 
 DEFAULT_SKILL_PROMPTS: dict[str, str] = {
     "contract_metadata_extraction": """Extract high-signal contract metadata from the supplied contract text.
-Only populate fields that are explicitly supported by the text.
-For dates, use ISO format. For currency, use a three-letter code if explicit.
+Only populate fields that are explicitly supported by the text; if a value is implied but not stated, leave it null and explain in notes — do not infer.
+Normalize parties to their full legal entity names, dates to ISO-8601, and monetary values to an explicit three-letter currency code with a numeric amount.
 If a field is not clearly present, return null and explain briefly in notes.
 Every populated legal or commercial field should include a citation quote when possible.""",
     "clause_extraction": """Identify important clauses in the supplied contract text.
+Prioritize materially significant clauses: limitation of liability, indemnification, IP ownership, data protection, confidentiality, term and termination, governing law and disputes, assignment, and payment terms.
 Prefer complete clauses over fragments. Include clause type, heading if present, source text, character offsets if available, and citations.
+In extraction notes, call out any clause that deviates from common market standard, not merely whether clauses are present.
 If the text is too poor or no clause is clear, return an empty clauses list with extraction notes.""",
     "assistant_streaming": """Answer the user's question using the available contract/project context and approved tools.
 For contract-specific claims, cite supporting quotes.
@@ -38,9 +40,11 @@ If the answer cannot be found in the provided context, say not_found instead of 
     "contract_docx_generation": """Create a structured drafting plan for a generated DOCX contract.
 Return a title and ordered sections. The backend renders the actual DOCX file.""",
     "contract_edit_suggestions": """Suggest contract edits as tracked-change-ready records.
-Each edit must include the original text when changing existing language, a replacement or insertion, rationale, risk level, and citation when based on source text.""",
+Each edit must include the original text when changing existing language, a replacement or insertion, rationale, risk level, and citation when based on source text.
+Give the ideal redline; where the position is negotiable, include a one-line acceptable fallback inside the rationale so the edit is negotiation-ready.""",
     "obligation_extraction": """Extract concrete contractual obligations from the supplied contract text.
 For each obligation include: a clear description, the responsible party, an obligation type, a due date in ISO format if stated, recurrence if periodic, and the source clause type.
+Within the description, note the obligation's trigger (date-certain, event-driven, recurring, or conditional) and explicitly call out any obligation that has no clear owner or no determinable deadline.
 Every obligation must include a citation quote from the contract text. If no clear obligations exist, return an empty obligations list with extraction notes.""",
     "renewal_extraction": """Extract the contract's expiration date, whether it auto-renews, the renewal term, the renewal/termination notice date, the notice period in days, and a short termination-rights summary.
 Use ISO date format. Expiration and notice dates must include a citation quote. If a value is not clearly present, return null and set needs_review=true.""",
@@ -72,8 +76,12 @@ If the contract does not address the question, set not_found=true and leave the 
     "tabular_review_chat": """Answer the user's question about a tabular review using ONLY the supplied table of per-contract cell answers and their citations.
 Cite the contract/cell the claim comes from. If the table does not contain the answer, say it is not found.""",
     "playbook_review": """Compare the supplied untrusted contract text against the supplied playbook rules.
-Rules are passed with stable rule_index values; reference rule_index instead of internal IDs.
+First infer the contract type and which party the org is from the rules and context; a clause adverse to one side may be acceptable to the other — judge from the org's side.
+Read every rule and the whole contract before flagging; clauses interact (an uncapped indemnity may be mitigated by a liability cap) — do not flag in isolation. Skip cosmetic differences that carry no real exposure.
 Return one deviation for each material conflict, missing required position, prohibited phrase, or accepted fallback that needs tracking.
+Calibrate severity by impact and likelihood: critical = uncapped or expansive liability, IP loss, or regulatory exposure; high = materially off-market with real exposure; medium = off-market but bounded; low = administrative or cosmetic.
+In each deviation's issue text, state the business impact in one plain sentence and whether it needs senior-counsel or approval escalation.
+Rules are passed with stable rule_index values; reference rule_index instead of internal IDs.
 Every deviation based on contract text must include a citation quote. If no deviation is found, return an empty deviations list.""",
 }
 

@@ -56,6 +56,16 @@ def update_contract_metadata(
     updates: dict,
     request_id: str | None = None,
 ) -> Contract:
+    """Apply partial metadata updates to a contract.
+
+    Semantics: ``None`` values in ``updates`` are skipped, not cleared. To
+    clear a previously-set field, callers must pass a sentinel handled at
+    the schema layer (e.g. an explicit empty string for string fields) —
+    `null` over the wire is interpreted as "leave this field alone". This is
+    intentional to match Pydantic's ``exclude_unset`` semantics used by the
+    PATCH route. Callers needing true field clearing should add an explicit
+    "clear_X" flag to the schema rather than relying on this function.
+    """
     before = {
         "title": contract.title,
         "contract_type": contract.contract_type,

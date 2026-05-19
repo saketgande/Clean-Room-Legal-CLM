@@ -16,6 +16,10 @@ class Settings(BaseSettings):
 
     # Comma-separated. Override per-environment; no wildcard in production.
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Pinned CORS — '*' is rejected when allow_credentials is true anyway, but
+    # we also keep the verb/header lists explicit so we can audit the surface.
+    cors_allow_methods: str = "GET,POST,PATCH,PUT,DELETE,OPTIONS"
+    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID,X-CSRF-Token"
     allowed_hosts: str = "*"
     force_https: bool = False
 
@@ -23,10 +27,44 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     storage_root: Path = Path("./.local-contract-storage")
 
+    # SQLAlchemy connection pool. Defaults are sane for a single dev process but
+    # almost certainly too small for a multi-worker production deployment.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_recycle_seconds: int = 1800
+    db_pool_timeout_seconds: int = 30
+
     secret_key: str = "change-me-before-production"
     access_token_expire_minutes: int = 60
     refresh_token_expire_days: int = 30
     setup_token: str = "local-setup-token"
+
+    # Refresh tokens are issued as HttpOnly cookies. The legacy JSON body
+    # field is preserved for backwards-compat with existing API clients but
+    # disabled in production by default — flip on only for trusted backends.
+    refresh_cookie_name: str = "aegis_refresh"
+    refresh_cookie_path: str = "/api/v1/auth"
+    refresh_cookie_samesite: str = "lax"  # "strict" once frontend is fully cookie-aware
+    refresh_cookie_secure: bool = False  # set true in production
+    expose_refresh_token_in_body: bool = True  # legacy clients; turn off in prod
+
+    # Rate limiting (slowapi). "5/minute" style strings.
+    rate_limit_login: str = "10/minute"
+    rate_limit_refresh: str = "30/minute"
+    rate_limit_password_reset: str = "5/minute"
+    rate_limit_invitation_accept: str = "5/minute"
+    rate_limit_enabled: bool = True
+
+    # When True, password reset tokens are echoed back in the API response —
+    # convenient for local dev when MOCK_RESEND is on, dangerous anywhere else.
+    # Default false; legacy local environments can override via env.
+    expose_password_reset_token_in_response: bool = False
+
+    # Per-request audit logging (RequestLog). Query strings are redacted to
+    # avoid persisting tokens / passcodes / share secrets that occasionally
+    # show up in URLs.
+    request_log_redact_query: bool = True
+    request_log_sensitive_query_keys: str = "token,passcode,refresh_token,access_token,api_key,setup_token"
 
     allowed_mime_types: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
@@ -68,6 +106,15 @@ class Settings(BaseSettings):
     dev_seed_admin_email: str = "admin@example.com"
     dev_seed_admin_password: str = "local-dev-password"
 
+    # Anthropic / Claude resiliency knobs (tenacity retries).
+    claude_max_retries: int = 3
+    claude_retry_initial_backoff_seconds: float = 1.0
+    claude_retry_max_backoff_seconds: float = 30.0
+
+    # Upload pipeline safety nets.
+    upload_stream_chunk_bytes: int = 1024 * 1024  # 1 MB chunks
+    pdf_max_extracted_text_bytes: int = 8 * 1024 * 1024  # 8 MB cap per contract
+
     @field_validator("allowed_mime_types", mode="before")
     @classmethod
     def parse_mime_types(cls, value: str | list[str]) -> list[str]:
@@ -100,6 +147,21 @@ def validate_runtime_settings(settings: Settings) -> None:
     if enabled_mocks:
         problems.append(f"disable mock integrations {', '.join(enabled_mocks)}")
     # HMAC key intentionally optional: Connect is plan-gated; the webhook self-rejects when unset.
+
+    # Security flags that must be tightened before going live.
+    if settings.expose_password_reset_token_in_response:
+        problems.append("disable EXPOSE_PASSWORD_RESET_TOKEN_IN_RESPONSE")
+    if settings.expose_refresh_token_in_body:
+        problems.append("disable EXPOSE_REFRESH_TOKEN_IN_BODY (cookies only)")
+    if not settings.refresh_cookie_secure:
+        problems.append("enable REFRESH_COOKIE_SECURE")
+    if settings.refresh_cookie_samesite.lower() not in {"strict", "lax"}:
+        problems.append("set REFRESH_COOKIE_SAMESITE to 'strict' or 'lax'")
+    if "*" in {h.strip() for h in settings.allowed_hosts.split(",")}:
+        problems.append("set ALLOWED_HOSTS to a non-wildcard list")
+    if "*" in settings.cors_origins.split(","):
+        problems.append("set CORS_ORIGINS to an explicit list")
+
     if problems:
         raise RuntimeError("Insecure production configuration: " + "; ".join(problems))
 

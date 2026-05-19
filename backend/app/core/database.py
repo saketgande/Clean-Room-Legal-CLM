@@ -66,7 +66,17 @@ class TableNameMixin:
         return "".join(chars)
 
 
-engine = create_engine(settings.database_url, pool_pre_ping=True)
+# Pool sized from env. SQLAlchemy's defaults (pool_size=5, max_overflow=10)
+# are fine for a single dev process but undersized for a multi-worker prod.
+# pool_pre_ping mitigates stale-connection errors after DB failovers.
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_recycle=settings.db_pool_recycle_seconds,
+    pool_timeout=settings.db_pool_timeout_seconds,
+)
 # expire_on_commit=False: keep ORM instances usable after commit for the rest
 # of the request (response serialization, request-context logging middleware).
 # Without this, any endpoint that commits leaves request.state.current_user

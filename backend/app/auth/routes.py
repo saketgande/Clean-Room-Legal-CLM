@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Request
+from datetime import UTC, datetime, timedelta
+
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.auth.schemas import (
@@ -23,6 +25,8 @@ from app.auth.schemas import (
     UserInvitationResponse,
     UserResponse,
 )
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.auth.service import (
     accept_user_invitation,
     as_user_response,
@@ -50,6 +54,47 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
 
 
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    """Set the refresh token as an HttpOnly cookie scoped to /auth.
+
+    Why a cookie: localStorage made the refresh token reachable from any
+    XSS, which gave an attacker a 30-day persistent session. HttpOnly +
+    SameSite + Secure removes JS access entirely.
+    """
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh_token,
+        max_age=settings.refresh_token_expire_days * 24 * 3600,
+        httponly=True,
+        secure=settings.refresh_cookie_secure,
+        samesite=settings.refresh_cookie_samesite,
+        path=settings.refresh_cookie_path,
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(
+        key=settings.refresh_cookie_name,
+        path=settings.refresh_cookie_path,
+    )
+
+
+def _emit_token_response(response: Response, payload: dict) -> dict:
+    """Set the refresh cookie and optionally strip the refresh_token from the body."""
+    refresh_token = payload.get("refresh_token")
+    if refresh_token:
+        _set_refresh_cookie(response, refresh_token)
+    if not settings.expose_refresh_token_in_body:
+        payload = {k: v for k, v in payload.items() if k != "refresh_token"}
+    return payload
+
+
+def _read_refresh_token(request: Request, body_value: str | None) -> str | None:
+    """Prefer the HttpOnly cookie; fall back to the body for legacy clients."""
+    cookie_token = request.cookies.get(settings.refresh_cookie_name)
+    return cookie_token or body_value
+
+
 @router.post("/setup/first-admin", response_model=UserResponse)
 def setup_first_admin(
     payload: SetupAdminRequest, request: Request, db: Session = Depends(get_db)
@@ -75,37 +120,66 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    return login_user(
+@limiter.limit(settings.rate_limit_login)
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    tokens = login_user(
         db,
         str(payload.email),
         payload.password,
         request_id=getattr(request.state, "request_id", None),
     )
+    return _emit_token_response(response, tokens)
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(payload: RefreshTokenRequest, request: Request, db: Session = Depends(get_db)):
-    return refresh_login_tokens(
+@limiter.limit(settings.rate_limit_refresh)
+def refresh(
+    payload: RefreshTokenRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    refresh_token = _read_refresh_token(request, payload.refresh_token)
+    tokens = refresh_login_tokens(
         db,
-        refresh_token=payload.refresh_token,
+        refresh_token=refresh_token,
         request_id=getattr(request.state, "request_id", None),
     )
+    return _emit_token_response(response, tokens)
 
 
 @router.post("/logout", status_code=204)
 def logout(
     payload: LogoutRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    refresh_token = _read_refresh_token(request, payload.refresh_token)
+    # Pull the access-token claims off request.state so we can revoke its jti.
+    access_jti = getattr(request.state, "access_token_jti", None)
+    access_exp = getattr(request.state, "access_token_exp", None)
+    if isinstance(access_exp, int):
+        access_exp = datetime.fromtimestamp(access_exp, tz=UTC)
+    elif access_exp is None:
+        # Fall back to the configured max so the revocation row outlives
+        # any token signed with the current settings.
+        access_exp = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     revoke_refresh_token(
         db,
         user=current_user,
-        refresh_token=payload.refresh_token,
+        refresh_token=refresh_token,
+        access_token_jti=access_jti,
+        access_token_exp=access_exp,
         request_id=getattr(request.state, "request_id", None),
     )
+    _clear_refresh_cookie(response)
 
 
 @router.post("/active-role", response_model=UserResponse)
@@ -126,19 +200,23 @@ def active_role(
 
 
 @router.post("/invitations/accept", response_model=TokenResponse)
+@limiter.limit(settings.rate_limit_invitation_accept)
 def accept_invitation(
     payload: AcceptInvitationRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
-    return accept_user_invitation(
+    tokens = accept_user_invitation(
         db,
         payload=payload,
         request_id=getattr(request.state, "request_id", None),
     )
+    return _emit_token_response(response, tokens)
 
 
 @router.post("/password-reset/request", response_model=PasswordResetRequestResponse)
+@limiter.limit(settings.rate_limit_password_reset)
 def password_reset_request(
     payload: PasswordResetRequest,
     request: Request,
@@ -152,6 +230,7 @@ def password_reset_request(
 
 
 @router.post("/password-reset/confirm", status_code=204)
+@limiter.limit(settings.rate_limit_password_reset)
 def password_reset_confirm(
     payload: PasswordResetConfirmRequest,
     request: Request,

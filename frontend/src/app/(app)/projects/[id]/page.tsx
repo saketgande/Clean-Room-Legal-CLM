@@ -7,6 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
   Plus,
+  Upload,
   Trash2,
   FolderPlus,
   UserPlus,
@@ -22,6 +23,7 @@ import {
   tabularApi,
 } from "@/lib/endpoints";
 import { CreateReviewModal } from "@/components/create-review-modal";
+import { ImportContractModal } from "@/components/import-contract-modal";
 import { fmtRelative } from "@/lib/utils";
 import {
   Badge,
@@ -154,6 +156,7 @@ function ContractsTab({ projectId }: { projectId: string }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [addOpen, setAddOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["project", projectId, "contracts"],
@@ -196,7 +199,11 @@ function ContractsTab({ projectId }: { projectId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => setImportOpen(true)}>
+          <Upload className="h-4 w-4" />
+          Import file
+        </Button>
         <Button onClick={() => setAddOpen(true)}>
           <Plus className="h-4 w-4" />
           Add contract
@@ -274,6 +281,18 @@ function ContractsTab({ projectId }: { projectId: string }) {
           }}
         />
       )}
+
+      <ImportContractModal
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        defaultProjectId={projectId}
+        onUploaded={() => {
+          qc.invalidateQueries({
+            queryKey: ["project", projectId, "contracts"],
+          });
+          qc.invalidateQueries({ queryKey: ["contracts"] });
+        }}
+      />
     </div>
   );
 }

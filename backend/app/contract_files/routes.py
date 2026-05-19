@@ -614,10 +614,23 @@ def _get_active_share(db: Session, *, token: str, passcode: str | None) -> Contr
     now = utcnow()
     if share.revoked_at is not None or (share.expires_at is not None and share.expires_at < now):
         raise HTTPException(status.HTTP_410_GONE, "Share is no longer active")
-    if share.passcode_hash and not secrets.compare_digest(
-        _hash_secret(passcode or ""), share.passcode_hash
-    ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Passcode required")
+    if share.passcode_hash:
+        if not secrets.compare_digest(_hash_secret(passcode or ""), share.passcode_hash):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Passcode required")
+    elif passcode:
+        # No passcode is required on this share but the caller supplied one
+        # anyway. Log it so abuse review can spot probing behaviour, but do
+        # not block — legitimate users sometimes resubmit forms with stale
+        # values from a passcode-gated link they used previously.
+        write_audit_log(
+            db,
+            action="contract.external_share_passcode_unexpected",
+            resource_type="contract_share",
+            resource_id=share.id,
+            org_id=share.org_id,
+            metadata={"contract_id": share.contract_id},
+        )
+        db.commit()
     return share
 
 

@@ -1,3 +1,5 @@
+import logging
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,6 +12,9 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
+
+
+logger = logging.getLogger(__name__)
 
 MAX_VECTOR_CHUNKS = 8
 MAX_GRAPH_FACTS = 40
@@ -75,6 +80,10 @@ def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> li
             for cid, text, dist in rows
         ]
     except Exception:
+        # Vector store failures are recoverable — the chat path can still
+        # return a hedged answer — but we want a signal in the logs so we
+        # can detect a broken vector index rather than silently degrading.
+        logger.warning("vector retrieval failed", exc_info=True)
         return []
 
 
@@ -131,10 +140,24 @@ def _graph_facts(db: Session, *, contract_ids: list[str], clause_types: list[str
         )
         .limit(MAX_GRAPH_FACTS)
     ).all()
+    if not edges:
+        return []
+
+    # Bulk-fetch all referenced nodes in a single IN query rather than two
+    # per edge. With MAX_GRAPH_FACTS=40 this trims 80 round-trips off every
+    # chat question — the hottest AI retrieval path.
+    node_ids = {edge.from_node_id for edge in edges} | {edge.to_node_id for edge in edges}
+    nodes_by_id: dict[str, KnowledgeNode] = {
+        node.id: node
+        for node in db.scalars(
+            select(KnowledgeNode).where(KnowledgeNode.id.in_(node_ids))
+        ).all()
+    }
+
     facts = []
     for edge in edges:
-        src = db.get(KnowledgeNode, edge.from_node_id)
-        dst = db.get(KnowledgeNode, edge.to_node_id)
+        src = nodes_by_id.get(edge.from_node_id)
+        dst = nodes_by_id.get(edge.to_node_id)
         if src is None or dst is None:
             continue
         if clause_types and dst.node_type == "clause" and dst.properties.get("clause_type") not in clause_types:
@@ -230,6 +253,7 @@ def precedent_contracts(
             .limit(limit * 3)
         ).all()
     except Exception:
+        logger.warning("precedent vector retrieval failed", exc_info=True)
         return []
     seen: dict[str, dict] = {}
     for cid, text, dist in rows:

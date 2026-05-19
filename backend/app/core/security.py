@@ -23,8 +23,29 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
+    pw_hash = password_hash.encode("utf-8")
     try:
-        return bcrypt.checkpw(_bcrypt_secret(password), password_hash.encode("utf-8"))
+        if bcrypt.checkpw(_bcrypt_secret(password), pw_hash):
+            return True
+        # Legacy fallback: pre-hardening hashes were raw-password bcrypt
+        # (Passlib CryptContext schemes=["bcrypt"]). Without this, the
+        # SHA-256 pre-hash change silently invalidates every account created
+        # before it. Accept the legacy hash; login_user re-hashes it to the
+        # new scheme on the next successful login (see password_needs_rehash).
+        return bcrypt.checkpw(password.encode("utf-8"), pw_hash)
+    except ValueError:
+        return False
+
+
+def password_needs_rehash(password: str, password_hash: str) -> bool:
+    """True when the stored hash only verified via the legacy raw-bcrypt
+    fallback — the caller should re-store ``hash_password(password)`` so the
+    account is migrated to the current scheme."""
+    pw_hash = password_hash.encode("utf-8")
+    try:
+        if bcrypt.checkpw(_bcrypt_secret(password), pw_hash):
+            return False
+        return bcrypt.checkpw(password.encode("utf-8"), pw_hash)
     except ValueError:
         return False
 

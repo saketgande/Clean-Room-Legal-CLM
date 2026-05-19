@@ -13,7 +13,9 @@ import {
   Trash2,
   Columns3,
   FileText,
+  Upload,
 } from "lucide-react";
+import { ImportContractModal } from "@/components/import-contract-modal";
 import { contractsApi, projectsApi, tabularApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -385,8 +387,10 @@ function AddContractsModal({
   onDone: () => void;
 }) {
   const { notify } = useToast();
+  const qc = useQueryClient();
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
@@ -417,6 +421,7 @@ function AddContractsModal({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -444,6 +449,14 @@ function AddContractsModal({
           Every existing column runs against the contracts you add. Existing
           answers are kept.
         </p>
+        <button
+          type="button"
+          onClick={() => setImportOpen(true)}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-600 hover:text-brand-700"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          Import a new file
+        </button>
         <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
           {available.length === 0 ? (
             <p className="px-2 py-3 text-sm text-slate-400">
@@ -472,6 +485,17 @@ function AddContractsModal({
         </div>
       </div>
     </Modal>
+    <ImportContractModal
+      open={importOpen}
+      onClose={() => setImportOpen(false)}
+      onUploaded={(c) => {
+        qc.invalidateQueries({ queryKey: ["contracts"] });
+        setPicked((prev) =>
+          prev.includes(c.id) ? prev : [...prev, c.id],
+        );
+      }}
+    />
+    </>
   );
 }
 

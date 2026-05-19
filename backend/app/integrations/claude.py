@@ -1,10 +1,22 @@
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import httpx
+from tenacity import (
+    AsyncRetrying,
+    RetryError,
+    retry_if_exception,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from app.core.config import settings
+from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -17,6 +29,35 @@ class ClaudeProviderResponse:
     latency_ms: float
     provider_request_id: str | None
     model: str
+
+
+# A long-lived shared HTTP client. The previous implementation constructed a
+# new ``httpx.AsyncClient`` per call, which forfeited connection pooling and
+# HTTP/2 reuse. ``httpx.AsyncClient`` is safe to share across asyncio tasks.
+_CLAUDE_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
+_shared_client: httpx.AsyncClient | None = None
+
+
+def _client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(timeout=_CLAUDE_TIMEOUT)
+    return _shared_client
+
+
+async def aclose_claude_client() -> None:
+    """Close the shared HTTP client. Called on app shutdown."""
+    global _shared_client
+    if _shared_client is not None and not _shared_client.is_closed:
+        await _shared_client.aclose()
+    _shared_client = None
+
+
+def _should_retry(exc: BaseException) -> bool:
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        return status == 429 or 500 <= status < 600
+    return isinstance(exc, (httpx.TransportError, httpx.TimeoutException))
 
 
 class ClaudeClient:
@@ -149,11 +190,9 @@ class ClaudeClient:
     async def _post_messages(self, *, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         if not settings.claude_api_key:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
-        # Non-streaming call: a large structured generation (e.g. a full
-        # multi-section contract at high max_tokens) must complete before the
-        # response returns, so allow a long read while keeping connect fast.
-        timeout = httpx.Timeout(600.0, connect=10.0)
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        client = _client()
+
+        async def _do_request() -> tuple[dict[str, Any], str | None]:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
                 headers={
@@ -165,6 +204,24 @@ class ClaudeClient:
             )
             response.raise_for_status()
             return response.json(), response.headers.get("request-id")
+
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(max(1, settings.claude_max_retries)),
+                wait=wait_exponential(
+                    multiplier=settings.claude_retry_initial_backoff_seconds,
+                    max=settings.claude_retry_max_backoff_seconds,
+                ),
+                retry=retry_if_exception(_should_retry),
+                reraise=True,
+            ):
+                with attempt:
+                    return await _do_request()
+        except RetryError as exc:  # pragma: no cover - reraise=True covers normal path
+            raise exc.last_attempt.exception() from exc
+
+        # Unreachable; AsyncRetrying always returns at least one attempt.
+        raise RuntimeError("Claude retry loop terminated without a response")
 
     def _to_provider_response(
         self,
@@ -193,68 +250,7 @@ class ClaudeClient:
         )
 
     def _mock_structured_response(self, *, tool_name: str, model: str) -> ClaudeProviderResponse:
-        payload_by_tool = {
-            "return_contract_metadata_extraction": {
-                "title": None,
-                "contract_type": None,
-                "counterparty_name": None,
-                "jurisdiction": None,
-                "risk_level": None,
-                "value_amount": None,
-                "currency": None,
-                "effective_date": None,
-                "expiration_date": None,
-                "confidence": "low",
-                "citations": [],
-                "notes": "Mock Claude mode returned no extracted metadata.",
-            },
-            "return_clause_extraction": {"clauses": [], "extraction_notes": "Mock Claude mode returned no clauses."},
-            "return_obligation_extraction": {
-                "obligations": [],
-                "extraction_notes": "Mock Claude mode returned no obligations.",
-            },
-            "return_renewal_extraction": {"confidence": "low", "needs_review": True},
-            "return_tabular_cell_extraction": {
-                "answer": "",
-                "not_found": True,
-                "confidence": "low",
-                "citations": [],
-            },
-            "return_tabular_review_chat": {
-                "answer": "Mock Claude mode is enabled, so no live tabular-review answer was generated.",
-                "citations": [],
-            },
-            "return_contract_brain_query_parse": {
-                "query_scope": "portfolio",
-                "target_clause_types": [],
-                "needs_vector_search": True,
-                "needs_graph_search": True,
-                "needs_full_text_search": True,
-            },
-            "return_contract_brain_answer": {
-                "answer": "Mock Claude mode is enabled, so no live Contract Brain answer was generated.",
-                "citations": [],
-                "confidence": "low",
-                "limitations": "Mock mode: no model reasoning performed.",
-            },
-            "return_assistant_streaming": {
-                "answer": "Mock Claude mode is enabled, so no live legal answer was generated.",
-                "citations": [],
-                "tool_results": [],
-            },
-            "return_contract_docx_generation": {
-                "title": "Generated Contract",
-                "sections": [{"heading": "Overview", "body": "Draft content placeholder generated in mock Claude mode."}],
-                "assumptions": ["Mock Claude mode is enabled."],
-                "citations": [],
-            },
-            "return_contract_edit_suggestions": {"edits": [], "summary": "Mock Claude mode returned no edits."},
-            "return_playbook_review": {
-                "deviations": [],
-                "summary": "Mock Claude mode returned no playbook deviations.",
-                "citations": [],
-            },
-        }
+        payload_by_tool = structured_payload_by_tool()
         content = [
             {
                 "type": "tool_use",
@@ -295,43 +291,9 @@ class ClaudeClient:
             }
             return self._to_provider_response(raw, latency_ms=0.0, provider_request_id="mock-assistant-final", model=model)
 
-        user_text = _last_user_text(messages).lower()
+        user_text = _last_user_text(messages)
         tool_names = {tool["name"] for tool in tools}
-        selected_tool = None
-        tool_input: dict[str, Any] = {}
-        if "find" in user_text and "find_in_contract" in tool_names:
-            selected_tool = "find_in_contract"
-            tool_input = {"contract_handle": "contract-0", "query": _mock_query(user_text)}
-        elif "playbook" in user_text and "redline" in user_text and "redline_against_playbook" in tool_names:
-            selected_tool = "redline_against_playbook"
-            tool_input = {"contract_handle": "contract-0", "playbook_id": "mock-playbook-id"}
-        elif "playbook" in user_text and "run_playbook_review" in tool_names:
-            selected_tool = "run_playbook_review"
-            tool_input = {"contract_handle": "contract-0", "playbook_id": "mock-playbook-id"}
-        elif ("edit" in user_text or "redline" in user_text) and "edit_contract" in tool_names:
-            selected_tool = "edit_contract"
-            tool_input = {"contract_handle": "contract-0", "instructions": "Apply the requested contract edit."}
-        elif ("generate" in user_text or "draft" in user_text) and "generate_contract_docx" in tool_names:
-            selected_tool = "generate_contract_docx"
-            tool_input = {
-                "title": "Generated Contract",
-                "instructions": "Generate a contract draft from the user request.",
-            }
-        elif "replicate" in user_text and "replicate_contract_version" in tool_names:
-            selected_tool = "replicate_contract_version"
-            tool_input = {"contract_handle": "contract-0"}
-        elif "status" in user_text and "get_contract_status" in tool_names:
-            selected_tool = "get_contract_status"
-            tool_input = {"contract_handle": "contract-0"}
-        elif ("workflow" in user_text or "workflows" in user_text) and "list_workflows" in tool_names:
-            selected_tool = "list_workflows"
-            tool_input = {}
-        elif ("project" in user_text or "contracts" in user_text) and "list_project_contracts" in tool_names:
-            selected_tool = "list_project_contracts"
-            tool_input = {"project_id": "mock-project-id"}
-        elif ("contract" in user_text or "summar" in user_text or "read" in user_text) and "read_contract" in tool_names:
-            selected_tool = "read_contract"
-            tool_input = {"contract_handle": "contract-0"}
+        selected_tool, tool_input = select_mock_tool(user_text=user_text, tool_names=tool_names)
 
         if selected_tool:
             raw = {
@@ -379,18 +341,6 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 def _message_has_tool_result(message: dict[str, Any]) -> bool:
     content = message.get("content")
     return isinstance(content, list) and any(block.get("type") == "tool_result" for block in content)
-
-
-def _mock_query(user_text: str) -> str:
-    quoted = user_text.split('"')
-    if len(quoted) >= 3 and quoted[1].strip():
-        return quoted[1].strip()
-    words = [word.strip(".,?!:;") for word in user_text.split()]
-    ignored = {"find", "in", "the", "contract", "for", "show", "me", "search"}
-    for word in reversed(words):
-        if word and word not in ignored:
-            return word
-    return "agreement"
 
 
 claude_client = ClaudeClient()

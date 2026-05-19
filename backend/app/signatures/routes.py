@@ -1,3 +1,4 @@
+import html
 import json
 import logging
 from datetime import UTC, datetime
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.contract_files.models import ContractVersion, StorageObject
-from app.contracts.access import user_can_access_contract
+from app.contracts.access import accessible_contract_filter, user_can_access_contract
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -44,15 +45,22 @@ def list_signature_requests(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:sign")),
 ):
+    # Push access control into the query rather than fetching every signature
+    # row and then doing one ``db.get(Contract, ...)`` + per-row permission
+    # check. The previous shape was a classic N+1 — visible because the org
+    # currently has few signatures, but a real cost as the table grows.
     rows = db.scalars(
-        select(SignatureRequest).where(SignatureRequest.org_id == current_user.org_id)
+        select(SignatureRequest)
+        .join(Contract, Contract.id == SignatureRequest.contract_id)
+        .where(
+            SignatureRequest.org_id == current_user.org_id,
+            Contract.org_id == current_user.org_id,
+            Contract.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
+        )
+        .order_by(SignatureRequest.created_at.desc())
     ).all()
-    visible = []
-    for row in rows:
-        contract = db.get(Contract, row.contract_id)
-        if contract is not None and user_can_access_contract(db, contract=contract, user=current_user):
-            visible.append(row)
-    return visible
+    return rows
 
 
 @router.post("/requests")
@@ -87,61 +95,76 @@ async def send_for_signature(
         recipients=[recipient.model_dump() for recipient in payload.recipients],
         content=content,
     )
-    signature = SignatureRequest(
-        org_id=current_user.org_id,
-        contract_id=contract.id,
-        contract_version_id=version.id,
-        provider_envelope_id=envelope.envelope_id,
-        status=SignatureStatus.SENT,
-        sent_by_user_id=current_user.id,
-        sent_at=datetime.now(UTC),
-        metadata_json=envelope.metadata,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(signature)
-    db.flush()
-    for index, recipient in enumerate(payload.recipients, start=1):
-        db.add(
-            SignatureRecipient(
-                org_id=current_user.org_id,
-                signature_request_id=signature.id,
-                name=recipient.name,
-                email=str(recipient.email),
-                role=recipient.role,
-                routing_order=str(index),
-                status="sent",
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-            )
+    try:
+        signature = SignatureRequest(
+            org_id=current_user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            provider_envelope_id=envelope.envelope_id,
+            status=SignatureStatus.SENT,
+            sent_by_user_id=current_user.id,
+            sent_at=datetime.now(UTC),
+            metadata_json=envelope.metadata,
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
         )
+        db.add(signature)
+        db.flush()
+        for index, recipient in enumerate(payload.recipients, start=1):
+            db.add(
+                SignatureRecipient(
+                    org_id=current_user.org_id,
+                    signature_request_id=signature.id,
+                    name=recipient.name,
+                    email=str(recipient.email),
+                    role=recipient.role,
+                    routing_order=str(index),
+                    status="sent",
+                    created_by_user_id=current_user.id,
+                    updated_by_user_id=current_user.id,
+                )
+            )
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
+            actor_user_id=current_user.id,
+            reason="Sent for signature",
+            override=payload.override_lifecycle,
+            override_authorized=payload.override_lifecycle,
+        )
+        db.commit()
+    except Exception:
+        # The envelope is already live at DocuSign but our local persistence
+        # failed. Void the envelope so we don't strand a real-world signing
+        # request on a row we never saved. void_envelope is best-effort.
+        db.rollback()
+        if envelope.envelope_id:
+            await docusign_client.void_envelope(
+                envelope_id=envelope.envelope_id, reason="local_commit_failed"
+            )
+        raise
+    db.refresh(signature)
+    # Notification is best-effort: a mail-provider failure must not roll back
+    # an already-created DocuSign envelope / signature request. HTML-escape
+    # contract.title to prevent an attacker who controls a contract title
+    # from injecting links / fake buttons into an email sent from our domain.
+    safe_title = html.escape(contract.title or "Untitled contract")
+    safe_envelope = html.escape(str(envelope.envelope_id or "mock"))
     for recipient in payload.recipients:
-        # Notification is best-effort: a mail-provider failure must not roll back
-        # an already-created DocuSign envelope / signature request.
         try:
             await resend_client.send_email(
                 to=str(recipient.email),
                 subject=f"Signature requested: {contract.title}",
                 html=(
-                    f"<p>You have been requested to sign <b>{contract.title}</b>.</p>"
-                    f"<p>Envelope: {envelope.envelope_id or 'mock'}</p>"
+                    f"<p>You have been requested to sign <b>{safe_title}</b>.</p>"
+                    f"<p>Envelope: {safe_envelope}</p>"
                 ),
             )
         except Exception as exc:
             logging.getLogger(__name__).warning(
                 "signature notification email failed for %s: %s", recipient.email, exc
             )
-    transition_contract_stage(
-        db,
-        contract=contract,
-        to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
-        actor_user_id=current_user.id,
-        reason="Sent for signature",
-        override=payload.override_lifecycle,
-        override_authorized=payload.override_lifecycle,
-    )
-    db.commit()
-    db.refresh(signature)
     return signature
 
 

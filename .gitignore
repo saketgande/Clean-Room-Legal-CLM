@@ -13,6 +13,13 @@ backend/secrets/
 **/*.pem
 **/*.key
 
+# Python virtualenvs (never commit)
+env/
+venv/
+.venv/
+**/__pycache__/
+**/*.py[cod]
+
 # Backend caches / local data
 backend/.local-contract-storage/
 backend/__pycache__/

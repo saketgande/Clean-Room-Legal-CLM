@@ -68,7 +68,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await authApi.logout(tokenStore.refresh ?? undefined);
+      // Refresh token now lives in an HttpOnly cookie; the backend reads it
+      // directly from the request, so we don't pass it explicitly any more.
+      await authApi.logout();
     } catch {
       /* ignore */
     }

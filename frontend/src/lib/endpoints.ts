@@ -97,8 +97,14 @@ export const authApi = {
       noRetry: true,
     }),
   me: () => apiFetch<UserResponse>("/auth/me"),
+  // The refresh token is read by the backend from the HttpOnly cookie; no
+  // need (and no way) to pass it from JS. The optional body field is kept
+  // for legacy clients that haven't migrated yet.
   logout: (refresh_token?: string) =>
-    apiFetch<void>("/auth/logout", { method: "POST", body: { refresh_token } }),
+    apiFetch<void>("/auth/logout", {
+      method: "POST",
+      body: refresh_token ? { refresh_token } : {},
+    }),
   switchRole: (role_id?: string, role_name?: string) =>
     apiFetch<UserResponse>("/auth/active-role", {
       method: "POST",

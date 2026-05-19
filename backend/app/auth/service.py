@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import (
@@ -10,6 +10,7 @@ from app.auth.models import (
     PasswordResetToken,
     Permission,
     RefreshToken,
+    RevokedAccessToken,
     Role,
     User,
     UserApprovalDecision,
@@ -34,6 +35,7 @@ from app.core.security import (
     create_token_secret,
     hash_password,
     hash_token,
+    password_needs_rehash,
     verify_password,
 )
 from app.organizations.models import Organization
@@ -275,6 +277,10 @@ def login_user(db: Session, email: str, password: str, request_id: str | None = 
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
     if user.status != UserStatus.ACTIVE:
         raise HTTPException(status.HTTP_403_FORBIDDEN, f"User status is {user.status}")
+    # Transparently migrate a legacy raw-bcrypt hash to the current scheme on
+    # the first successful login after the KDF change (committed below).
+    if password_needs_rehash(password, user.hashed_password):
+        user.hashed_password = hash_password(password)
     user.last_login_at = datetime.now(UTC)
     token_response = _token_response(db, user)
     write_audit_log(
@@ -313,6 +319,32 @@ def refresh_login_tokens(
     )
     db.commit()
     return token_response
+
+
+ALL_USER_TOKENS = "*"  # sentinel jti = "every access token for this user"
+
+
+def is_access_token_revoked(
+    db: Session, *, jti: str, user_id: str | None
+) -> bool:
+    """True if this access token's ``jti`` was individually revoked (logout)
+    or is covered by a user-wide revocation (password reset / forced
+    re-auth). A user-wide revocation is a ``RevokedAccessToken`` row for the
+    user whose ``jti`` is the ``ALL_USER_TOKENS`` sentinel."""
+    conditions = [RevokedAccessToken.jti == jti]
+    if user_id:
+        conditions.append(
+            and_(
+                RevokedAccessToken.user_id == user_id,
+                RevokedAccessToken.jti == ALL_USER_TOKENS,
+            )
+        )
+    return (
+        db.scalar(
+            select(RevokedAccessToken.id).where(or_(*conditions)).limit(1)
+        )
+        is not None
+    )
 
 
 def revoke_refresh_token(

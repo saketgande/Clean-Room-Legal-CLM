@@ -5,10 +5,16 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.models import RequestLog
+from app.core.sanitize import parse_sensitive_keys, redact_query_string
 
 logger = logging.getLogger("app.requests")
+
+# Parse the sensitive-key list once at import time. Settings is immutable
+# in-process so we don't need to re-parse on every request.
+_SENSITIVE_QUERY_KEYS = parse_sensitive_keys(settings.request_log_sensitive_query_keys)
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
@@ -53,6 +59,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                     "error_class": error_class,
                 },
             )
+            raw_query = str(request.url.query) if request.url.query else None
+            if raw_query and settings.request_log_redact_query:
+                logged_query = redact_query_string(raw_query, sensitive_keys=_SENSITIVE_QUERY_KEYS)
+            else:
+                logged_query = raw_query
             db = SessionLocal()
             try:
                 db.add(
@@ -65,7 +76,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                         status_code=status_code,
                         latency_ms=latency_ms,
                         error_class=error_class,
-                        request_metadata={"query": str(request.url.query) if request.url.query else None},
+                        request_metadata={"query": logged_query},
                     )
                 )
                 db.commit()

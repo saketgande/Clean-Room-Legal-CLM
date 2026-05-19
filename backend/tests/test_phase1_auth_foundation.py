@@ -11,7 +11,9 @@ from app.core.security import create_access_token, create_token_secret, decode_a
 
 
 def test_access_token_includes_type_and_jti():
-    token = create_access_token("user-1", {"org_id": "org-1", "role_id": "role-1"})
+    # create_access_token now returns (token, payload) so callers can persist
+    # the jti for revocation without re-decoding.
+    token, minted = create_access_token("user-1", {"org_id": "org-1", "role_id": "role-1"})
 
     payload = decode_access_token(token)
 
@@ -20,6 +22,7 @@ def test_access_token_includes_type_and_jti():
     assert payload["role_id"] == "role-1"
     assert payload["typ"] == "access"
     assert payload["jti"]
+    assert minted["jti"] == payload["jti"]
 
 
 def test_runtime_settings_reject_default_production_secrets():
@@ -27,6 +30,46 @@ def test_runtime_settings_reject_default_production_secrets():
 
     with pytest.raises(RuntimeError):
         validate_runtime_settings(settings)
+
+
+def test_runtime_settings_reject_localstorage_refresh_in_production():
+    settings = Settings(
+        environment="production",
+        secret_key="x" * 40,
+        setup_token="y" * 32,
+        mock_claude=False,
+        mock_docusign=False,
+        mock_reducto=False,
+        mock_resend=False,
+        cors_origins="https://app.example.com",
+        allowed_hosts="app.example.com",
+        refresh_cookie_secure=False,
+        expose_refresh_token_in_body=True,
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        validate_runtime_settings(settings)
+    assert "EXPOSE_REFRESH_TOKEN_IN_BODY" in str(exc.value)
+
+
+def test_runtime_settings_reject_wildcard_allowed_hosts_in_production():
+    settings = Settings(
+        environment="production",
+        secret_key="x" * 40,
+        setup_token="y" * 32,
+        mock_claude=False,
+        mock_docusign=False,
+        mock_reducto=False,
+        mock_resend=False,
+        cors_origins="https://app.example.com",
+        allowed_hosts="*",
+        refresh_cookie_secure=True,
+        expose_refresh_token_in_body=False,
+    )
+
+    with pytest.raises(RuntimeError) as exc:
+        validate_runtime_settings(settings)
+    assert "ALLOWED_HOSTS" in str(exc.value)
 
 
 def test_active_role_limits_permission_values():

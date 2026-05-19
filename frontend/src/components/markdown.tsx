@@ -51,7 +51,10 @@ function MarkdownImpl({ children }: { children: string }) {
             <a
               className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700"
               target="_blank"
-              rel="noreferrer"
+              // noopener prevents older browsers/embedded webviews from
+              // exposing window.opener to the destination page; noreferrer
+              // also strips the Referer header. Belt-and-suspenders.
+              rel="noopener noreferrer"
               {...p}
             />
           ),
