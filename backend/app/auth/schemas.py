@@ -29,7 +29,10 @@ class LoginRequest(BaseModel):
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    # Optional: only present when EXPOSE_REFRESH_TOKEN_IN_BODY=True (legacy
+    # clients). The default path delivers the refresh token via an HttpOnly
+    # cookie set by /auth/login, so the body field is null/absent in prod.
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user_id: str
     org_id: str
@@ -59,7 +62,10 @@ class ApprovalRequest(BaseModel):
 
 
 class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+    # Optional so a cookie-only client can POST {} and let the backend read
+    # the refresh token from the HttpOnly cookie instead. Legacy clients
+    # still pass it in the body when EXPOSE_REFRESH_TOKEN_IN_BODY is true.
+    refresh_token: str | None = None
 
 
 class LogoutRequest(BaseModel):

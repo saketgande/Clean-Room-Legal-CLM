@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
@@ -19,7 +21,11 @@ from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import RequestContextMiddleware
 from app.core.rate_limit import limiter, rate_limit_exceeded_handler
+from app.core.request_log_queue import start_writer as start_request_log_writer
+from app.core.request_log_queue import stop_writer as stop_request_log_writer
 from app.debug.routes import router as debug_router
+from app.integrations.claude import aclose_claude_client
+from app.integrations.docusign import aclose_docusign_client
 from app.jobs.routes import router as jobs_router
 from app.notifications.routes import router as notifications_router
 from app.obligations.routes import router as obligations_router
@@ -33,10 +39,29 @@ from app.tabular_review.routes import router as tabular_review_router
 from app.workflows.routes import router as workflows_router
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Background worker for batched RequestLog flushing — runs for the
+    # lifetime of the app; ``stop_writer`` drains the queue on shutdown so we
+    # don't lose buffered rows on a clean uvicorn exit.
+    start_request_log_writer()
+    try:
+        yield
+    finally:
+        stop_request_log_writer()
+        # Close the long-lived HTTP clients so any connection-pool resources
+        # are released cleanly. Skipping these isn't catastrophic (Python
+        # would tear them down at process exit) but it produces noisy warnings.
+        await aclose_claude_client()
+        await aclose_docusign_client()
+
+
 def create_app() -> FastAPI:
     configure_logging()
     validate_runtime_settings(settings)
-    app = FastAPI(title=settings.app_name, version="0.1.0", debug=settings.debug)
+    app = FastAPI(
+        title=settings.app_name, version="0.1.0", debug=settings.debug, lifespan=lifespan
+    )
     register_exception_handlers(app)
 
     # Rate limit: shared limiter instance bound onto the app so decorators in

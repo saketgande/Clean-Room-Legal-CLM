@@ -77,7 +77,7 @@ def _token_response(db: Session, user: User) -> dict:
             expires_at=expires_at,
         )
     )
-    access_token = create_access_token(
+    access_token, _ = create_access_token(
         user.id,
         {"org_id": user.org_id, "role_id": user.active_role_id},
     )
@@ -89,7 +89,11 @@ def _token_response(db: Session, user: User) -> dict:
     }
 
 
-def _find_refresh_token(db: Session, raw_token: str) -> RefreshToken:
+def _find_refresh_token(db: Session, raw_token: str | None) -> RefreshToken:
+    # Missing tokens (cookie cleared after logout + empty body) used to crash
+    # in hash_token with a TypeError; surface a 401 the client can handle.
+    if not raw_token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
     row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(raw_token)))
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
@@ -225,8 +229,20 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
     domain = _normalize_domain(str(payload.email))
     allowed_domains = [item.lower() for item in (org.allowed_domains or [])]
     existing_user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
+    # Email-enumeration defense: do not differentiate "address already
+    # registered" from "address newly registered". An unauthenticated caller
+    # cannot tell whether the email exists in our system. We still audit the
+    # collision internally so an admin can see it in the log.
     if existing_user is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "User already exists")
+        write_audit_log(
+            db,
+            action="user.self_register_collision",
+            resource_type="user",
+            resource_id=existing_user.id,
+            org_id=org.id,
+            metadata={"email": str(payload.email).lower()},
+        )
+        return "pending_approval", None
 
     if allowed_domains and domain not in allowed_domains:
         join_request = OrgJoinRequest(
@@ -238,7 +254,9 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
         )
         db.add(join_request)
         db.commit()
-        return "join_request_created", None
+        # Same generic response shape as the in-domain path so the caller
+        # cannot distinguish a domain rejection from an accepted registration.
+        return "pending_approval", None
 
     user = User(
         org_id=org.id,
@@ -262,27 +280,57 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
     return "pending_approval", user
 
 
+_LOGIN_INVALID_CREDENTIALS = "Invalid email or password"
+
+
 def login_user(db: Session, email: str, password: str, request_id: str | None = None) -> dict:
     user = db.scalar(select(User).where(User.email == email.lower()))
+    # Email enumeration defense: every failure path (unknown email, bad
+    # password, non-active status) returns the same 401 with the same body.
+    # An attacker can no longer distinguish "this email exists" from "this
+    # email doesn't" — closing the spray/stuffing reconnaissance vector.
+    invalid_credentials_error = HTTPException(
+        status.HTTP_401_UNAUTHORIZED, _LOGIN_INVALID_CREDENTIALS
+    )
     if user is None or not verify_password(password, user.hashed_password):
         write_audit_log(
             db,
             action="auth.login_failed",
             resource_type="user",
-            resource_id=None,
+            resource_id=user.id if user else None,
             request_id=request_id,
-            metadata={"email": email.lower()},
+            metadata={"email": email.lower(), "reason": "invalid_credentials"},
         )
         db.commit()
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid email or password")
+        raise invalid_credentials_error
     if user.status != UserStatus.ACTIVE:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"User status is {user.status}")
-    # Transparently migrate a legacy raw-bcrypt hash to the current scheme on
-    # the first successful login after the KDF change (committed below).
+        # Internally distinguish in the audit log so an admin can see why a
+        # legitimate user can't log in, but the external response is the same
+        # 401 to avoid leaking account state.
+        write_audit_log(
+            db,
+            action="auth.login_failed",
+            resource_type="user",
+            resource_id=user.id,
+            org_id=user.org_id,
+            request_id=request_id,
+            metadata={"email": email.lower(), "reason": f"status:{user.status}"},
+        )
+        db.commit()
+        raise invalid_credentials_error
+    # Transparently migrate a legacy bcrypt hash to the current SHA-256-prehash
+    # scheme on the first successful login after the KDF change.
     if password_needs_rehash(password, user.hashed_password):
         user.hashed_password = hash_password(password)
     user.last_login_at = datetime.now(UTC)
     token_response = _token_response(db, user)
+    # Commit FIRST so the RefreshToken + last_login_at land before we audit.
+    # The previous order wrote the audit row (autonomous-session, so it
+    # commits independently) then committed the main tx — if the main commit
+    # failed we'd have an audit entry claiming login succeeded with no
+    # refresh token actually persisted. Audit-after-commit is the right
+    # invariant: the audit row reflects state that actually exists.
+    db.commit()
     write_audit_log(
         db,
         action="auth.login_succeeded",
@@ -292,7 +340,6 @@ def login_user(db: Session, email: str, password: str, request_id: str | None = 
         actor_user_id=user.id,
         request_id=request_id,
     )
-    db.commit()
     return token_response
 
 
@@ -352,8 +399,15 @@ def revoke_refresh_token(
     *,
     user: User,
     refresh_token: str | None,
+    access_token_jti: str | None = None,
+    access_token_exp: datetime | None = None,
     request_id: str | None = None,
 ) -> None:
+    """Revoke the user's refresh token(s) and, when supplied, also persist a
+    ``RevokedAccessToken`` row for the caller's access-token ``jti`` so the
+    bearer they just used is killed immediately rather than living out the
+    rest of its 60-minute window. Without this, logout only cut off
+    *renewal* — the still-valid access token kept working until exp."""
     if refresh_token:
         row = _find_refresh_token(db, refresh_token)
         if row.user_id != user.id or row.org_id != user.org_id:
@@ -372,6 +426,24 @@ def revoke_refresh_token(
         for row in rows:
             row.revoked_at = now
         resource_id = user.id
+    # Persist the access-token jti so subsequent requests with this bearer
+    # fail at decode time. Without this, the access token outlives logout
+    # until its natural exp (default 60 min). Bound to access_token_exp so
+    # the row can be pruned once the JWT itself would be rejected anyway.
+    if access_token_jti and access_token_jti != ALL_USER_TOKENS:
+        existing = db.scalar(
+            select(RevokedAccessToken.id).where(RevokedAccessToken.jti == access_token_jti)
+        )
+        if existing is None:
+            db.add(
+                RevokedAccessToken(
+                    user_id=user.id,
+                    org_id=user.org_id,
+                    jti=access_token_jti,
+                    expires_at=access_token_exp or (utcnow() + timedelta(minutes=settings.access_token_expire_minutes)),
+                    reason="logout",
+                )
+            )
     write_audit_log(
         db,
         action="auth.logout",
@@ -382,6 +454,34 @@ def revoke_refresh_token(
         request_id=request_id,
     )
     db.commit()
+
+
+def list_org_users(
+    db: Session,
+    *,
+    actor: User,
+    status_filter: str | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """List users in the actor's org, optionally filtered by status.
+
+    Surfaces the pending-approval queue to admins. Without this, self-
+    registered users with no domain restriction land in the ``user`` table
+    with status ``pending_approval`` and were unreachable from the UI — the
+    join-request list only shows the *domain-rejected* registrations.
+    """
+    stmt = (
+        select(User)
+        .where(User.org_id == actor.org_id)
+        .order_by(User.created_at.desc())
+        .limit(limit)
+    )
+    if status_filter:
+        # Match either the enum value or its string form so callers can pass
+        # "pending_approval" without knowing the enum class.
+        stmt = stmt.where(User.status == status_filter)
+    rows = db.scalars(stmt).all()
+    return [_user_response(row) for row in rows]
 
 
 def decide_user_approval(
@@ -545,6 +645,19 @@ def accept_user_invitation(
     existing_user = db.scalar(select(User).where(User.email == invitation.email))
     if existing_user is not None and existing_user.status == UserStatus.ACTIVE:
         raise HTTPException(status.HTTP_409_CONFLICT, "User already exists")
+    # If a PENDING_APPROVAL user already exists for this email, accepting an
+    # invitation overwrites their password, full_name, and role. Capture the
+    # prior state in the audit record so the overwrite is forensically
+    # traceable — without this the audit log only shows "invitation accepted"
+    # and there's no signal that a prior account was rewritten.
+    prior_state: dict | None = None
+    if existing_user is not None:
+        prior_state = {
+            "user_id": existing_user.id,
+            "status": str(existing_user.status),
+            "full_name": existing_user.full_name,
+            "active_role_id": existing_user.active_role_id,
+        }
     user = existing_user or User(
         org_id=invitation.org_id,
         email=invitation.email,
@@ -572,6 +685,13 @@ def accept_user_invitation(
         org_id=user.org_id,
         actor_user_id=user.id,
         request_id=request_id,
+        before=prior_state,
+        after={
+            "user_id": user.id,
+            "status": str(user.status),
+            "full_name": user.full_name,
+            "active_role_id": user.active_role_id,
+        },
     )
     db.commit()
     return token_response
@@ -661,7 +781,12 @@ def request_password_reset(
             request_id=request_id,
         )
         db.commit()
-    if not (settings.mock_resend or settings.environment.lower() in {"local", "development", "dev", "test"}):
+    # Explicit boolean flag rather than an env-name match. A typo like
+    # ENVIRONMENT=prod (vs "production") used to silently expose reset tokens
+    # in the response body; gating on a dedicated flag closes that.
+    # ``validate_runtime_settings`` refuses to boot a non-local environment
+    # with this flag enabled, so accidental exposure is also caught at startup.
+    if not settings.expose_password_reset_token_in_response:
         reset_token = None
     return {"status": "ok", "reset_token": reset_token}
 
@@ -691,6 +816,27 @@ def confirm_password_reset(
         )
     ):
         refresh_token.revoked_at = row.used_at
+    # Force-invalidate every outstanding access token for this user. Without
+    # this, a previously-issued access token survives until its natural exp
+    # — defeating the point of "password reset signs you out everywhere".
+    # ``is_access_token_revoked`` honors the wildcard jti per-user.
+    existing_wildcard = db.scalar(
+        select(RevokedAccessToken.id).where(
+            RevokedAccessToken.user_id == user.id,
+            RevokedAccessToken.jti == ALL_USER_TOKENS,
+            RevokedAccessToken.expires_at > utcnow(),
+        )
+    )
+    if existing_wildcard is None:
+        db.add(
+            RevokedAccessToken(
+                user_id=user.id,
+                org_id=user.org_id,
+                jti=ALL_USER_TOKENS,
+                expires_at=utcnow() + timedelta(minutes=settings.access_token_expire_minutes),
+                reason="password_reset",
+            )
+        )
     write_audit_log(
         db,
         action="auth.password_reset_completed",

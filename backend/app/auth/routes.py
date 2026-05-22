@@ -38,6 +38,7 @@ from app.auth.service import (
     decide_join_request,
     list_api_keys,
     list_join_requests,
+    list_org_users,
     list_user_invitations,
     login_user,
     refresh_login_tokens,
@@ -104,17 +105,30 @@ def setup_first_admin(
 
 
 @router.post("/register", response_model=RegistrationResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit(settings.rate_limit_login)
+def register(
+    payload: RegisterRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    # ``response`` is unused inside the handler, but slowapi's @limiter.limit
+    # injects the rate-limit headers (X-RateLimit-*, Retry-After) into it —
+    # the decorator raises if the parameter isn't there.
+    _ = response
     status, user = register_user(db, payload)
+    # Generic, identical message for every outcome (new pending user, domain
+    # rejected → join request, or email collision). The response body alone
+    # cannot be used to enumerate which emails are already registered.
+    generic_message = (
+        "If the address is eligible, registration has been received and is "
+        "pending administrator review."
+    )
     if user is None:
-        return {
-            "status": status,
-            "message": "A join request was created because the email domain is not allowed yet.",
-            "user": None,
-        }
+        return {"status": status, "message": generic_message, "user": None}
     return {
         "status": status,
-        "message": "Registration is pending admin approval.",
+        "message": generic_message,
         "user": as_user_response(user),
     }
 
@@ -246,6 +260,21 @@ def password_reset_confirm(
 @router.get("/me", response_model=UserResponse)
 def me(current_user=Depends(get_current_user)):
     return as_user_response(current_user)
+
+
+@users_router.get("", response_model=list[UserResponse])
+def list_users(
+    status: str | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("user:approve")),
+):
+    """List org users, optionally filtered by status.
+
+    Surfaces the ``pending_approval`` queue to the admin UI; the existing
+    ``/users/join-requests`` route only returns the domain-rejected join
+    requests, leaving in-domain self-registrations invisible.
+    """
+    return list_org_users(db, actor=current_user, status_filter=status)
 
 
 @users_router.post("/{user_id}/approval", response_model=UserResponse)

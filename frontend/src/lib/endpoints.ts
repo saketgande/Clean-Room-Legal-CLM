@@ -120,6 +120,12 @@ export const authApi = {
 
 // ---- Users / org ---------------------------------------------------------
 export const usersApi = {
+  // List org users, optionally filtered by status (e.g. "pending_approval"
+  // surfaces the in-domain self-registration queue for the admin UI).
+  list: (params?: { status?: string }) => {
+    const qs = params?.status ? `?status=${encodeURIComponent(params.status)}` : "";
+    return apiFetch<UserResponse[]>(`/users${qs}`);
+  },
   decideApproval: (
     userId: string,
     decision: "approve" | "reject",

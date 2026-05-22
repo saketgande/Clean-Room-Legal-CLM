@@ -40,6 +40,7 @@ import type {
   ConfigStatus,
   OrgJoinRequestResponse,
   UserInvitationResponse,
+  UserResponse,
 } from "@/lib/types";
 
 export default function AdminPage() {
@@ -159,9 +160,111 @@ function OrganizationTab() {
 function UsersTab() {
   return (
     <div className="space-y-6">
+      <PendingUsersSection />
       <InvitationsSection />
       <JoinRequestsSection />
     </div>
+  );
+}
+
+function PendingUsersSection() {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["pending-users"],
+    queryFn: () => usersApi.list({ status: "pending_approval" }),
+  });
+
+  async function decide(
+    user: UserResponse,
+    decision: "approve" | "reject",
+  ) {
+    setBusyId(user.id);
+    try {
+      await usersApi.decideApproval(user.id, decision);
+      // Approving flips the user out of pending; refresh this list so the row
+      // disappears and the count stays accurate.
+      qc.invalidateQueries({ queryKey: ["pending-users"] });
+      notify(
+        decision === "approve" ? "User approved" : "User rejected",
+        "success",
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Decision failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Pending registrations</CardTitle>
+        <UserPlus className="h-4 w-4 text-slate-400" />
+      </CardHeader>
+      <CardBody className="p-0">
+        {isLoading ? (
+          <CenterSpinner label="Loading pending users…" />
+        ) : error ? (
+          <div className="p-5">
+            <ErrorState error={error} />
+          </div>
+        ) : (data ?? []).length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              icon={<UserPlus className="h-6 w-6" />}
+              title="No pending registrations"
+              description="Self-registered users awaiting approval appear here."
+            />
+          </div>
+        ) : (
+          <Table>
+            <THead>
+              <tr>
+                <TH>Email</TH>
+                <TH>Full name</TH>
+                <TH>Status</TH>
+                <TH className="text-right">Actions</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {(data ?? []).map((u) => (
+                <TR key={u.id}>
+                  <TD className="font-medium text-slate-900">{u.email}</TD>
+                  <TD>{u.full_name}</TD>
+                  <TD>
+                    <Badge tone={statusTone(String(u.status))}>
+                      {titleCase(String(u.status))}
+                    </Badge>
+                  </TD>
+                  <TD className="text-right">
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        size="sm"
+                        loading={busyId === u.id}
+                        onClick={() => decide(u, "approve")}
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        loading={busyId === u.id}
+                        onClick={() => decide(u, "reject")}
+                      >
+                        Reject
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

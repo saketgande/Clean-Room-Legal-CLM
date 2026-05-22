@@ -66,6 +66,18 @@ class Settings(BaseSettings):
     request_log_redact_query: bool = True
     request_log_sensitive_query_keys: str = "token,passcode,refresh_token,access_token,api_key,setup_token"
 
+    # Async batched writer for the RequestLog table. When True, the middleware
+    # enqueues each log row and a background daemon thread flushes them in
+    # batches via bulk_insert_mappings — collapsing one INSERT-per-request into
+    # one per N requests or per interval. Set False to restore the synchronous
+    # per-request write (one extra DB round-trip per API call).
+    request_log_async_enabled: bool = True
+    request_log_batch_size: int = 50
+    request_log_flush_interval_seconds: float = 2.0
+    # Bounded queue so a slow writer can't grow memory unboundedly. Overflow
+    # falls back to inline write rather than dropping the row.
+    request_log_queue_max_items: int = 10_000
+
     allowed_mime_types: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             "application/pdf",

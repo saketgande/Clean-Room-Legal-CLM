@@ -6,8 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.core.config import settings
-from app.core.database import SessionLocal
-from app.core.models import RequestLog
+from app.core.request_log_queue import enqueue as enqueue_request_log
 from app.core.sanitize import parse_sensitive_keys, redact_query_string
 
 logger = logging.getLogger("app.requests")
@@ -64,25 +63,23 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 logged_query = redact_query_string(raw_query, sensitive_keys=_SENSITIVE_QUERY_KEYS)
             else:
                 logged_query = raw_query
-            db = SessionLocal()
-            try:
-                db.add(
-                    RequestLog(
-                        request_id=request_id,
-                        user_id=user_id,
-                        org_id=org_id,
-                        method=request.method,
-                        route=str(request.url.path),
-                        status_code=status_code,
-                        latency_ms=latency_ms,
-                        error_class=error_class,
-                        request_metadata={"query": logged_query},
-                    )
-                )
-                db.commit()
-            except Exception:
-                db.rollback()
-            finally:
-                db.close()
+            # Defer the DB write to the batched background writer. The previous
+            # shape opened a fresh session and committed inline on every
+            # request — one extra DB round-trip per API call. The writer
+            # handles its own session and falls back to inline write on
+            # queue overflow.
+            enqueue_request_log(
+                {
+                    "request_id": request_id,
+                    "user_id": user_id,
+                    "org_id": org_id,
+                    "method": request.method,
+                    "route": str(request.url.path),
+                    "status_code": status_code,
+                    "latency_ms": latency_ms,
+                    "error_class": error_class,
+                    "request_metadata": {"query": logged_query},
+                }
+            )
             if "response" in locals():
                 response.headers["X-Request-ID"] = request_id

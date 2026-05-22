@@ -20,9 +20,6 @@ dependencies = [
   "pydantic>=2.9.2",
   "pydantic-settings>=2.5.2",
   "python-docx>=1.1.2",
-  # python-jose is retained only for transitional compatibility; first-party
-  # code has migrated to PyJWT. Remove once no third-party dep needs it.
-  "python-jose[cryptography]>=3.3.0",
   "python-magic>=0.4.27",
   "python-multipart>=0.0.12",
   "rapidfuzz>=3.10.1",

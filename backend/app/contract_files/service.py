@@ -1,4 +1,5 @@
 import logging
+from dataclasses import dataclass
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -11,7 +12,7 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.text_extraction import extract_text
+from app.contract_files.text_extraction import TextExtractionResult, extract_text
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
@@ -25,6 +26,18 @@ from app.projects.models import ProjectContract
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _ExtractedText:
+    """Resolved text + metadata after optional OCR fallback."""
+
+    method: str
+    text: str
+    quality_score: float
+    page_map: dict | None
+    ocr_provider: str | None = None
+    ocr_error: str | None = None
 
 
 # Magic-byte signatures for the MIME types we accept. Used to refuse a file
@@ -92,6 +105,175 @@ INITIAL_CONTRACT_AI_JOB_TYPES = (
 TEXT_EXTRACTION_COMPLETE_THRESHOLD = 0.55
 
 
+async def _resolve_extracted_text(
+    *, content: bytes, mime_type: str, filename: str
+) -> _ExtractedText:
+    """Run native text extraction and, if the result looks too thin, fall back
+    to the OCR provider. Encapsulates the messy OCR-fallback decision tree so
+    the upload orchestrator stays linear."""
+    extraction: TextExtractionResult = extract_text(content, mime_type=mime_type, filename=filename)
+    if not extraction.needs_ocr:
+        return _ExtractedText(
+            method=extraction.method,
+            text=extraction.text,
+            quality_score=extraction.quality_score,
+            page_map=extraction.page_map,
+        )
+    try:
+        ocr = await reducto_client.extract_text(
+            filename=filename, mime_type=mime_type, content=content
+        )
+    except Exception as exc:
+        return _ExtractedText(
+            method=f"{extraction.method}_ocr_failed",
+            text=extraction.text,
+            quality_score=extraction.quality_score,
+            page_map=extraction.page_map,
+            ocr_provider=reducto_client.provider,
+            ocr_error=str(exc),
+        )
+    if ocr.text:
+        return _ExtractedText(
+            method="reducto_ocr",
+            text=ocr.text,
+            quality_score=ocr.quality_score,
+            page_map=extraction.page_map,
+            ocr_provider=ocr.provider,
+        )
+    return _ExtractedText(
+        method=extraction.method,
+        text=extraction.text,
+        quality_score=extraction.quality_score,
+        page_map=extraction.page_map,
+        ocr_provider=ocr.provider,
+    )
+
+
+def _persist_intake_records(
+    db: Session,
+    *,
+    user: User,
+    stored,
+    mime_type: str,
+    title: str | None,
+    counterparty_name: str | None,
+    extracted: _ExtractedText,
+) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot]:
+    """Create the storage object → contract → file → version → text snapshot
+    chain in one place. Returns the persisted instances so the caller can
+    keep wiring them together without re-reading the DB."""
+    storage_object = StorageObject(
+        org_id=user.org_id,
+        storage_key=stored.storage_key,
+        filename=stored.filename,
+        mime_type=stored.mime_type,
+        size_bytes=stored.size_bytes,
+        sha256_hash=stored.sha256_hash,
+        storage_backend=StorageBackend.LOCAL_VOLUME,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(storage_object)
+    db.flush()
+
+    contract = Contract(
+        org_id=user.org_id,
+        title=title or stored.filename,
+        counterparty_name=counterparty_name,
+        lifecycle_stage=ContractLifecycleStage.INTAKE,
+        owner_user_id=user.id,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(contract)
+    db.flush()
+
+    contract_file = ContractFile(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        file_label=stored.filename,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(contract_file)
+    db.flush()
+
+    version = ContractVersion(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=1,
+        storage_object_id=storage_object.id,
+        source=ContractVersionSource.UPLOAD,
+        change_summary="Original upload",
+        is_authoritative=True,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(version)
+    db.flush()
+
+    snapshot = ContractTextSnapshot(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_version_id=version.id,
+        extraction_method=extracted.method,
+        extraction_quality_score=extracted.quality_score,
+        text=extracted.text,
+        page_map=extracted.page_map,
+        ocr_provider=extracted.ocr_provider,
+        validation_status=_text_snapshot_validation_status(extracted.text, extracted.quality_score),
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(snapshot)
+    db.flush()
+
+    version.text_snapshot_id = snapshot.id
+    contract_file.current_version_id = version.id
+    contract.current_contract_file_id = contract_file.id
+    contract.current_authoritative_version_id = version.id
+    return storage_object, contract, contract_file, version, snapshot
+
+
+def _dispatch_initial_jobs(
+    db: Session,
+    *,
+    queued_jobs,
+    user: User,
+    contract: Contract,
+    request_id: str | None,
+) -> tuple[list[str], list[dict]]:
+    """Best-effort dispatch of queued jobs. Returns ``(dispatched, errors)``
+    where errors are surfaced in the API response so the client can detect
+    partial success rather than seeing a 201 with silent enqueue failures."""
+    dispatched: list[str] = []
+    errors: list[dict] = []
+    for job in queued_jobs:
+        live_job = db.get(JobRun, job.id)
+        if live_job is None:
+            continue
+        try:
+            dispatch_job(db, job=live_job)
+            dispatched.append(live_job.job_type)
+        except Exception as exc:
+            errors.append({"job_id": live_job.id, "job_type": live_job.job_type, "error": str(exc)})
+    if dispatched or errors:
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.ai_jobs_dispatched",
+            title="Contract AI jobs dispatched",
+            actor_user_id=user.id,
+            request_id=request_id,
+            details={"dispatched_job_types": dispatched, "dispatch_errors": errors},
+        )
+        db.commit()
+    return dispatched, errors
+
+
 async def create_contract_from_upload(
     db: Session,
     *,
@@ -102,20 +284,22 @@ async def create_contract_from_upload(
     counterparty_name: str | None = None,
     request_id: str | None = None,
 ) -> dict:
+    """Orchestrate a contract intake: validate, store, extract text, persist
+    rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
+    rollback-on-exception path is obvious — anything before the storage save
+    can fail freely; once bytes are on disk, exceptions must delete them."""
     mime_type = upload.content_type or "application/octet-stream"
     if mime_type not in settings.allowed_mime_types:
-        raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}")
-
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+        )
     content = await _read_upload_with_limit(
         upload,
         limit=settings.max_upload_size_bytes,
         chunk_size=settings.upload_stream_chunk_bytes,
     )
-    # Re-verify the MIME against the actual bytes — the client's content-type
-    # header is untrustworthy. A user with contract:create could otherwise
-    # upload arbitrary bytes labelled as application/pdf.
+    # Re-verify MIME against actual bytes — client content-type is untrusted.
     mime_type = _sniff_mime_type(content, mime_type)
-
     if project_id:
         get_project_for_user(db, project_id=project_id, user=user, access="update")
 
@@ -126,110 +310,18 @@ async def create_contract_from_upload(
         content=content,
     )
     try:
-        storage_object = StorageObject(
-            org_id=user.org_id,
-            storage_key=stored.storage_key,
-            filename=stored.filename,
-            mime_type=stored.mime_type,
-            size_bytes=stored.size_bytes,
-            sha256_hash=stored.sha256_hash,
-            storage_backend=StorageBackend.LOCAL_VOLUME,
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
+        extracted = await _resolve_extracted_text(
+            content=content, mime_type=mime_type, filename=stored.filename
         )
-        db.add(storage_object)
-        db.flush()
-
-        contract = Contract(
-            org_id=user.org_id,
-            title=title or stored.filename,
+        storage_object, contract, contract_file, version, snapshot = _persist_intake_records(
+            db,
+            user=user,
+            stored=stored,
+            mime_type=mime_type,
+            title=title,
             counterparty_name=counterparty_name,
-            lifecycle_stage=ContractLifecycleStage.INTAKE,
-            owner_user_id=user.id,
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
+            extracted=extracted,
         )
-        db.add(contract)
-        db.flush()
-
-        contract_file = ContractFile(
-            org_id=user.org_id,
-            contract_id=contract.id,
-            file_label=stored.filename,
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
-        )
-        db.add(contract_file)
-        db.flush()
-
-        version = ContractVersion(
-            org_id=user.org_id,
-            contract_id=contract.id,
-            contract_file_id=contract_file.id,
-            version_number=1,
-            storage_object_id=storage_object.id,
-            source=ContractVersionSource.UPLOAD,
-            change_summary="Original upload",
-            is_authoritative=True,
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
-        )
-        db.add(version)
-        db.flush()
-
-        extraction = extract_text(content, mime_type=mime_type, filename=stored.filename)
-        ocr_provider = None
-        ocr_error = None
-        if extraction.needs_ocr:
-            try:
-                ocr = await reducto_client.extract_text(
-                    filename=stored.filename,
-                    mime_type=mime_type,
-                    content=content,
-                )
-            except Exception as exc:
-                extraction_method = f"{extraction.method}_ocr_failed"
-                extracted_text = extraction.text
-                quality_score = extraction.quality_score
-                ocr_provider = reducto_client.provider
-                ocr_error = str(exc)
-            else:
-                if ocr.text:
-                    extraction_method = "reducto_ocr"
-                    extracted_text = ocr.text
-                    quality_score = ocr.quality_score
-                    ocr_provider = ocr.provider
-                else:
-                    extraction_method = extraction.method
-                    extracted_text = extraction.text
-                    quality_score = extraction.quality_score
-                    ocr_provider = ocr.provider
-        else:
-            extraction_method = extraction.method
-            extracted_text = extraction.text
-            quality_score = extraction.quality_score
-
-        snapshot = ContractTextSnapshot(
-            org_id=user.org_id,
-            contract_id=contract.id,
-            contract_version_id=version.id,
-            extraction_method=extraction_method,
-            extraction_quality_score=quality_score,
-            text=extracted_text,
-            page_map=extraction.page_map,
-            ocr_provider=ocr_provider,
-            validation_status=_text_snapshot_validation_status(extracted_text, quality_score),
-            created_by_user_id=user.id,
-            updated_by_user_id=user.id,
-        )
-        db.add(snapshot)
-        db.flush()
-
-        version.text_snapshot_id = snapshot.id
-        contract_file.current_version_id = version.id
-        contract.current_contract_file_id = contract_file.id
-        contract.current_authoritative_version_id = version.id
-
         if project_id:
             db.add(
                 ProjectContract(
@@ -240,11 +332,9 @@ async def create_contract_from_upload(
                     updated_by_user_id=user.id,
                 )
             )
-
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
         )
-
         write_audit_log(
             db,
             action="contract.uploaded",
@@ -259,15 +349,15 @@ async def create_contract_from_upload(
                 "storage_object_id": storage_object.id,
             },
         )
-        timeline_details = {
+        timeline_details: dict = {
             "filename": stored.filename,
             "mime_type": mime_type,
-            "extraction_method": extraction_method,
-            "extraction_quality_score": quality_score,
+            "extraction_method": extracted.method,
+            "extraction_quality_score": extracted.quality_score,
             "validation_status": snapshot.validation_status,
         }
-        if ocr_error:
-            timeline_details["ocr_error"] = ocr_error
+        if extracted.ocr_error:
+            timeline_details["ocr_error"] = extracted.ocr_error
         write_timeline_event(
             db,
             org_id=user.org_id,
@@ -281,52 +371,26 @@ async def create_contract_from_upload(
         )
         db.commit()
     except Exception:
+        # Once bytes are on disk we MUST delete them on rollback — otherwise
+        # the storage backend retains orphan files referenced by no row.
         db.rollback()
         storage_service.delete_bytes_permanently(stored.storage_key)
         raise
 
-    queued_job_ids = [job.id for job in queued_jobs]
-    queued_job_types = [job.job_type for job in queued_jobs]
-
-    dispatched_job_types = []
-    dispatch_errors = []
-    for job_id in queued_job_ids:
-        job = db.get(JobRun, job_id)
-        if job is None:
-            continue
-        try:
-            dispatch_job(db, job=job)
-            dispatched_job_types.append(job.job_type)
-        except Exception as exc:
-            dispatch_errors.append({"job_id": job_id, "job_type": job.job_type, "error": str(exc)})
-    if dispatched_job_types or dispatch_errors:
-        write_timeline_event(
-            db,
-            org_id=user.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.ai_jobs_dispatched",
-            title="Contract AI jobs dispatched",
-            actor_user_id=user.id,
-            request_id=request_id,
-            details={
-                "dispatched_job_types": dispatched_job_types,
-                "dispatch_errors": dispatch_errors,
-            },
-        )
-        db.commit()
+    dispatched_job_types, dispatch_errors = _dispatch_initial_jobs(
+        db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
+    )
     db.refresh(contract)
     return {
         "contract": contract,
         "contract_file_id": contract_file.id,
         "contract_version_id": version.id,
         "text_snapshot_id": snapshot.id,
-        "extraction_method": extraction_method,
-        "extraction_quality_score": quality_score,
-        "queued_jobs": queued_job_types,
+        "extraction_method": extracted.method,
+        "extraction_quality_score": extracted.quality_score,
+        "queued_jobs": [job.job_type for job in queued_jobs],
         # Surface dispatch errors so the API client can detect a partial
-        # success (contract intake landed; one or more AI jobs failed to
-        # enqueue) rather than seeing a 201 with no signal.
+        # success (intake landed; one or more AI jobs failed to enqueue).
         "dispatch_errors": dispatch_errors,
     }
 

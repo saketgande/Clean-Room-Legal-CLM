@@ -28,7 +28,10 @@ export interface UserResponse {
 
 export interface TokenResponse {
   access_token: string;
-  refresh_token: string;
+  // Backend only returns refresh_token in the body when
+  // EXPOSE_REFRESH_TOKEN_IN_BODY is true (legacy clients). Default in prod
+  // is HttpOnly cookie only — the field is null/absent.
+  refresh_token?: string | null;
   token_type: string;
   user_id: ID;
   org_id: ID;
