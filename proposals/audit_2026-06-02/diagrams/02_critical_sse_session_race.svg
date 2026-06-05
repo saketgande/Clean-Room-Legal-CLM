@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 540" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect width="980" height="540" fill="#fff"/>
+  <text x="490" y="36" text-anchor="middle" font-size="22" font-weight="bold" fill="#7f1d1d">Critical #1 — The AI chat keeps writing to a closed database connection</text>
+  <text x="490" y="60" text-anchor="middle" font-size="13" fill="#555">Why it fails: the database session closes the moment the request handler returns. But the streamed reply keeps going.</text>
+
+  <!-- Timeline -->
+  <line x1="60" y1="220" x2="920" y2="220" stroke="#333" stroke-width="2"/>
+  <polygon points="920,220 910,214 910,226" fill="#333"/>
+  <text x="490" y="500" text-anchor="middle" font-size="12" fill="#444">time →</text>
+
+  <!-- Step 1 -->
+  <circle cx="120" cy="220" r="10" fill="#16a34a"/>
+  <text x="120" y="200" text-anchor="middle" font-size="12" font-weight="bold">①</text>
+  <rect x="50" y="240" width="160" height="80" rx="6" fill="#e7f6ea" stroke="#16a34a"/>
+  <text x="130" y="260" text-anchor="middle" font-size="12" font-weight="bold">User sends a chat</text>
+  <text x="130" y="278" text-anchor="middle" font-size="11">FastAPI opens a fresh</text>
+  <text x="130" y="294" text-anchor="middle" font-size="11">database connection</text>
+  <text x="130" y="310" text-anchor="middle" font-size="11" fill="#16a34a">connection: OPEN ✓</text>
+
+  <!-- Step 2 -->
+  <circle cx="320" cy="220" r="10" fill="#16a34a"/>
+  <text x="320" y="200" text-anchor="middle" font-size="12" font-weight="bold">②</text>
+  <rect x="250" y="240" width="170" height="80" rx="6" fill="#e7f6ea" stroke="#16a34a"/>
+  <text x="335" y="260" text-anchor="middle" font-size="12" font-weight="bold">First reply chunk goes out</text>
+  <text x="335" y="278" text-anchor="middle" font-size="11">code returns to FastAPI</text>
+  <text x="335" y="294" text-anchor="middle" font-size="11">but the generator</text>
+  <text x="335" y="310" text-anchor="middle" font-size="11">is still running...</text>
+
+  <!-- Step 3 -->
+  <circle cx="530" cy="220" r="10" fill="#dc2626"/>
+  <text x="530" y="200" text-anchor="middle" font-size="12" font-weight="bold">③</text>
+  <rect x="460" y="100" width="180" height="100" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="550" y="124" text-anchor="middle" font-size="12" font-weight="bold" fill="#7f1d1d">FastAPI thinks "done"</text>
+  <text x="550" y="144" text-anchor="middle" font-size="11">closes the DB session</text>
+  <text x="550" y="160" text-anchor="middle" font-size="11">because the dependency</text>
+  <text x="550" y="176" text-anchor="middle" font-size="11">scope ended</text>
+  <text x="550" y="194" text-anchor="middle" font-size="11" fill="#dc2626" font-weight="bold">connection: CLOSED ✗</text>
+  <line x1="540" y1="200" x2="535" y2="215" stroke="#dc2626" stroke-width="1.5"/>
+
+  <!-- Step 4 -->
+  <circle cx="720" cy="220" r="10" fill="#dc2626"/>
+  <text x="720" y="200" text-anchor="middle" font-size="12" font-weight="bold">④</text>
+  <rect x="650" y="240" width="180" height="100" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="740" y="262" text-anchor="middle" font-size="12" font-weight="bold" fill="#7f1d1d">Claude responds again</text>
+  <text x="740" y="280" text-anchor="middle" font-size="11">8 tool-use rounds total</text>
+  <text x="740" y="298" text-anchor="middle" font-size="11">our code tries to save</text>
+  <text x="740" y="314" text-anchor="middle" font-size="11">a tool result to DB</text>
+  <text x="740" y="332" text-anchor="middle" font-size="11" fill="#dc2626">→ writes to dead conn</text>
+
+  <!-- Step 5 -->
+  <circle cx="880" cy="220" r="10" fill="#dc2626"/>
+  <text x="880" y="200" text-anchor="middle" font-size="12" font-weight="bold">⑤</text>
+  <rect x="800" y="380" width="160" height="90" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="880" y="404" text-anchor="middle" font-size="12" font-weight="bold" fill="#7f1d1d">Random failures</text>
+  <text x="880" y="424" text-anchor="middle" font-size="11">- saves silently lost</text>
+  <text x="880" y="442" text-anchor="middle" font-size="11">- "InvalidSession" errors</text>
+  <text x="880" y="460" text-anchor="middle" font-size="11">- stuck rows in DB</text>
+
+  <line x1="800" y1="380" x2="730" y2="340" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr2)"/>
+
+  <!-- Fix box -->
+  <rect x="60" y="380" width="650" height="100" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+  <text x="385" y="404" text-anchor="middle" font-size="14" font-weight="bold" fill="#065f46">The fix (proposed)</text>
+  <text x="385" y="424" text-anchor="middle" font-size="12" fill="#065f46">Give the streaming generator its OWN database session, separate from the request scope.</text>
+  <text x="385" y="442" text-anchor="middle" font-size="12" fill="#065f46">New module `app/core/streaming.py` provides `streaming_session()` — opens, commits, rolls back, closes</text>
+  <text x="385" y="460" text-anchor="middle" font-size="12" fill="#065f46">on its own. Also adds: client-disconnect check (stop the loop if the user left) and a cost cap.</text>
+</svg>

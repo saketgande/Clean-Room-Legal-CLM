@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
@@ -14,11 +15,23 @@ from app.auth.models import User
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.enums import ApprovalStatus, ContractLifecycleStage
 from app.core.security import create_token_secret, hash_token
 from app.integrations.resend import resend_client
 
-APPROVAL_TOKEN_TTL_HOURS = 168  # 7 days
+logger = logging.getLogger(__name__)
+
+# Approval-link TTL. Reduced from 168h (7d) to 48h to shrink the window in which
+# a leaked/forwarded link is live. The decision itself is never made by a GET:
+# the email links are hash-fragment URLs ("{base}/#approve?token=...&d=approve")
+# whose token+decision live client-side and are NEVER sent to the server on the
+# GET. A corporate link-prefetcher / scanner that follows the URL only loads the
+# static SPA shell; the state change happens solely on the explicit
+# POST /approvals/token-decision the user triggers from that interstitial page.
+# This separation is the click-through confirmation, so no server-side GET view
+# is added here — doing so would change the API contract the frontend relies on.
+APPROVAL_TOKEN_TTL_HOURS = 48  # 2 days
 
 
 def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
@@ -86,6 +99,10 @@ async def submit_contract_for_approval(
         db.add(approval)
         db.flush()
         token_secret = None
+        # None = no email attempted (no resolved approver user). True/False once a
+        # send is attempted. Surfaced in the audit record so an operator can see
+        # whether the approver was actually notified.
+        email_sent: bool | None = None
         approver = (
             db.get(User, approval.approver_user_id) if approval.approver_user_id else None
         )
@@ -102,15 +119,50 @@ async def submit_contract_for_approval(
                     updated_by_user_id=user.id,
                 )
             )
-            await resend_client.send_email(
-                to=approver.email,
-                subject=f"Approval requested: {contract.title}",
-                html=(
-                    f"<p>{user.full_name} requested your approval on "
-                    f"<b>{contract.title}</b>.</p>"
-                    f"<p>Decision token: <code>{token_secret}</code></p>"
-                ),
+            base = settings.app_base_url.rstrip("/")
+            approve_url = f"{base}/#approve?token={token_secret}&d=approve"
+            reject_url = f"{base}/#approve?token={token_secret}&d=reject"
+            ttl_days = APPROVAL_TOKEN_TTL_HOURS // 24
+            expiry_note = (
+                f"{ttl_days} day{'s' if ttl_days != 1 else ''}"
+                if ttl_days
+                else f"{APPROVAL_TOKEN_TTL_HOURS} hours"
             )
+            # A notification-send failure must NOT roll back an approval that was
+            # already created + tokenized. Catch per-approver, log, and record the
+            # outcome via email_sent rather than 500-ing the whole submission.
+            try:
+                await resend_client.send_email(
+                    to=approver.email,
+                    subject=f"Approval requested: {contract.title}",
+                    html=(
+                        f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px\">"
+                        f"<p style=\"font-size:15px;color:#0f172a\">"
+                        f"<b>{user.full_name}</b> requested your approval on "
+                        f"<b>{contract.title}</b>.</p>"
+                        f"<p style=\"margin:24px 0\">"
+                        f"<a href=\"{approve_url}\" "
+                        f"style=\"display:inline-block;background:#16a34a;color:#fff;"
+                        f"padding:11px 22px;border-radius:8px;text-decoration:none;"
+                        f"font-weight:600;margin-right:10px\">Approve</a>"
+                        f"<a href=\"{reject_url}\" "
+                        f"style=\"display:inline-block;background:#dc2626;color:#fff;"
+                        f"padding:11px 22px;border-radius:8px;text-decoration:none;"
+                        f"font-weight:600\">Reject</a>"
+                        f"</p>"
+                        f"<p style=\"font-size:12px;color:#64748b\">"
+                        f"This secure link expires in {expiry_note} and can be used once. "
+                        f"If you didn't expect this request, you can ignore this email.</p>"
+                        f"</div>"
+                    ),
+                )
+                email_sent = True
+            except Exception:
+                logger.exception(
+                    "approval notification email failed",
+                    extra={"approval_request_id": approval.id},
+                )
+                email_sent = False
         write_audit_log(
             db,
             action="approval.requested",
@@ -124,6 +176,7 @@ async def submit_contract_for_approval(
                 "approver_user_id": approval.approver_user_id,
                 "approver_role": approval.approver_role,
                 "token_issued": token_secret is not None,
+                "email_sent": email_sent,
             },
         )
         requests.append(approval)
@@ -236,18 +289,27 @@ def redeem_token_decision(
     comment: str | None,
     request_id: str | None = None,
 ) -> ApprovalRequest:
+    # F-02: every token-failure path returns the SAME 401 so the response can't be
+    # used as an oracle to distinguish "fake" from "real-but-expired/used" tokens.
+    # The specific reason is logged server-side for security monitoring only.
+    def _reject(reason: str) -> HTTPException:
+        logger.warning("approval token rejected", extra={"reason": reason})
+        return HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid or expired approval token"
+        )
+
     row = db.scalar(
         select(ApprovalToken).where(ApprovalToken.token_hash == hash_token(token))
     )
     if row is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval token not found")
+        raise _reject("not_found")
     if row.used_at is not None:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Approval token already used")
+        raise _reject("already_used")
     if row.expires_at < datetime.now(UTC):
-        raise HTTPException(status.HTTP_409_CONFLICT, "Approval token expired")
+        raise _reject("expired")
     approval = db.get(ApprovalRequest, row.approval_request_id)
     if approval is None or approval.org_id != row.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
+        raise _reject("request_missing_or_org_mismatch")
     # Single-use: consume the token atomically with the decision.
     row.used_at = datetime.now(UTC)
     approver = db.scalar(

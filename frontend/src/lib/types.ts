@@ -59,6 +59,7 @@ export interface UserInvitationResponse {
   accepted_at: ISODateTime | null;
   revoked_at: ISODateTime | null;
   token: string | null;
+  email_sent?: boolean | null;
 }
 
 export interface OrgJoinRequestResponse {

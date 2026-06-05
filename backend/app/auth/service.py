@@ -45,6 +45,25 @@ def _normalize_domain(email: str) -> str:
     return email.rsplit("@", 1)[-1].lower()
 
 
+def _mask_email(email: str | None) -> str | None:
+    """Mask the local-part of an email for audit metadata.
+
+    Keeps the domain and the first local-part character so the row is still
+    useful for support/forensics ("which mailbox?") without persisting the full
+    address as plaintext PII in the audit log. ``alice@acme.com`` -> ``a***@acme.com``.
+    Falls back to masking everything after the first char when there's no ``@``.
+    """
+    if not email:
+        return email
+    normalized = email.lower()
+    local, sep, domain = normalized.partition("@")
+    if not sep:
+        # Malformed/non-email value: keep only the first char.
+        return (normalized[:1] + "***") if normalized else normalized
+    masked_local = (local[:1] + "***") if local else "***"
+    return f"{masked_local}@{domain}"
+
+
 def _user_response(user: User) -> dict:
     active_role = next((role for role in user.roles if role.id == user.active_role_id), None)
     return {
@@ -240,7 +259,7 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
             resource_type="user",
             resource_id=existing_user.id,
             org_id=org.id,
-            metadata={"email": str(payload.email).lower()},
+            metadata={"email": _mask_email(str(payload.email))},
         )
         return "pending_approval", None
 
@@ -299,7 +318,7 @@ def login_user(db: Session, email: str, password: str, request_id: str | None = 
             resource_type="user",
             resource_id=user.id if user else None,
             request_id=request_id,
-            metadata={"email": email.lower(), "reason": "invalid_credentials"},
+            metadata={"email": _mask_email(email), "reason": "invalid_credentials"},
         )
         db.commit()
         raise invalid_credentials_error
@@ -314,7 +333,7 @@ def login_user(db: Session, email: str, password: str, request_id: str | None = 
             resource_id=user.id,
             org_id=user.org_id,
             request_id=request_id,
-            metadata={"email": email.lower(), "reason": f"status:{user.status}"},
+            metadata={"email": _mask_email(email), "reason": f"status:{user.status}"},
         )
         db.commit()
         raise invalid_credentials_error
@@ -579,7 +598,7 @@ def create_user_invitation(
         org_id=actor.org_id,
         actor_user_id=actor.id,
         request_id=request_id,
-        metadata={"email": invitation.email, "role_name": invitation.role_name},
+        metadata={"email": _mask_email(invitation.email), "role_name": invitation.role_name},
     )
     db.commit()
     db.refresh(invitation)

@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.rate_limit import limiter
 
 from app.approvals.models import ApprovalRequest, ApprovalRoutingRule
 from app.approvals.service import (
@@ -49,11 +52,24 @@ class RoutingRulePayload(BaseModel):
 def list_approvals(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("approval:read")),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     rows = db.scalars(
-        select(ApprovalRequest).where(ApprovalRequest.org_id == current_user.org_id)
+        select(ApprovalRequest)
+        .where(ApprovalRequest.org_id == current_user.org_id)
+        .order_by(ApprovalRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
-    return [row for row in rows if _can_view_approval(db, approval=row, user=current_user)]
+    # Batch-load the contracts referenced by this page in a single IN query so the
+    # per-row visibility check below doesn't fire one db.get() per approval (N+1).
+    contracts = _load_contracts_for_approvals(db, approvals=rows, user=current_user)
+    return [
+        row
+        for row in rows
+        if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
+    ]
 
 
 @router.get("/routing-rules")
@@ -139,13 +155,17 @@ def decide_approval(
 
 
 @router.post("/token-decision")
+@limiter.limit(settings.rate_limit_token_decision)
 def decide_via_token(
     payload: TokenDecisionPayload,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     """Token-authenticated approval decision. No session auth: the single-use,
-    expiring, email-bound token is the credential."""
+    expiring, email-bound token is the credential. Rate-limited per IP (F-02);
+    ``response`` is required so slowapi can inject rate-limit headers."""
+    _ = response
     approval = redeem_token_decision(
         db,
         token=payload.token,
@@ -176,10 +196,43 @@ def _can_decide_approval(*, approval: ApprovalRequest, user) -> bool:
     return False
 
 
-def _can_view_approval(db: Session, *, approval: ApprovalRequest, user) -> bool:
+def _load_contracts_for_approvals(
+    db: Session, *, approvals: list[ApprovalRequest], user
+) -> dict[str, Contract]:
+    """Fetch every contract referenced by ``approvals`` in one org-scoped IN query.
+
+    Returns a ``{contract_id: Contract}`` map so the per-row visibility check can
+    look up its contract without issuing a db.get() per approval (kills the N+1).
+    Org-scoping the query means a stale/cross-org contract_id simply won't appear
+    in the map, preserving the tenant boundary enforced by the previous db.get +
+    user_can_access_contract path."""
+    contract_ids = {a.contract_id for a in approvals if a.contract_id}
+    if not contract_ids:
+        return {}
+    rows = db.scalars(
+        select(Contract).where(
+            Contract.org_id == user.org_id,
+            Contract.id.in_(contract_ids),
+        )
+    ).all()
+    return {contract.id: contract for contract in rows}
+
+
+def _can_view_approval(
+    db: Session,
+    *,
+    approval: ApprovalRequest,
+    user,
+    contracts: dict[str, Contract] | None = None,
+) -> bool:
     if _can_decide_approval(approval=approval, user=user):
         return True
     if approval.requested_by_user_id == user.id:
         return True
-    contract = db.get(Contract, approval.contract_id)
+    # Use the batched map when provided (list endpoint); fall back to a direct
+    # lookup so any other caller keeps working unchanged.
+    if contracts is not None:
+        contract = contracts.get(approval.contract_id)
+    else:
+        contract = db.get(Contract, approval.contract_id)
     return bool(contract and user_can_access_contract(db, contract=contract, user=user))

@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect } from "react";
+import { reportClientError } from "@/lib/client-logger";
+
 export default function GlobalError({
   error,
   reset,
@@ -7,6 +10,14 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  useEffect(() => {
+    reportClientError({
+      kind: "global-error",
+      message: error.message || "Fatal error",
+      stack: error.stack,
+    });
+  }, [error]);
+
   return (
     <html lang="en">
       <body
@@ -17,8 +28,8 @@ export default function GlobalError({
           flexDirection: "column",
           alignItems: "center",
           justifyContent: "center",
-          background: "#F6F4EF",
-          color: "#201C15",
+          background: "#08090B",
+          color: "#ECEEF1",
           fontFamily:
             "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif",
           textAlign: "center",
@@ -28,14 +39,14 @@ export default function GlobalError({
         <h1 style={{ fontSize: 28, fontWeight: 600, margin: 0 }}>
           The application crashed
         </h1>
-        <p style={{ color: "#6E6557", marginTop: 12, maxWidth: 420 }}>
+        <p style={{ color: "#8A909A", marginTop: 12, maxWidth: 420 }}>
           A fatal error occurred. Reloading usually fixes it.
         </p>
         <button
           onClick={reset}
           style={{
             marginTop: 24,
-            background: "#2F4A38",
+            background: "#7C3AED",
             color: "#fff",
             border: 0,
             borderRadius: 8,
@@ -47,7 +58,7 @@ export default function GlobalError({
           Reload
         </button>
         {error.digest && (
-          <p style={{ color: "#9D9483", marginTop: 24, fontSize: 12 }}>
+          <p style={{ color: "#565B64", marginTop: 24, fontSize: 12 }}>
             Reference: {error.digest}
           </p>
         )}

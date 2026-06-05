@@ -209,7 +209,7 @@ export function ContractDocument({
   return (
     <div
       className={
-        "flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white " +
+        "flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 " +
         (className ?? "")
       }
     >
@@ -291,7 +291,7 @@ export function ContractDocument({
             </p>
           </div>
         ) : (
-          <article className="mx-auto max-w-3xl whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-10 py-12 font-serif text-[15px] leading-7 text-slate-800 shadow-sm">
+          <article className="mx-auto max-w-3xl whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-100 px-10 py-12 font-serif text-[15px] leading-7 text-slate-800 shadow-sm">
             {redlineMode && edits
               ? buildSegments(docText, edits).map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;

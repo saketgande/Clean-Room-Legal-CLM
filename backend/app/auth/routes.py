@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
@@ -50,6 +51,9 @@ from app.auth.service import (
     switch_active_role,
 )
 from app.core.deps import get_current_user, get_db, require_permission
+from app.integrations.resend import resend_client
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 users_router = APIRouter(prefix="/users", tags=["users"])
@@ -234,6 +238,7 @@ def accept_invitation(
 def password_reset_request(
     payload: PasswordResetRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     return request_password_reset(
@@ -248,6 +253,7 @@ def password_reset_request(
 def password_reset_confirm(
     payload: PasswordResetConfirmRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ):
     confirm_password_reset(
@@ -305,23 +311,69 @@ def invitations(
     return list_user_invitations(db, actor=current_user)
 
 
+async def _send_invitation_email(
+    *, email: str, token: str | None, role_name: str, inviter_name: str
+) -> bool:
+    """Email the invitee an accept link. Best-effort: returns True on delivery,
+    False otherwise.
+
+    A delivery failure (Resend not configured, transient upstream error) must
+    NEVER fail the invitation — the token is still returned in the response so
+    the admin can copy the link from the UI and share it manually.
+    """
+    if not token:
+        return False
+    accept_url = f"{settings.app_base_url.rstrip('/')}/invitations/accept?token={token}"
+    try:
+        await resend_client.send_email(
+            to=email,
+            subject="You've been invited to AEGIS",
+            html=(
+                '<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px">'
+                f'<p style="font-size:15px;color:#0f172a"><b>{inviter_name}</b> invited you to '
+                f'join their organization on <b>AEGIS</b> as <b>{role_name}</b>.</p>'
+                '<p style="margin:24px 0">'
+                f'<a href="{accept_url}" style="display:inline-block;background:#7c3aed;'
+                'color:#fff;padding:11px 22px;border-radius:8px;text-decoration:none;'
+                'font-weight:600">Accept invitation</a></p>'
+                '<p style="font-size:12px;color:#64748b">Or paste this link into your browser:<br>'
+                f'<a href="{accept_url}" style="color:#7c3aed">{accept_url}</a></p>'
+                '<p style="font-size:12px;color:#64748b">If you weren\'t expecting this, '
+                'you can ignore this email.</p></div>'
+            ),
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("invitation email delivery failed")
+        return False
+
+
 @users_router.post(
     "/invitations",
     response_model=UserInvitationResponse,
     status_code=201,
 )
-def create_invitation(
+async def create_invitation(
     payload: UserInvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("user:approve")),
 ):
-    return create_user_invitation(
+    result = create_user_invitation(
         db,
         payload=payload,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
     )
+    # Fire the invite email (best-effort) and tell the UI whether it landed, so
+    # it can prompt the admin to share the copyable link when email is off.
+    result["email_sent"] = await _send_invitation_email(
+        email=result["email"],
+        token=result.get("token"),
+        role_name=result["role_name"],
+        inviter_name=getattr(current_user, "full_name", None) or "A colleague",
+    )
+    return result
 
 
 @users_router.post("/invitations/{invitation_id}/revoke", response_model=UserInvitationResponse)

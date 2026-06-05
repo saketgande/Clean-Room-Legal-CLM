@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,8 +11,10 @@ from app.ai.registry import skill_registry
 from app.ai.schemas import AIPromptVersionResponse, AISkillRunResponse, SkillInfo
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
+from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import AIPromptStatus
+from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -114,10 +116,12 @@ def create_prompt(
 
 
 @router.post("/contracts/{contract_id}/metadata-extraction")
+@limiter.limit(settings.rate_limit_ai_skill)
 async def rerun_metadata_extraction(
     contract_id: str,
     payload: ContractAIRerunRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
@@ -136,10 +140,12 @@ async def rerun_metadata_extraction(
 
 
 @router.post("/contracts/{contract_id}/clause-extraction")
+@limiter.limit(settings.rate_limit_ai_skill)
 async def rerun_clause_extraction(
     contract_id: str,
     payload: ContractAIRerunRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):

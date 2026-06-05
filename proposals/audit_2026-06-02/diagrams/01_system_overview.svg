@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 560" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect width="960" height="560" fill="#fafafa"/>
+  <text x="480" y="36" text-anchor="middle" font-size="22" font-weight="bold" fill="#111">How AEGIS Legal CLM is put together</text>
+  <text x="480" y="60" text-anchor="middle" font-size="13" fill="#555">A contract-management web app with a Claude AI assistant baked into the backend</text>
+
+  <!-- Browser -->
+  <rect x="40" y="100" width="170" height="100" rx="8" fill="#eef" stroke="#446" stroke-width="1.5"/>
+  <text x="125" y="130" text-anchor="middle" font-size="16" font-weight="bold">Browser</text>
+  <text x="125" y="152" text-anchor="middle" font-size="12">Next.js + React</text>
+  <text x="125" y="172" text-anchor="middle" font-size="11" fill="#555">customer / lawyer / admin</text>
+  <text x="125" y="188" text-anchor="middle" font-size="11" fill="#555">uses for: upload, chat, sign</text>
+
+  <!-- FastAPI -->
+  <rect x="290" y="100" width="290" height="280" rx="8" fill="#fff" stroke="#333" stroke-width="1.8"/>
+  <text x="435" y="128" text-anchor="middle" font-size="16" font-weight="bold">FastAPI Backend (Python)</text>
+  <text x="435" y="148" text-anchor="middle" font-size="12">22 routers, one per domain</text>
+  <rect x="306" y="160" width="258" height="90" rx="4" fill="#f4f4f4"/>
+  <text x="435" y="180" text-anchor="middle" font-size="12">auth · contracts · approvals</text>
+  <text x="435" y="198" text-anchor="middle" font-size="12">obligations · signatures · search</text>
+  <text x="435" y="216" text-anchor="middle" font-size="12">workflows · playbooks · projects</text>
+  <text x="435" y="234" text-anchor="middle" font-size="12">notifications · admin · jobs</text>
+  <!-- AI sub-block -->
+  <rect x="306" y="262" width="258" height="105" rx="4" fill="#fff4e0" stroke="#d97706" stroke-width="1.5"/>
+  <text x="435" y="284" text-anchor="middle" font-size="13" font-weight="bold" fill="#92400e">AI / Assistant Layer (the special sauce)</text>
+  <text x="435" y="304" text-anchor="middle" font-size="11" fill="#92400e">controller → tool registry → tool runtime</text>
+  <text x="435" y="320" text-anchor="middle" font-size="11" fill="#92400e">13 structured "Skills" · 24 callable "Tools"</text>
+  <text x="435" y="336" text-anchor="middle" font-size="11" fill="#92400e">citations · redactions · confirmations</text>
+  <text x="435" y="356" text-anchor="middle" font-size="11" fill="#92400e">talks to Claude, hands answers back</text>
+
+  <!-- Postgres -->
+  <rect x="660" y="100" width="260" height="130" rx="8" fill="#e7f6ea" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="790" y="128" text-anchor="middle" font-size="16" font-weight="bold" fill="#166534">Postgres (+pgvector)</text>
+  <text x="790" y="150" text-anchor="middle" font-size="12" fill="#166534">60+ tables. Stores everything:</text>
+  <text x="790" y="170" text-anchor="middle" font-size="11" fill="#166534">contracts, files, AI messages,</text>
+  <text x="790" y="186" text-anchor="middle" font-size="11" fill="#166534">approvals, obligations, audit log</text>
+  <text x="790" y="208" text-anchor="middle" font-size="11" fill="#166534">multi-tenant: separated by org_id</text>
+
+  <!-- Redis -->
+  <rect x="660" y="250" width="260" height="80" rx="8" fill="#e7f6ea" stroke="#16a34a" stroke-width="1.5"/>
+  <text x="790" y="278" text-anchor="middle" font-size="15" font-weight="bold" fill="#166534">Redis</text>
+  <text x="790" y="298" text-anchor="middle" font-size="11" fill="#166534">message broker for background</text>
+  <text x="790" y="314" text-anchor="middle" font-size="11" fill="#166534">jobs + small caches</text>
+
+  <!-- Celery -->
+  <rect x="290" y="410" width="290" height="100" rx="8" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="435" y="436" text-anchor="middle" font-size="15" font-weight="bold">Celery Workers (background jobs)</text>
+  <text x="435" y="458" text-anchor="middle" font-size="11" fill="#555">when a contract uploads, these run in parallel:</text>
+  <text x="435" y="476" text-anchor="middle" font-size="11" fill="#555">PDF text extraction · clause finding</text>
+  <text x="435" y="492" text-anchor="middle" font-size="11" fill="#555">obligation extraction · embedding for search</text>
+
+  <!-- External -->
+  <rect x="660" y="350" width="260" height="170" rx="8" fill="#e0eaff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="790" y="376" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e3a8a">External APIs</text>
+  <text x="790" y="400" text-anchor="middle" font-size="12" fill="#1e3a8a">Claude — the AI brain</text>
+  <text x="790" y="424" text-anchor="middle" font-size="12" fill="#1e3a8a">Reducto — turns scanned PDFs to text</text>
+  <text x="790" y="448" text-anchor="middle" font-size="12" fill="#1e3a8a">DocuSign — e-signature</text>
+  <text x="790" y="472" text-anchor="middle" font-size="12" fill="#1e3a8a">Resend — sends emails</text>
+  <text x="790" y="500" text-anchor="middle" font-size="11" fill="#1e3a8a">each has a "mock" mode for testing</text>
+
+  <!-- Arrows -->
+  <line x1="210" y1="150" x2="290" y2="200" stroke="#444" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="252" y="164" text-anchor="middle" font-size="11" fill="#444">HTTP + SSE stream</text>
+
+  <line x1="580" y1="150" x2="660" y2="150" stroke="#444" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="620" y="142" text-anchor="middle" font-size="11" fill="#444">SQL</text>
+
+  <line x1="580" y1="280" x2="660" y2="280" stroke="#444" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="620" y="272" text-anchor="middle" font-size="11" fill="#444">queue jobs</text>
+
+  <line x1="435" y1="380" x2="435" y2="410" stroke="#444" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="450" y="400" font-size="11" fill="#444">enqueue</text>
+
+  <line x1="580" y1="440" x2="660" y2="430" stroke="#444" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="615" y="424" font-size="11" fill="#444">writes results</text>
+
+  <line x1="564" y1="320" x2="660" y2="395" stroke="#d97706" stroke-width="1.8" marker-end="url(#arr)"/>
+  <text x="615" y="350" font-size="11" fill="#d97706">Claude calls</text>
+</svg>

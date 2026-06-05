@@ -3,20 +3,25 @@ import json
 import logging
 import re
 import secrets
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from io import BytesIO
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.confirmations import create_confirmation
 from app.ai.models import AIConfirmation
+from app.ai.redaction import redact_ai_payload
+from app.ai.tool_policy import is_tool_enabled
 from app.ai.tool_registry import (
     ApprovalSubmitInput,
     ArchiveContractInput,
+    AttentionItemsInput,
     BrainAskInput,
+    FindContractsInput,
+    ListObligationsInput,
     ContractHandleInput,
     EditContractInput,
     ExternalShareInput,
@@ -24,6 +29,7 @@ from app.ai.tool_registry import (
     FindInContractInput,
     GenerateContractInput,
     PlaybookToolInput,
+    RedraftContractInput,
     ProjectContractsInput,
     ReadTableCellsInput,
     SignatureSendInput,
@@ -47,6 +53,9 @@ from app.contract_files.models import (
 from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.models import Contract
 from app.contracts.lifecycle import transition_contract_stage
+from app.obligations.models import Obligation
+from app.approvals.models import ApprovalRequest
+from app.renewals.models import RenewalEvent
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.jobs.models import JobRun
@@ -92,7 +101,12 @@ class ToolRuntime:
         spec = tool_registry.get(tool_name)
         if not has_permission(user.permission_values, spec.required_permission):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {spec.required_permission}")
+        # F-04: hard gate covering the race where an admin disables a tool after it was
+        # advertised to Claude but before this call ran. No RUNNING row is created.
+        if not is_tool_enabled(db, org_id=user.org_id, spec=spec):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {tool_name}")
         validated_input = spec.input_model.model_validate(tool_input)
+        validated_args = validated_input.model_dump(mode="json")
         call = AssistantToolCall(
             org_id=user.org_id,
             session_id=session_id,
@@ -100,10 +114,13 @@ class ToolRuntime:
             provider_tool_use_id=provider_tool_use_id,
             tool_name=tool_name,
             category=spec.category,
-            arguments=validated_input.model_dump(mode="json"),
+            # Scrub PII (emails, long digit runs, oversized text) before persisting
+            # the tool arguments. The idempotency key is hashed from the *raw* args
+            # so redaction never weakens dedup.
+            arguments=redact_ai_payload(validated_args),
             status=AssistantToolCallStatus.RUNNING,
             confirmation_required=spec.requires_confirmation,
-            idempotency_key=_idempotency_key(tool_name, session_id, validated_input.model_dump(mode="json")),
+            idempotency_key=_idempotency_key(tool_name, session_id, validated_args),
             output_schema_name=spec.output_model.__name__,
             started_at=utcnow(),
             created_by_user_id=user.id,
@@ -138,7 +155,9 @@ class ToolRuntime:
                 user=user,
                 session_id=session_id,
             )
-            call.result = result
+            # Persist a scrubbed copy of the result; return the unredacted result
+            # to the caller (it drives the live conversation / streamed events).
+            call.result = redact_ai_payload(result)
             call.status = AssistantToolCallStatus.SUCCEEDED
             call.finished_at = utcnow()
             db.flush()
@@ -163,11 +182,26 @@ class ToolRuntime:
         spec = tool_registry.get(call.tool_name)
         if not has_permission(user.permission_values, spec.required_permission):
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {spec.required_permission}")
+        # F-04: re-gate on resume. A confirmation may have been minted while the tool was
+        # enabled, then disabled before the user confirmed. Without this, the confirm/resume
+        # path runs a now-disabled tool (and the flagged tools are exactly the confirm-required
+        # ones). Mark the call terminal so it is not left dangling.
+        if not is_tool_enabled(db, org_id=user.org_id, spec=spec):
+            call.status = AssistantToolCallStatus.FAILED
+            call.error_message = f"AI tool is disabled: {call.tool_name}"
+            call.finished_at = utcnow()
+            call.updated_by_user_id = user.id
+            db.flush()
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {call.tool_name}")
         if call.status not in {AssistantToolCallStatus.CONFIRMED, AssistantToolCallStatus.RUNNING}:
             raise HTTPException(status.HTTP_409_CONFLICT, "Tool call is not confirmed")
         validated_input = spec.input_model.model_validate(call.arguments)
         call.status = AssistantToolCallStatus.RUNNING
         call.started_at = call.started_at or utcnow()
+        # Audit actor: stamp who confirmed this action and the confirmation it ran
+        # under, so a confirm-required (mutating/external) tool call is attributable.
+        call.confirmation_id = confirmation.id
+        call.confirmed_by_user_id = user.id
         try:
             result = await self._execute_validated(
                 db,
@@ -176,7 +210,9 @@ class ToolRuntime:
                 user=user,
                 session_id=call.session_id,
             )
-            call.result = result
+            # Persist a scrubbed copy of the result; return the unredacted result
+            # to the caller (it drives the live conversation / streamed events).
+            call.result = redact_ai_payload(result)
             call.status = AssistantToolCallStatus.SUCCEEDED
             call.finished_at = utcnow()
             call.updated_by_user_id = user.id
@@ -217,6 +253,8 @@ class ToolRuntime:
             return await self._generate_contract_docx(db, payload=payload, user=user)
         if tool_name == "edit_contract":
             return await self._edit_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "redraft_contract":
+            return await self._redraft_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "replicate_contract_version":
             return self._replicate_contract_version(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "run_playbook_review":
@@ -251,6 +289,12 @@ class ToolRuntime:
             return self._external_share(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "archive_contract":
             return self._archive_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "my_attention_items":
+            return self._my_attention_items(db, payload=payload, user=user)
+        if tool_name == "find_contracts":
+            return self._find_contracts(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_obligations":
+            return self._list_obligations(db, payload=payload, user=user)
         return {"status": "feature_not_enabled", "tool": tool_name}
 
     def _read_contract(
@@ -320,6 +364,133 @@ class ToolRuntime:
                 for contract in contracts
             ],
         }
+
+    # --- Spec A: read-only portfolio tools ---
+    def _my_attention_items(self, db: Session, *, payload: AttentionItemsInput, user: User) -> dict[str, Any]:
+        today = date.today()
+        window_end = today + timedelta(days=payload.window_days)
+        org = user.org_id
+        contracts = {c.id: c for c in db.scalars(select(Contract).where(Contract.org_id == org)).all()}
+
+        def _title(cid: str) -> str:
+            c = contracts.get(cid)
+            return c.title if c else "Contract"
+
+        def _urgency(days: int | None) -> str:
+            if days is None:
+                return "medium"
+            if days < 0:
+                return "overdue"
+            if days <= 2:
+                return "high"
+            return "medium"
+
+        items: list[dict[str, Any]] = []
+        # Renewals: notice/expiry inside the window and not yet decided
+        for r in db.scalars(select(RenewalEvent).where(RenewalEvent.org_id == org)).all():
+            target = r.notice_date or r.expiration_date
+            if target and today <= target <= window_end and str(r.decision or "").lower() in ("undecided", "", "pending"):
+                d = (target - today).days
+                items.append({
+                    "contract_id": r.contract_id, "title": _title(r.contract_id),
+                    "reason": f"Renewal {'notice closes' if r.notice_date else 'expires'} in {d} day(s)",
+                    "due_date": target.isoformat(), "urgency": _urgency(d),
+                })
+        # Approvals pending and assigned to me (or unassigned)
+        for a in db.scalars(select(ApprovalRequest).where(ApprovalRequest.org_id == org, ApprovalRequest.status == "pending")).all():
+            if a.approver_user_id in (None, user.id):
+                d = (a.due_at.date() - today).days if a.due_at else None
+                items.append({
+                    "contract_id": a.contract_id, "title": _title(a.contract_id),
+                    "reason": "Your approval is pending",
+                    "due_date": a.due_at.date().isoformat() if a.due_at else None, "urgency": _urgency(d),
+                })
+        # Obligations due within the window and still open
+        for o in db.scalars(select(Obligation).where(Obligation.org_id == org, Obligation.deleted_at.is_(None), Obligation.due_date.isnot(None))).all():
+            if o.due_date and today <= o.due_date <= window_end and str(o.status or "").lower() in ("open", "in_progress", "pending"):
+                d = (o.due_date - today).days
+                items.append({
+                    "contract_id": o.contract_id, "title": _title(o.contract_id),
+                    "reason": f"Obligation due: {(o.description or '')[:80]}",
+                    "due_date": o.due_date.isoformat(), "urgency": _urgency(d),
+                })
+        # Signatures still in flight (defensive — skip silently if the model shape differs)
+        try:
+            for s in db.scalars(select(SignatureRequest).where(SignatureRequest.org_id == org)).all():
+                if str(getattr(s, "status", "") or "").lower() not in ("completed", "voided", "declined", "cancelled"):
+                    items.append({
+                        "contract_id": getattr(s, "contract_id", None), "title": _title(getattr(s, "contract_id", "")),
+                        "reason": "Awaiting signature", "due_date": None, "urgency": "medium",
+                    })
+        except Exception:  # pragma: no cover - never let one source break the worklist
+            pass
+        rank = {"overdue": 0, "high": 1, "medium": 2}
+        items.sort(key=lambda x: (rank.get(x["urgency"], 3), x["due_date"] or "9999-12-31"))
+        return {"window_days": payload.window_days, "count": len(items), "items": items[:40]}
+
+    def _find_contracts(self, db: Session, *, payload: FindContractsInput, user: User, session_id: str) -> dict[str, Any]:
+        like = f"%{payload.query.strip()}%"
+        rows = db.scalars(
+            select(Contract)
+            .where(Contract.org_id == user.org_id, or_(Contract.title.ilike(like), Contract.counterparty_name.ilike(like)))
+            .limit(8)
+        ).all()
+        existing = {
+            h.contract_id: h.handle
+            for h in db.scalars(
+                select(AssistantContractHandle).where(
+                    AssistantContractHandle.org_id == user.org_id,
+                    AssistantContractHandle.session_id == session_id,
+                )
+            ).all()
+        }
+        count = len(existing)
+        matches: list[dict[str, Any]] = []
+        for c in rows:
+            handle = existing.get(c.id)
+            if not handle:
+                handle = f"contract-{count}"
+                count += 1
+                db.add(AssistantContractHandle(
+                    org_id=user.org_id, session_id=session_id, contract_id=c.id, handle=handle,
+                    created_by_user_id=user.id, updated_by_user_id=user.id,
+                ))
+            matches.append({
+                "contract_id": c.id, "title": c.title, "counterparty_name": c.counterparty_name,
+                "lifecycle_stage": c.lifecycle_stage, "handle": handle,
+            })
+        db.flush()
+        return {"query": payload.query, "found": len(matches), "matches": matches}
+
+    def _list_obligations(self, db: Session, *, payload: ListObligationsInput, user: User) -> dict[str, Any]:
+        query = select(Obligation).where(Obligation.org_id == user.org_id, Obligation.deleted_at.is_(None))
+        if payload.due_within_days is not None:
+            today = date.today()
+            query = query.where(
+                Obligation.due_date.isnot(None),
+                Obligation.due_date >= today,
+                Obligation.due_date <= today + timedelta(days=payload.due_within_days),
+            )
+        obligations = db.scalars(query.order_by(Obligation.due_date.asc())).all()
+        contracts = {c.id: c for c in db.scalars(select(Contract).where(Contract.org_id == user.org_id)).all()}
+
+        def _row(o: Obligation) -> dict[str, Any]:
+            c = contracts.get(o.contract_id)
+            return {
+                "obligation_id": o.id, "description": (o.description or "")[:160],
+                "contract_id": o.contract_id, "contract_title": c.title if c else None,
+                "counterparty": c.counterparty_name if c else None,
+                "due_date": o.due_date.isoformat() if o.due_date else None,
+                "status": o.status, "type": o.obligation_type,
+            }
+
+        items = [_row(o) for o in obligations]
+        if payload.group_by == "counterparty":
+            groups: dict[str, list] = {}
+            for it in items:
+                groups.setdefault(it["counterparty"] or "Unspecified", []).append(it)
+            return {"due_within_days": payload.due_within_days, "count": len(items), "grouped_by": "counterparty", "groups": groups}
+        return {"due_within_days": payload.due_within_days, "count": len(items), "obligations": items}
 
     def _get_contract_status(
         self,
@@ -780,6 +951,205 @@ class ToolRuntime:
             "edits": len(edit_rows),
             "summary": summary,
             "citations": result_citations,
+        }
+
+    async def _redraft_contract(
+        self,
+        db: Session,
+        *,
+        payload: RedraftContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Rewrite the WHOLE contract into a complete new version.
+
+        Unlike edit_contract (which anchors quoted tracked changes and fails
+        when there is little existing language to quote), this generates a full,
+        properly-structured document from the current text + metadata and saves
+        it as a new version that becomes the current/authoritative document. The
+        prior version stays in history for rollback.
+        """
+        contract = self._resolve_contract(
+            db, payload=payload, user=user, session_id=session_id
+        )
+        version = (
+            db.get(ContractVersion, contract.current_authoritative_version_id)
+            if contract.current_authoritative_version_id
+            else None
+        )
+        contract_file = db.get(ContractFile, version.contract_file_id) if version else None
+        source_snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        source_text = source_snapshot.text if source_snapshot else ""
+
+        # Compose a rich redraft brief from the contract's known metadata + the
+        # current (possibly stub) text + the user's instructions.
+        meta: list[str] = [f"Title: {contract.title}"]
+        if contract.counterparty_name:
+            meta.append(f"Counterparty: {contract.counterparty_name}")
+        if contract.contract_type:
+            meta.append(f"Contract type: {contract.contract_type}")
+        if contract.value_amount is not None:
+            meta.append(
+                f"Contract value: {contract.value_amount} {contract.currency or ''}".strip()
+            )
+        if contract.jurisdiction:
+            meta.append(f"Governing law / jurisdiction: {contract.jurisdiction}")
+        if contract.effective_date:
+            meta.append(f"Effective date: {contract.effective_date}")
+        if contract.expiration_date:
+            meta.append(f"Expiration date: {contract.expiration_date}")
+        brief = (
+            "Redraft this into a COMPLETE, professional, properly-structured "
+            "agreement with all standard sections (parties & recitals, "
+            "definitions, scope of services, fees & payment, term & termination, "
+            "confidentiality, intellectual property, warranties, indemnification, "
+            "limitation of liability, governing law, dispute resolution, notices, "
+            "miscellaneous, and a signature block). Preserve the parties, "
+            "commercial terms, and intent below; expand thin or placeholder "
+            "language into full, enforceable clauses.\n\n"
+            "CONTRACT METADATA:\n" + "\n".join(meta) + "\n\n"
+            "CURRENT DRAFT (may be a stub — expand it):\n"
+            + (source_text.strip() or "(empty — draft from the metadata above)")
+            + "\n\nADDITIONAL INSTRUCTIONS: "
+            + (
+                payload.instructions.strip()
+                or "Produce a complete, market-standard contract."
+            )
+        )
+
+        from app.ai.controller import ai_controller
+
+        drafted = await ai_controller.run_structured_skill(
+            db,
+            skill_name="contract_docx_generation",
+            org_id=user.org_id,
+            created_by_user_id=user.id,
+            input_payload={"title": contract.title, "instructions": brief},
+            resource_type="contract",
+            resource_id=contract.id,
+            commit=False,
+        )
+        if drafted is None or not getattr(drafted, "sections", None):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "The drafting model returned no contract sections. Try again, or "
+                "give a tighter scope (e.g. name the sections you need).",
+            )
+
+        body_text, content = _render_structured_contract_docx(
+            title=getattr(drafted, "title", None) or contract.title,
+            sections=[(s.heading, s.body) for s in drafted.sections],
+            assumptions=list(getattr(drafted, "assumptions", []) or []),
+        )
+        storage_object = _store_docx(
+            db,
+            org_id=user.org_id,
+            user_id=user.id,
+            filename=f"{_safe_filename(contract.title)}-redraft.docx",
+            content=content,
+        )
+
+        # Attach the redraft as a new version of the contract's file (create a
+        # file if the contract somehow has none yet).
+        if contract_file is None:
+            contract_file = ContractFile(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                file_label=storage_object.filename,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(contract_file)
+            db.flush()
+
+        new_version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=next_version_number(db, contract_file.id),
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.ASSISTANT_GENERATED,
+            change_summary=(
+                f"AI full redraft: {payload.instructions[:200]}"
+                if payload.instructions.strip()
+                else "AI full redraft"
+            )[:240],
+            is_authoritative=True,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(new_version)
+        db.flush()
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=new_version.id,
+            extraction_method="assistant_generated_text",
+            extraction_quality_score=1.0,
+            text=body_text,
+            page_map=None,
+            validation_status="complete",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        new_version.text_snapshot_id = snapshot.id
+
+        # The redraft becomes the current/authoritative document; the prior
+        # version stays in history for rollback. Mirror the accept-edit flip so
+        # exactly one version is authoritative.
+        for v in db.scalars(
+            select(ContractVersion).where(
+                ContractVersion.org_id == user.org_id,
+                ContractVersion.contract_id == contract.id,
+                ContractVersion.deleted_at.is_(None),
+            )
+        ).all():
+            v.is_authoritative = v.id == new_version.id
+            v.updated_by_user_id = user.id
+        contract.current_authoritative_version_id = new_version.id
+        contract.current_contract_file_id = contract_file.id
+        contract_file.current_version_id = new_version.id
+
+        write_audit_log(
+            db,
+            action="assistant.contract_redrafted",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "new_version_id": new_version.id,
+                "sections": len(drafted.sections),
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_redrafted",
+            title="Assistant redrafted the contract into a new version",
+            actor_user_id=user.id,
+            details={
+                "new_version_id": new_version.id,
+                "sections": len(drafted.sections),
+            },
+        )
+        db.flush()
+        return {
+            "status": "created",
+            "artifact_type": "generated_contract",
+            "contract_id": contract.id,
+            "contract_version_id": new_version.id,
+            "version_number": new_version.version_number,
+            "sections": len(drafted.sections),
         }
 
     def _replicate_contract_version(

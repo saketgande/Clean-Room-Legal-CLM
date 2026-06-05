@@ -1,0 +1,94 @@
+# Caddy v2 config for AEGIS Legal CLM.
+#
+# Three entry points, driven by env (set API_DOMAIN / APP_DOMAIN in .env):
+#   1. https://{$API_DOMAIN}  -> reverse_proxy to the api service (FastAPI)
+#   2. https://{$APP_DOMAIN}  -> reverse_proxy to the frontend service (Next.js
+#                                standalone Node server), with a same-origin
+#                                /api/* proxy so the SPA calls /api/v1 with NO
+#                                CORS and first-party cookies (RECOMMENDED).
+#   3. :80                    -> local / no-domain fallback (HTTP only)
+#
+# Caddy auto-provisions and renews Let's Encrypt certs for the two domains.
+#
+# The frontend is a Next.js app built with output:"standalone" and baked with
+# NEXT_PUBLIC_API_BASE_URL=/api/v1, so the browser calls the same origin and the
+# /api/* handler below proxies it to the backend — no CORS_ORIGINS needed. The
+# dedicated API_DOMAIN block is kept for clients that prefer a split origin
+# (those DO need CORS_ORIGINS set on the backend).
+
+# Reusable security headers.
+#   - script-src 'self' 'unsafe-inline' : Next.js App Router injects inline
+#       hydration/bootstrap scripts; 'unsafe-inline' is required without a
+#       per-request nonce. FUTURE HARDENING: switch to nonce-based CSP via Next
+#       middleware and drop 'unsafe-inline' here.
+#   - style-src  'self' 'unsafe-inline' + Google Fonts CSS (Tailwind/styled-jsx
+#       emit inline styles; the app also uses style="" attributes)
+#   - font-src   'self' + fonts.gstatic.com
+#   - connect-src 'self' : same-origin XHR/fetch/SSE to /api
+#   - img-src 'self' data: blob: : inline data icons + blob previews
+(security_headers) {
+	header {
+		# 1 year HSTS incl. subdomains; preload-eligible.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		# Don't advertise the server.
+		-Server
+	}
+}
+
+# --- 1. API on its own domain (split-origin clients; requires CORS) ----------
+# The :localhost default lets this file validate/run when API_DOMAIN is unset
+# (no-domain local mode); the :80 block below is the real fallback in that case.
+{$API_DOMAIN:localhost} {
+	import security_headers
+	encode zstd gzip
+	reverse_proxy api:8000
+}
+
+# --- 2. Frontend (recommended: same-origin /api proxy, no CORS) ---------------
+# Distinct :localhost:8081 default so the two named blocks don't collide when
+# APP_DOMAIN is unset (no-domain local mode).
+{$APP_DOMAIN:localhost:8081} {
+	import security_headers
+	encode zstd gzip
+
+	# Same-origin API: requests to /api/* are proxied to the backend, so the SPA
+	# uses a relative /api/v1 base with no CORS and first-party cookies.
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	# Everything else (incl. /_next/* static assets) -> the Next.js server, which
+	# sets its own immutable cache headers on hashed assets.
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
+
+# --- 3. Local / no-domain fallback (HTTP only) -------------------------------
+# Catch-all for requests whose Host doesn't match a configured domain (e.g. a
+# direct-IP hit, or a fully no-domain local "prod" smoke test where API_DOMAIN /
+# APP_DOMAIN are left UNSET — the named blocks above then fall back to their
+# :localhost defaults). When real domains ARE set, Caddy's automatic HTTPS
+# already serves :80 for those hostnames and redirects them to HTTPS, so this
+# block only handles the leftover/no-domain case. HSTS is omitted (plain HTTP).
+:80 {
+	header {
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
+		-Server
+	}
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

@@ -36,7 +36,21 @@ def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contr
     return contract
 
 
-def list_contracts_for_user(db: Session, *, user: User) -> list[Contract]:
+def list_contracts_for_user(
+    db: Session,
+    *,
+    user: User,
+    limit: int = 100,
+    offset: int = 0,
+) -> list[Contract]:
+    # Per-row access is enforced inside the SQL via accessible_contract_filter
+    # (no Python post-filtering), so LIMIT/OFFSET page over already-authorized
+    # rows. The ContractResponse serializer only reads scalar columns on
+    # Contract — there is no relationship traversal here, so no eager-load is
+    # needed to avoid N+1. Bounds are validated at the route layer; clamp here
+    # too so direct service callers can't request an unbounded page.
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     return db.scalars(
         select(Contract)
         .where(
@@ -45,6 +59,8 @@ def list_contracts_for_user(db: Session, *, user: User) -> list[Contract]:
             accessible_contract_filter(user),
         )
         .order_by(Contract.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
     ).all()
 
 

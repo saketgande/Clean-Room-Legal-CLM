@@ -1,6 +1,7 @@
+import logging
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,6 +19,8 @@ from app.jobs.service import create_job, dispatch_job
 from app.obligations.models import Obligation, ObligationReminder
 
 router = APIRouter(prefix="/obligations", tags=["obligations"])
+
+logger = logging.getLogger(__name__)
 
 DUE_SOON_DAYS = 7
 
@@ -43,8 +46,11 @@ def _get_obligation(db: Session, *, obligation_id: str, current_user: User) -> O
 def list_obligations(
     contract_id: str | None = None,
     status_filter: str | None = None,
+    due_within_days: int | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("obligation:read")),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     query = (
         select(Obligation)
@@ -60,7 +66,17 @@ def list_obligations(
         query = query.where(Obligation.contract_id == contract_id)
     if status_filter:
         query = query.where(Obligation.status == status_filter)
-    return db.scalars(query.order_by(Obligation.due_date.asc())).all()
+    if due_within_days is not None:
+        from datetime import date as _date, timedelta as _timedelta
+        _today = _date.today()
+        query = query.where(
+            Obligation.due_date.isnot(None),
+            Obligation.due_date >= _today,
+            Obligation.due_date <= _today + _timedelta(days=due_within_days),
+        )
+    return db.scalars(
+        query.order_by(Obligation.due_date.asc()).offset(offset).limit(limit)
+    ).all()
 
 
 @router.get("/{obligation_id}")
@@ -194,17 +210,37 @@ async def run_obligation_reminders(
         )
     ).all()
     sent = 0
+    failed = 0
     for reminder in due_reminders:
         ob = db.get(Obligation, reminder.obligation_id)
         if ob is None or ob.deleted_at is not None or ob.status in {"completed", "cancelled"}:
             continue
         owner = db.get(User, ob.owner_user_id) if ob.owner_user_id else None
         if owner is not None:
-            await resend_client.send_email(
-                to=owner.email,
-                subject=f"Obligation due: {ob.obligation_type or 'contract obligation'}",
-                html=f"<p>Reminder: <b>{ob.description[:300]}</b> (due {ob.due_date}).</p>",
-            )
+            # Don't leak the raw obligation text (an extracted contract excerpt /
+            # possible PII) into the email body. Send a minimal notice — type +
+            # due date — and point the owner to the app to read the detail behind
+            # the auth boundary.
+            obligation_label = ob.obligation_type or "contract obligation"
+            try:
+                await resend_client.send_email(
+                    to=owner.email,
+                    subject=f"Obligation due: {obligation_label}",
+                    html=(
+                        f"<p>You have a <b>{obligation_label}</b> due on {ob.due_date}.</p>"
+                        f"<p>Open the contract workspace to review the details.</p>"
+                    ),
+                )
+            except Exception:
+                # A single failed send must not abort the whole reminder sweep or
+                # roll back the status recomputation above. Skip marking this one
+                # as sent so it is retried on the next run.
+                logger.exception(
+                    "obligation reminder email failed",
+                    extra={"obligation_id": ob.id, "reminder_id": reminder.id},
+                )
+                failed += 1
+                continue
         reminder.sent_at = today
         reminder.updated_by_user_id = current_user.id
         sent += 1
@@ -216,7 +252,17 @@ async def run_obligation_reminders(
         org_id=current_user.org_id,
         actor_user_id=current_user.id,
         request_id=getattr(request.state, "request_id", None),
-        after={"reminders_sent": sent, "overdue": overdue, "due_soon": due_soon},
+        after={
+            "reminders_sent": sent,
+            "reminders_failed": failed,
+            "overdue": overdue,
+            "due_soon": due_soon,
+        },
     )
     db.commit()
-    return {"reminders_sent": sent, "marked_overdue": overdue, "marked_due_soon": due_soon}
+    return {
+        "reminders_sent": sent,
+        "reminders_failed": failed,
+        "marked_overdue": overdue,
+        "marked_due_soon": due_soon,
+    }

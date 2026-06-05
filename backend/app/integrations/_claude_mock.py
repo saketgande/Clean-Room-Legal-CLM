@@ -93,6 +93,20 @@ def select_mock_tool(
     real reasoning. Returning (None, {}) means "respond with plain text".
     """
     text = user_text.lower()
+    # --- Spec A portfolio tools (deterministic demo behavior in mock mode) ---
+    if ("attention" in text or "this week" in text or "need" in text) and "my_attention_items" in tool_names:
+        return "my_attention_items", {"window_days": 7}
+    if "obligation" in text and "list_obligations" in tool_names and ("due" in text or "next" in text or "day" in text):
+        import re as _re
+        _m = _re.search(r"(\d+)\s*day", text)
+        return "list_obligations", {
+            "due_within_days": int(_m.group(1)) if _m else 30,
+            "group_by": "counterparty" if ("client" in text or "counterpart" in text) else None,
+        }
+    if "find_contracts" in tool_names and ("summar" in text or "liabilit" in text or "cap" in text) and (
+        "msa" in text or "nda" in text or "agreement" in text or '"' in text
+    ):
+        return "find_contracts", {"query": _mock_query(text)}
     if "find" in text and "find_in_contract" in tool_names:
         return "find_in_contract", {
             "contract_handle": "contract-0",

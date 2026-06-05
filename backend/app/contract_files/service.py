@@ -1,3 +1,4 @@
+import io
 import logging
 from dataclasses import dataclass
 
@@ -74,6 +75,51 @@ def _sniff_mime_type(content: bytes, claimed: str) -> str:
             f"Uploaded file bytes do not match the declared {claimed} content-type.",
         )
     return claimed
+
+
+def _scan_for_malware(content: bytes) -> None:
+    """Scan ``content`` with ClamAV when ``settings.enable_clamav`` is on.
+
+    No-op (returns immediately) when the flag is off — the default — so local
+    dev and CI never need a clamd sidecar and nothing about the upload path
+    changes. When enabled, we connect to the clamd daemon at
+    ``settings.clamav_host:settings.clamav_port`` and reject on detection.
+
+    The ``clamd`` client is imported lazily *inside* this guarded branch so the
+    dependency is only required when the feature is switched on. If the flag is
+    enabled but the client or daemon is unavailable we fail closed with a 503
+    rather than silently letting an unscanned file through.
+    """
+    if not settings.enable_clamav:
+        return
+    try:
+        import clamd  # imported lazily; only required when AV scanning is enabled
+    except ImportError as exc:  # pragma: no cover - depends on optional dep
+        # TODO: vendor the `clamd` client into the AV-enabled deployment image.
+        logger.error("ClamAV scanning enabled but the 'clamd' client is not installed: %s", exc)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Antivirus scanning is enabled but unavailable.",
+        ) from exc
+    try:
+        scanner = clamd.ClamdNetworkSocket(host=settings.clamav_host, port=settings.clamav_port)
+        result = scanner.instream(io.BytesIO(content))
+    except Exception as exc:  # pragma: no cover - network/daemon failure path
+        logger.error("ClamAV scan failed to reach clamd: %s", exc)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Antivirus scanning is temporarily unavailable.",
+        ) from exc
+    # clamd returns {"stream": ("FOUND", "<signature>")} on a hit, ("OK", None)
+    # otherwise. Treat anything other than an explicit OK as a detection.
+    status_tuple = (result or {}).get("stream")
+    if status_tuple and status_tuple[0] != "OK":
+        signature = status_tuple[1] if len(status_tuple) > 1 else "unknown"
+        logger.warning("Rejected uploaded file: ClamAV detected %s", signature)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Uploaded file was rejected by antivirus scanning.",
+        )
 
 
 async def _read_upload_with_limit(upload: UploadFile, *, limit: int, chunk_size: int) -> bytes:
@@ -300,6 +346,9 @@ async def create_contract_from_upload(
     )
     # Re-verify MIME against actual bytes — client content-type is untrusted.
     mime_type = _sniff_mime_type(content, mime_type)
+    # Optional antivirus scan (no-op unless settings.enable_clamav). Runs before
+    # we persist any bytes so an infected upload never lands in storage.
+    _scan_for_malware(content)
     if project_id:
         get_project_for_user(db, project_id=project_id, user=user, access="update")
 

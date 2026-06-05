@@ -4,7 +4,7 @@
 #
 #   Postgres + Redis : Docker (host-exposed, gives you pgvector for free)
 #   Backend API+worker: bare-metal in a venv
-#   Frontend          : Next.js dev server
+#   Frontend          : Next.js dev server (npm run dev)
 #
 # Usage:
 #   ./start.sh              start everything
@@ -14,6 +14,11 @@
 #
 # Ctrl-C stops the app processes. Postgres/Redis stay up (data persists);
 # stop them with:  (cd backend && docker compose stop postgres redis)
+#
+# NOTE: this script is for LOCAL DEVELOPMENT ONLY. The frontend runs via
+# `next dev` (hot reload). For a real deployment (Docker + Caddy + TLS,
+# gunicorn, the Next.js standalone build, separate migration step), see
+# DEPLOY.md and backend/docker-compose.prod.yml.
 
 set -euo pipefail
 
@@ -27,6 +32,10 @@ export ENVIRONMENT="local"
 export DEBUG="true"
 export DATABASE_URL="postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm"
 export REDIS_URL="redis://localhost:6379/0"
+# Where emailed links (invitations, approvals, password resets) point. Locally
+# this must be the running frontend (:3000), not the .env prod value, or the
+# "Accept invitation" link in the email is dead.
+export APP_BASE_URL="http://localhost:3000"
 
 PIDS=()
 cleanup() {
@@ -99,7 +108,7 @@ start_frontend() {
     echo "[start.sh] installing frontend deps (npm install)…"
     npm install
   fi
-  echo "[start.sh] starting frontend on http://localhost:3000 …"
+  echo "[start.sh] starting frontend (Next.js dev) on http://localhost:3000 …"
   npm run dev & PIDS+=($!)
 }
 

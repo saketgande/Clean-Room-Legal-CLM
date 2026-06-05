@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AEGIS · Lifecycle Redesign Proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#08090b; --surface:#0e0f12; --elevated:#15171b; --subtle:#101115;
+  --fg:#e8eaed; --fg-strong:#fff; --fg-muted:#9ba0a8; --fg-subtle:#6b7280;
+  --border:#1c1e22; --border-2:#292c33; --border-3:#3a3e47;
+  --violet:#a78bfa; --violet-2:#8b5cf6; --violet-soft:#1d1733;
+  --amber:#fbbf24; --amber-soft:#2a2110;
+  --jade:#34d399; --jade-soft:#0e2820;
+  --red:#f87171; --red-soft:#2a1414;
+  --slate:#94a3b8; --slate-soft:#1a1f28;
+  --r-sm:6px; --r-md:8px; --r-lg:12px;
+  --shadow:0 8px 28px -10px rgba(0,0,0,.85),0 2px 6px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(--fg);
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  background-image:radial-gradient(ellipse 900px 500px at 30% -10%,rgba(167,139,250,.10),transparent 55%),radial-gradient(ellipse 700px 400px at 90% 0%,rgba(251,191,36,.04),transparent 60%);
+  min-height:100vh;
+}
+.wrap{max-width:1280px;margin:0 auto;padding:32px 28px 80px}
+svg{width:16px;height:16px;flex-shrink:0}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* header */
+.hero{text-align:center;margin-bottom:8px}
+.hero__eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--fg-muted);padding:6px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--border)}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--jade);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,.6)}50%{box-shadow:0 0 0 6px rgba(52,211,153,0)}}
+h1{font-family:"Source Serif 4",Georgia,serif;font-weight:500;font-size:clamp(34px,4.5vw,52px);letter-spacing:-.025em;line-height:1.05;color:var(--fg-strong);margin:16px 0 12px}
+h1 em{font-style:italic;background:linear-gradient(135deg,var(--violet),var(--amber));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{color:var(--fg-muted);font-size:15px;max-width:620px;margin:0 auto 6px}
+.hero small{color:var(--fg-subtle);font-family:"JetBrains Mono",monospace;font-size:11px}
+
+/* concept tabs */
+.tabs{display:flex;gap:6px;justify-content:center;margin:28px 0 24px;flex-wrap:wrap}
+.tab{display:flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;background:var(--surface);border:1px solid var(--border);color:var(--fg-muted);font-weight:500;font-size:13.5px;transition:.14s}
+.tab:hover{border-color:var(--border-3);color:var(--fg)}
+.tab.on{background:var(--violet-soft);border-color:var(--violet);color:var(--violet)}
+.tab__n{width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;background:var(--elevated);color:var(--fg-subtle)}
+.tab.on .tab__n{background:var(--violet);color:#fff}
+
+.panel{display:none}
+.panel.on{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1}}
+
+.section-label{display:flex;align-items:center;gap:10px;margin:0 0 16px}
+.section-label h2{font-size:18px;font-weight:600;color:var(--fg-strong)}
+.section-label span{font-size:12px;color:var(--fg-subtle);font-family:"JetBrains Mono",monospace}
+.badge-now{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--red-soft);color:var(--red)}
+.badge-new{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--jade-soft);color:var(--jade)}
+
+/* ===== CONCEPT 1: KANBAN ===== */
+.board{display:grid;grid-template-columns:repeat(6,minmax(180px,1fr));gap:12px;overflow-x:auto;padding-bottom:8px}
+.col{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px;min-height:420px;display:flex;flex-direction:column;gap:10px}
+.col.drop{border-color:var(--violet);background:var(--violet-soft)}
+.col.no-drop{opacity:.4}
+.col__head{display:flex;align-items:center;justify-content:space-between}
+.col__title{font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.col__dot{width:7px;height:7px;border-radius:50%}
+.col__count{font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--fg-subtle);background:var(--elevated);border-radius:999px;padding:1px 7px}
+.card{background:var(--elevated);border:1px solid var(--border-2);border-radius:var(--r-md);padding:11px 12px;cursor:grab;transition:.12s;user-select:none}
+.card:hover{border-color:var(--border-3);transform:translateY(-1px)}
+.card.dragging{opacity:.5}
+.card__title{font-size:13px;font-weight:600;color:var(--fg-strong);line-height:1.3;margin-bottom:5px}
+.card__meta{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--fg-subtle)}
+.flag{font-size:10px;font-weight:600;padding:2px 6px;border-radius:4px}
+.flag--high{background:var(--red-soft);color:var(--red)}
+.flag--med{background:var(--amber-soft);color:var(--amber)}
+.flag--ok{background:var(--jade-soft);color:var(--jade)}
+.card__foot{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.av{width:22px;height:22px;border-radius:50%;background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;display:grid;place-items:center;font-size:9.5px;font-weight:600}
+.card__age{font-size:10px;color:var(--fg-subtle);font-family:"JetBrains Mono",monospace}
+.hint{text-align:center;color:var(--fg-subtle);font-size:12.5px;margin-top:16px;font-family:"JetBrains Mono",monospace}
+.hint b{color:var(--violet)}
+
+/* ===== CONCEPT 2: ACTION-DRIVEN DETAIL ===== */
+.detail{display:grid;grid-template-columns:1.6fr 1fr;gap:18px}
+@media(max-width:900px){.detail{grid-template-columns:1fr}}
+.dcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:20px}
+.dhead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.dhead h3{font-family:"Source Serif 4",serif;font-weight:500;font-size:24px;color:var(--fg-strong)}
+.dhead .sub{font-size:13px;color:var(--fg-muted);margin-top:4px}
+.stage-pill{font-size:12px;font-weight:600;padding:5px 12px;border-radius:999px;background:var(--amber-soft);color:var(--amber);white-space:nowrap}
+/* read-only progress bar */
+.prog{display:grid;grid-template-columns:repeat(9,1fr);margin:0 0 6px;position:relative}
+.pstep{text-align:center;position:relative}
+.pstep:not(:last-child)::after{content:"";position:absolute;top:6px;left:calc(50% + 7px);right:calc(-50% + 7px);height:2px;background:var(--border-2)}
+.pstep.done::after{background:var(--violet)}
+.pdot{width:13px;height:13px;border-radius:50%;background:var(--bg);border:2px solid var(--border-2);margin:0 auto 6px;position:relative;z-index:1}
+.pstep.done .pdot{background:var(--violet);border-color:var(--violet)}
+.pstep.cur .pdot{background:var(--surface);border-color:var(--violet);box-shadow:0 0 0 4px var(--violet-soft)}
+.plabel{font-size:9.5px;color:var(--fg-subtle)}
+.pstep.cur .plabel,.pstep.done .plabel{color:var(--fg-muted)}
+.prog-note{font-size:11px;color:var(--fg-subtle);font-family:"JetBrains Mono",monospace;text-align:center;margin-bottom:20px}
+/* the ONE next action */
+.next{background:linear-gradient(140deg,var(--violet-soft),var(--surface) 70%);border:1px solid var(--violet);border-radius:var(--r-md);padding:16px 18px;margin-bottom:14px}
+.next__label{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--violet);margin-bottom:8px}
+.next__row{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.next__txt{font-size:15px;font-weight:500;color:var(--fg-strong)}
+.next__sub{font-size:12.5px;color:var(--fg-muted);margin-top:3px}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:var(--r-md);background:linear-gradient(135deg,var(--violet),var(--violet-2));color:#fff;font-weight:500;font-size:13.5px;box-shadow:0 4px 14px -4px rgba(124,58,237,.55);white-space:nowrap}
+.gate{background:var(--subtle);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;margin-bottom:10px}
+.gate__head{font-size:12px;font-weight:600;color:var(--fg-muted);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.gate__bar{height:5px;background:var(--elevated);border-radius:999px;overflow:hidden;margin-bottom:12px}
+.gate__bar span{display:block;height:100%;background:linear-gradient(90deg,var(--violet),var(--violet-2));border-radius:999px}
+.task{display:flex;align-items:center;gap:10px;padding:7px 0;font-size:13px;border-bottom:1px dashed var(--border)}
+.task:last-child{border-bottom:0}
+.task__check{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;flex-shrink:0}
+.task--done .task__check{background:var(--jade);color:var(--bg)}
+.task--wait .task__check{border:2px solid var(--border-3)}
+.task--done span{color:var(--fg-muted);text-decoration:line-through;text-decoration-color:var(--border-3)}
+.task__who{margin-left:auto;font-size:11px;color:var(--fg-subtle);font-family:"JetBrains Mono",monospace}
+
+/* ===== CONCEPT 3: PARALLEL TRACKS ===== */
+.tracks{display:flex;flex-direction:column;gap:14px}
+.track{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px 18px}
+.track__head{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.track__icon{width:30px;height:30px;border-radius:8px;display:grid;place-items:center}
+.track__icon--rev{background:var(--slate-soft);color:var(--slate)}
+.track__icon--appr{background:var(--amber-soft);color:var(--amber)}
+.track__icon--sig{background:var(--jade-soft);color:var(--jade)}
+.track__title{font-size:14.5px;font-weight:600;color:var(--fg-strong)}
+.track__status{margin-left:auto;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px}
+.track__status--run{background:var(--violet-soft);color:var(--violet)}
+.track__status--done{background:var(--jade-soft);color:var(--jade)}
+.track__status--wait{background:var(--elevated);color:var(--fg-subtle)}
+.lane{display:flex;gap:10px;flex-wrap:wrap}
+.node{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--elevated);border:1px solid var(--border-2);border-radius:var(--r-md);font-size:12.5px}
+.node--done{border-color:var(--jade);}
+.node--run{border-color:var(--violet)}
+.node__dot{width:8px;height:8px;border-radius:50%}
+.node--done .node__dot{background:var(--jade)}
+.node--run .node__dot{background:var(--violet);animation:pulse 1.6s infinite}
+.node--wait .node__dot{background:var(--border-3)}
+.track__note{font-size:12px;color:var(--fg-subtle);margin-top:10px}
+
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:32px}
+@media(max-width:760px){.compare{grid-template-columns:1fr}}
+.cc{border:1px solid var(--border);border-radius:var(--r-lg);padding:18px;background:var(--surface)}
+.cc--old{border-color:var(--red-soft)}
+.cc--new{border-color:var(--jade-soft)}
+.cc h4{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.cc--old h4{color:var(--red)}
+.cc--new h4{color:var(--jade)}
+.cc ul{list-style:none;display:flex;flex-direction:column;gap:8px}
+.cc li{font-size:13px;color:var(--fg);display:flex;gap:9px;line-height:1.45}
+.cc li::before{content:"";width:5px;height:5px;border-radius:50%;margin-top:7px;flex-shrink:0}
+.cc--old li::before{background:var(--red)}
+.cc--new li::before{background:var(--jade)}
+.foot-note{margin-top:28px;padding:14px 18px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--subtle);font-size:12.5px;color:var(--fg-muted);text-align:center}
+.foot-note b{color:var(--fg)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <span class="hero__eyebrow"><span class="pulse"></span>Design proposal · no code changed</span>
+    <h1>Stop <em>clicking advance</em>.<br/>Let the work move the contract.</h1>
+    <p>How leading CLMs (Ironclad, Juro, Icertis) replace a fixed linear wizard with a living pipeline. Three concepts, visualized.</p>
+    <small>Mockup only — proposals/lifecycle-redesign.html · demo & backend untouched</small>
+  </div>
+
+  <div class="tabs">
+    <button class="tab on" data-go="1"><span class="tab__n">1</span> Kanban pipeline</button>
+    <button class="tab" data-go="2"><span class="tab__n">2</span> Action-driven detail</button>
+    <button class="tab" data-go="3"><span class="tab__n">3</span> Parallel tracks</button>
+  </div>
+
+  <!-- ============ CONCEPT 1 ============ -->
+  <div class="panel on" data-panel="1">
+    <div class="section-label">
+      <h2>Pipeline board</h2><span class="badge-new">proposed</span>
+      <span>· drag a card across columns → calls your real <code>POST /contracts/{id}/lifecycle</code></span>
+    </div>
+    <div class="board" id="board">
+      <!-- columns generated by JS -->
+    </div>
+    <div class="hint">Drag <b>“Globex MSA”</b> from <b>Drafting</b> → <b>AI review</b>. Disallowed columns dim out (driven by <code>allowed_transitions</code>).</div>
+  </div>
+
+  <!-- ============ CONCEPT 2 ============ -->
+  <div class="panel" data-panel="2">
+    <div class="section-label">
+      <h2>Action-driven contract detail</h2><span class="badge-new">proposed</span>
+      <span>· stage is a read-only consequence; the UI surfaces the one real next action</span>
+    </div>
+    <div class="detail">
+      <div class="dcard">
+        <div class="dhead">
+          <div>
+            <h3>Globex Master Services Agreement</h3>
+            <div class="sub">Counterparty <b>Globex Corp</b> · $840k / yr · High risk</div>
+          </div>
+          <span class="stage-pill">Approval pending</span>
+        </div>
+        <div class="prog" id="prog"></div>
+        <div class="prog-note">stage updates itself — no “advance” button</div>
+
+        <div class="next">
+          <div class="next__label">Next action</div>
+          <div class="next__row">
+            <div>
+              <div class="next__txt">3 of 4 approvals pending</div>
+              <div class="next__sub">When the last approver signs off, this auto-moves to <b>Approved</b> — no manual step.</div>
+            </div>
+            <button class="btn">Nudge approvers</button>
+          </div>
+        </div>
+
+        <div class="gate">
+          <div class="gate__head"><span>Approval gate</span><span style="font-family:'JetBrains Mono',monospace">1 / 4 complete</span></div>
+          <div class="gate__bar"><span style="width:25%"></span></div>
+          <div class="task task--done"><span class="task__check"><svg viewBox="0 0 16 16" fill="none"><path d="M3.5 8.5l3 3 6-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span><span>Drafter sign-off</span><span class="task__who">R. Hughes · 2h</span></div>
+          <div class="task task--wait"><span class="task__check"></span><span>Risk committee review</span><span class="task__who">M. Kim · waiting</span></div>
+          <div class="task task--wait"><span class="task__check"></span><span>Partner approval</span><span class="task__who">S. Gande · waiting</span></div>
+          <div class="task task--wait"><span class="task__check"></span><span>Finance sign-off</span><span class="task__who">A. Patel · waiting</span></div>
+        </div>
+      </div>
+
+      <div class="dcard" style="align-self:start">
+        <div class="next__label" style="color:var(--fg-muted)">Why this is better</div>
+        <p style="font-size:13px;color:var(--fg-muted);margin:10px 0 14px;line-height:1.6">The contract carries a <b style="color:var(--fg)">status</b>, not a position you click through. Each state knows its own exit condition. The user always sees <b style="color:var(--fg)">exactly one</b> thing to do.</p>
+        <div class="task" style="border-bottom:1px solid var(--border)"><span style="color:var(--jade)">✓</span><span style="font-size:12.5px">No dead “Advance →” buttons</span></div>
+        <div class="task" style="border-bottom:1px solid var(--border)"><span style="color:var(--jade)">✓</span><span style="font-size:12.5px">Stage can’t get out of sync with reality</span></div>
+        <div class="task"><span style="color:var(--jade)">✓</span><span style="font-size:12.5px">Mirrors Ironclad / Juro task-gating</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CONCEPT 3 ============ -->
+  <div class="panel" data-panel="3">
+    <div class="section-label">
+      <h2>Parallel work tracks</h2><span class="badge-new">proposed</span>
+      <span>· review, approval &amp; signature run concurrently — not a single chain</span>
+    </div>
+    <div class="tracks">
+      <div class="track">
+        <div class="track__head">
+          <div class="track__icon track__icon--rev"><svg viewBox="0 0 16 16" fill="none"><circle cx="7" cy="7" r="4.5" stroke="currentColor" stroke-width="1.4"/><path d="M10.5 10.5L13 13" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+          <div class="track__title">Review track</div>
+          <div class="track__status track__status--done">Complete</div>
+        </div>
+        <div class="lane">
+          <div class="node node--done"><span class="node__dot"></span>AI review · 3 flags</div>
+          <div class="node node--done"><span class="node__dot"></span>Internal review · R. Hughes</div>
+          <div class="node node--done"><span class="node__dot"></span>Counterparty redline · merged</div>
+        </div>
+      </div>
+
+      <div class="track">
+        <div class="track__head">
+          <div class="track__icon track__icon--appr"><svg viewBox="0 0 16 16" fill="none"><circle cx="8" cy="8" r="6" stroke="currentColor" stroke-width="1.4"/><path d="M5.5 8.3l1.8 1.8 3.2-3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+          <div class="track__title">Approval track</div>
+          <div class="track__status track__status--run">Running · 1 of 3</div>
+        </div>
+        <div class="lane">
+          <div class="node node--done"><span class="node__dot"></span>Risk · M. Kim</div>
+          <div class="node node--run"><span class="node__dot"></span>Partner · S. Gande</div>
+          <div class="node node--wait"><span class="node__dot"></span>Finance · A. Patel</div>
+        </div>
+        <div class="track__note">↑ these run <b style="color:var(--violet)">in parallel</b> with the review track above — both started the moment drafting finished.</div>
+      </div>
+
+      <div class="track">
+        <div class="track__head">
+          <div class="track__icon track__icon--sig"><svg viewBox="0 0 16 16" fill="none"><path d="M2 12c2-3 4 1 6-2s4 1 6-2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></div>
+          <div class="track__title">Signature track</div>
+          <div class="track__status track__status--wait">Blocked · awaits approval gate</div>
+        </div>
+        <div class="lane">
+          <div class="node node--wait"><span class="node__dot"></span>Counterparty signer</div>
+          <div class="node node--wait"><span class="node__dot"></span>Our signatory</div>
+        </div>
+        <div class="track__note">Auto-activates the contract when all parties sign — the only hard sequential gate.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BEFORE / AFTER ============ -->
+  <div class="compare">
+    <div class="cc cc--old">
+      <h4>● Now — fixed wizard</h4>
+      <ul>
+        <li>One linear chain of “Advance →” buttons</li>
+        <li>User manually clicks each stage forward</li>
+        <li>Stage = a position you push through</li>
+        <li>No board; one contract at a time</li>
+        <li>Approvals are a single step</li>
+      </ul>
+    </div>
+    <div class="cc cc--new">
+      <h4>● Proposed — living pipeline</h4>
+      <ul>
+        <li>Kanban board: drag cards between stages</li>
+        <li>Work completing moves the contract automatically</li>
+        <li>Stage = a status that knows its own exit gate</li>
+        <li>Whole portfolio visible; WIP per column</li>
+        <li>Parallel + sequential approval tracks</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="foot-note">
+    All three reuse data your backend already returns — <b>contracts_by_stage</b> (board columns), <b>allowed_transitions</b> (legal drops), <b>approvals</b> (the gate). <b>Nothing here is wired; it's a visual proposal.</b>
+  </div>
+
+</div>
+
+<script>
+// ---- tabs ----
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("on"));
+  document.querySelectorAll(".panel").forEach(x=>x.classList.remove("on"));
+  t.classList.add("on");
+  document.querySelector('.panel[data-panel="'+t.dataset.go+'"]').classList.add("on");
+}));
+
+// ---- kanban board ----
+const COLS=[
+  {key:"drafting",label:"Drafting",dot:"#94a3b8"},
+  {key:"ai_review",label:"AI review",dot:"#a78bfa"},
+  {key:"internal_review",label:"Internal review",dot:"#a78bfa"},
+  {key:"approval_pending",label:"Approval",dot:"#fbbf24"},
+  {key:"signature_pending",label:"Signature",dot:"#34d399"},
+  {key:"active",label:"Active",dot:"#34d399"},
+];
+const CARDS=[
+  {id:"c1",title:"Globex Master Services Agreement",stage:"drafting",risk:"high",who:"RH",age:"2d",drag:true},
+  {id:"c2",title:"Acme NDA — inbound",stage:"ai_review",risk:"med",who:"AP",age:"1h"},
+  {id:"c3",title:"Northwind SaaS Order",stage:"internal_review",risk:"ok",who:"MK",age:"4h"},
+  {id:"c4",title:"Contoso Master Agreement",stage:"approval_pending",risk:"med",who:"SG",age:"1d"},
+  {id:"c5",title:"Initech Support SLA",stage:"approval_pending",risk:"med",who:"AP",age:"3h"},
+  {id:"c6",title:"Aperture Cloud Order",stage:"signature_pending",risk:"ok",who:"JL",age:"6h"},
+  {id:"c7",title:"Falcon Services Master",stage:"active",risk:"med",who:"SG",age:"—"},
+  {id:"c8",title:"Wonka Supply Agreement",stage:"active",risk:"ok",who:"RH",age:"—"},
+];
+// from "drafting" you may only go to ai_review or internal_review
+const ALLOWED={drafting:["ai_review","internal_review"]};
+const flag=r=>`<span class="flag flag--${r}">${r==="high"?"High":r==="med"?"Med":"Low"}</span>`;
+function cardHTML(c){return `<div class="card" draggable="true" data-id="${c.id}" data-stage="${c.stage}">
+  <div class="card__title">${c.title}</div>
+  <div class="card__meta">${flag(c.risk)}<span>${c.stage.replace(/_/g," ")}</span></div>
+  <div class="card__foot"><div class="av">${c.who}</div><div class="card__age">${c.age}</div></div>
+</div>`;}
+function renderBoard(){
+  const b=document.getElementById("board");b.innerHTML="";
+  COLS.forEach(col=>{
+    const cards=CARDS.filter(c=>c.stage===col.key);
+    const el=document.createElement("div");
+    el.className="col";el.dataset.col=col.key;
+    el.innerHTML=`<div class="col__head"><div class="col__title"><span class="col__dot" style="background:${col.dot}"></span>${col.label}</div><div class="col__count">${cards.length}</div></div>`+cards.map(cardHTML).join("");
+    b.appendChild(el);
+  });
+  wireDnD();
+}
+let dragId=null,dragFrom=null;
+function wireDnD(){
+  document.querySelectorAll(".card").forEach(card=>{
+    card.addEventListener("dragstart",e=>{
+      dragId=card.dataset.id;dragFrom=card.dataset.stage;card.classList.add("dragging");
+      const allow=ALLOWED[dragFrom];
+      document.querySelectorAll(".col").forEach(col=>{
+        if(allow && col.dataset.col!==dragFrom && !allow.includes(col.dataset.col)) col.classList.add("no-drop");
+      });
+    });
+    card.addEventListener("dragend",()=>{
+      card.classList.remove("dragging");
+      document.querySelectorAll(".col").forEach(c=>c.classList.remove("drop","no-drop"));
+    });
+  });
+  document.querySelectorAll(".col").forEach(col=>{
+    col.addEventListener("dragover",e=>{
+      if(col.classList.contains("no-drop"))return;
+      e.preventDefault();col.classList.add("drop");
+    });
+    col.addEventListener("dragleave",()=>col.classList.remove("drop"));
+    col.addEventListener("drop",e=>{
+      e.preventDefault();col.classList.remove("drop");
+      if(col.classList.contains("no-drop"))return;
+      const c=CARDS.find(x=>x.id===dragId);
+      if(c){c.stage=col.dataset.col;renderBoard();}
+    });
+  });
+}
+renderBoard();
+
+// ---- read-only progress bar (concept 2) ----
+const PSTAGES=["Intake","Drafting","AI rev","Internal","Counterparty","Approval","Approved","Signature","Active"];
+const curIdx=5; // approval_pending
+document.getElementById("prog").innerHTML=PSTAGES.map((s,i)=>
+  `<div class="pstep ${i<curIdx?"done":""} ${i===curIdx?"cur":""}"><div class="pdot"></div><div class="plabel">${s}</div></div>`
+).join("");
+</script>
+</body>
+</html>

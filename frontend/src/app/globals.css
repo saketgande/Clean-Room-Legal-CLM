@@ -2,10 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+   Theme tokens. The whole app's neutrals flow through the Tailwind `slate`
+   scale, which is wired (in tailwind.config.ts) to these CSS variables as
+   `rgb(var(--color-slate-N) / <alpha>)`. Light values live on :root; the .dark
+   class on <html> swaps in the dark ladder. The `brand` (violet) scale is a
+   fixed accent that reads on both themes, so it is NOT themed here.
+   Values are space-separated RGB triplets so Tailwind opacity modifiers work.
+   =========================================================================== */
 :root {
+  color-scheme: light;
+  /* LIGHT — cool neutral ladder: 50 = page canvas, 100 = card/surface (white,
+     i.e. brighter than canvas for elevation), rising to dark text at 900/950. */
+  --color-slate-50: 246 247 249;
+  --color-slate-100: 255 255 255;
+  --color-slate-200: 230 232 236;
+  --color-slate-300: 209 213 219;
+  --color-slate-400: 148 156 168;
+  --color-slate-500: 107 114 128;
+  --color-slate-600: 71 80 95;
+  --color-slate-700: 51 61 76;
+  --color-slate-800: 30 39 53;
+  --color-slate-900: 17 24 39;
+  --color-slate-950: 8 11 20;
+
+  /* Subtle ink shadows for the light theme. */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-pop: 0 1px 1px rgb(15 23 42 / 0.04), 0 6px 14px -4px rgb(15 23 42 / 0.08),
+    0 22px 40px -16px rgb(15 23 42 / 0.14);
+
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
   --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+}
+
+.dark {
+  color-scheme: dark;
+  /* DARK — Linear/Harvey ink ladder (inverted): 50 = near-black canvas,
+     100 = slightly-lighter surface, rising to white text at 900/950. */
+  --color-slate-50: 8 9 11;
+  --color-slate-100: 16 18 22;
+  --color-slate-200: 30 32 36;
+  --color-slate-300: 44 47 54;
+  --color-slate-400: 86 91 100;
+  --color-slate-500: 138 144 154;
+  --color-slate-600: 168 174 184;
+  --color-slate-700: 198 203 210;
+  --color-slate-800: 222 225 230;
+  --color-slate-900: 236 238 241;
+  --color-slate-950: 255 255 255;
+
+  /* Deep black ambient + faint violet lift for the dark theme. */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.40), 0 1px 3px 0 rgb(0 0 0 / 0.30);
+  --shadow-pop: 0 1px 1px rgb(0 0 0 / 0.40), 0 6px 14px -4px rgb(0 0 0 / 0.50),
+    0 22px 50px -16px rgb(0 0 0 / 0.65), 0 0 0 1px rgb(124 58 237 / 0.06);
 }
 
 * {
@@ -26,7 +76,8 @@ body {
 }
 
 ::selection {
-  background-color: theme("colors.brand.200");
+  background-color: theme("colors.brand.500");
+  color: #ffffff;
 }
 
 /* Thin, unobtrusive scrollbars */

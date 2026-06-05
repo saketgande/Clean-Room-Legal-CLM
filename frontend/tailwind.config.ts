@@ -5,34 +5,36 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Warm editorial-prestige palette. The whole app uses `slate-*` and
-        // `brand-*`, so remapping just these two scales recolors everything
-        // to warm paper + a restrained deep-legal-green accent.
+        // Neutral ladder — driven by CSS variables so it swaps between the
+        // light (:root) and dark (.dark) themes defined in globals.css. The
+        // whole app uses `slate-*`, so flipping the .dark class on <html>
+        // recolors everything with zero component edits. `<alpha-value>` keeps
+        // Tailwind opacity modifiers (e.g. bg-slate-50/50) working.
         slate: {
-          50: "#F6F4EF",
-          100: "#EDEAE1",
-          200: "#E0DCD0",
-          300: "#CBC5B5",
-          400: "#A39A86",
-          500: "#7F7665",
-          600: "#635C4D",
-          700: "#4B4639",
-          800: "#322E25",
-          900: "#201C15",
-          950: "#14110B",
+          50: "rgb(var(--color-slate-50) / <alpha-value>)",
+          100: "rgb(var(--color-slate-100) / <alpha-value>)",
+          200: "rgb(var(--color-slate-200) / <alpha-value>)",
+          300: "rgb(var(--color-slate-300) / <alpha-value>)",
+          400: "rgb(var(--color-slate-400) / <alpha-value>)",
+          500: "rgb(var(--color-slate-500) / <alpha-value>)",
+          600: "rgb(var(--color-slate-600) / <alpha-value>)",
+          700: "rgb(var(--color-slate-700) / <alpha-value>)",
+          800: "rgb(var(--color-slate-800) / <alpha-value>)",
+          900: "rgb(var(--color-slate-900) / <alpha-value>)",
+          950: "rgb(var(--color-slate-950) / <alpha-value>)",
         },
         brand: {
-          50: "#ECEFEA",
-          100: "#D8DFD3",
-          200: "#C0CBB8",
-          300: "#9DAE92",
-          400: "#6F8463",
-          500: "#4C6647",
-          600: "#2F4A38",
-          700: "#274032",
-          800: "#1F3228",
-          900: "#182720",
-          950: "#0E1813",
+          50: "#F5F3FF",
+          100: "#EDE9FE",
+          200: "#DDD6FE",
+          300: "#C4B5FD",
+          400: "#A78BFA", // primary accent (links, active nav)
+          500: "#8B5CF6",
+          600: "#7C3AED", // primary action button background
+          700: "#6D28D9", // button hover
+          800: "#5B21B6",
+          900: "#4C1D95",
+          950: "#2E1065",
         },
       },
       fontFamily: {
@@ -41,8 +43,10 @@ const config: Config = {
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(40 33 22 / 0.04), 0 1px 3px 0 rgb(40 33 22 / 0.05)",
-        pop: "0 1px 1px rgb(40 33 22 / 0.04), 0 6px 14px -4px rgb(40 33 22 / 0.07), 0 22px 40px -16px rgb(40 33 22 / 0.13)",
+        // Theme-aware depth (values per theme in globals.css): subtle ink on
+        // light, deep black + faint violet lift on dark.
+        card: "var(--shadow-card)",
+        pop: "var(--shadow-pop)",
       },
       keyframes: {
         "fade-in": {

@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 620" font-family="Helvetica, Arial, sans-serif">
+  <rect width="1100" height="620" fill="#fafafa"/>
+  <text x="550" y="36" text-anchor="middle" font-size="22" font-weight="bold" fill="#111">The 4-sprint plan to fix it all</text>
+  <text x="550" y="60" text-anchor="middle" font-size="13" fill="#555">~8 weeks total. Two engineers can work in parallel inside each sprint.</text>
+
+  <!-- Timeline line -->
+  <line x1="80" y1="120" x2="1020" y2="120" stroke="#999" stroke-width="2"/>
+
+  <!-- Sprint 1 -->
+  <rect x="80" y="140" width="230" height="420" rx="10" fill="#fef2f2" stroke="#dc2626" stroke-width="2"/>
+  <circle cx="195" cy="120" r="14" fill="#dc2626"/>
+  <text x="195" y="125" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">1</text>
+  <text x="195" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#7f1d1d">Sprint 1 — Stop the bleeding</text>
+  <text x="195" y="194" text-anchor="middle" font-size="11" fill="#7f1d1d">Fix the 4 Criticals before anything else.</text>
+  <line x1="100" y1="208" x2="290" y2="208" stroke="#dc2626" stroke-dasharray="3,3"/>
+  <text x="195" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#7f1d1d">contents</text>
+  <text x="100" y="250" font-size="12" fill="#7f1d1d">F-04 — wire up feature flag</text>
+  <text x="100" y="272" font-size="12" fill="#7f1d1d">F-02 — secure approval token</text>
+  <text x="100" y="294" font-size="12" fill="#7f1d1d">F-03 — close tenant leak</text>
+  <text x="100" y="316" font-size="12" fill="#7f1d1d">F-01 — fix SSE DB session</text>
+  <text x="100" y="338" font-size="12" fill="#7f1d1d">F-07 — cap AI cost per session</text>
+  <text x="100" y="360" font-size="12" fill="#7f1d1d">F-09 — fix handle race condition</text>
+  <line x1="100" y1="380" x2="290" y2="380" stroke="#dc2626" stroke-dasharray="3,3"/>
+  <text x="195" y="400" text-anchor="middle" font-size="11" font-weight="bold" fill="#7f1d1d">success looks like</text>
+  <text x="195" y="420" text-anchor="middle" font-size="11" fill="#7f1d1d">No urgent bug is still live.</text>
+  <text x="195" y="438" text-anchor="middle" font-size="11" fill="#7f1d1d">Penetration test passes</text>
+  <text x="195" y="454" text-anchor="middle" font-size="11" fill="#7f1d1d">for the 4 criticals.</text>
+  <text x="195" y="492" text-anchor="middle" font-size="11" fill="#7f1d1d">No more random 500s in chat.</text>
+  <text x="195" y="510" text-anchor="middle" font-size="11" fill="#7f1d1d">Admin can actually disable AI tools.</text>
+  <text x="195" y="528" text-anchor="middle" font-size="11" fill="#7f1d1d">Token endpoint is rate-limited and</text>
+  <text x="195" y="544" text-anchor="middle" font-size="11" fill="#7f1d1d">returns uniform errors.</text>
+
+  <!-- Sprint 2 -->
+  <rect x="320" y="140" width="230" height="420" rx="10" fill="#fff7ed" stroke="#ea580c" stroke-width="2"/>
+  <circle cx="435" cy="120" r="14" fill="#ea580c"/>
+  <text x="435" y="125" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">2</text>
+  <text x="435" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#9a3412">Sprint 2 — Make errors visible</text>
+  <text x="435" y="194" text-anchor="middle" font-size="11" fill="#9a3412">Things shouldn't fail silently.</text>
+  <line x1="340" y1="208" x2="530" y2="208" stroke="#ea580c" stroke-dasharray="3,3"/>
+  <text x="435" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#9a3412">contents</text>
+  <text x="340" y="250" font-size="12" fill="#9a3412">F-12 — audit log Postgres errors</text>
+  <text x="340" y="272" font-size="12" fill="#9a3412">F-08 — log tool exceptions</text>
+  <text x="340" y="294" font-size="12" fill="#9a3412">F-15 — reap stuck tool calls</text>
+  <text x="340" y="316" font-size="12" fill="#9a3412">F-06 — admin can read sessions</text>
+  <text x="340" y="338" font-size="12" fill="#9a3412">F-13 — DocuSign replay block</text>
+  <text x="340" y="360" font-size="12" fill="#9a3412">F-16 — boot-time key check</text>
+  <line x1="340" y1="380" x2="530" y2="380" stroke="#ea580c" stroke-dasharray="3,3"/>
+  <text x="435" y="400" text-anchor="middle" font-size="11" font-weight="bold" fill="#9a3412">success looks like</text>
+  <text x="435" y="420" text-anchor="middle" font-size="11" fill="#9a3412">Every failure shows up in Sentry.</text>
+  <text x="435" y="438" text-anchor="middle" font-size="11" fill="#9a3412">No row stuck in "running" forever.</text>
+  <text x="435" y="456" text-anchor="middle" font-size="11" fill="#9a3412">Compliance can see all sessions.</text>
+  <text x="435" y="474" text-anchor="middle" font-size="11" fill="#9a3412">Webhooks can't be replayed.</text>
+  <text x="435" y="492" text-anchor="middle" font-size="11" fill="#9a3412">App refuses to boot in prod with</text>
+  <text x="435" y="510" text-anchor="middle" font-size="11" fill="#9a3412">missing keys.</text>
+
+  <!-- Sprint 3 -->
+  <rect x="560" y="140" width="230" height="420" rx="10" fill="#fffbeb" stroke="#ca8a04" stroke-width="2"/>
+  <circle cx="675" cy="120" r="14" fill="#ca8a04"/>
+  <text x="675" y="125" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">3</text>
+  <text x="675" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#854d0e">Sprint 3 — Prep for 10× scale</text>
+  <text x="675" y="194" text-anchor="middle" font-size="11" fill="#854d0e">Cost bombs &amp; slow queries.</text>
+  <line x1="580" y1="208" x2="770" y2="208" stroke="#ca8a04" stroke-dasharray="3,3"/>
+  <text x="675" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#854d0e">contents</text>
+  <text x="580" y="250" font-size="12" fill="#854d0e">F-14 — lock brain ingestion</text>
+  <text x="580" y="272" font-size="12" fill="#854d0e">F-10 — debounce idempotency</text>
+  <text x="580" y="294" font-size="12" fill="#854d0e">F-11 — diff, don't replace</text>
+  <text x="580" y="316" font-size="12" fill="#854d0e">F-19 — paginate &amp; index</text>
+  <text x="580" y="338" font-size="12" fill="#854d0e">     "my attention" queries</text>
+  <line x1="580" y1="380" x2="770" y2="380" stroke="#ca8a04" stroke-dasharray="3,3"/>
+  <text x="675" y="400" text-anchor="middle" font-size="11" font-weight="bold" fill="#854d0e">success looks like</text>
+  <text x="675" y="420" text-anchor="middle" font-size="11" fill="#854d0e">No double Claude calls on</text>
+  <text x="675" y="436" text-anchor="middle" font-size="11" fill="#854d0e">rapid double-click.</text>
+  <text x="675" y="456" text-anchor="middle" font-size="11" fill="#854d0e">No 3-at-a-time AI ingestion.</text>
+  <text x="675" y="476" text-anchor="middle" font-size="11" fill="#854d0e">Tuned reminders survive re-runs.</text>
+  <text x="675" y="496" text-anchor="middle" font-size="11" fill="#854d0e">"My attention" page stays fast</text>
+  <text x="675" y="512" text-anchor="middle" font-size="11" fill="#854d0e">at portfolio scale.</text>
+
+  <!-- Sprint 4 -->
+  <rect x="800" y="140" width="230" height="420" rx="10" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+  <circle cx="915" cy="120" r="14" fill="#16a34a"/>
+  <text x="915" y="125" text-anchor="middle" font-size="13" font-weight="bold" fill="#fff">4</text>
+  <text x="915" y="172" text-anchor="middle" font-size="15" font-weight="bold" fill="#14532d">Sprint 4 — Cleanup</text>
+  <text x="915" y="194" text-anchor="middle" font-size="11" fill="#14532d">Pay down maintenance debt.</text>
+  <line x1="820" y1="208" x2="1010" y2="208" stroke="#16a34a" stroke-dasharray="3,3"/>
+  <text x="915" y="226" text-anchor="middle" font-size="11" font-weight="bold" fill="#14532d">contents</text>
+  <text x="820" y="250" font-size="12" fill="#14532d">F-05 — anchor edge cases</text>
+  <text x="820" y="272" font-size="12" fill="#14532d">14 Medium findings,</text>
+  <text x="820" y="290" font-size="12" fill="#14532d">     batched into 2-3 PRs</text>
+  <text x="820" y="312" font-size="12" fill="#14532d">7 Low findings,</text>
+  <text x="820" y="330" font-size="12" fill="#14532d">     style + small leaks</text>
+  <line x1="820" y1="380" x2="1010" y2="380" stroke="#16a34a" stroke-dasharray="3,3"/>
+  <text x="915" y="400" text-anchor="middle" font-size="11" font-weight="bold" fill="#14532d">success looks like</text>
+  <text x="915" y="420" text-anchor="middle" font-size="11" fill="#14532d">Duplicated registries unified.</text>
+  <text x="915" y="438" text-anchor="middle" font-size="11" fill="#14532d">Redaction uses allowlist, not</text>
+  <text x="915" y="456" text-anchor="middle" font-size="11" fill="#14532d">a hand-maintained blocklist.</text>
+  <text x="915" y="476" text-anchor="middle" font-size="11" fill="#14532d">Style/lint clean.</text>
+  <text x="915" y="496" text-anchor="middle" font-size="11" fill="#14532d">Codebase is easier to onboard</text>
+  <text x="915" y="514" text-anchor="middle" font-size="11" fill="#14532d">a new engineer onto.</text>
+
+  <!-- Cross-cutting bar -->
+  <rect x="80" y="585" width="950" height="28" rx="6" fill="#eff6ff" stroke="#1d4ed8"/>
+  <text x="555" y="603" text-anchor="middle" font-size="12" fill="#1e3a8a">Before Sprint 1, agree 5 cross-cutting design decisions (locked-in answers in the roadmap doc).</text>
+</svg>

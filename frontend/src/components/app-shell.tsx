@@ -14,8 +14,8 @@ import {
   Table2,
   BookMarked,
   Workflow as WorkflowIcon,
-  CheckSquare,
-  PenLine,
+  ClipboardCheck,
+  Signature,
   ListChecks,
   RefreshCw,
   Activity,
@@ -31,6 +31,7 @@ import {
 import { useAuth } from "@/lib/auth";
 import { useLayout } from "@/lib/layout";
 import { cn, initials } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV: {
   section: string;
@@ -57,20 +58,14 @@ const NAV: {
   {
     section: "Lifecycle",
     items: [
-      { href: "/approvals", label: "Approvals", icon: CheckSquare },
-      { href: "/signatures", label: "Signatures", icon: PenLine },
+      { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
+      { href: "/signatures", label: "Signatures", icon: Signature },
       { href: "/obligations", label: "Obligations", icon: ListChecks },
       { href: "/renewals", label: "Renewals", icon: RefreshCw },
     ],
   },
-  {
-    section: "System",
-    items: [
-      { href: "/jobs", label: "Jobs", icon: Activity },
-      { href: "/notifications", label: "Notifications", icon: Bell },
-      { href: "/admin", label: "Admin", icon: Settings },
-    ],
-  },
+  // Jobs & Admin live in the sidebar-footer account menu; Notifications lives
+  // in the top-right of the header — none belong in the primary nav.
 ];
 
 function SidebarNav({
@@ -81,6 +76,10 @@ function SidebarNav({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const isActive = (href: string) => {
     if (href === "/")
       return pathname === "/" || pathname.startsWith("/assistant");
@@ -92,8 +91,16 @@ function SidebarNav({
     return pathname.startsWith(href);
   };
 
+  // Navigate + close the menu / mobile drawer.
+  const go = (href: string) => {
+    router.push(href);
+    setMenuOpen(false);
+    onNavigate?.();
+  };
+
   return (
-    <>
+    <div className="flex h-full flex-col">
+      {/* Brand */}
       <div
         className={cn(
           "flex h-16 shrink-0 items-center",
@@ -115,7 +122,32 @@ function SidebarNav({
           </div>
         )}
       </div>
-      <nav className="flex-1 overflow-y-auto px-3 py-4">
+
+      {/* Search — top of the sidebar */}
+      <div className={cn("shrink-0 pb-2", collapsed ? "px-2" : "px-3")}>
+        <button
+          onClick={() => go("/search")}
+          title={collapsed ? "Search" : undefined}
+          aria-label="Search"
+          className={cn(
+            "flex h-9 items-center rounded-lg border border-slate-200 bg-slate-100 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-600",
+            collapsed ? "w-full justify-center" : "w-full gap-2 px-3",
+          )}
+        >
+          <Search className="h-4 w-4 shrink-0" />
+          {!collapsed && (
+            <>
+              <span className="flex-1 truncate text-left">Search…</span>
+              <kbd className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-medium text-slate-400">
+                ⌘K
+              </kbd>
+            </>
+          )}
+        </button>
+      </div>
+
+      {/* Primary navigation */}
+      <nav className="flex-1 overflow-y-auto px-3 py-2">
         {NAV.map((group) => (
           <div key={group.section} className="mb-5">
             {!collapsed && (
@@ -160,13 +192,107 @@ function SidebarNav({
           </div>
         ))}
       </nav>
-    </>
+
+      {/* Footer — theme toggle + user info (very bottom of the sidebar) */}
+      <div
+        className={cn(
+          "relative shrink-0 border-t border-slate-200",
+          collapsed ? "p-2" : "p-3",
+        )}
+      >
+        {collapsed ? (
+          <div className="flex flex-col items-center gap-2">
+            <ThemeToggle />
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              title={user?.full_name ?? "Account"}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white"
+            >
+              {initials(user?.full_name)}
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-slate-100"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
+                {initials(user?.full_name)}
+              </div>
+              <div className="min-w-0 flex-1 text-left">
+                <p className="truncate text-sm font-medium leading-tight text-slate-900">
+                  {user?.full_name ?? "User"}
+                </p>
+                <p className="truncate text-xs leading-tight text-slate-500">
+                  {user?.active_role_name ?? user?.roles?.[0] ?? "member"}
+                </p>
+              </div>
+              <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />
+            </button>
+            <ThemeToggle />
+          </div>
+        )}
+
+        {/* Account menu — opens upward (footer sits at the bottom). */}
+        {menuOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-10"
+              onClick={() => setMenuOpen(false)}
+            />
+            <div
+              className={cn(
+                "absolute bottom-full z-20 mb-2 animate-fade-in rounded-xl border border-slate-200 bg-slate-100 p-1.5 shadow-pop",
+                collapsed ? "left-2 w-60" : "left-3 right-3",
+              )}
+            >
+              <div className="border-b border-slate-200 px-3 py-2">
+                <p className="truncate text-sm font-medium text-slate-900">
+                  {user?.full_name ?? "User"}
+                </p>
+                <p className="truncate text-xs text-slate-500">
+                  {user?.email}
+                </p>
+              </div>
+              <button
+                onClick={() => go("/jobs")}
+                className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+              >
+                <Activity className="h-4 w-4 text-slate-400" />
+                My Jobs
+              </button>
+              <button
+                onClick={() => go("/admin")}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+              >
+                <Settings className="h-4 w-4 text-slate-400" />
+                Admin &amp; settings
+              </button>
+              <div className="my-1 border-t border-slate-200" />
+              <button
+                onClick={() => {
+                  setMenuOpen(false);
+                  void logout();
+                }}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-500/10"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign out
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const { user, logout } = useAuth();
   const {
     collapsed,
     setCollapsed,
@@ -174,9 +300,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     setMobileOpen,
     forceCollapsed,
   } = useLayout();
-  const [menuOpen, setMenuOpen] = useState(false);
+  const pathname = usePathname();
 
   const deskCollapsed = forceCollapsed || collapsed;
+  const notifActive = pathname.startsWith("/notifications");
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -245,80 +372,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <PanelLeftClose className="h-5 w-5" />
               )}
             </button>
-            <button
-              onClick={() => router.push("/search")}
-              className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-400 hover:border-slate-300 sm:max-w-xs"
-            >
-              <Search className="h-4 w-4 shrink-0" />
-              <span className="truncate">Search…</span>
-            </button>
           </div>
 
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setMenuOpen((o) => !o)}
-              className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-slate-100"
-            >
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
-                {initials(user?.full_name)}
-              </div>
-              <div className="hidden text-left sm:block">
-                <p className="text-sm font-medium leading-tight text-slate-900">
-                  {user?.full_name ?? "User"}
-                </p>
-                <p className="text-xs leading-tight text-slate-500">
-                  {user?.active_role_name ?? user?.roles?.[0] ?? "member"}
-                </p>
-              </div>
-              <ChevronDown className="h-4 w-4 text-slate-400" />
-            </button>
-
-            {menuOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-10"
-                  onClick={() => setMenuOpen(false)}
-                />
-                <div className="absolute right-0 z-20 mt-2 w-60 animate-fade-in rounded-xl border border-slate-200 bg-white p-1.5 shadow-pop">
-                  <div className="border-b border-slate-100 px-3 py-2">
-                    <p className="truncate text-sm font-medium text-slate-900">
-                      {user?.email}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Status: {user?.status}
-                    </p>
-                  </div>
-                  {user?.roles && user.roles.length > 0 && (
-                    <div className="border-b border-slate-100 px-3 py-2">
-                      <p className="mb-1 text-xs font-medium text-slate-400">
-                        Roles
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {user.roles.map((r) => (
-                          <span
-                            key={r}
-                            className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
-                          >
-                            {r}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      void logout();
-                    }}
-                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Sign out
-                  </button>
-                </div>
-              </>
+          {/* Notifications — top-right */}
+          <Link
+            href="/notifications"
+            aria-label="Notifications"
+            title="Notifications"
+            className={cn(
+              "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors",
+              notifActive
+                ? "bg-brand-50 text-brand-700"
+                : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
             )}
-          </div>
+          >
+            <Bell className="h-5 w-5" />
+          </Link>
         </header>
 
         <main className="flex-1 overflow-y-auto">

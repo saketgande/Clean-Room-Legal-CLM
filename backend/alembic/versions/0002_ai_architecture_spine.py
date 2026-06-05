@@ -5,7 +5,8 @@ Revises: 0001_initial_contract_platform
 Create Date: 2026-05-15
 """
 
-from alembic import op
+from alembic import context, op
+from sqlalchemy import text
 
 revision = "0002_ai_architecture_spine"
 down_revision = "0001_initial_contract_platform"
@@ -270,7 +271,35 @@ def upgrade() -> None:
     ]:
         op.execute(index_sql)
 
+    # USING NULL discards every existing embedding. That's acceptable on a fresh
+    # DB (the column was never populated under the old 1536-dim type) but is silent
+    # data loss if this migration is ever re-run against a populated table. Abort
+    # loudly instead — re-embedding is the operator's deliberate, separate step.
+    _guard_contract_embedding_empty()
     op.execute("ALTER TABLE contract_embedding ALTER COLUMN embedding TYPE vector(384) USING NULL")
+
+
+def _guard_contract_embedding_empty() -> None:
+    if context.is_offline_mode():
+        op.execute(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (SELECT 1 FROM contract_embedding) THEN
+                    RAISE EXCEPTION
+                        'contract_embedding is populated; refusing to null embeddings via vector(384) retype';
+                END IF;
+            END $$;
+            """
+        )
+        return
+
+    existing = op.get_bind().execute(text("SELECT COUNT(*) FROM contract_embedding")).scalar()
+    if existing:
+        raise RuntimeError(
+            f"contract_embedding has {existing} row(s); refusing to null embeddings via "
+            "vector(384) retype. Truncate/re-embed deliberately before re-running this migration."
+        )
 
 
 def downgrade() -> None:

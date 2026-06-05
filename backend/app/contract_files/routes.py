@@ -1,8 +1,10 @@
 import hashlib
+import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -29,15 +31,40 @@ from app.contract_files.service import next_version_number, requeue_contract_ai_
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractVersionSource, ShareAccessMode
+from app.core.rate_limit import limiter
 from app.integrations.storage import storage_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/contracts/{contract_id}", tags=["contract-files"])
 external_share_router = APIRouter(prefix="/external-shares", tags=["external-shares"])
 
 EXTERNAL_TEXT_EXCERPT_CHARS = 12_000
+
+# External-share passcode brute-force lockout. After this many consecutive
+# failed passcode attempts (keyed per share-token + client IP in Redis), the
+# share locks for an exponentially growing window. Counters are best-effort:
+# if Redis is unreachable we fail OPEN (no lockout) so a Redis outage never
+# breaks legitimate share access — the per-IP rate limit still applies.
+SHARE_PASSCODE_MAX_ATTEMPTS = 5
+SHARE_PASSCODE_LOCKOUT_BASE_SECONDS = 30
+SHARE_PASSCODE_LOCKOUT_MAX_SECONDS = 3600
+SHARE_PASSCODE_ATTEMPT_TTL_SECONDS = 3600
+
+
+def _share_rate_limit_key(request: Request) -> str:
+    """Rate-limit key for external-share endpoints: share token + client IP.
+
+    Pinning on the token (from the path) as well as the IP means a single
+    leaked link can't be hammered from one host, while distinct shares get
+    independent buckets.
+    """
+    token = request.path_params.get("token", "")
+    return f"share:{token}:{get_remote_address(request)}"
 
 
 @router.get("/files", response_model=list[ContractFileResponse])
@@ -111,7 +138,15 @@ def download_contract_version(
         path = storage_service.path_for_read(storage_object.storage_key)
     except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
-    return FileResponse(path, media_type=storage_object.mime_type, filename=storage_object.filename)
+    # Force a download rather than letting the browser render the bytes inline:
+    # an inline HTML/SVG masquerading as an allowed type would otherwise execute
+    # in our origin (stored-XSS / phishing surface).
+    return FileResponse(
+        path,
+        media_type=storage_object.mime_type,
+        filename=storage_object.filename,
+        content_disposition_type="attachment",
+    )
 
 
 @router.get("/edits", response_model=list[ContractEditResponse])
@@ -534,12 +569,15 @@ def revoke_contract_share(
 
 
 @external_share_router.get("/{token}", response_model=ExternalShareResponse)
+@limiter.limit("20/minute", key_func=_share_rate_limit_key)
 def view_external_share(
+    request: Request,
+    response: Response,
     token: str,
     passcode: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    share = _get_active_share(db, token=token, passcode=passcode)
+    share = _get_active_share(db, token=token, passcode=passcode, request=request)
     contract = db.get(Contract, share.contract_id)
     if contract is None or contract.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Shared contract not found")
@@ -569,12 +607,14 @@ def view_external_share(
 
 
 @external_share_router.get("/{token}/download")
+@limiter.limit("20/minute", key_func=_share_rate_limit_key)
 def download_external_share(
+    request: Request,
     token: str,
     passcode: str | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
-    share = _get_active_share(db, token=token, passcode=passcode)
+    share = _get_active_share(db, token=token, passcode=passcode, request=request)
     if not share.download_allowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Download is disabled for this share")
     contract = db.get(Contract, share.contract_id)
@@ -599,10 +639,110 @@ def download_external_share(
         metadata={"contract_id": contract.id, "contract_version_id": version.id},
     )
     db.commit()
-    return FileResponse(path, media_type=storage_object.mime_type, filename=storage_object.filename)
+    # attachment, never inline — see download_contract_version for rationale.
+    # This matters most on the unauthenticated external-share path.
+    return FileResponse(
+        path,
+        media_type=storage_object.mime_type,
+        filename=storage_object.filename,
+        content_disposition_type="attachment",
+    )
 
 
-def _get_active_share(db: Session, *, token: str, passcode: str | None) -> ContractShare:
+_share_lockout_redis = None
+_share_lockout_redis_init = False
+
+
+def _get_lockout_redis():
+    """Lazily build a Redis client for passcode-lockout counters.
+
+    Returns ``None`` (and disables lockout) if the ``redis`` client can't be
+    constructed, so a missing/broken Redis never blocks share access. The
+    client is cached after the first attempt.
+    """
+    global _share_lockout_redis, _share_lockout_redis_init
+    if _share_lockout_redis_init:
+        return _share_lockout_redis
+    _share_lockout_redis_init = True
+    try:
+        import redis  # imported lazily; only needed for the lockout counter
+
+        _share_lockout_redis = redis.Redis.from_url(
+            settings.redis_url, socket_timeout=0.25, socket_connect_timeout=0.25
+        )
+    except Exception as exc:  # pragma: no cover - defensive: redis missing/misconfigured
+        logger.warning("Share passcode lockout disabled — Redis unavailable: %s", exc)
+        _share_lockout_redis = None
+    return _share_lockout_redis
+
+
+def _share_lockout_keys(token: str, ip: str) -> tuple[str, str]:
+    # Hash the token so the raw share secret never lands in a Redis key.
+    digest = _hash_secret(f"{token}:{ip}")
+    return f"share_pc_fail:{digest}", f"share_pc_lock:{digest}"
+
+
+def _check_share_lockout(token: str, ip: str) -> None:
+    """Raise 429 if this share+IP is currently locked out. Fails open."""
+    client = _get_lockout_redis()
+    if client is None:
+        return
+    _, lock_key = _share_lockout_keys(token, ip)
+    try:
+        if client.get(lock_key) is not None:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "Too many incorrect passcode attempts — try again later.",
+            )
+    except HTTPException:
+        raise
+    except Exception as exc:  # pragma: no cover - Redis hiccup: fail open
+        logger.warning("Share lockout check failed, allowing request: %s", exc)
+
+
+def _register_share_passcode_failure(token: str, ip: str) -> None:
+    """Count a failed passcode attempt; arm an exponential lockout past the cap.
+
+    Backoff doubles each excess failure (BASE, 2*BASE, 4*BASE, …) capped at
+    SHARE_PASSCODE_LOCKOUT_MAX_SECONDS. Best-effort: Redis errors are swallowed.
+    """
+    client = _get_lockout_redis()
+    if client is None:
+        return
+    fail_key, lock_key = _share_lockout_keys(token, ip)
+    try:
+        attempts = client.incr(fail_key)
+        if attempts == 1:
+            client.expire(fail_key, SHARE_PASSCODE_ATTEMPT_TTL_SECONDS)
+        if attempts >= SHARE_PASSCODE_MAX_ATTEMPTS:
+            overflow = attempts - SHARE_PASSCODE_MAX_ATTEMPTS
+            lock_seconds = min(
+                SHARE_PASSCODE_LOCKOUT_BASE_SECONDS * (2**overflow),
+                SHARE_PASSCODE_LOCKOUT_MAX_SECONDS,
+            )
+            client.set(lock_key, "1", ex=lock_seconds)
+    except Exception as exc:  # pragma: no cover - Redis hiccup: don't block auth flow
+        logger.warning("Failed to record share passcode failure: %s", exc)
+
+
+def _clear_share_passcode_failures(token: str, ip: str) -> None:
+    """Reset counters after a successful passcode. Best-effort."""
+    client = _get_lockout_redis()
+    if client is None:
+        return
+    fail_key, lock_key = _share_lockout_keys(token, ip)
+    try:
+        client.delete(fail_key, lock_key)
+    except Exception:  # pragma: no cover - non-critical cleanup
+        pass
+
+
+def _get_active_share(
+    db: Session, *, token: str, passcode: str | None, request: Request | None = None
+) -> ContractShare:
+    # Client IP for brute-force keying; falls back to a constant when no request
+    # is threaded (e.g. internal callers) so the helpers still key consistently.
+    ip = get_remote_address(request) if request is not None else "internal"
     share = db.scalar(
         select(ContractShare).where(
             ContractShare.token_hash == _hash_secret(token),
@@ -615,8 +755,12 @@ def _get_active_share(db: Session, *, token: str, passcode: str | None) -> Contr
     if share.revoked_at is not None or (share.expires_at is not None and share.expires_at < now):
         raise HTTPException(status.HTTP_410_GONE, "Share is no longer active")
     if share.passcode_hash:
+        # Reject early while a lockout window is active, before doing the compare.
+        _check_share_lockout(token, ip)
         if not secrets.compare_digest(_hash_secret(passcode or ""), share.passcode_hash):
+            _register_share_passcode_failure(token, ip)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Passcode required")
+        _clear_share_passcode_failures(token, ip)
     elif passcode:
         # No passcode is required on this share but the caller supplied one
         # anyway. Log it so abuse review can spot probing behaviour, but do

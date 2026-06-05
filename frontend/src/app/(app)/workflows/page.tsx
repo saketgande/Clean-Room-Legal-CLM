@@ -97,7 +97,7 @@ function FilterMenu({
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
       >
         {value
           ? `${short}: ${options.find((o) => o.value === value)?.label ?? value}`
@@ -110,7 +110,7 @@ function FilterMenu({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 shadow-pop">
+          <div className="absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-pop">
             <button
               onClick={() => {
                 onPick(null);
@@ -282,7 +282,7 @@ export default function WorkflowsPage() {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -365,7 +365,7 @@ export default function WorkflowsPage() {
                             className="fixed inset-0 z-10"
                             onClick={() => setMenuId(null)}
                           />
-                          <div className="absolute right-4 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-pop">
+                          <div className="absolute right-4 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-pop">
                             <button
                               onClick={() => {
                                 setSelected(w);

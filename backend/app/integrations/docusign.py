@@ -10,6 +10,7 @@ import httpx
 import jwt
 
 from app.core.config import settings
+from app.integrations._http_retry import resilient_call
 
 
 @dataclass(frozen=True)
@@ -72,14 +73,19 @@ class DocuSignClient:
         access_token = await self._jwt_access_token()
         envelope_payload = self._envelope_payload(filename=filename, recipients=recipients, content=content)
         client = _docusign_client()
-        response = await client.post(
-            f"{settings.docusign_rest_base_url.rstrip('/')}/v2.1/accounts/"
-            f"{settings.docusign_account_id}/envelopes",
-            headers={"Authorization": f"Bearer {access_token}"},
-            json=envelope_payload,
-        )
-        response.raise_for_status()
-        raw = response.json()
+
+        @resilient_call("docusign")
+        async def _send_envelope() -> dict:
+            response = await client.post(
+                f"{settings.docusign_rest_base_url.rstrip('/')}/v2.1/accounts/"
+                f"{settings.docusign_account_id}/envelopes",
+                headers={"Authorization": f"Bearer {access_token}"},
+                json=envelope_payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        raw = await _send_envelope()
         return EnvelopeResult(
             envelope_id=raw.get("envelopeId"),
             status=raw.get("status", "sent"),
@@ -104,12 +110,18 @@ class DocuSignClient:
         try:
             access_token = await self._jwt_access_token()
             client = _docusign_client()
-            await client.put(
-                f"{settings.docusign_rest_base_url.rstrip('/')}/v2.1/accounts/"
-                f"{settings.docusign_account_id}/envelopes/{envelope_id}",
-                headers={"Authorization": f"Bearer {access_token}"},
-                json={"status": "voided", "voidedReason": reason[:200]},
-            )
+
+            @resilient_call("docusign")
+            async def _void() -> None:
+                response = await client.put(
+                    f"{settings.docusign_rest_base_url.rstrip('/')}/v2.1/accounts/"
+                    f"{settings.docusign_account_id}/envelopes/{envelope_id}",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    json={"status": "voided", "voidedReason": reason[:200]},
+                )
+                response.raise_for_status()
+
+            await _void()
         except Exception:
             # Reconciliation job picks up orphaned envelopes; do not raise.
             pass
@@ -133,15 +145,20 @@ class DocuSignClient:
             algorithm="RS256",
         )
         client = _docusign_client()
-        response = await client.post(
-            f"{settings.docusign_oauth_base_url.rstrip('/')}/oauth/token",
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
-                "assertion": assertion,
-            },
-        )
-        response.raise_for_status()
-        token = response.json().get("access_token")
+
+        @resilient_call("docusign")
+        async def _fetch_token() -> dict:
+            response = await client.post(
+                f"{settings.docusign_oauth_base_url.rstrip('/')}/oauth/token",
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                    "assertion": assertion,
+                },
+            )
+            response.raise_for_status()
+            return response.json()
+
+        token = (await _fetch_token()).get("access_token")
         if not token:
             raise RuntimeError("DocuSign token response did not include access_token")
         return token

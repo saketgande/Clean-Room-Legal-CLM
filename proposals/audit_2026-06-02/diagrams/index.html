@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AEGIS Legal CLM — Audit Picture Book</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; max-width: 1100px; margin: 0 auto; padding: 30px 20px; color: #111; background: #f4f4f4; }
+  h1 { font-size: 28px; margin: 0 0 8px; }
+  h2 { font-size: 18px; margin: 36px 0 4px; padding-top: 28px; border-top: 1px solid #ccc; }
+  p.lead { color: #555; margin: 0 0 24px; }
+  p.cap { color: #555; margin: 4px 0 16px; font-size: 14px; }
+  .frame { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+  svg, .frame img, .frame object { width: 100%; height: auto; display: block; }
+  nav { margin: 16px 0 32px; padding: 12px 16px; background: #fff; border-radius: 8px; border: 1px solid #ddd; font-size: 14px; }
+  nav a { text-decoration: none; color: #1d4ed8; margin-right: 14px; }
+  .severity { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: #fff; margin-right: 8px; }
+  .crit { background: #dc2626; }
+  .overview { background: #2563eb; }
+  .plan { background: #16a34a; }
+</style>
+</head>
+<body>
+<h1>AEGIS Legal CLM — Audit Picture Book</h1>
+<p class="lead">Six diagrams explaining what the 4-agent senior engineering review found, in plain English.</p>
+
+<nav>
+  Jump to:
+  <a href="#one">① System overview</a>
+  <a href="#two">② Critical: SSE session race</a>
+  <a href="#three">③ Critical: Token oracle</a>
+  <a href="#four">④ Critical: Tenant leak</a>
+  <a href="#five">⑤ Critical: Feature flag</a>
+  <a href="#six">⑥ The sprint plan</a>
+</nav>
+
+<h2 id="one"><span class="severity overview">CONTEXT</span> ① How the system is put together</h2>
+<p class="cap">Before we look at problems, here's the system as it stands: a Next.js frontend, a FastAPI backend with 22 domain routers and a dedicated AI layer, a Postgres database, Redis, Celery workers, and four external APIs.</p>
+<div class="frame"><object data="01_system_overview.svg" type="image/svg+xml"></object></div>
+
+<h2 id="two"><span class="severity crit">CRITICAL</span> ② The AI chat keeps writing to a closed database connection</h2>
+<p class="cap">Finding F-01. The streamed reply outlives the request that started it. Database writes after the dependency closes cause intermittent, hard-to-debug failures.</p>
+<div class="frame"><object data="02_critical_sse_session_race.svg" type="image/svg+xml"></object></div>
+
+<h2 id="three"><span class="severity crit">CRITICAL</span> ③ Approval-token endpoint leaks information and has no rate limit</h2>
+<p class="cap">Finding F-02. Different error codes for "fake", "expired", "used" tell an attacker which tokens were real. No rate limit means unlimited guessing.</p>
+<div class="frame"><object data="03_critical_token_oracle.svg" type="image/svg+xml"></object></div>
+
+<h2 id="four"><span class="severity crit">CRITICAL</span> ④ Admin queries can leak another company's contracts</h2>
+<p class="cap">Finding F-03. The "accessible contract filter" returns TRUE for admins, so any query that joins contracts without its own org filter can surface other tenants' rows.</p>
+<div class="frame"><object data="04_critical_tenant_leak.svg" type="image/svg+xml"></object></div>
+
+<h2 id="five"><span class="severity crit">CRITICAL</span> ⑤ AI feature flags exist but the code never checks them</h2>
+<p class="cap">Finding F-04. Toggling a feature off in the admin UI literally does nothing. There's no kill-switch for a misbehaving AI tool.</p>
+<div class="frame"><object data="05_critical_feature_flag.svg" type="image/svg+xml"></object></div>
+
+<h2 id="six"><span class="severity plan">PLAN</span> ⑥ The 4-sprint plan to fix it all</h2>
+<p class="cap">~8 weeks total. Sprint 1 stops the bleeding. Sprint 2 makes errors visible. Sprint 3 preps for 10× scale. Sprint 4 cleans up.</p>
+<div class="frame"><object data="06_sprint_plan.svg" type="image/svg+xml"></object></div>
+
+</body>
+</html>

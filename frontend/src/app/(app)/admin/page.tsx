@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
+  Check,
+  Copy,
   KeyRound,
   Mail,
   Plug,
   Plus,
   Settings as SettingsIcon,
   UserPlus,
+  X,
 } from "lucide-react";
 import { adminApi, debugApi, orgApi, usersApi } from "@/lib/endpoints";
 import {
@@ -273,6 +276,28 @@ function InvitationsSection() {
   const { notify } = useToast();
   const [inviteOpen, setInviteOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The just-created invitation (the only time we get its one-time token).
+  // We surface a copyable accept link so the inviter can share it directly,
+  // whether or not the email went out.
+  const [linkInvite, setLinkInvite] = useState<UserInvitationResponse | null>(
+    null,
+  );
+  const [copied, setCopied] = useState(false);
+
+  const inviteLink =
+    linkInvite?.token && typeof window !== "undefined"
+      ? `${window.location.origin}/invitations/accept?token=${linkInvite.token}`
+      : "";
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      notify("Couldn't copy — select the link and copy manually", "error");
+    }
+  }
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["invitations"],
@@ -307,6 +332,49 @@ function InvitationsSection() {
           Invite user
         </Button>
       </CardHeader>
+      {linkInvite && (
+        <div className="border-b border-brand-200 bg-brand-50 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-900">
+                Invitation created for {linkInvite.email}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                {linkInvite.email_sent
+                  ? "We emailed them the invite link. You can also share it directly:"
+                  : "Email wasn't sent (no email service is configured). Share this link with them so they can join:"}
+              </p>
+            </div>
+            <button
+              onClick={() => setLinkInvite(null)}
+              className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Dismiss"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <Input
+              readOnly
+              value={inviteLink}
+              className="flex-1 font-mono text-xs"
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <Button size="sm" variant="outline" onClick={copyLink}>
+              {copied ? (
+                <Check className="h-3.5 w-3.5" />
+              ) : (
+                <Copy className="h-3.5 w-3.5" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <p className="mt-2 text-[11px] text-slate-400">
+            This link contains a one-time token and is shown only now — it
+            expires on {fmtDateTime(linkInvite.expires_at)}.
+          </p>
+        </div>
+      )}
       <CardBody className="p-0">
         {isLoading ? (
           <CenterSpinner label="Loading invitations…" />
@@ -373,9 +441,14 @@ function InvitationsSection() {
       <InviteModal
         open={inviteOpen}
         onClose={() => setInviteOpen(false)}
-        onInvited={() => {
+        onInvited={(inv) => {
           qc.invalidateQueries({ queryKey: ["invitations"] });
-          notify("Invitation sent", "success");
+          notify(
+            inv.email_sent ? "Invitation emailed" : "Invitation created",
+            "success",
+          );
+          setCopied(false);
+          setLinkInvite(inv);
           setInviteOpen(false);
         }}
       />
@@ -390,7 +463,7 @@ function InviteModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onInvited: () => void;
+  onInvited: (inv: UserInvitationResponse) => void;
 }) {
   const { notify } = useToast();
   const [email, setEmail] = useState("");
@@ -402,7 +475,7 @@ function InviteModal({
     if (!email.trim()) return;
     setBusy(true);
     try {
-      await usersApi.createInvitation(
+      const inv = await usersApi.createInvitation(
         email.trim(),
         roleName.trim() || "member",
         Number(expiresInDays) || 7,
@@ -410,7 +483,7 @@ function InviteModal({
       setEmail("");
       setRoleName("member");
       setExpiresInDays("7");
-      onInvited();
+      onInvited(inv);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Invite failed", "error");
     } finally {

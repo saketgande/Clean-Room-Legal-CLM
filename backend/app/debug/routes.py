@@ -29,10 +29,31 @@ def health():
     return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
 
 
+def check_readiness(db: Session) -> dict[str, str]:
+    """Probe the backing services and return their status.
+
+    Pings Postgres (``select 1``) and Redis (``PING``). Raises on the first
+    failure so callers can surface a 503; the LB-facing ``/readyz`` in
+    ``app.main`` reuses this so the readiness logic lives in one place.
+    """
+    db.execute(text("select 1"))
+    # Lazy import + short-lived client so a missing/parked Redis never affects
+    # import time or the liveness path — only readiness depends on it.
+    import redis
+
+    client = redis.Redis.from_url(
+        settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+    )
+    try:
+        client.ping()
+    finally:
+        client.close()
+    return {"status": "ready", "database": "ok", "redis": "ok"}
+
+
 @router.get("/readiness")
 def readiness(db: Session = Depends(get_db)):
-    db.execute(text("select 1"))
-    return {"status": "ready", "database": "ok"}
+    return check_readiness(db)
 
 
 @router.get("/config-status")

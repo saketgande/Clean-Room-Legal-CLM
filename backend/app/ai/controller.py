@@ -1,16 +1,19 @@
 from datetime import timedelta
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
+from app.ai.cost_guard import enforce_daily_token_cap, record_token_usage
 from app.ai.fallback import fallback_metadata_from_text
 from app.ai.models import AIConfirmation, AICitation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
+from app.ai.redaction import redact_ai_payload
 from app.ai.registry import skill_registry
 from app.ai.schemas import (
     CitationInput,
@@ -21,10 +24,16 @@ from app.ai.schemas import (
     RenewalExtractionOutput,
 )
 from app.ai.skill import SkillSpec
+from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
 from app.auth.models import User
-from app.assistant.models import AssistantContractHandle, AssistantRun, AssistantToolCall
+from app.assistant.models import (
+    AssistantContractHandle,
+    AssistantMessage,
+    AssistantRun,
+    AssistantToolCall,
+)
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractEdit
 from app.contracts.models import Contract, ContractParty
@@ -90,6 +99,68 @@ class AIController:
             job_id=job.id,
         )
 
+    @staticmethod
+    def _load_session_history(
+        db: Session,
+        *,
+        session_id: str,
+        exclude_message_id: str | None,
+        max_messages: int = 20,
+        max_chars: int = 24000,
+    ) -> list[dict[str, Any]]:
+        """Prior user/assistant turns for this session, as Claude messages.
+
+        Replaying these gives the assistant in-session conversational memory —
+        without it every turn starts cold. Bounded by turn count and a character
+        budget so long chats stay cheap. Tool-call blocks are intentionally NOT
+        replayed: the assistant's text answer already summarises them, and
+        partial tool_use/tool_result blocks would break the provider contract.
+        """
+        rows = db.scalars(
+            select(AssistantMessage)
+            .where(
+                AssistantMessage.session_id == session_id,
+                AssistantMessage.role.in_(["user", "assistant"]),
+                AssistantMessage.id != exclude_message_id,
+            )
+            .order_by(AssistantMessage.created_at.asc())
+        ).all()
+
+        # Collapse consecutive same-role turns so the sequence strictly
+        # alternates (the provider rejects two user or two assistant turns
+        # in a row).
+        turns: list[dict[str, Any]] = []
+        for row in rows:
+            content = (row.content or "").strip()
+            if not content:
+                continue
+            if turns and turns[-1]["role"] == row.role:
+                turns[-1]["content"] += "\n\n" + content
+            else:
+                turns.append({"role": row.role, "content": content})
+
+        # Must start with a user turn and end with an assistant turn so the
+        # caller can append the new user turn and keep valid alternation.
+        while turns and turns[0]["role"] != "user":
+            turns.pop(0)
+        while turns and turns[-1]["role"] != "assistant":
+            turns.pop()
+
+        # Keep the most recent turns, within both budgets.
+        if len(turns) > max_messages:
+            turns = turns[-max_messages:]
+        total = 0
+        kept: list[dict[str, Any]] = []
+        for turn in reversed(turns):
+            total += len(turn["content"])
+            if kept and total > max_chars:
+                break
+            kept.append(turn)
+        kept.reverse()
+        while kept and kept[0]["role"] != "user":
+            kept.pop(0)
+        return kept
+
     async def stream_assistant_run(
         self,
         db: Session,
@@ -115,7 +186,7 @@ class AIController:
             model_config=model_config,
         )
         handles = list_contract_handles(db, session_id=session_id)
-        tools = self._assistant_tool_schemas(user=user)
+        tools = self._assistant_tool_schemas(db, user=user)
         skill_run = AISkillRun(
             org_id=org_id,
             skill_name=spec.name,
@@ -147,7 +218,18 @@ class AIController:
         db.commit()
 
         contract_summaries = self._contract_context_summaries(db, org_id=org_id, handles=handles)
+        contract_inventory = self._contract_inventory(db, org_id=org_id)
+        # Prior conversation turns give the assistant in-session memory. The
+        # current user message was already persisted by the route, so exclude it
+        # to avoid duplicating it (the enriched current turn is appended below).
+        run_row = db.get(AssistantRun, assistant_run_id)
+        history = self._load_session_history(
+            db,
+            session_id=session_id,
+            exclude_message_id=getattr(run_row, "user_message_id", None),
+        )
         messages: list[dict[str, Any]] = [
+            *history,
             {
                 "role": "user",
                 "content": self._assistant_user_prompt(
@@ -157,19 +239,21 @@ class AIController:
                     contract_ids=contract_ids or [],
                     handles=handles,
                     contract_summaries=contract_summaries,
+                    contract_inventory=contract_inventory,
                 ),
-            }
+            },
         ]
         final_answer_parts: list[str] = []
         tool_results: list[dict[str, Any]] = []
 
         try:
             for iteration in range(settings.ai_max_tool_iterations):
+                enforce_daily_token_cap(org_id)
                 provider_response = await claude_client.complete_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=tools,
-                    max_tokens=spec.max_tokens,
+                    max_tokens=_clamp_max_tokens(spec.max_tokens),
                     temperature=spec.temperature,
                     model=prompt_bundle.model_name,
                 )
@@ -442,11 +526,12 @@ class AIController:
         final_answer_parts: list[str] = []
         try:
             for _iteration in range(settings.ai_max_tool_iterations):
+                enforce_daily_token_cap(user.org_id)
                 provider_response = await claude_client.complete_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
-                    tools=self._assistant_tool_schemas(user=user),
-                    max_tokens=spec.max_tokens,
+                    tools=self._assistant_tool_schemas(db, user=user),
+                    max_tokens=_clamp_max_tokens(spec.max_tokens),
                     temperature=spec.temperature,
                     model=prompt_bundle.model_name,
                 )
@@ -589,10 +674,12 @@ class AIController:
             db.commit()
             raise
 
-    def _assistant_tool_schemas(self, *, user: User) -> list[dict[str, Any]]:
+    def _assistant_tool_schemas(self, db: Session, *, user: User) -> list[dict[str, Any]]:
         tools = []
         for tool in tool_registry.all():
-            if not tool.enabled_by_default:
+            # F-04: honor the DB-backed feature flag, not just the static default,
+            # so disabled tools are never advertised to Claude.
+            if not is_tool_enabled(db, org_id=user.org_id, spec=tool):
                 continue
             if not has_permission(user.permission_values, tool.required_permission):
                 continue
@@ -614,6 +701,7 @@ class AIController:
         contract_ids: list[str],
         handles: list[dict[str, Any]],
         contract_summaries: list[dict[str, Any]] | None = None,
+        contract_inventory: list[dict[str, Any]] | None = None,
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
@@ -634,9 +722,33 @@ class AIController:
                 self._json_tool_result(scope),
                 "Contract status context:",
                 self._json_tool_result(contract_summaries or []),
+                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+                "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
+                self._json_tool_result(contract_inventory or []),
                 "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
             ]
         )
+
+    def _contract_inventory(self, db: Session, *, org_id: str) -> list[dict[str, Any]]:
+        """A compact list of the org's contracts so the model can ground portfolio answers."""
+        from sqlalchemy import select as _select
+        from app.contracts.models import Contract as _Contract
+
+        rows = db.scalars(
+            _select(_Contract)
+            .where(_Contract.org_id == org_id)
+            .order_by(_Contract.created_at.desc())
+            .limit(60)
+        ).all()
+        return [
+            {
+                "contract_id": c.id,
+                "title": c.title,
+                "counterparty": c.counterparty_name,
+                "stage": c.lifecycle_stage,
+            }
+            for c in rows
+        ]
 
     def _log_assistant_ai_call(
         self,
@@ -936,12 +1048,13 @@ class AIController:
 
         ai_call_log: AICallLog | None = None
         try:
+            enforce_daily_token_cap(org_id)
             provider_response = await claude_client.complete_structured(
                 system_prompt=built_prompt.system_prompt,
                 user_prompt=built_prompt.user_prompt,
                 tool_name=spec.return_tool_name,
                 input_schema=spec.output_model.model_json_schema(),
-                max_tokens=spec.max_tokens,
+                max_tokens=_clamp_max_tokens(spec.max_tokens),
                 temperature=spec.temperature,
                 model=prompt_bundle.model_name,
             )
@@ -1022,6 +1135,16 @@ class AIController:
             if commit:
                 db.commit()
             return validated
+        except HTTPException:
+            # A cost-cap rejection (HTTP 429) raised before the Claude call must
+            # propagate as-is — never be masked by fallback metadata, which would
+            # silently defeat the daily token cap. Mark the run failed and re-raise.
+            skill_run.status = AISkillRunStatus.FAILED
+            skill_run.validation_status = AIValidationStatus.INVALID
+            skill_run.finished_at = utcnow()
+            if commit:
+                db.commit()
+            raise
         except Exception as exc:
             fallback = self._fallback_output(spec, contract_context, exc)
             if fallback is not None:
@@ -1074,7 +1197,13 @@ class AIController:
         setting = db.scalar(
             select(AdminSetting).where(AdminSetting.org_id == org_id, AdminSetting.key == spec.feature_flag)
         )
-        enabled = spec.enabled_by_default if setting is None else bool(setting.value)
+        # F-04: bool(setting.value) is fail-open for string flags (bool("false") is True);
+        # use the shared coercion so a disabled skill actually stays disabled.
+        enabled = (
+            spec.enabled_by_default
+            if setting is None
+            else flag_value_is_enabled(setting.value, default=spec.enabled_by_default)
+        )
         if not enabled:
             raise RuntimeError(f"AI skill is disabled: {spec.name}")
 
@@ -1406,6 +1535,9 @@ class AIController:
                     updated_by_user_id=created_by_user_id,
                 )
             )
+        # Accumulate this call's tokens into the per-org daily cap counter so the
+        # next enforce_daily_token_cap() sees today's running spend (fail-open).
+        record_token_usage(org_id, provider_response.token_usage.get("total_tokens"))
 
     def _finish_job(self, db: Session, *, job_id: str, status: str, error_message: str | None) -> None:
         job = db.get(JobRun, job_id)
@@ -1640,13 +1772,18 @@ def _handle_for_contract_id(contract_id: str | None, handles: list[dict[str, Any
 
 
 def _redacted_input(payload: dict[str, Any]) -> dict[str, Any]:
-    redacted = {}
-    for key, value in payload.items():
-        if isinstance(value, str) and "text" in key.lower() and len(value) > 500:
-            redacted[key] = f"<redacted text length={len(value)}>"
-        else:
-            redacted[key] = value
-    return redacted
+    # Scrub inline PII (emails, 16+ digit numbers) and oversized/sensitive text
+    # recursively before this payload is persisted on the skill run + AI call log.
+    return redact_ai_payload(payload)
+
+
+def _clamp_max_tokens(max_tokens: int) -> int:
+    """Clamp a per-request/per-skill max_tokens to the configured ceiling so a
+    misconfigured skill can never request an unbounded completion."""
+    ceiling = settings.claude_max_tokens_ceiling
+    if ceiling and ceiling > 0:
+        return min(max_tokens, ceiling)
+    return max_tokens
 
 
 ai_controller = AIController()

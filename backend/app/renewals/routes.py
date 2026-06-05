@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +18,8 @@ from app.integrations.resend import resend_client
 from app.renewals.models import RenewalEvent
 
 router = APIRouter(prefix="/renewals", tags=["renewals"])
+
+logger = logging.getLogger(__name__)
 
 
 class RenewalDecisionPayload(BaseModel):
@@ -36,6 +40,8 @@ def list_renewals(
     contract_id: str | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     query = (
         select(RenewalEvent)
@@ -48,7 +54,9 @@ def list_renewals(
     if contract_id:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
         query = query.where(RenewalEvent.contract_id == contract_id)
-    return db.scalars(query.order_by(RenewalEvent.notice_date.asc())).all()
+    return db.scalars(
+        query.order_by(RenewalEvent.notice_date.asc()).offset(offset).limit(limit)
+    ).all()
 
 
 @router.get("/{renewal_id}")
@@ -116,6 +124,7 @@ async def run_renewal_window_check(
         select(RenewalEvent).where(RenewalEvent.org_id == current_user.org_id)
     ).all()
     moved = 0
+    notify_failed = 0
     for event in events:
         window = event.renewal_window_starts_at or event.notice_date
         if window is None or window > today:
@@ -137,14 +146,23 @@ async def run_renewal_window_check(
         )
         owner = db.get(User, event.owner_user_id) if event.owner_user_id else None
         if owner is not None:
-            await resend_client.send_email(
-                to=owner.email,
-                subject=f"Renewal window open: {contract.title}",
-                html=(
-                    f"<p><b>{contract.title}</b> has entered its renewal window "
-                    f"(notice date {event.notice_date}, expires {event.expiration_date}).</p>"
-                ),
-            )
+            # The stage transition above is the durable outcome; a notification
+            # failure must not roll it back or abort the rest of the sweep.
+            try:
+                await resend_client.send_email(
+                    to=owner.email,
+                    subject=f"Renewal window open: {contract.title}",
+                    html=(
+                        f"<p><b>{contract.title}</b> has entered its renewal window "
+                        f"(notice date {event.notice_date}, expires {event.expiration_date}).</p>"
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "renewal window notification email failed",
+                    extra={"renewal_event_id": event.id, "contract_id": contract.id},
+                )
+                notify_failed += 1
         moved += 1
     write_audit_log(
         db,
@@ -154,7 +172,7 @@ async def run_renewal_window_check(
         org_id=current_user.org_id,
         actor_user_id=current_user.id,
         request_id=getattr(request.state, "request_id", None),
-        after={"contracts_moved_to_renewal_due": moved},
+        after={"contracts_moved_to_renewal_due": moved, "notifications_failed": notify_failed},
     )
     db.commit()
-    return {"contracts_moved_to_renewal_due": moved}
+    return {"contracts_moved_to_renewal_due": moved, "notifications_failed": notify_failed}

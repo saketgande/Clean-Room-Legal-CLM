@@ -10,13 +10,14 @@ import {
   Check,
   X,
   Send,
-  Brain as BrainIcon,
   ChevronRight,
   BookMarked,
   Sparkles,
   ListChecks,
-  CheckSquare,
-  PenLine,
+  ClipboardCheck,
+  FileSignature,
+  FileDiff,
+  ScanSearch,
   Wand2,
   Info,
   History,
@@ -62,31 +63,35 @@ import { useLayout } from "@/lib/layout";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
 import { apiStream } from "@/lib/api";
-import type { Citation } from "@/lib/types";
+import type { Citation, ContractLifecycleStage } from "@/lib/types";
 
-type PanelId = "overview" | "versions" | "redlines" | "activity" | "brain";
+type PanelId = "redlines" | "versions" | "ask";
+
+// The full contract lifecycle, in order — drives the stage stepper.
+const LIFECYCLE_STAGES: ContractLifecycleStage[] = [
+  "intake",
+  "drafting",
+  "ai_review",
+  "internal_review",
+  "counterparty_review",
+  "approval_pending",
+  "approved",
+  "signature_pending",
+  "active",
+  "renewal_due",
+  "closed",
+  "archived",
+];
 
 const PANELS: {
   id: PanelId;
   label: string;
   hint: string;
-  icon: typeof Info;
+  icon: typeof Wand2;
 }[] = [
-  { id: "overview", label: "Overview", hint: "Metadata & lifecycle", icon: Info },
+  { id: "redlines", label: "Redlines", hint: "Tracked changes", icon: FileDiff },
   { id: "versions", label: "Versions", hint: "Document history", icon: History },
-  { id: "redlines", label: "Redlines", hint: "Tracked changes", icon: Wand2 },
-  {
-    id: "activity",
-    label: "Activity",
-    hint: "Timeline & stage history",
-    icon: ActivityIcon,
-  },
-  {
-    id: "brain",
-    label: "Contract Brain",
-    hint: "Ask about this contract",
-    icon: BrainIcon,
-  },
+  { id: "ask", label: "Ask AI", hint: "Edit & analyze", icon: Sparkles },
 ];
 
 export default function ContractDetailPage({
@@ -95,11 +100,13 @@ export default function ContractDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [panel, setPanel] = useState<PanelId>("overview");
+  const [panel, setPanel] = useState<PanelId>("redlines");
   const [activeEditId, setActiveEditId] = useState<string | null>(null);
   const [runPbOpen, setRunPbOpen] = useState(false);
   const [sigOpen, setSigOpen] = useState(false);
-  const [askOpen, setAskOpen] = useState(false);
+  // Ask AI is a tab in the right panel; mount it on first use and keep it
+  // mounted (hidden when inactive) so the chat survives tab switches.
+  const [askMounted, setAskMounted] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const qc = useQueryClient();
   const { notify } = useToast();
@@ -115,10 +122,6 @@ export default function ContractDetailPage({
   const { data: contract, isLoading, error } = useQuery({
     queryKey: ["contract", id],
     queryFn: () => contractsApi.get(id),
-  });
-  const { data: versions } = useQuery({
-    queryKey: ["contract", id, "versions"],
-    queryFn: () => contractsApi.versions(id),
   });
   const { data: edits } = useQuery({
     queryKey: ["contract", id, "edits"],
@@ -172,7 +175,7 @@ export default function ContractDetailPage({
   return (
     <div className="-mx-4 -my-4 flex h-[calc(100vh-3.5rem)] flex-col sm:-mx-6 sm:-my-6">
       {/* Header band */}
-      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3">
+      <div className="shrink-0 border-b border-slate-200 bg-slate-100 px-4 py-3">
         <Link
           href="/contract-hub"
           className="mb-2 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800"
@@ -217,7 +220,7 @@ export default function ContractDetailPage({
               loading={busy === "analyze"}
               onClick={reAnalyze}
             >
-              <Sparkles className="h-4 w-4" />
+              <ScanSearch className="h-4 w-4" />
               Re-run Analysis
             </Button>
             <Button
@@ -235,7 +238,7 @@ export default function ContractDetailPage({
               loading={busy === "approve"}
               onClick={submitApproval}
             >
-              <CheckSquare className="h-4 w-4" />
+              <ClipboardCheck className="h-4 w-4" />
               Submit for Approval
             </Button>
             <Button
@@ -243,15 +246,18 @@ export default function ContractDetailPage({
               variant="outline"
               onClick={() => setSigOpen(true)}
             >
-              <PenLine className="h-4 w-4" />
+              <FileSignature className="h-4 w-4" />
               Send for Signature
             </Button>
             <Button
               size="sm"
-              variant={askOpen ? "primary" : "outline"}
-              onClick={() => setAskOpen((o) => !o)}
+              variant={panel === "ask" ? "primary" : "outline"}
+              onClick={() => {
+                setAskMounted(true);
+                setPanel("ask");
+              }}
             >
-              <BrainIcon className="h-4 w-4" />
+              <Sparkles className="h-4 w-4" />
               Ask AI
             </Button>
           </div>
@@ -259,12 +265,42 @@ export default function ContractDetailPage({
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left rail: navigator + versions explorer */}
-        <aside className="hidden w-64 shrink-0 flex-col border-r border-slate-200 bg-white lg:flex">
-          <div className="border-b border-slate-100 p-3">
-            <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-              Workspace
-            </p>
+        {/* The document is the focus — a compact Overview band (metadata +
+            lifecycle stage) sits on top, the document fills the rest. */}
+        <div className="hidden flex-1 flex-col overflow-y-auto lg:flex">
+          {/* Overview band stays pinned while you scroll to Activity below. */}
+          <div className="sticky top-0 z-10 bg-slate-50">
+            <OverviewBar contractId={id} />
+          </div>
+          <div className="h-[68vh] shrink-0 p-3">
+            <ContractDocument
+              contractId={id}
+              edits={edits ?? []}
+              activeEditId={activeEditId}
+              onSelectEdit={(eid) => {
+                setActiveEditId(eid);
+                setPanel("redlines");
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById(`redcard-${eid}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+                );
+              }}
+            />
+          </div>
+          {/* Activity timeline — below the document. */}
+          <div className="shrink-0 border-t border-slate-200 px-5 py-5">
+            <h2 className="mb-3 text-sm font-semibold text-slate-900">
+              Activity
+            </h2>
+            <ActivityTab contractId={id} />
+          </div>
+        </div>
+
+        {/* Right: Redlines / Versions / Ask AI as switchable tabs, so the
+            document stays put while you move between them. */}
+        <section className="flex flex-1 flex-col bg-slate-100 lg:w-[26rem] lg:flex-none lg:shrink-0 lg:border-l lg:border-slate-200">
+          <div className="flex shrink-0 items-center gap-1 border-b border-slate-200 p-2">
             {PANELS.map((p) => {
               const active = panel === p.id;
               const Icon = p.icon;
@@ -273,34 +309,19 @@ export default function ContractDetailPage({
                   key={p.id}
                   onClick={() => {
                     setPanel(p.id);
-                    setAskOpen(false);
+                    if (p.id === "ask") setAskMounted(true);
                   }}
                   className={cn(
-                    "mb-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
-                    active ? "bg-brand-50" : "hover:bg-slate-50",
+                    "flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                    active
+                      ? "bg-brand-50 text-brand-700"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
                   )}
                 >
-                  <Icon
-                    className={cn(
-                      "h-4 w-4 shrink-0",
-                      active ? "text-brand-600" : "text-slate-400",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span
-                      className={cn(
-                        "block truncate text-sm font-medium",
-                        active ? "text-brand-700" : "text-slate-700",
-                      )}
-                    >
-                      {p.label}
-                    </span>
-                    <span className="block truncate text-xs text-slate-400">
-                      {p.hint}
-                    </span>
-                  </span>
+                  <Icon className="h-4 w-4" />
+                  {p.label}
                   {p.id === "redlines" && pendingRedlines > 0 && (
-                    <span className="shrink-0 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                    <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700">
                       {pendingRedlines}
                     </span>
                   )}
@@ -308,113 +329,41 @@ export default function ContractDetailPage({
               );
             })}
           </div>
-
-          <div className="flex-1 overflow-y-auto p-3">
-            <div className="mb-2 flex items-center justify-between px-1">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Versions
-              </p>
-              <span className="text-xs text-slate-400">
-                {(versions ?? []).length}
-              </span>
-            </div>
-            <div className="space-y-1">
-              {(versions ?? [])
-                .slice()
-                .sort((a, b) => b.version_number - a.version_number)
-                .map((v) => (
-                  <button
-                    key={v.id}
-                    onClick={() => setPanel("versions")}
-                    className="flex w-full items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-2 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40"
-                  >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-slate-100 text-xs font-semibold text-slate-600">
-                      V{v.version_number}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-slate-700">
-                        {titleCase(v.source)}
-                      </span>
-                      <span className="block truncate text-[11px] text-slate-400">
-                        {v.change_summary ?? "No summary"}
-                      </span>
-                    </span>
-                    {v.is_authoritative && (
-                      <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        Auth
-                      </span>
-                    )}
-                  </button>
-                ))}
-              {(versions ?? []).length === 0 && (
-                <p className="px-1 py-4 text-center text-xs text-slate-400">
-                  No versions yet.
-                </p>
-              )}
-            </div>
-          </div>
-        </aside>
-
-        {/* Center: the document, always visible */}
-        <div className="hidden flex-1 overflow-hidden p-3 lg:block">
-          <ContractDocument
-            contractId={id}
-            edits={edits ?? []}
-            activeEditId={activeEditId}
-            onSelectEdit={(eid) => {
-              setActiveEditId(eid);
-              setPanel("redlines");
-              requestAnimationFrame(() =>
-                document
-                  .getElementById(`redcard-${eid}`)
-                  ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-              );
-            }}
-          />
-        </div>
-
-        {/* Right: context panel — replaced by the Ask AI chat when open */}
-        {!askOpen && (
-        <section className="flex flex-1 flex-col bg-white lg:w-[30rem] lg:flex-none lg:shrink-0 lg:border-l lg:border-slate-200">
-          <div className="flex h-12 shrink-0 items-center gap-2 border-b border-slate-100 px-4">
-            <span className="text-sm font-semibold text-slate-900">
-              {PANELS.find((p) => p.id === panel)?.label}
-            </span>
-            <span className="text-xs text-slate-400">
-              · {PANELS.find((p) => p.id === panel)?.hint}
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4">
-            {panel === "overview" && <Overview contractId={id} />}
-            {panel === "versions" && <Versions contractId={id} />}
-            {panel === "redlines" && (
-              <Redlines
-                contractId={id}
-                onGenerate={() => setRunPbOpen(true)}
-                activeEditId={activeEditId}
-                onSelect={(eid) => {
-                  setActiveEditId(eid);
-                  requestAnimationFrame(() =>
-                    document
-                      .getElementById(`edit-${eid}`)
-                      ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-                  );
-                }}
-              />
+          <div className="relative flex-1 overflow-hidden">
+            {panel !== "ask" && (
+              <div className="h-full overflow-y-auto p-4">
+                {panel === "versions" && <Versions contractId={id} />}
+                {panel === "redlines" && (
+                  <Redlines
+                    contractId={id}
+                    onGenerate={() => setRunPbOpen(true)}
+                    activeEditId={activeEditId}
+                    onSelect={(eid) => {
+                      setActiveEditId(eid);
+                      requestAnimationFrame(() =>
+                        document
+                          .getElementById(`edit-${eid}`)
+                          ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+                      );
+                    }}
+                  />
+                )}
+              </div>
             )}
-            {panel === "activity" && <ActivityTab contractId={id} />}
-            {panel === "brain" && <BrainTab contractId={id} />}
+            {/* Ask AI: mounted on first use and kept alive (hidden, not
+                unmounted) so the chat survives switching tabs. */}
+            {askMounted && (
+              <div
+                className={cn(
+                  "absolute inset-0 flex flex-col",
+                  panel === "ask" ? "" : "hidden",
+                )}
+              >
+                <AskAIPanel contractId={id} contractTitle={contract.title} />
+              </div>
+            )}
           </div>
         </section>
-        )}
-
-        {askOpen && (
-          <AskAIPanel
-            contractId={id}
-            contractTitle={contract.title}
-            onClose={() => setAskOpen(false)}
-          />
-        )}
       </div>
 
       <RunPlaybookModal
@@ -441,8 +390,8 @@ export default function ContractDetailPage({
   );
 }
 
-// ---- Overview ------------------------------------------------------------
-function Overview({ contractId }: { contractId: string }) {
+// ---- Overview band (sits above the document) -----------------------------
+function OverviewBar({ contractId }: { contractId: string }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { data: contract } = useQuery({
@@ -457,82 +406,82 @@ function Overview({ contractId }: { contractId: string }) {
 
   if (!contract) return null;
 
+  const currentIdx = LIFECYCLE_STAGES.indexOf(contract.lifecycle_stage);
   const facts: [string, string][] = [
     ["Counterparty", contract.counterparty_name ?? "—"],
-    [
-      "Contract type",
-      contract.contract_type ? titleCase(contract.contract_type) : "—",
-    ],
-    ["Jurisdiction", contract.jurisdiction ?? "—"],
+    ["Type", contract.contract_type ? titleCase(contract.contract_type) : "—"],
     ["Value", fmtMoney(contract.value_amount, contract.currency)],
-    ["Effective date", fmtDate(contract.effective_date)],
-    ["Expiration date", fmtDate(contract.expiration_date)],
+    ["Jurisdiction", contract.jurisdiction ?? "—"],
+    ["Effective", fmtDate(contract.effective_date)],
+    ["Expires", fmtDate(contract.expiration_date)],
   ];
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle>Contract metadata</CardTitle>
-        </CardHeader>
-        <CardBody>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4">
-            {facts.map(([k, v]) => (
-              <div key={k}>
-                <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                  {k}
-                </dt>
-                <dd className="mt-1 text-sm text-slate-800">{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </CardBody>
-      </Card>
+    <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-5 py-4">
+      {/* Lifecycle — a clean breadcrumb showing exactly where the contract is. */}
+      <div className="flex items-center gap-3">
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+          Lifecycle
+        </span>
+        <ol className="flex flex-1 items-center gap-1.5 overflow-x-auto pb-0.5">
+          {LIFECYCLE_STAGES.map((s, i) => {
+            const done = i < currentIdx;
+            const current = i === currentIdx;
+            return (
+              <li key={s} className="flex shrink-0 items-center gap-1.5">
+                {i > 0 && (
+                  <ChevronRight
+                    className={cn(
+                      "h-3 w-3 shrink-0",
+                      done || current ? "text-brand-300" : "text-slate-300",
+                    )}
+                  />
+                )}
+                <span
+                  aria-current={current ? "step" : undefined}
+                  className={cn(
+                    "whitespace-nowrap text-xs transition-colors",
+                    current
+                      ? "rounded-full bg-brand-600 px-2.5 py-1 font-semibold text-white"
+                      : done
+                        ? "font-medium text-brand-600"
+                        : "text-slate-400",
+                  )}
+                >
+                  {titleCase(s)}
+                </span>
+              </li>
+            );
+          })}
+        </ol>
+        <Button
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          disabled={!options?.allowed_transitions.length}
+          onClick={() => setTransitionOpen(true)}
+        >
+          Advance stage
+        </Button>
+      </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Lifecycle</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-              Current stage
-            </p>
-            <div className="mt-2">
-              <Badge tone={stageTone(contract.lifecycle_stage)}>
-                {titleCase(contract.lifecycle_stage)}
-              </Badge>
-            </div>
-          </div>
-          <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
-              Allowed transitions
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {options?.allowed_transitions.length ? (
-                options.allowed_transitions.map((s) => (
-                  <span
-                    key={s}
-                    className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600"
-                  >
-                    {titleCase(s)}
-                  </span>
-                ))
-              ) : (
-                <span className="text-sm text-slate-400">None</span>
-              )}
-            </div>
-          </div>
-          <Button
-            className="w-full"
-            variant="outline"
-            disabled={!options?.allowed_transitions.length}
-            onClick={() => setTransitionOpen(true)}
+      {/* Key metadata — a tidy, divider-separated row. */}
+      <dl className="mt-3 flex flex-wrap items-baseline gap-y-1.5 text-xs">
+        {facts.map(([k, v], i) => (
+          <div
+            key={k}
+            className={cn(
+              "flex items-baseline gap-1.5",
+              i > 0 && "ml-4 border-l border-slate-200 pl-4",
+            )}
           >
-            Advance stage
-          </Button>
-        </CardBody>
-      </Card>
+            <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">
+              {k}
+            </dt>
+            <dd className="font-medium text-slate-800">{v}</dd>
+          </div>
+        ))}
+      </dl>
 
       {transitionOpen && options && (
         <TransitionModal
@@ -1056,6 +1005,8 @@ type AskItem = {
   text: string;
   tool?: { name: string; status: "running" | "done" | "error" };
   citations?: Citation[];
+  // A tracked change the user can accept/reject inline (no Redlines panel trip).
+  edit?: { id: string; status: "pending" | "accepted" | "rejected" };
 };
 type AskPending = {
   confirmationId: string;
@@ -1072,11 +1023,9 @@ const ASK_SUGGESTIONS = [
 function AskAIPanel({
   contractId,
   contractTitle,
-  onClose,
 }: {
   contractId: string;
   contractTitle: string;
-  onClose: () => void;
 }) {
   const { notify } = useToast();
   const qc = useQueryClient();
@@ -1162,21 +1111,43 @@ function AskAIPanel({
     } else if (event === "tracked_change_created") {
       qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      const editId =
+        typeof data.contract_edit_id === "string"
+          ? data.contract_edit_id
+          : undefined;
       setItems((prev) => [
         ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "system",
-          text: "Tracked change created — review it in the Redlines panel.",
-        },
+        editId
+          ? {
+              id: crypto.randomUUID(),
+              role: "system",
+              text: "Tracked change ready — accept to apply it to the document.",
+              edit: { id: editId, status: "pending" },
+            }
+          : {
+              id: crypto.randomUUID(),
+              role: "system",
+              text: "Tracked change created — see the Redlines panel.",
+            },
       ]);
     } else if (event === "contract_generated") {
+      const genId =
+        typeof data.contract_id === "string" ? data.contract_id : undefined;
+      const isThisContract = !genId || genId === contractId;
+      if (isThisContract) {
+        // A full redraft of THIS contract — refresh its whole query subtree
+        // (contract + versions + edits + document text) so the new version
+        // becomes the visible document. invalidateQueries is a prefix match.
+        qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      }
       setItems((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "system",
-          text: "A document was generated — see Versions.",
+          text: isThisContract
+            ? "Redraft complete — the document is now a new version. Use the Versions panel to compare or restore the previous one."
+            : "A document was generated — see Versions.",
         },
       ]);
     } else if (event === "confirmation_required") {
@@ -1212,6 +1183,31 @@ function AskAIPanel({
     } catch (e) {
       notify(e instanceof Error ? e.message : "Send failed", "error");
       setStreaming(false);
+    }
+  }
+
+  // Accept/reject a tracked change right here in the chat (same endpoints the
+  // Redlines panel uses) so the user never has to leave Ask AI.
+  async function resolveEdit(item: AskItem, accept: boolean) {
+    if (!item.edit || item.edit.status !== "pending") return;
+    try {
+      if (accept) await contractsApi.acceptEdit(contractId, item.edit.id);
+      else await contractsApi.rejectEdit(contractId, item.edit.id);
+      // Refresh the whole contract subtree so the document reflects the result.
+      qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === item.id && it.edit
+            ? { ...it, edit: { ...it.edit, status: accept ? "accepted" : "rejected" } }
+            : it,
+        ),
+      );
+      notify(
+        accept ? "Change accepted — applied to the document." : "Change rejected.",
+        "success",
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Action failed", "error");
     }
   }
 
@@ -1255,7 +1251,7 @@ function AskAIPanel({
   const busy = streaming || !!pending;
 
   return (
-    <aside className="flex w-full flex-col border-l border-slate-200 bg-white lg:w-[26rem] lg:flex-none lg:shrink-0">
+    <div className="flex h-full w-full flex-col bg-slate-100">
       <div className="flex h-12 shrink-0 items-center gap-2.5 border-b border-slate-100 px-4">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
           <Sparkles className="h-4 w-4" />
@@ -1268,13 +1264,6 @@ function AskAIPanel({
             Editing · {contractTitle}
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          aria-label="Close Ask AI"
-        >
-          <X className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
@@ -1328,6 +1317,40 @@ function AskAIPanel({
                   <Check className="h-3.5 w-3.5 text-brand-600" />
                 )}
                 {titleCase(it.text.replace(/_/g, " "))}
+              </div>
+            );
+          if (it.edit)
+            return (
+              <div
+                key={it.id}
+                className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/50 px-3 py-2.5"
+              >
+                <p className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
+                  <Wand2 className="h-3.5 w-3.5 text-brand-600" />
+                  {it.text}
+                </p>
+                {it.edit.status === "pending" ? (
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => resolveEdit(it, true)}>
+                      <Check className="h-3.5 w-3.5" />
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => resolveEdit(it, false)}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-xs font-medium text-slate-500">
+                    {it.edit.status === "accepted"
+                      ? "✓ Accepted — applied to the document."
+                      : "Rejected — no change made."}
+                  </p>
+                )}
               </div>
             );
           if (it.role === "system")
@@ -1399,7 +1422,7 @@ function AskAIPanel({
       </div>
 
       <div className="shrink-0 border-t border-slate-100 p-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-2 transition focus-within:border-slate-300">
+        <div className="rounded-xl border border-slate-200 bg-slate-100 p-2 transition focus-within:border-slate-300">
           <Textarea
             rows={1}
             placeholder="Ask or instruct an edit…"
@@ -1430,7 +1453,7 @@ function AskAIPanel({
           AI can make mistakes. Not legal advice.
         </p>
       </div>
-    </aside>
+    </div>
   );
 }
 

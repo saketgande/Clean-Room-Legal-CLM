@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
+import { ClientErrorReporter } from "@/components/client-error-reporter";
 import { QueryProvider } from "@/lib/query";
 import { LayoutProvider } from "@/lib/layout";
 import { ToastProvider } from "@/components/toast";
@@ -16,8 +17,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
+        {/* Apply the saved theme before first paint to avoid a flash. Defaults
+            to dark when no preference is stored. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':true;document.documentElement.classList.toggle('dark',dark);}catch(e){document.documentElement.classList.add('dark');}})();",
+          }}
+        />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link
           rel="preconnect"
@@ -30,6 +39,7 @@ export default function RootLayout({
         />
       </head>
       <body>
+        <ClientErrorReporter />
         <QueryProvider>
           <AuthProvider>
             <LayoutProvider>

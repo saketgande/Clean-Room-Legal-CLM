@@ -4,8 +4,9 @@ from io import BytesIO
 from zipfile import ZipFile
 
 from app.ai import confirmations
-from app.ai.controller import INTERNAL_RESULT_KEYS, ai_controller
-from app.ai.tool_registry import tool_registry
+from app.ai.controller import INTERNAL_RESULT_KEYS, _clamp_max_tokens, ai_controller
+from app.ai.redaction import redact_ai_payload
+from app.ai.tool_registry import ExternalShareInput, tool_registry
 from app.ai.tool_runtime import _build_edit_docx, tool_runtime
 from app.assistant.routes import (
     _citations_from_tool_result,
@@ -244,3 +245,170 @@ def test_tracked_edit_decision_summary_preserves_existing_summary():
     assert "Assistant edit proposal" in summary
     assert "Assistant edit accepted" in summary
     assert "Looks good" in summary
+
+
+# --- Prod-hardening: redaction, cost cap, max-tokens clamp, audit actor ------
+
+
+def test_redaction_scrubs_pii_before_persistence_including_nested():
+    """A known email / 16+ digit number must NOT survive into a persisted payload,
+    at any nesting depth, and an oversized document body is replaced wholesale."""
+    persisted = redact_ai_payload(
+        {
+            "instructions": "Email the signer at jane.doe@acme.com to confirm.",
+            "contract_text": "Z" * 5000,
+            "recipients": [
+                {"email": "ceo@bigco.io", "card": "4111 1111 1111 1111"},
+                {"note": "fallback 4242424242424242"},
+            ],
+        }
+    )
+    import json as _json
+
+    blob = _json.dumps(persisted)
+    assert "jane.doe@acme.com" not in blob
+    assert "ceo@bigco.io" not in blob
+    assert "4111 1111 1111 1111" not in blob
+    assert "4242424242424242" not in blob
+    # The contract body is a sensitive key → length-only placeholder, never verbatim.
+    assert persisted["contract_text"] == "<redacted text length=5000>"
+
+
+def test_tool_call_arguments_and_result_are_redacted_before_persist():
+    """Both the persisted tool arguments and result run through redaction; the
+    idempotency key is still hashed from the raw (unredacted) args."""
+    source = inspect.getsource(tool_runtime.execute)
+
+    assert "arguments=redact_ai_payload(validated_args)" in source
+    assert "call.result = redact_ai_payload(result)" in source
+    # idempotency must hash the raw args, not the redacted copy.
+    assert "_idempotency_key(tool_name, session_id, validated_args)" in source
+
+
+def test_confirmed_tool_result_is_redacted_and_actor_stamped():
+    """execute_confirmed scrubs the persisted result and records who confirmed it."""
+    source = inspect.getsource(tool_runtime.execute_confirmed)
+
+    assert "call.result = redact_ai_payload(result)" in source
+    assert "call.confirmation_id = confirmation.id" in source
+    assert "call.confirmed_by_user_id = user.id" in source
+
+
+def test_skill_run_input_payload_uses_strengthened_redaction():
+    """run_structured_skill persists a redacted input payload, and _redacted_input
+    delegates to the shared (non-toothless) redaction helper."""
+    from app.ai import controller as controller_module
+
+    assert "_redacted_input(input_payload)" in inspect.getsource(ai_controller.run_structured_skill)
+    assert "redact_ai_payload(payload)" in inspect.getsource(controller_module._redacted_input)
+
+
+def test_raw_ai_output_only_persisted_when_flag_enabled():
+    """raw_ai_output must be gated on settings.ai_store_raw_outputs (defaults off)."""
+    structured = inspect.getsource(ai_controller._log_ai_call)
+    assistant = inspect.getsource(ai_controller._log_assistant_ai_call)
+
+    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in structured
+    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in assistant
+
+
+def test_max_tokens_clamped_to_ceiling_before_claude():
+    from app.core.config import settings
+
+    assert _clamp_max_tokens(settings.claude_max_tokens_ceiling + 100000) == settings.claude_max_tokens_ceiling
+    assert _clamp_max_tokens(123) == 123
+    # Every Claude call site clamps its max_tokens.
+    for fn in (
+        ai_controller.run_structured_skill,
+        ai_controller.stream_assistant_run,
+        ai_controller.resume_assistant_run,
+    ):
+        assert "_clamp_max_tokens(spec.max_tokens)" in inspect.getsource(fn)
+
+
+def test_cost_cap_enforced_before_every_claude_call():
+    """Each Claude call site calls enforce_daily_token_cap first, and usage is
+    recorded back into the daily counter."""
+    for fn in (
+        ai_controller.run_structured_skill,
+        ai_controller.stream_assistant_run,
+        ai_controller.resume_assistant_run,
+    ):
+        assert "enforce_daily_token_cap(" in inspect.getsource(fn)
+    assert "record_token_usage(" in inspect.getsource(ai_controller._record_usage)
+
+
+def test_cost_cap_fails_open_and_is_noop_when_unset():
+    """Cap <= 0 is a no-op (no Redis touched) and any Redis error fails open."""
+    from app.core.config import settings
+    from app.ai import cost_guard
+
+    original_cap = settings.claude_daily_token_cap_per_org
+    original_client = cost_guard._redis_client
+    try:
+        # cap <= 0 → unlimited; Redis must not even be constructed.
+        settings.claude_daily_token_cap_per_org = 0
+
+        def _explode():
+            raise AssertionError("Redis must not be touched when cap <= 0")
+
+        cost_guard._redis_client = _explode
+        cost_guard.enforce_daily_token_cap("org-A")  # no raise
+        cost_guard.record_token_usage("org-A", 5000)  # no raise
+
+        # Positive cap but Redis unreachable → fail open (no exception).
+        settings.claude_daily_token_cap_per_org = 100
+
+        def _fail():
+            raise RuntimeError("redis down")
+
+        cost_guard._redis_client = _fail
+        cost_guard.enforce_daily_token_cap("org-A")  # fail open → no raise
+        cost_guard.record_token_usage("org-A", 50)   # fail open → no raise
+    finally:
+        settings.claude_daily_token_cap_per_org = original_cap
+        cost_guard._redis_client = original_client
+
+
+def test_cost_cap_rejects_with_429_when_exceeded():
+    from fastapi import HTTPException
+
+    from app.core.config import settings
+    from app.ai import cost_guard
+
+    class _FakeClient:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self, _key):
+            return self.value
+
+        def close(self):
+            pass
+
+    original_cap = settings.claude_daily_token_cap_per_org
+    original_client = cost_guard._redis_client
+    try:
+        settings.claude_daily_token_cap_per_org = 100
+        cost_guard._redis_client = lambda: _FakeClient(b"150")  # already over
+        try:
+            cost_guard.enforce_daily_token_cap("org-A")
+        except HTTPException as exc:
+            assert exc.status_code == 429
+        else:  # pragma: no cover - must raise
+            raise AssertionError("expected HTTP 429 when daily cap is exceeded")
+
+        cost_guard._redis_client = lambda: _FakeClient(b"50")  # under cap
+        cost_guard.enforce_daily_token_cap("org-A")  # no raise
+    finally:
+        settings.claude_daily_token_cap_per_org = original_cap
+        cost_guard._redis_client = original_client
+
+
+def test_external_share_passcode_requires_at_least_eight_chars():
+    import pytest
+
+    with pytest.raises(Exception):
+        ExternalShareInput(contract_handle="contract-0", passcode="1234567")  # 7 chars
+    ok = ExternalShareInput(contract_handle="contract-0", passcode="12345678")  # 8 chars
+    assert ok.passcode == "12345678"

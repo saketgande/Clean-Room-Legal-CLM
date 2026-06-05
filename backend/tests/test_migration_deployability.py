@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -48,8 +49,11 @@ def test_audit_hash_chain_migration_backfills_and_recreates_triggers():
 
 
 def test_alembic_offline_sql_generation_succeeds():
+    # Invoke alembic via the running interpreter (python -m alembic) rather than a
+    # bare "alembic" on PATH, so the test uses the same venv that has the app + its
+    # pinned deps installed instead of whatever alembic happens to be first on PATH.
     result = subprocess.run(
-        ["alembic", "upgrade", "head", "--sql"],
+        [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
         check=True,
         capture_output=True,
         text=True,

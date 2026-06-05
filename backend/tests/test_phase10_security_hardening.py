@@ -141,6 +141,10 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
         mock_docusign=False,
         mock_reducto=False,
         mock_resend=False,
+        # DocuSign Connect HMAC is required once DocuSign is live (mock off),
+        # and public links must use a non-loopback https base URL.
+        docusign_connect_hmac_key="z" * 40,
+        app_base_url="https://app.example.com",
         cors_origins="https://app.example.com",
         allowed_hosts="app.example.com",
         refresh_cookie_secure=True,

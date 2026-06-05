@@ -29,6 +29,18 @@ dependencies = [
   "sqlalchemy>=2.0.35",
   "tenacity>=9.0.0",
   "uvicorn[standard]>=0.30.6",
+  # --- Production runtime (optional at import time; guarded by config/env) ---
+  # WSGI/ASGI process manager for the prod container (gunicorn + uvicorn worker).
+  "gunicorn>=23.0.0",
+  # Error tracking + tracing. Integrations are lazily wired in app startup only
+  # when SENTRY_DSN is set, so importing the SDK is harmless in dev.
+  "sentry-sdk[fastapi,celery,sqlalchemy]>=2.18.0",
+  # /metrics Prometheus exposition for the FastAPI app.
+  "prometheus-fastapi-instrumentator>=7.0.0",
+  # Circuit breakers around flaky outbound integrations (Claude/DocuSign/etc.).
+  "pybreaker>=1.2.0",
+  # S3-compatible object storage backend for contract files (opt-in via config).
+  "boto3>=1.35.0",
 ]
 
 [project.optional-dependencies]

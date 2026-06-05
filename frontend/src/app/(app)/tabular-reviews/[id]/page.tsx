@@ -189,7 +189,7 @@ export default function TabularReviewDetailPage({
           <tbody>
             {review.source_contract_ids.map((cid) => (
               <TR key={cid}>
-                <TD className="sticky left-0 bg-white font-medium text-slate-900">
+                <TD className="sticky left-0 bg-slate-100 font-medium text-slate-900">
                   {contractTitle(cid)}
                 </TD>
                 {sortedColumns.map((col) => {

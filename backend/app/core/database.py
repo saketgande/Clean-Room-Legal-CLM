@@ -1,8 +1,8 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, MetaData, String, create_engine
-from sqlalchemy.orm import DeclarativeBase, declared_attr, sessionmaker
+from sqlalchemy import Boolean, Column, DateTime, MetaData, String, create_engine, text
+from sqlalchemy.orm import DeclarativeBase, Session, declared_attr, sessionmaker
 
 from app.core.config import settings
 
@@ -84,3 +84,22 @@ engine = create_engine(
 SessionLocal = sessionmaker(
     autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
 )
+
+
+def set_session_org(session: Session, org_id: str | None) -> None:
+    """Bind the current org onto the session for Postgres row-level security.
+
+    Issues ``SET LOCAL app.current_org_id`` so RLS policies can scope rows to
+    the active tenant. ``SET LOCAL`` is transaction-scoped, so this takes
+    effect for the remainder of the current transaction on ``session``.
+
+    No-op unless ``ENABLE_RLS`` is on AND an org id is supplied — when RLS is
+    disabled (the default) there are no policies to satisfy and existing
+    session usage is completely unaffected.
+    """
+    if not settings.enable_rls or not org_id:
+        return
+    # Parameter-bound to avoid any chance of injection via the org id.
+    session.execute(
+        text("SET LOCAL app.current_org_id = :org_id"), {"org_id": org_id}
+    )

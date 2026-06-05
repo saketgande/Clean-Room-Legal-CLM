@@ -1,4 +1,4 @@
-from sqlalchemy import or_, select, true
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -9,8 +9,14 @@ from app.projects.models import Project, ProjectContract, ProjectMember, Project
 
 
 def accessible_contract_filter(user: User):
+    # F-03: org scoping is ALWAYS enforced, including for admins. Previously this
+    # returned true() for admins, which dropped the tenant boundary entirely and
+    # leaked cross-org rows through any caller that JOINed Contract without its own
+    # org_id filter. Admins now escalate WITHIN their org, never across it — matching
+    # the row-level guard in user_can_access_contract().
+    org_scope = Contract.org_id == user.org_id
     if is_org_admin(user):
-        return true()
+        return org_scope
     project_membership = (
         select(ProjectContract.id)
         .join(Project, Project.id == ProjectContract.project_id)
@@ -45,11 +51,14 @@ def accessible_contract_filter(user: User):
         )
         .exists()
     )
-    return or_(
-        Contract.owner_user_id == user.id,
-        Contract.created_by_user_id == user.id,
-        project_membership,
-        project_share,
+    return and_(
+        org_scope,
+        or_(
+            Contract.owner_user_id == user.id,
+            Contract.created_by_user_id == user.id,
+            project_membership,
+            project_share,
+        ),
     )
 
 

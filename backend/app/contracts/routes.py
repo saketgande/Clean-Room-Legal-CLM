@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.contract_files.service import create_contract_from_upload
 from app.contracts.lifecycle import allowed_transitions_for, transition_contract_stage
+from app.core.config import settings
+from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 from app.contracts.schemas import (
     ContractActivityResponse,
@@ -29,10 +31,14 @@ hub_router = APIRouter(prefix="/contract-hub", tags=["contract-hub"])
 
 @router.get("", response_model=list[ContractResponse])
 def list_contracts(
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
-    return list_contracts_for_user(db, user=current_user)
+    # Optional pagination; defaults preserve the historical "first 100, newest
+    # first" behaviour so existing callers/tests see an unchanged list shape.
+    return list_contracts_for_user(db, user=current_user, limit=limit, offset=offset)
 
 
 @router.post(
@@ -40,8 +46,10 @@ def list_contracts(
     response_model=ContractUploadResponse,
     status_code=status.HTTP_201_CREATED,
 )
+@limiter.limit(settings.rate_limit_contract_upload)
 async def upload_contract(
     request: Request,
+    response: Response,
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     counterparty_name: str | None = Form(default=None),

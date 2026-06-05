@@ -30,7 +30,7 @@ const buttonVariants: Record<ButtonVariant, string> = {
   secondary:
     "bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950 shadow-sm",
   outline:
-    "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-400",
+    "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50 hover:border-slate-400",
   ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
   danger: "bg-red-600 text-white hover:bg-red-700 active:bg-red-800 shadow-sm",
 };
@@ -79,7 +79,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-slate-200 bg-white shadow-card",
+        "rounded-2xl border border-slate-200 bg-slate-100 shadow-card",
         className,
       )}
       {...props}
@@ -171,7 +171,7 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      "h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50 disabled:text-slate-500",
+      "h-9 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50 disabled:text-slate-500",
       className,
     )}
     {...props}
@@ -186,7 +186,7 @@ export const Textarea = forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
       className,
     )}
     {...props}
@@ -201,7 +201,7 @@ export const Select = forwardRef<
   <select
     ref={ref}
     className={cn(
-      "h-9 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "h-9 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
       className,
     )}
     {...props}
@@ -324,7 +324,7 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white py-16 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-100 py-16 text-center">
       {icon && (
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
           {icon}
@@ -423,7 +423,7 @@ export function Modal({
       />
       <div
         className={cn(
-          "relative z-10 w-full animate-fade-in rounded-2xl border border-slate-200 bg-white shadow-pop",
+          "relative z-10 w-full animate-fade-in rounded-2xl border border-slate-200 bg-slate-100 shadow-pop",
           widths[size],
         )}
       >

@@ -23,14 +23,16 @@ class Settings(BaseSettings):
     allowed_hosts: str = "*"
     force_https: bool = False
 
-    database_url: str = "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm"
+    # No hardcoded dev default: a missing DATABASE_URL must fail fast at
+    # construction time rather than silently pointing at a throwaway DB.
+    database_url: str
     redis_url: str = "redis://localhost:6379/0"
     storage_root: Path = Path("./.local-contract-storage")
 
-    # SQLAlchemy connection pool. Defaults are sane for a single dev process but
-    # almost certainly too small for a multi-worker production deployment.
-    db_pool_size: int = 10
-    db_max_overflow: int = 20
+    # SQLAlchemy connection pool. Conservative per-worker defaults; size up via
+    # env for a multi-worker production deployment with a generous DB max_conn.
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800
     db_pool_timeout_seconds: int = 30
 
@@ -53,6 +55,13 @@ class Settings(BaseSettings):
     rate_limit_refresh: str = "30/minute"
     rate_limit_password_reset: str = "5/minute"
     rate_limit_invitation_accept: str = "5/minute"
+    # F-02: unauthenticated, token-bearing approval endpoint. Kept tight.
+    rate_limit_token_decision: str = "5/minute"
+    # Streaming assistant / contract upload / generic AI-skill endpoints. These
+    # are heavier than auth calls so they get their own buckets.
+    rate_limit_assistant_stream: str = "10/minute"
+    rate_limit_contract_upload: str = "20/minute"
+    rate_limit_ai_skill: str = "20/minute"
     rate_limit_enabled: bool = True
 
     # When True, password reset tokens are echoed back in the API response —
@@ -92,17 +101,23 @@ class Settings(BaseSettings):
 
     claude_api_key: str | None = None
     claude_model: str = "claude-3-5-sonnet-latest"
-    mock_claude: bool = True
-    ai_store_raw_outputs: bool = True
+    # Mock integrations default OFF — production-safe. Local dev opts back in
+    # explicitly via MOCK_* env (see .env.example / tests/conftest.py).
+    mock_claude: bool = False
+    ai_store_raw_outputs: bool = False
     ai_max_tool_iterations: int = 8
     ai_default_temperature: float = 0.0
 
     reducto_api_key: str | None = None
-    mock_reducto: bool = True
+    mock_reducto: bool = False
 
     resend_api_key: str | None = None
     resend_from_email: str = "legal-clm@example.com"
-    mock_resend: bool = True
+    mock_resend: bool = False
+
+    # Public base URL of the web app, used to build clickable links in emails
+    # (e.g. one-click Approve/Reject). Override via APP_BASE_URL in production.
+    app_base_url: str = "http://localhost:4173"
 
     docusign_integration_key: str | None = None
     docusign_user_id: str | None = None
@@ -111,7 +126,7 @@ class Settings(BaseSettings):
     docusign_oauth_base_url: str = "https://account-d.docusign.com"
     docusign_rest_base_url: str = "https://demo.docusign.net/restapi"
     docusign_connect_hmac_key: str | None = None
-    mock_docusign: bool = True
+    mock_docusign: bool = False
 
     verbose_debug_logging: bool = False
     allow_dev_reset: bool = False
@@ -123,9 +138,42 @@ class Settings(BaseSettings):
     claude_retry_initial_backoff_seconds: float = 1.0
     claude_retry_max_backoff_seconds: float = 30.0
 
+    # Claude spend guardrails. Per-org daily token budget (input+output) and a
+    # hard ceiling on max_tokens for any single request so a runaway prompt
+    # can't blow the budget in one call.
+    claude_daily_token_cap_per_org: int = 5_000_000
+    claude_max_tokens_ceiling: int = 8000
+
     # Upload pipeline safety nets.
     upload_stream_chunk_bytes: int = 1024 * 1024  # 1 MB chunks
     pdf_max_extracted_text_bytes: int = 8 * 1024 * 1024  # 8 MB cap per contract
+
+    # Object storage backend. "local" writes under storage_root (default,
+    # dev-friendly); "s3" targets the bucket/endpoint/region below.
+    storage_backend: str = "local"  # "local" | "s3"
+    s3_bucket: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_region: str | None = None
+
+    # Optional ClamAV antivirus scan on upload. Off by default so local dev
+    # and CI don't need a clamd sidecar; the host/port target a clamd daemon.
+    enable_clamav: bool = False
+    clamav_host: str = "clamav"
+    clamav_port: int = 3310
+
+    # Postgres row-level security. When on, sessions set app.current_org_id so
+    # RLS policies can scope rows. No-op (and policies absent) by default.
+    enable_rls: bool = False
+
+    # Sentry error reporting. Unset DSN disables it entirely; PII is never sent.
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.05
+
+    # Prometheus metrics endpoint (/metrics). Off by default.
+    enable_metrics: bool = False
+
+    # CORS preflight cache lifetime (seconds) sent as Access-Control-Max-Age.
+    cors_max_age_seconds: int = 600
 
     @field_validator("allowed_mime_types", mode="before")
     @classmethod
@@ -158,7 +206,6 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append(f"replace {', '.join(insecure_values)}")
     if enabled_mocks:
         problems.append(f"disable mock integrations {', '.join(enabled_mocks)}")
-    # HMAC key intentionally optional: Connect is plan-gated; the webhook self-rejects when unset.
 
     # Security flags that must be tightened before going live.
     if settings.expose_password_reset_token_in_response:
@@ -173,6 +220,14 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append("set ALLOWED_HOSTS to a non-wildcard list")
     if "*" in settings.cors_origins.split(","):
         problems.append("set CORS_ORIGINS to an explicit list")
+
+    # When DocuSign is live (not mocked) the Connect webhook MUST verify its
+    # HMAC signature, otherwise anyone can forge envelope status callbacks.
+    if not settings.mock_docusign and not settings.docusign_connect_hmac_key:
+        problems.append("set DOCUSIGN_CONNECT_HMAC_KEY (required when MOCK_DOCUSIGN is off)")
+    # Public links must not point at a developer's loopback address in prod.
+    if settings.app_base_url.lower().startswith("http://localhost"):
+        problems.append("set APP_BASE_URL to a public https URL (not http://localhost)")
 
     if problems:
         raise RuntimeError("Insecure production configuration: " + "; ".join(problems))

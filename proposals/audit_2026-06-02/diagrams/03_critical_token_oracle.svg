@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect width="980" height="560" fill="#fff"/>
+  <text x="490" y="36" text-anchor="middle" font-size="22" font-weight="bold" fill="#7f1d1d">Critical #2 — Approval-token endpoint leaks information and has no rate limit</text>
+  <text x="490" y="60" text-anchor="middle" font-size="13" fill="#555">An attacker can guess valid tokens by reading the different error codes the server returns.</text>
+
+  <!-- Attacker -->
+  <rect x="40" y="120" width="180" height="100" rx="8" fill="#fee2e2" stroke="#dc2626" stroke-width="1.5"/>
+  <text x="130" y="146" text-anchor="middle" font-size="15" font-weight="bold" fill="#7f1d1d">Attacker bot</text>
+  <text x="130" y="168" text-anchor="middle" font-size="12">tries millions of</text>
+  <text x="130" y="184" text-anchor="middle" font-size="12">random tokens</text>
+  <text x="130" y="206" text-anchor="middle" font-size="11" fill="#7f1d1d">no rate limit → unlimited</text>
+
+  <!-- Endpoint -->
+  <rect x="320" y="100" width="260" height="160" rx="8" fill="#fff" stroke="#333" stroke-width="1.8"/>
+  <text x="450" y="128" text-anchor="middle" font-size="14" font-weight="bold">POST /approvals/token-decision</text>
+  <text x="450" y="148" text-anchor="middle" font-size="11" fill="#555">unauthenticated · public endpoint</text>
+  <text x="450" y="170" text-anchor="middle" font-size="12">looks up token across ALL orgs</text>
+  <text x="450" y="188" text-anchor="middle" font-size="12">returns different status per case</text>
+  <text x="450" y="210" text-anchor="middle" font-size="11" fill="#7f1d1d">token = the only credential</text>
+  <text x="450" y="238" text-anchor="middle" font-size="11" fill="#7f1d1d">no IP throttling, no audit per attempt</text>
+
+  <line x1="220" y1="170" x2="320" y2="170" stroke="#dc2626" stroke-width="2" marker-end="url(#arr3)"/>
+  <text x="270" y="160" text-anchor="middle" font-size="11" fill="#dc2626">spam requests</text>
+
+  <!-- Response oracle -->
+  <text x="780" y="92" text-anchor="middle" font-size="14" font-weight="bold">What the server tells the attacker</text>
+  <rect x="660" y="110" width="280" height="60" rx="6" fill="#fff7ed" stroke="#f59e0b"/>
+  <text x="800" y="132" text-anchor="middle" font-size="12" font-weight="bold">404 "not found"</text>
+  <text x="800" y="152" text-anchor="middle" font-size="11" fill="#7c2d12">→ this random token is fake. skip.</text>
+
+  <rect x="660" y="182" width="280" height="60" rx="6" fill="#fff7ed" stroke="#f59e0b"/>
+  <text x="800" y="204" text-anchor="middle" font-size="12" font-weight="bold">409 "expired"</text>
+  <text x="800" y="224" text-anchor="middle" font-size="11" fill="#7c2d12">→ this WAS real! token format works.</text>
+
+  <rect x="660" y="254" width="280" height="60" rx="6" fill="#fff7ed" stroke="#f59e0b"/>
+  <text x="800" y="276" text-anchor="middle" font-size="12" font-weight="bold">409 "already used"</text>
+  <text x="800" y="296" text-anchor="middle" font-size="11" fill="#7c2d12">→ this was real too. valid pattern found.</text>
+
+  <rect x="660" y="326" width="280" height="60" rx="6" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="800" y="348" text-anchor="middle" font-size="12" font-weight="bold" fill="#7f1d1d">200 "ok, approved"</text>
+  <text x="800" y="368" text-anchor="middle" font-size="11" fill="#7f1d1d">→ attacker just approved a contract.</text>
+
+  <line x1="580" y1="160" x2="660" y2="140" stroke="#444" stroke-width="1.5" marker-end="url(#arr3)"/>
+  <line x1="580" y1="200" x2="660" y2="212" stroke="#444" stroke-width="1.5" marker-end="url(#arr3)"/>
+  <line x1="580" y1="220" x2="660" y2="284" stroke="#444" stroke-width="1.5" marker-end="url(#arr3)"/>
+  <line x1="580" y1="240" x2="660" y2="356" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr3)"/>
+
+  <!-- Fix -->
+  <rect x="60" y="420" width="860" height="110" rx="8" fill="#ecfdf5" stroke="#059669" stroke-width="1.5"/>
+  <text x="490" y="446" text-anchor="middle" font-size="14" font-weight="bold" fill="#065f46">The fix (proposed)</text>
+  <text x="490" y="468" text-anchor="middle" font-size="12" fill="#065f46">1. Return the SAME 401 response for every failure case — attacker can no longer tell what's real.</text>
+  <text x="490" y="486" text-anchor="middle" font-size="12" fill="#065f46">2. Add per-IP rate limiting (SlowAPI) — N requests per minute, then 429.</text>
+  <text x="490" y="504" text-anchor="middle" font-size="12" fill="#065f46">3. Write an audit row per attempt — failed attempts are now visible to security.</text>
+  <text x="490" y="522" text-anchor="middle" font-size="12" fill="#065f46">4. Cap the comment field length so the token endpoint can't be abused for spam content.</text>
+</svg>

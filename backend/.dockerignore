@@ -1,0 +1,34 @@
+# Keep the build context small and never ship secrets, caches, or tests into
+# the image. The Dockerfile also COPYs only specific paths, but excluding here
+# speeds up the build and avoids accidental secret leakage via the context.
+
+# Secrets & environment — never bake into an image (see DEPLOY.md for the
+# runtime .env / mounted-secret approach instead).
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+
+# Virtualenvs & Python caches
+.venv/
+__pycache__/
+*.pyc
+
+# Local-only data
+.local-contract-storage/
+
+# Tests are not part of the runtime image
+tests/
+
+# VCS / CI / docs / editor cruft
+.git/
+.github/
+*.md
+.DS_Store
+.ruff_cache
+.pytest_cache
+
+# Build metadata that pip would otherwise pick up as a stale install
+*.egg-info/

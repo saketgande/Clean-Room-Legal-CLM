@@ -83,3 +83,38 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
             )
             if "response" in locals():
                 response.headers["X-Request-ID"] = request_id
+
+
+# Static header set applied to every response. Computed once at import time —
+# Settings is immutable in-process, so HSTS inclusion is decided here.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+if settings.force_https:
+    # Two years, subdomains, and preload-list eligible. Only meaningful over
+    # HTTPS, so gated on the same flag that turns on the redirect middleware.
+    _SECURITY_HEADERS["Strict-Transport-Security"] = (
+        "max-age=63072000; includeSubDomains; preload"
+    )
+
+# Locked-down CSP for JSON API responses (no document/script context at all).
+_API_CSP = "default-src 'none'; frame-ancestors 'none'"
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach baseline security headers to every response.
+
+    Header values are static, so we apply the precomputed map and only special-
+    case the API prefix, which gets a strict Content-Security-Policy on top.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        for header, value in _SECURITY_HEADERS.items():
+            response.headers.setdefault(header, value)
+        if request.url.path.startswith(settings.api_v1_prefix):
+            response.headers.setdefault("Content-Security-Policy", _API_CSP)
+        return response

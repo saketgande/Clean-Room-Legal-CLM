@@ -39,6 +39,10 @@ class EditContractInput(ContractHandleInput):
     instructions: str
 
 
+class RedraftContractInput(ContractHandleInput):
+    instructions: str = ""
+
+
 class PlaybookToolInput(ContractHandleInput):
     playbook_id: str
     playbook_version_id: str | None = None
@@ -90,12 +94,25 @@ class ReadTableCellsInput(BaseModel):
 
 class ExternalShareInput(ContractHandleInput):
     expires_in_days: int | None = Field(default=7, ge=1, le=365)
-    passcode: str | None = Field(default=None, min_length=4)
+    passcode: str | None = Field(default=None, min_length=8)
     download_allowed: bool = False
 
 
 class ArchiveContractInput(ContractHandleInput):
     reason: str | None = None
+
+
+class AttentionItemsInput(BaseModel):
+    window_days: int = Field(default=7, ge=1, le=365)
+
+
+class FindContractsInput(BaseModel):
+    query: str = Field(min_length=1)
+
+
+class ListObligationsInput(BaseModel):
+    due_within_days: int | None = Field(default=None, ge=1, le=3650)
+    group_by: str | None = Field(default=None)
 
 
 class GenericToolOutput(BaseModel):
@@ -215,6 +232,22 @@ _register(
     confirmation_policy="required",
     feature_flag="feature.ai.edit_suggestions",
 )
+_register(
+    "redraft_contract",
+    "Rewrite an ENTIRE contract into a complete, professional, properly-"
+    "structured agreement, saved as a NEW version that becomes the current "
+    "document. Use this when the user asks to redraft/rewrite the whole "
+    "contract, flesh out a thin or placeholder draft, or 'make it a proper "
+    "contract with all the required sections/details' — i.e. a wholesale "
+    "rewrite. This is the right tool when edit_contract cannot anchor edits "
+    "because there is little existing language to quote. For small, targeted "
+    "changes to specific existing clauses, use edit_contract instead. Pass any "
+    "emphasis, party details, or requirements as `instructions`.",
+    AssistantToolCategory.MUTATING,
+    "contract:redline",
+    RedraftContractInput,
+    confirmation_policy="required",
+)
 _register("replicate_contract_version", "Replicate a contract version.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract_file:create", ContractHandleInput)
 _register(
     "run_playbook_review",
@@ -271,4 +304,26 @@ _register(
     "contract:archive",
     ArchiveContractInput,
     confirmation_policy="required",
+)
+# --- Spec A: read-only portfolio tools (let the assistant answer cross-contract questions) ---
+_register(
+    "my_attention_items",
+    "List the contracts that need the user's attention soon — upcoming renewals, pending approvals assigned to them, obligations due, and signatures in flight — within window_days. Use for 'what needs my attention this week'.",
+    AssistantToolCategory.READ_ONLY,
+    "contract:read",
+    AttentionItemsInput,
+)
+_register(
+    "find_contracts",
+    "Find contracts by title or counterparty name and return matches with handles for further tool use. Use to resolve a contract the user named (e.g. 'the TechCorp MSA').",
+    AssistantToolCategory.READ_ONLY,
+    "contract:read",
+    FindContractsInput,
+)
+_register(
+    "list_obligations",
+    "List obligations across the whole portfolio, optionally only those due within due_within_days, optionally grouped by counterparty. Use for 'what obligations are due in the next 30 days'.",
+    AssistantToolCategory.READ_ONLY,
+    "obligation:read",
+    ListObligationsInput,
 )

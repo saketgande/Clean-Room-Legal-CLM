@@ -691,7 +691,7 @@ export function AssistantWorkspace() {
   return (
     <div className="-mx-4 -my-4 flex h-[calc(100vh-3.5rem)] flex-col bg-slate-50 sm:-mx-6 sm:-my-6">
       {/* Top bar */}
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 text-sm">
+      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-slate-100 px-4 text-sm">
         <button
           onClick={() => setRailOpen(true)}
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
@@ -816,7 +816,7 @@ export function AssistantWorkspace() {
               </div>
 
               <div className="sticky bottom-7 w-full max-w-[640px]">
-                <div className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-pop transition focus-within:border-slate-300">
+                <div className="rounded-2xl border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-slate-300">
                   <textarea
                     rows={1}
                     placeholder="Ask Aegis, or describe what you need…"
@@ -1012,7 +1012,7 @@ export function AssistantWorkspace() {
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-slate-200 bg-white">
+              <div className="shrink-0 border-t border-slate-200 bg-slate-100">
                 <div className="mx-auto w-full max-w-3xl px-5 py-4">
                   {workflow && (
                     <div className="mb-2 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
@@ -1027,7 +1027,7 @@ export function AssistantWorkspace() {
                       </button>
                     </div>
                   )}
-                  <div className="rounded-2xl border border-slate-300 bg-white px-4 py-3 shadow-sm transition focus-within:border-slate-400">
+                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 shadow-sm transition focus-within:border-slate-400">
                     <textarea
                       rows={1}
                       placeholder="Ask a question about your documents…"
@@ -1086,7 +1086,7 @@ export function AssistantWorkspace() {
 
         {/* Document side panel (slides in) */}
         {hasDoc && activeContractId && (
-          <aside className="hidden w-[44%] min-w-[26rem] shrink-0 flex-col border-l border-slate-200 bg-white xl:flex">
+          <aside className="hidden w-[44%] min-w-[26rem] shrink-0 flex-col border-l border-slate-200 bg-slate-100 xl:flex">
             <div className="flex h-11 shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/80 px-2">
               {effectiveTabs.map((t) => {
                 const on = t.id === activeTab?.id;
@@ -1102,7 +1102,7 @@ export function AssistantWorkspace() {
                           ? "bg-amber-100 text-amber-800"
                           : t.kind === "draft"
                             ? "bg-emerald-100 text-emerald-800"
-                            : "bg-white text-slate-800 shadow-sm ring-1 ring-slate-200"
+                            : "bg-slate-100 text-slate-800 shadow-sm ring-1 ring-slate-200"
                         : "text-slate-500 hover:bg-slate-200/60",
                     )}
                   >
@@ -1126,7 +1126,7 @@ export function AssistantWorkspace() {
                           closeTab(t.id);
                         }}
                         title="Close tab"
-                        className="-mr-1 rounded p-0.5 opacity-60 hover:bg-black/5 hover:opacity-100"
+                        className="-mr-1 rounded p-0.5 opacity-60 hover:bg-white/10 hover:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -1166,7 +1166,7 @@ export function AssistantWorkspace() {
             className="absolute inset-0 bg-slate-900/20"
             onClick={() => setRailOpen(false)}
           />
-          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-slate-200 bg-white shadow-xl">
+          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-slate-200 bg-slate-100 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 p-3">
               <span className="text-sm font-semibold text-slate-900">
                 {projectParam ? "Project chats" : "Your chats"}
@@ -1435,7 +1435,7 @@ function InlineEditReview({
         return (
           <div
             key={e.id}
-            className="space-y-2 rounded-lg border border-slate-200 bg-white p-3"
+            className="space-y-2 rounded-lg border border-slate-200 bg-slate-100 p-3"
           >
             <div className="flex items-center justify-between gap-2">
               <Badge tone="slate">{titleCase(e.edit_type)}</Badge>
@@ -1611,7 +1611,7 @@ function TimelineStepCard({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white">
+    <div className="rounded-2xl border border-slate-200 bg-slate-100">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-slate-600"

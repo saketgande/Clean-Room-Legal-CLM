@@ -1,25 +1,63 @@
-# Production compose. Differences vs docker-compose.yml (dev):
-#   - no --reload, multiple uvicorn workers
-#   - no source bind-mount (image is the source of truth)
-#   - restart policies; postgres/redis not published to the host
+# Production compose for AEGIS Legal CLM.
+#
+# Differences vs docker-compose.yml (dev):
+#   - gunicorn + uvicorn workers (no --reload), restart policies
+#   - no source bind-mount (the built image is the source of truth)
+#   - postgres/redis NOT published to the host; only Caddy exposes 80/443
+#   - TLS + static frontend served by Caddy (see ./Caddyfile)
 #   - secrets come from a real .env (NOT .env.example); POSTGRES_PASSWORD required
 #
-# Usage:
+# Bring-up (see DEPLOY.md for the full operator guide):
 #   docker compose -f docker-compose.prod.yml up -d --build
-# Put the API behind a TLS-terminating reverse proxy; set in .env:
-#   ENVIRONMENT=production  DEBUG=false  FORCE_HTTPS=true
-#   CORS_ORIGINS=https://app.yourdomain.com  ALLOWED_HOSTS=api.yourdomain.com
+# Migrations are a separate, deliberate release step (entrypoint skips them in
+# production):
+#   docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
+#
+# Required in .env: ENVIRONMENT=production DEBUG=false FORCE_HTTPS=true
+#   POSTGRES_PASSWORD=<strong> API_DOMAIN=api.example.com APP_DOMAIN=app.example.com
+#   CORS_ORIGINS=https://app.example.com ALLOWED_HOSTS=api.example.com
+#
+# Opt-in profiles (heavy / situational; off by default):
+#   --profile scan    on-host ClamAV upload scanning
+#   --profile backup  local pg_dump cron (managed Postgres is recommended instead)
+
+# Cap each container's logs so the VM disk can't fill. View with
+#   docker compose -f docker-compose.prod.yml logs -f api worker frontend caddy
+# Browser/client errors are POSTed to the api and appear there (logger app.client).
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   api:
     build:
       context: .
-    entrypoint: ["sh", "/app/scripts/entrypoint.sh"]
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+    image: aegis-legal-clm-api:local
+    logging: *default-logging
+    # Behind Caddy, so trust the proxy's X-Forwarded-* headers.
+    command:
+      - gunicorn
+      - "-k"
+      - uvicorn.workers.UvicornWorker
+      - "-w"
+      - "4"
+      - "--timeout"
+      - "300"
+      - "--graceful-timeout"
+      - "30"
+      - "--forwarded-allow-ips"
+      - "*"
+      - "--bind"
+      - "0.0.0.0:8000"
+      - app.main:app
     env_file:
       - path: .env
         required: true
-    ports:
-      - "8000:8000"
+    # Deliberately no host port mapping — reachable only via the caddy service.
+    expose:
+      - "8000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,17 +69,18 @@ services:
     healthcheck:
       test:
         - "CMD"
-        - "python"
-        - "-c"
-        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/debug/health')"
+        - "curl"
+        - "-fsS"
+        - "http://localhost:8000/healthz"
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 45s
 
   worker:
-    build:
-      context: .
+    # Reuse the api image (built above) — no second build.
+    image: aegis-legal-clm-api:local
+    logging: *default-logging
     command: celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=4
     env_file:
       - path: .env
@@ -52,9 +91,25 @@ services:
       redis:
         condition: service_healthy
       api:
-        condition: service_healthy
+        condition: service_started
     volumes:
       - contract_file_storage:/data/contracts
+    restart: unless-stopped
+    # Give in-flight tasks time to finish on deploy/rollback before SIGKILL.
+    stop_grace_period: 60s
+
+  beat:
+    image: aegis-legal-clm-api:local
+    logging: *default-logging
+    command: celery -A app.jobs.celery_app.celery_app beat --loglevel=info
+    env_file:
+      - path: .env
+        required: true
+    depends_on:
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
     restart: unless-stopped
 
   postgres:
@@ -63,6 +118,23 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-legal_clm}
       POSTGRES_USER: ${POSTGRES_USER:-legal_clm}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+    # Conservative tuning for a small/medium single-node deployment. Adjust
+    # shared_buffers/work_mem to the host's RAM; the timeouts cap runaway
+    # queries and abandoned transactions.
+    command:
+      - postgres
+      - "-c"
+      - "max_connections=300"
+      - "-c"
+      - "shared_buffers=512MB"
+      - "-c"
+      - "work_mem=16MB"
+      - "-c"
+      - "statement_timeout=30s"
+      - "-c"
+      - "idle_in_transaction_session_timeout=60s"
+      - "-c"
+      - "log_min_duration_statement=1000"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -75,6 +147,9 @@ services:
 
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1000
+    volumes:
+      - redis_data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -82,6 +157,96 @@ services:
       timeout: 3s
       retries: 10
 
+  # --- Frontend (Next.js standalone Node server) ------------------------------
+  # Built from ../frontend (output:"standalone"). Reachable only via caddy on the
+  # internal network — no host port mapping. NEXT_PUBLIC_API_BASE_URL is baked at
+  # BUILD time (default /api/v1, same-origin via caddy); override per environment
+  # with the build arg if the API lives on a separate origin.
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api/v1}
+    expose:
+      - "3000"
+    logging: *default-logging
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2
+    logging: *default-logging
+    # The only host-facing service. Caddy terminates TLS (auto-provisions certs
+    # for $API_DOMAIN / $APP_DOMAIN), reverse-proxies /api/* to the API and
+    # everything else to the Next.js frontend service.
+    ports:
+      - "80:80"
+      - "443:443"
+    # Domains come from .env (API_DOMAIN / APP_DOMAIN). We pass the whole .env so
+    # those keys reach Caddy's {$API_DOMAIN}/{$APP_DOMAIN} placeholders; Caddy
+    # ignores the unrelated app vars. Leaving them UNSET (local/no-domain mode)
+    # lets the Caddyfile's :localhost defaults + the :80 block take over — note
+    # we intentionally do NOT inject empty-string defaults here, since an empty
+    # site label is a Caddyfile parse error.
+    env_file:
+      - path: .env
+        required: true
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - frontend
+    restart: unless-stopped
+
+  # --- Opt-in: on-host antivirus for uploads (profile: scan) ------------------
+  # Heavy (large signature DB, ~1GB+ RAM). Only starts with `--profile scan`.
+  # Wire the API's upload scan to tcp://clamav:3310 when enabled.
+  clamav:
+    image: clamav/clamav:latest
+    profiles: ["scan"]
+    volumes:
+      - clamav_data:/var/lib/clamav
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # --- Opt-in: local Postgres backups (profile: backup) -----------------------
+  # Convenience for self-managed Postgres. RECOMMENDED ALTERNATIVE: use a managed
+  # Postgres (RDS/Cloud SQL/etc.) with provider-native PITR backups and drop this
+  # service entirely. Only starts with `--profile backup`.
+  db-backup:
+    image: prodrigestivill/postgres-backup-local:16
+    profiles: ["backup"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-legal_clm}
+      POSTGRES_USER: ${POSTGRES_USER:-legal_clm}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the environment}
+      # Daily at 02:00; keep a rolling 7d / 4w / 6m window.
+      SCHEDULE: "@daily"
+      BACKUP_KEEP_DAYS: "7"
+      BACKUP_KEEP_WEEKS: "4"
+      BACKUP_KEEP_MONTHS: "6"
+    volumes:
+      - db_backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
-  postgres_data:
   contract_file_storage:
+  postgres_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  clamav_data:
+  db_backups:

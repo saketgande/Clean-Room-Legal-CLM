@@ -91,6 +91,11 @@ class UserInvitationResponse(BaseModel):
     accepted_at: datetime | None = None
     revoked_at: datetime | None = None
     token: str | None = None
+    # True when the invite email was delivered. None on list responses (we
+    # don't track delivery retroactively); set only when an invitation is
+    # created. The admin UI uses this to decide whether to prompt the inviter
+    # to share the link manually.
+    email_sent: bool | None = None
 
 
 class AcceptInvitationRequest(BaseModel):

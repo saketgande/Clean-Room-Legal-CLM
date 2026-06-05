@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.contract_files.models import ContractVersion, StorageObject
-from app.contracts.access import accessible_contract_filter, user_can_access_contract
+from app.contracts.access import accessible_contract_filter
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user

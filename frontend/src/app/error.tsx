@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/client-logger";
 
 export default function Error({
   error,
@@ -11,6 +12,11 @@ export default function Error({
 }) {
   useEffect(() => {
     console.error(error);
+    reportClientError({
+      kind: "error-boundary",
+      message: error.message || "Render error",
+      stack: error.stack,
+    });
   }, [error]);
 
   return (
@@ -34,7 +40,7 @@ export default function Error({
         </button>
         <a
           href="/"
-          className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+          className="rounded-lg border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
         >
           Go to assistant
         </a>

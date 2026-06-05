@@ -74,7 +74,9 @@ class ContractShareCreate(BaseModel):
     contract_version_id: str | None = None
     access_mode: ShareAccessMode = ShareAccessMode.VIEW_ONLY
     expires_at: datetime | None = None
-    passcode: str | None = Field(default=None, min_length=4, max_length=128)
+    # Minimum length 8: share passcodes gate unauthenticated external access,
+    # so they must resist brute-force more than a 4-digit PIN would.
+    passcode: str | None = Field(default=None, min_length=8, max_length=128)
     download_allowed: bool = False
 
 

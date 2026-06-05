@@ -4,16 +4,10 @@ from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
 import httpx
-from tenacity import (
-    AsyncRetrying,
-    RetryError,
-    retry_if_exception,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from app.core.config import settings
 from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
+from app.integrations._http_retry import resilient_call
 
 
 logger = logging.getLogger(__name__)
@@ -34,7 +28,10 @@ class ClaudeProviderResponse:
 # A long-lived shared HTTP client. The previous implementation constructed a
 # new ``httpx.AsyncClient`` per call, which forfeited connection pooling and
 # HTTP/2 reuse. ``httpx.AsyncClient`` is safe to share across asyncio tasks.
-_CLAUDE_TIMEOUT = httpx.Timeout(600.0, connect=10.0)
+#
+# 120s read timeout: long enough for a large structured/tool completion but
+# bounded so a stalled upstream connection can't pin a worker for ten minutes.
+_CLAUDE_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
 _shared_client: httpx.AsyncClient | None = None
 
 
@@ -51,13 +48,6 @@ async def aclose_claude_client() -> None:
     if _shared_client is not None and not _shared_client.is_closed:
         await _shared_client.aclose()
     _shared_client = None
-
-
-def _should_retry(exc: BaseException) -> bool:
-    if isinstance(exc, httpx.HTTPStatusError):
-        status = exc.response.status_code
-        return status == 429 or 500 <= status < 600
-    return isinstance(exc, (httpx.TransportError, httpx.TimeoutException))
 
 
 class ClaudeClient:
@@ -192,6 +182,7 @@ class ClaudeClient:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
         client = _client()
 
+        @resilient_call("claude")
         async def _do_request() -> tuple[dict[str, Any], str | None]:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
@@ -202,26 +193,31 @@ class ClaudeClient:
                 },
                 json=json_payload,
             )
+            if response.status_code >= 400:
+                # Surface Anthropic's error body — the part that actually says
+                # WHY (e.g. "messages: roles must alternate", "max_tokens too
+                # large", "model not found"). raise_for_status() alone discards
+                # it, leaving only an opaque "400 Bad Request for url".
+                body = ""
+                try:
+                    body = response.text[:1500]
+                except Exception:  # noqa: BLE001
+                    body = "<unreadable body>"
+                logger.error(
+                    "Anthropic /v1/messages %s (model=%s, max_tokens=%s): %s",
+                    response.status_code,
+                    json_payload.get("model"),
+                    json_payload.get("max_tokens"),
+                    body,
+                    extra={
+                        "error_class": "ClaudeAPIError",
+                        "status_code": response.status_code,
+                    },
+                )
             response.raise_for_status()
             return response.json(), response.headers.get("request-id")
 
-        try:
-            async for attempt in AsyncRetrying(
-                stop=stop_after_attempt(max(1, settings.claude_max_retries)),
-                wait=wait_exponential(
-                    multiplier=settings.claude_retry_initial_backoff_seconds,
-                    max=settings.claude_retry_max_backoff_seconds,
-                ),
-                retry=retry_if_exception(_should_retry),
-                reraise=True,
-            ):
-                with attempt:
-                    return await _do_request()
-        except RetryError as exc:  # pragma: no cover - reraise=True covers normal path
-            raise exc.last_attempt.exception() from exc
-
-        # Unreachable; AsyncRetrying always returns at least one attempt.
-        raise RuntimeError("Claude retry loop terminated without a response")
+        return await _do_request()
 
     def _to_provider_response(
         self,

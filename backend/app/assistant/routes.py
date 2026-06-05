@@ -22,8 +22,10 @@ from app.assistant.models import (
 )
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
+from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import AssistantRunStatus, AssistantSessionType
+from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 from app.projects.access import get_project_for_user
 
@@ -248,6 +250,7 @@ def list_run_tool_calls(
 
 
 @router.post("/sessions/{session_id}/stream")
+@limiter.limit(settings.rate_limit_assistant_stream)
 async def stream_session(
     session_id: str,
     payload: AssistantStreamRequest,
@@ -321,6 +324,15 @@ async def stream_session(
                 if event["event"] == "tool_finished":
                     for extra_event in _events_from_tool_result(event["payload"].get("result")):
                         yield _sse(extra_event["event"], extra_event["payload"])
+                # F-01/F-07: best-effort early-out. When the disconnect is observed
+                # BETWEEN iterations, break to stop driving the (paid) Claude loop and fall
+                # through to finalization. NOTE: on the pinned uvicorn/ASGI-2.3 stack
+                # Starlette cancels this generator at the suspended yield on disconnect,
+                # which can skip the finalization below and leave the run in RUNNING. The
+                # durable fix (terminal-state in a finally + the controller's own session)
+                # is the F-01 follow-up; this guard only reduces wasted spend.
+                if await request.is_disconnected():
+                    break
             if waiting_for_confirmation:
                 # The controller already set the run to WAITING_CONFIRMATION and
                 # committed; just surface the current status to the client.
@@ -380,6 +392,7 @@ async def stream_session(
 
 
 @router.post("/runs/{assistant_run_id}/resume")
+@limiter.limit(settings.rate_limit_assistant_stream)
 async def resume_run(
     assistant_run_id: str,
     request: Request,
