@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint + migrate + test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        # pgvector image so the migrations' CREATE EXTENSION vector succeeds.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: legal_clm
+          POSTGRES_USER: legal_clm
+          POSTGRES_PASSWORD: legal_clm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U legal_clm -d legal_clm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      # Keep validate_runtime_settings() in its permissive branch and point the
+      # app/alembic at the service containers.
+      ENVIRONMENT: test
+      DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm
+      REDIS_URL: redis://localhost:6379/0
+      STORAGE_ROOT: /tmp/contracts
+      # Keep all external integrations mocked in CI.
+      MOCK_CLAUDE: "true"
+      MOCK_REDUCTO: "true"
+      MOCK_RESEND: "true"
+      MOCK_DOCUSIGN: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system libs (libmagic for python-magic)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest -q

@@ -1,0 +1,68 @@
+[project]
+name = "clean-room-legal-clm-backend"
+version = "0.1.0"
+description = "Clean-room FastAPI backend for a contract-first legal AI and CLM platform."
+requires-python = ">=3.11"
+dependencies = [
+  "alembic>=1.13.2",
+  "anthropic>=0.40.0",
+  "bcrypt>=4.2.0",
+  "celery[redis]>=5.4.0",
+  "email-validator>=2.2.0",
+  "fastembed>=0.4.2",
+  "fastapi>=0.115.0",
+  "httpx>=0.27.2",
+  "openpyxl>=3.1.2",
+  "pgvector>=0.3.6",
+  "psycopg[binary]>=3.2.3",
+  "pyjwt[crypto]>=2.9.0",
+  "pypdf>=5.0.1",
+  "pydantic>=2.9.2",
+  "pydantic-settings>=2.5.2",
+  "python-docx>=1.1.2",
+  "python-magic>=0.4.27",
+  "python-multipart>=0.0.12",
+  "rapidfuzz>=3.10.1",
+  "redis>=5.1.1",
+  "reductoai>=0.22.0",
+  "slowapi>=0.1.9",
+  "sqlalchemy>=2.0.35",
+  "tenacity>=9.0.0",
+  "uvicorn[standard]>=0.30.6",
+  # --- Production runtime (optional at import time; guarded by config/env) ---
+  # WSGI/ASGI process manager for production (gunicorn + uvicorn worker).
+  "gunicorn>=23.0.0",
+  # Error tracking + tracing. Integrations are lazily wired in app startup only
+  # when SENTRY_DSN is set, so importing the SDK is harmless in dev.
+  "sentry-sdk[fastapi,celery,sqlalchemy]>=2.18.0",
+  # /metrics Prometheus exposition for the FastAPI app.
+  "prometheus-fastapi-instrumentator>=7.0.0",
+  # Circuit breakers around flaky outbound integrations (Claude/DocuSign/etc.).
+  "pybreaker>=1.2.0",
+  # S3-compatible object storage backend for contract files (opt-in via config).
+  "boto3>=1.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27.2",
+  "pytest>=8.3.3",
+  "pytest-asyncio>=0.24.0",
+  "ruff>=0.7.0",
+]
+
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

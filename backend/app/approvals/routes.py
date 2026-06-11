@@ -1,0 +1,252 @@
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.rate_limit import limiter
+
+from app.approvals.models import ApprovalRequest, ApprovalRoutingRule
+from app.approvals.service import (
+    decide_in_app,
+    redeem_token_decision,
+    submit_contract_for_approval,
+)
+from app.auth.models import User
+from app.contracts.models import Contract
+from app.contracts.access import user_can_access_contract
+from app.contracts.service import get_contract_for_user
+from app.core.deps import get_db, require_permission
+from app.core.rbac import has_permission
+
+router = APIRouter(prefix="/approvals", tags=["approvals"])
+
+
+class ApprovalSubmit(BaseModel):
+    contract_id: str
+    contract_version_id: str | None = None
+    approver_user_id: str | None = None
+    approver_role: str | None = None
+
+
+class ApprovalDecisionPayload(BaseModel):
+    decision: str = Field(pattern="^(approve|reject)$")
+    comment: str | None = None
+
+
+class TokenDecisionPayload(BaseModel):
+    token: str = Field(min_length=8)
+    decision: str = Field(pattern="^(approve|reject)$")
+    comment: str | None = None
+
+
+class RoutingRulePayload(BaseModel):
+    name: str
+    priority: str = "100"
+    criteria: dict = Field(default_factory=dict)
+    approver_role: str | None = None
+    approver_user_id: str | None = None
+    is_active: bool = True
+
+
+@router.get("")
+def list_approvals(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:read")),
+    limit: int = Query(default=100, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    rows = db.scalars(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.org_id == current_user.org_id)
+        .order_by(ApprovalRequest.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    # Batch-load the contracts referenced by this page in a single IN query so the
+    # per-row visibility check below doesn't fire one db.get() per approval (N+1).
+    contracts = _load_contracts_for_approvals(db, approvals=rows, user=current_user)
+    return [
+        row
+        for row in rows
+        if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
+    ]
+
+
+@router.get("/routing-rules")
+def list_routing_rules(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    return db.scalars(
+        select(ApprovalRoutingRule).where(ApprovalRoutingRule.org_id == current_user.org_id)
+    ).all()
+
+
+@router.post("/routing-rules", status_code=status.HTTP_201_CREATED)
+def create_routing_rule(
+    payload: RoutingRulePayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    if payload.approver_user_id:
+        approver = db.get(User, payload.approver_user_id)
+        if approver is None or approver.org_id != current_user.org_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Approver user must belong to this organization",
+            )
+    rule = ApprovalRoutingRule(
+        org_id=current_user.org_id,
+        name=payload.name,
+        priority=payload.priority,
+        criteria=payload.criteria,
+        approver_role=payload.approver_role,
+        approver_user_id=payload.approver_user_id,
+        is_active=payload.is_active,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    return rule
+
+
+@router.post("/requests", status_code=status.HTTP_201_CREATED)
+async def submit_for_approval(
+    payload: ApprovalSubmit,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:approve")),
+):
+    contract = get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
+    requests = await submit_contract_for_approval(
+        db,
+        user=current_user,
+        contract=contract,
+        contract_version_id=payload.contract_version_id,
+        approver_user_id=payload.approver_user_id,
+        approver_role=payload.approver_role,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    for approval in requests:
+        db.refresh(approval)
+    return requests
+
+
+@router.post("/requests/{approval_request_id}/decision")
+def decide_approval(
+    approval_request_id: str,
+    payload: ApprovalDecisionPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:decide")),
+):
+    approval = db.scalar(
+        select(ApprovalRequest)
+        .where(ApprovalRequest.id == approval_request_id)
+        .with_for_update()
+    )
+    if approval is None or approval.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
+    if not _can_decide_approval(approval=approval, user=current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
+    decide_in_app(
+        db,
+        user=current_user,
+        approval=approval,
+        decision=payload.decision,
+        comment=payload.comment,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    db.refresh(approval)
+    return approval
+
+
+@router.post("/token-decision")
+@limiter.limit(settings.rate_limit_token_decision)
+def decide_via_token(
+    payload: TokenDecisionPayload,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Token-authenticated approval decision. No session auth: the single-use,
+    expiring, email-bound token is the credential. Rate-limited per IP (F-02);
+    ``response`` is required so slowapi can inject rate-limit headers."""
+    _ = response
+    approval = redeem_token_decision(
+        db,
+        token=payload.token,
+        decision=payload.decision,
+        comment=payload.comment,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    db.refresh(approval)
+    return {
+        "approval_request_id": approval.id,
+        "status": approval.status,
+        "contract_id": approval.contract_id,
+    }
+
+
+def _user_role_names(user) -> set[str]:
+    return {role.name for role in getattr(user, "roles", [])}
+
+
+def _can_decide_approval(*, approval: ApprovalRequest, user) -> bool:
+    if has_permission(user.permission_values, "approval:admin"):
+        return True
+    if approval.requested_by_user_id == user.id:
+        return False
+    if approval.approver_user_id and approval.approver_user_id == user.id:
+        return True
+    if approval.approver_role and approval.approver_role in _user_role_names(user):
+        return True
+    return False
+
+
+def _load_contracts_for_approvals(
+    db: Session, *, approvals: list[ApprovalRequest], user
+) -> dict[str, Contract]:
+    """Fetch every contract referenced by ``approvals`` in one org-scoped IN query.
+
+    Returns a ``{contract_id: Contract}`` map so the per-row visibility check can
+    look up its contract without issuing a db.get() per approval (kills the N+1).
+    Org-scoping the query means a stale/cross-org contract_id simply won't appear
+    in the map, preserving the tenant boundary enforced by the previous db.get +
+    user_can_access_contract path."""
+    contract_ids = {a.contract_id for a in approvals if a.contract_id}
+    if not contract_ids:
+        return {}
+    rows = db.scalars(
+        select(Contract).where(
+            Contract.org_id == user.org_id,
+            Contract.id.in_(contract_ids),
+        )
+    ).all()
+    return {contract.id: contract for contract in rows}
+
+
+def _can_view_approval(
+    db: Session,
+    *,
+    approval: ApprovalRequest,
+    user,
+    contracts: dict[str, Contract] | None = None,
+) -> bool:
+    if _can_decide_approval(approval=approval, user=user):
+        return True
+    if approval.requested_by_user_id == user.id:
+        return True
+    # Use the batched map when provided (list endpoint); fall back to a direct
+    # lookup so any other caller keeps working unchanged.
+    if contracts is not None:
+        contract = contracts.get(approval.contract_id)
+    else:
+        contract = db.get(Contract, approval.contract_id)
+    return bool(contract and user_can_access_contract(db, contract=contract, user=user))

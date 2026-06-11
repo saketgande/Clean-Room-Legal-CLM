@@ -1,0 +1,19 @@
+
+> aegis-legal-clm-frontend@0.1.0 dev
+> next dev -p 3000
+
+   ▲ Next.js 15.5.19
+   - Local:        http://localhost:3000
+   - Network:      http://172.168.1.232:3000
+
+ ✓ Starting...
+ ✓ Ready in 3.4s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 5.4s (769 modules)
+ GET /login 200 in 5792ms
+ GET /login 200 in 98ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 3.6s (1400 modules)
+ GET /login 200 in 3870ms
+ GET / 200 in 59ms
+[?25h

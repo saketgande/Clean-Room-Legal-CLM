@@ -1,0 +1,19 @@
+[Unit]
+Description=AEGIS Legal CLM Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=aegis
+Group=aegis
+WorkingDirectory=/opt/aegis/frontend
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start -- -H 127.0.0.1
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

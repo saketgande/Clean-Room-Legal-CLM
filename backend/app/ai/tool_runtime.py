@@ -1,0 +1,2181 @@
+import hashlib
+import html
+import json
+import logging
+import re
+import secrets
+from datetime import UTC, date, datetime, timedelta
+from io import BytesIO
+from typing import Any
+
+from fastapi import HTTPException, status
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session
+
+from app.ai.confirmations import create_confirmation
+from app.ai.models import AIConfirmation
+from app.ai.redaction import redact_ai_payload
+from app.ai.tool_policy import is_tool_enabled
+from app.ai.tool_registry import (
+    ApprovalSubmitInput,
+    ArchiveContractInput,
+    AttentionItemsInput,
+    BrainAskInput,
+    FindContractsInput,
+    ListObligationsInput,
+    ContractHandleInput,
+    EditContractInput,
+    ExternalShareInput,
+    ExtractObligationsInput,
+    FindInContractInput,
+    GenerateContractInput,
+    PlaybookToolInput,
+    RedraftContractInput,
+    ProjectContractsInput,
+    ReadTableCellsInput,
+    SignatureSendInput,
+    TabularReviewInput,
+    WorkflowRunInput,
+    tool_registry,
+)
+from app.ai.schemas import BrainQueryParseOutput
+from app.assistant.models import AssistantContractHandle, AssistantToolCall
+from app.auth.models import User
+from app.approvals.service import submit_contract_for_approval
+from app.contract_brain.retrieval import assemble_context
+from app.contract_files.models import (
+    ContractShare,
+    ContractEdit,
+    ContractFile,
+    ContractTextSnapshot,
+    ContractVersion,
+    StorageObject,
+)
+from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
+from app.contracts.lifecycle import transition_contract_stage
+from app.obligations.models import Obligation
+from app.approvals.models import ApprovalRequest
+from app.renewals.models import RenewalEvent
+from app.contracts.service import get_contract_for_user
+from app.core.audit import write_audit_log, write_timeline_event
+from app.jobs.models import JobRun
+from app.jobs.service import create_job, dispatch_job
+from app.core.database import utcnow
+from app.core.enums import (
+    AssistantToolCallStatus,
+    ContractLifecycleStage,
+    ContractVersionSource,
+    ShareAccessMode,
+    SignatureStatus,
+    StorageBackend,
+    TabularCellStatus,
+)
+from app.core.rbac import has_permission
+from app.integrations.docusign import docusign_client
+from app.integrations.resend import resend_client
+from app.integrations.storage import storage_service
+from app.playbooks.models import Playbook, PlaybookVersion
+from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
+from app.projects.access import get_project_for_user
+from app.projects.models import ProjectContract
+from app.signatures.models import SignatureRecipient, SignatureRequest
+from app.signatures.service import validate_signature_recipients
+from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
+from app.tabular_review.service import dispatch_cells
+from app.workflows.builtin import builtin_workflows
+from app.workflows.models import Workflow, WorkflowRun
+
+
+class ToolRuntime:
+    async def execute(
+        self,
+        db: Session,
+        *,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        user: User,
+        session_id: str,
+        assistant_run_id: str | None = None,
+        provider_tool_use_id: str | None = None,
+        provider_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        spec = tool_registry.get(tool_name)
+        if not has_permission(user.permission_values, spec.required_permission):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {spec.required_permission}")
+        # F-04: hard gate covering the race where an admin disables a tool after it was
+        # advertised to Claude but before this call ran. No RUNNING row is created.
+        if not is_tool_enabled(db, org_id=user.org_id, spec=spec):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {tool_name}")
+        validated_input = spec.input_model.model_validate(tool_input)
+        validated_args = validated_input.model_dump(mode="json")
+        call = AssistantToolCall(
+            org_id=user.org_id,
+            session_id=session_id,
+            assistant_run_id=assistant_run_id,
+            provider_tool_use_id=provider_tool_use_id,
+            tool_name=tool_name,
+            category=spec.category,
+            # Scrub PII (emails, long digit runs, oversized text) before persisting
+            # the tool arguments. The idempotency key is hashed from the *raw* args
+            # so redaction never weakens dedup.
+            arguments=redact_ai_payload(validated_args),
+            status=AssistantToolCallStatus.RUNNING,
+            confirmation_required=spec.requires_confirmation,
+            idempotency_key=_idempotency_key(tool_name, session_id, validated_args),
+            output_schema_name=spec.output_model.__name__,
+            started_at=utcnow(),
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(call)
+        db.flush()
+        if spec.requires_confirmation:
+            confirmation = create_confirmation(
+                db,
+                org_id=user.org_id,
+                user_id=user.id,
+                session_id=session_id,
+                assistant_run_id=assistant_run_id or "",
+                tool_call=call,
+                tool_input=validated_input.model_dump(mode="json"),
+                policy={"confirmation_policy": spec.confirmation_policy, "category": spec.category},
+                provider_state=provider_state,
+            )
+            db.flush()
+            return {
+                "confirmation_required": True,
+                "tool_call_id": call.id,
+                "confirmation_id": confirmation.id,
+            }
+
+        try:
+            result = await self._execute_validated(
+                db,
+                tool_name=tool_name,
+                payload=validated_input,
+                user=user,
+                session_id=session_id,
+            )
+            # Persist a scrubbed copy of the result; return the unredacted result
+            # to the caller (it drives the live conversation / streamed events).
+            call.result = redact_ai_payload(result)
+            call.status = AssistantToolCallStatus.SUCCEEDED
+            call.finished_at = utcnow()
+            db.flush()
+            return result
+        except Exception as exc:
+            call.status = AssistantToolCallStatus.FAILED
+            call.error_message = str(exc)
+            call.finished_at = utcnow()
+            try:
+                db.flush()
+            except Exception:
+                db.rollback()
+            raise
+
+    async def execute_confirmed(
+        self,
+        db: Session,
+        *,
+        confirmation: AIConfirmation,
+        user: User,
+    ) -> dict[str, Any]:
+        call = db.scalar(
+            select(AssistantToolCall)
+            .where(AssistantToolCall.id == confirmation.tool_call_id)
+            .with_for_update()
+        )
+        if call is None or call.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Tool call not found")
+        spec = tool_registry.get(call.tool_name)
+        if not has_permission(user.permission_values, spec.required_permission):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {spec.required_permission}")
+        # F-04: re-gate on resume. A confirmation may have been minted while the tool was
+        # enabled, then disabled before the user confirmed. Without this, the confirm/resume
+        # path runs a now-disabled tool (and the flagged tools are exactly the confirm-required
+        # ones). Mark the call terminal so it is not left dangling.
+        if not is_tool_enabled(db, org_id=user.org_id, spec=spec):
+            call.status = AssistantToolCallStatus.FAILED
+            call.error_message = f"AI tool is disabled: {call.tool_name}"
+            call.finished_at = utcnow()
+            call.updated_by_user_id = user.id
+            db.flush()
+            raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {call.tool_name}")
+        if call.status != AssistantToolCallStatus.CONFIRMED:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Tool call is not confirmed")
+        validated_input = spec.input_model.model_validate(confirmation.tool_input)
+        call.status = AssistantToolCallStatus.RUNNING
+        call.started_at = call.started_at or utcnow()
+        # Audit actor: stamp who confirmed this action and the confirmation it ran
+        # under, so a confirm-required (mutating/external) tool call is attributable.
+        call.confirmation_id = confirmation.id
+        call.confirmed_by_user_id = user.id
+        try:
+            result = await self._execute_validated(
+                db,
+                tool_name=call.tool_name,
+                payload=validated_input,
+                user=user,
+                session_id=call.session_id,
+            )
+            # Persist a scrubbed copy of the result; return the unredacted result
+            # to the caller (it drives the live conversation / streamed events).
+            call.result = redact_ai_payload(result)
+            call.status = AssistantToolCallStatus.SUCCEEDED
+            call.finished_at = utcnow()
+            call.updated_by_user_id = user.id
+            db.flush()
+            return result
+        except Exception as exc:
+            call.status = AssistantToolCallStatus.FAILED
+            call.error_message = str(exc)
+            call.finished_at = utcnow()
+            call.updated_by_user_id = user.id
+            try:
+                db.flush()
+            except Exception:
+                db.rollback()
+            raise
+
+    async def _execute_validated(
+        self,
+        db: Session,
+        *,
+        tool_name: str,
+        payload: Any,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        if tool_name == "read_contract":
+            return self._read_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "find_in_contract":
+            return self._find_in_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_project_contracts":
+            return self._list_project_contracts(db, payload=payload, user=user)
+        if tool_name == "get_contract_status":
+            return self._get_contract_status(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_workflows":
+            return self._list_workflows(db, user=user)
+        if tool_name == "list_playbooks":
+            return self._list_playbooks(db, user=user)
+        if tool_name == "run_workflow":
+            return self._run_workflow(db, payload=payload, user=user)
+        if tool_name == "generate_contract_docx":
+            return await self._generate_contract_docx(db, payload=payload, user=user)
+        if tool_name == "edit_contract":
+            return await self._edit_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "redraft_contract":
+            return await self._redraft_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "replicate_contract_version":
+            return self._replicate_contract_version(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "run_playbook_review":
+            return self._run_playbook_review(
+                db,
+                payload=payload,
+                user=user,
+                session_id=session_id,
+                create_redline=False,
+            )
+        if tool_name == "redline_against_playbook":
+            return self._run_playbook_review(
+                db,
+                payload=payload,
+                user=user,
+                session_id=session_id,
+                create_redline=True,
+            )
+        if tool_name == "ask_contract_brain":
+            return self._ask_contract_brain(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "submit_for_approval":
+            return await self._submit_for_approval(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "send_for_signature":
+            return await self._send_for_signature(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "extract_obligations":
+            return self._extract_obligations(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "create_tabular_review":
+            return self._create_tabular_review(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "read_table_cells":
+            return self._read_table_cells(db, payload=payload, user=user)
+        if tool_name == "external_share":
+            return self._external_share(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "archive_contract":
+            return self._archive_contract(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "my_attention_items":
+            return self._my_attention_items(db, payload=payload, user=user)
+        if tool_name == "find_contracts":
+            return self._find_contracts(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_obligations":
+            return self._list_obligations(db, payload=payload, user=user)
+        return {"status": "feature_not_enabled", "tool": tool_name}
+
+    def _read_contract(
+        self,
+        db: Session,
+        *,
+        payload: ContractHandleInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
+        return {
+            "contract_id": contract.id,
+            "title": contract.title,
+            "lifecycle_stage": contract.lifecycle_stage,
+            "text_snapshot_id": snapshot.id if snapshot else None,
+            "text_excerpt": (snapshot.text[:8000] if snapshot else ""),
+            "text_truncated": bool(snapshot and len(snapshot.text) > 8000),
+        }
+
+    def _find_in_contract(
+        self,
+        db: Session,
+        *,
+        payload: FindInContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
+        text = snapshot.text if snapshot else ""
+        matches = []
+        lower_text = text.lower()
+        query = payload.query.lower()
+        start = lower_text.find(query)
+        while start >= 0 and len(matches) < 10:
+            end = start + len(query)
+            excerpt_start = max(0, start - 160)
+            excerpt_end = min(len(text), end + 160)
+            matches.append({"start_char": start, "end_char": end, "excerpt": text[excerpt_start:excerpt_end]})
+            start = lower_text.find(query, end)
+        return {"contract_id": contract.id, "query": payload.query, "matches": matches}
+
+    def _list_project_contracts(self, db: Session, *, payload: ProjectContractsInput, user: User) -> dict[str, Any]:
+        get_project_for_user(db, project_id=payload.project_id, user=user)
+        contract_ids = db.scalars(
+            select(ProjectContract.contract_id).where(
+                ProjectContract.org_id == user.org_id,
+                ProjectContract.project_id == payload.project_id,
+            )
+        ).all()
+        contracts = db.scalars(
+            select(Contract).where(Contract.org_id == user.org_id, Contract.id.in_(contract_ids))
+        ).all() if contract_ids else []
+        return {
+            "project_id": payload.project_id,
+            "contracts": [
+                {
+                    "contract_id": contract.id,
+                    "title": contract.title,
+                    "lifecycle_stage": contract.lifecycle_stage,
+                    "risk_level": contract.risk_level,
+                }
+                for contract in contracts
+            ],
+        }
+
+    # --- Spec A: read-only portfolio tools ---
+    def _my_attention_items(self, db: Session, *, payload: AttentionItemsInput, user: User) -> dict[str, Any]:
+        today = date.today()
+        window_end = today + timedelta(days=payload.window_days)
+        org = user.org_id
+        contracts = {
+            c.id: c
+            for c in db.scalars(select(Contract).where(accessible_contract_filter(user))).all()
+        }
+        accessible_ids = set(contracts)
+        if not accessible_ids:
+            return {"window_days": payload.window_days, "count": 0, "items": []}
+
+        def _title(cid: str) -> str:
+            c = contracts.get(cid)
+            return c.title if c else "Contract"
+
+        def _urgency(days: int | None) -> str:
+            if days is None:
+                return "medium"
+            if days < 0:
+                return "overdue"
+            if days <= 2:
+                return "high"
+            return "medium"
+
+        items: list[dict[str, Any]] = []
+        # Renewals: notice/expiry inside the window and not yet decided
+        for r in db.scalars(
+            select(RenewalEvent).where(
+                RenewalEvent.org_id == org,
+                RenewalEvent.contract_id.in_(accessible_ids),
+            )
+        ).all():
+            target = r.notice_date or r.expiration_date
+            if target and today <= target <= window_end and str(r.decision or "").lower() in ("undecided", "", "pending"):
+                d = (target - today).days
+                items.append({
+                    "contract_id": r.contract_id, "title": _title(r.contract_id),
+                    "reason": f"Renewal {'notice closes' if r.notice_date else 'expires'} in {d} day(s)",
+                    "due_date": target.isoformat(), "urgency": _urgency(d),
+                })
+        # Approvals pending and assigned to me (or unassigned)
+        for a in db.scalars(
+            select(ApprovalRequest).where(
+                ApprovalRequest.org_id == org,
+                ApprovalRequest.contract_id.in_(accessible_ids),
+                ApprovalRequest.status == "pending",
+            )
+        ).all():
+            if a.approver_user_id in (None, user.id):
+                d = (a.due_at.date() - today).days if a.due_at else None
+                items.append({
+                    "contract_id": a.contract_id, "title": _title(a.contract_id),
+                    "reason": "Your approval is pending",
+                    "due_date": a.due_at.date().isoformat() if a.due_at else None, "urgency": _urgency(d),
+                })
+        # Obligations due within the window and still open
+        for o in db.scalars(
+            select(Obligation).where(
+                Obligation.org_id == org,
+                Obligation.contract_id.in_(accessible_ids),
+                Obligation.deleted_at.is_(None),
+                Obligation.due_date.isnot(None),
+            )
+        ).all():
+            if o.due_date and today <= o.due_date <= window_end and str(o.status or "").lower() in ("open", "in_progress", "pending"):
+                d = (o.due_date - today).days
+                items.append({
+                    "contract_id": o.contract_id, "title": _title(o.contract_id),
+                    "reason": f"Obligation due: {(o.description or '')[:80]}",
+                    "due_date": o.due_date.isoformat(), "urgency": _urgency(d),
+                })
+        # Signatures still in flight (defensive — skip silently if the model shape differs)
+        try:
+            for s in db.scalars(
+                select(SignatureRequest).where(
+                    SignatureRequest.org_id == org,
+                    SignatureRequest.contract_id.in_(accessible_ids),
+                )
+            ).all():
+                if str(getattr(s, "status", "") or "").lower() not in ("completed", "voided", "declined", "cancelled"):
+                    items.append({
+                        "contract_id": getattr(s, "contract_id", None), "title": _title(getattr(s, "contract_id", "")),
+                        "reason": "Awaiting signature", "due_date": None, "urgency": "medium",
+                    })
+        except Exception:  # pragma: no cover - never let one source break the worklist
+            pass
+        rank = {"overdue": 0, "high": 1, "medium": 2}
+        items.sort(key=lambda x: (rank.get(x["urgency"], 3), x["due_date"] or "9999-12-31"))
+        return {"window_days": payload.window_days, "count": len(items), "items": items[:40]}
+
+    def _find_contracts(self, db: Session, *, payload: FindContractsInput, user: User, session_id: str) -> dict[str, Any]:
+        like = _like_contains(payload.query.strip())
+        rows = db.scalars(
+            select(Contract)
+            .where(
+                accessible_contract_filter(user),
+                or_(
+                    Contract.title.ilike(like, escape="\\"),
+                    Contract.counterparty_name.ilike(like, escape="\\"),
+                ),
+            )
+            .limit(8)
+        ).all()
+        existing = {
+            h.contract_id: h.handle
+            for h in db.scalars(
+                select(AssistantContractHandle).where(
+                    AssistantContractHandle.org_id == user.org_id,
+                    AssistantContractHandle.session_id == session_id,
+                )
+            ).all()
+        }
+        count = len(existing)
+        matches: list[dict[str, Any]] = []
+        for c in rows:
+            handle = existing.get(c.id)
+            if not handle:
+                handle = f"contract-{count}"
+                count += 1
+                db.add(AssistantContractHandle(
+                    org_id=user.org_id, session_id=session_id, contract_id=c.id, handle=handle,
+                    created_by_user_id=user.id, updated_by_user_id=user.id,
+                ))
+            matches.append({
+                "contract_id": c.id, "title": c.title, "counterparty_name": c.counterparty_name,
+                "lifecycle_stage": c.lifecycle_stage, "handle": handle,
+            })
+        db.flush()
+        return {"query": payload.query, "found": len(matches), "matches": matches}
+
+    def _list_obligations(self, db: Session, *, payload: ListObligationsInput, user: User) -> dict[str, Any]:
+        query = (
+            select(Obligation)
+            .join(Contract, Contract.id == Obligation.contract_id)
+            .where(
+                Obligation.org_id == user.org_id,
+                Obligation.deleted_at.is_(None),
+                accessible_contract_filter(user),
+            )
+        )
+        if payload.due_within_days is not None:
+            today = date.today()
+            query = query.where(
+                Obligation.due_date.isnot(None),
+                Obligation.due_date >= today,
+                Obligation.due_date <= today + timedelta(days=payload.due_within_days),
+            )
+        obligations = db.scalars(query.order_by(Obligation.due_date.asc())).all()
+        contract_ids = {o.contract_id for o in obligations}
+        contracts = {
+            c.id: c
+            for c in db.scalars(
+                select(Contract).where(
+                    Contract.org_id == user.org_id,
+                    Contract.id.in_(contract_ids),
+                    accessible_contract_filter(user),
+                )
+            ).all()
+        } if contract_ids else {}
+
+        def _row(o: Obligation) -> dict[str, Any]:
+            c = contracts.get(o.contract_id)
+            return {
+                "obligation_id": o.id, "description": (o.description or "")[:160],
+                "contract_id": o.contract_id, "contract_title": c.title if c else None,
+                "counterparty": c.counterparty_name if c else None,
+                "due_date": o.due_date.isoformat() if o.due_date else None,
+                "status": o.status, "type": o.obligation_type,
+            }
+
+        items = [_row(o) for o in obligations]
+        if payload.group_by == "counterparty":
+            groups: dict[str, list] = {}
+            for it in items:
+                groups.setdefault(it["counterparty"] or "Unspecified", []).append(it)
+            return {"due_within_days": payload.due_within_days, "count": len(items), "grouped_by": "counterparty", "groups": groups}
+        return {"due_within_days": payload.due_within_days, "count": len(items), "obligations": items}
+
+    def _get_contract_status(
+        self,
+        db: Session,
+        *,
+        payload: ContractHandleInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        return {
+            "contract_id": contract.id,
+            "title": contract.title,
+            "lifecycle_stage": contract.lifecycle_stage,
+            "risk_level": contract.risk_level,
+            "counterparty_name": contract.counterparty_name,
+            "current_authoritative_version_id": contract.current_authoritative_version_id,
+        }
+
+    def _list_workflows(self, db: Session, *, user: User) -> dict[str, Any]:
+        workflows = db.scalars(
+            select(Workflow).where(Workflow.org_id == user.org_id, Workflow.deleted_at.is_(None))
+        ).all()
+        return {"workflows": [{"workflow_id": row.id, "name": row.name, "workflow_type": row.workflow_type} for row in workflows]}
+
+    def _list_playbooks(self, db: Session, *, user: User) -> dict[str, Any]:
+        playbooks = db.scalars(
+            select(Playbook)
+            .where(Playbook.org_id == user.org_id, Playbook.deleted_at.is_(None))
+            .order_by(Playbook.updated_at.desc())
+        ).all()
+        out: list[dict[str, Any]] = []
+        for pb in playbooks:
+            versions = db.scalars(
+                select(PlaybookVersion)
+                .where(
+                    PlaybookVersion.org_id == user.org_id,
+                    PlaybookVersion.playbook_id == pb.id,
+                )
+                .order_by(PlaybookVersion.version_number.desc())
+            ).all()
+            out.append(
+                {
+                    "playbook_id": pb.id,
+                    "name": pb.name,
+                    "status": pb.status,
+                    "description": pb.description,
+                    "versions": [
+                        {
+                            "playbook_version_id": v.id,
+                            "version_number": v.version_number,
+                            "status": v.status,
+                            "summary": v.summary,
+                            "is_current": v.id == pb.current_version_id,
+                        }
+                        for v in versions
+                    ],
+                }
+            )
+        return {"playbooks": out}
+
+    def _run_workflow(self, db: Session, *, payload: WorkflowRunInput, user: User) -> dict[str, Any]:
+        workflow = db.get(Workflow, payload.workflow_id)
+        builtin = None
+        if workflow is None:
+            builtin = next((item for item in builtin_workflows() if item.get("id") == payload.workflow_id), None)
+            if builtin is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+        elif workflow.org_id != user.org_id or workflow.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+
+        contract_ids = list(dict.fromkeys(payload.contract_ids))
+        for contract_id in contract_ids:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+
+        workflow_name = builtin["name"] if builtin else workflow.name
+        workflow_type = builtin["workflow_type"] if builtin else workflow.workflow_type
+        definition = dict((builtin or {}).get("definition") or (workflow.definition if workflow else {}) or {})
+        output = {
+            "workflow": {
+                "id": payload.workflow_id,
+                "name": workflow_name,
+                "workflow_type": workflow_type,
+                "is_builtin": bool(builtin),
+            },
+            "definition": definition,
+            "input_contract_ids": contract_ids,
+            "input_prompt": payload.prompt,
+        }
+        if builtin:
+            return {
+                "workflow_run_id": None,
+                "status": "succeeded",
+                **output,
+            }
+
+        run = WorkflowRun(
+            org_id=user.org_id,
+            workflow_id=workflow.id,
+            status="succeeded",
+            input_contract_ids=contract_ids,
+            input_prompt=payload.prompt,
+            output=output,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(run)
+        db.flush()
+        return {"workflow_run_id": run.id, "status": run.status, **output}
+
+    async def _generate_contract_docx(
+        self,
+        db: Session,
+        *,
+        payload: GenerateContractInput,
+        user: User,
+    ) -> dict[str, Any]:
+        if payload.project_id:
+            get_project_for_user(db, project_id=payload.project_id, user=user, access="update")
+        # Draft the real contract with the AI skill. Fall back to a structured
+        # skeleton only if the skill is unavailable or returns nothing usable,
+        # so the tool never hard-fails mid-conversation.
+        drafted = None
+        try:
+            from app.ai.controller import ai_controller
+
+            drafted = await ai_controller.run_structured_skill(
+                db,
+                skill_name="contract_docx_generation",
+                org_id=user.org_id,
+                created_by_user_id=user.id,
+                input_payload={
+                    "title": payload.title,
+                    "instructions": payload.instructions,
+                },
+                commit=False,
+            )
+        except Exception:  # noqa: BLE001 — drafting must degrade, not crash
+            logging.getLogger(__name__).warning(
+                "contract_docx_generation skill failed; using skeleton", exc_info=True
+            )
+        if drafted is None or not getattr(drafted, "sections", None):
+            # The model returned no sections (commonly: the request is too
+            # large for one pass). Fail loudly instead of silently emitting a
+            # placeholder skeleton that looks like a real contract and then
+            # gets redlined/accepted.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "The drafting model returned no contract sections. This usually "
+                "means the request was too broad for a single pass — try again "
+                "or split it into a tighter scope (fewer/known sections).",
+            )
+        body_text, content = _render_structured_contract_docx(
+            title=getattr(drafted, "title", None) or payload.title,
+            sections=[(s.heading, s.body) for s in drafted.sections],
+            assumptions=list(getattr(drafted, "assumptions", []) or []),
+        )
+        storage_object = _store_docx(
+            db,
+            org_id=user.org_id,
+            user_id=user.id,
+            filename=f"{_safe_filename(payload.title)}.docx",
+            content=content,
+        )
+        contract = Contract(
+            org_id=user.org_id,
+            title=payload.title,
+            lifecycle_stage=ContractLifecycleStage.DRAFTING,
+            owner_user_id=user.id,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract)
+        db.flush()
+        contract_file = ContractFile(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            file_label=storage_object.filename,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract_file)
+        db.flush()
+        version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=1,
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.ASSISTANT_GENERATED,
+            change_summary="Assistant-generated DOCX",
+            is_authoritative=True,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(version)
+        db.flush()
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            extraction_method="assistant_generated_text",
+            extraction_quality_score=1.0,
+            text=body_text,
+            page_map=None,
+            validation_status="complete",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        version.text_snapshot_id = snapshot.id
+        contract_file.current_version_id = version.id
+        contract.current_contract_file_id = contract_file.id
+        contract.current_authoritative_version_id = version.id
+        if payload.project_id:
+            db.add(
+                ProjectContract(
+                    org_id=user.org_id,
+                    project_id=payload.project_id,
+                    contract_id=contract.id,
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
+            )
+        write_audit_log(
+            db,
+            action="assistant.contract_generated",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_file_id": contract_file.id,
+                "contract_version_id": version.id,
+                "storage_object_id": storage_object.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_generated",
+            title="Assistant generated contract",
+            actor_user_id=user.id,
+            details={"contract_version_id": version.id, "project_id": payload.project_id},
+        )
+        queued_jobs = _queue_initial_contract_jobs(
+            db, user=user, contract=contract, version=version, snapshot=snapshot
+        )
+        db.flush()
+        queued_job_ids = [job.id for job in queued_jobs]
+        # Commit so the JobRun rows are visible before the Celery worker
+        # picks them up (same ordering guarantee as the upload pipeline).
+        db.commit()
+        dispatched_job_types = []
+        dispatch_errors = []
+        for job_id in queued_job_ids:
+            job = db.get(JobRun, job_id)
+            if job is not None:
+                try:
+                    dispatch_job(db, job=job)
+                    dispatched_job_types.append(job.job_type)
+                except Exception as exc:
+                    dispatch_errors.append(
+                        {"job_id": job.id, "job_type": job.job_type, "error": str(exc)}
+                    )
+        if dispatched_job_types or dispatch_errors:
+            write_timeline_event(
+                db,
+                org_id=user.org_id,
+                resource_type="contract",
+                resource_id=contract.id,
+                event_type="contract.ai_jobs_dispatched",
+                title="Contract AI jobs dispatched",
+                actor_user_id=user.id,
+                details={
+                    "dispatched_job_types": dispatched_job_types,
+                    "dispatch_errors": dispatch_errors,
+                },
+            )
+        db.commit()
+        return {
+            "status": "created",
+            "artifact_type": "generated_contract",
+            "contract_id": contract.id,
+            "contract_file_id": contract_file.id,
+            "contract_version_id": version.id,
+            "storage_object_id": storage_object.id,
+        }
+
+    async def _edit_contract(
+        self,
+        db: Session,
+        *,
+        payload: EditContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        if version is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Current contract version not found")
+        contract_file = db.get(ContractFile, version.contract_file_id)
+        if contract_file is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
+        source_snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+        source_text = source_snapshot.text if source_snapshot else ""
+
+        # Ask the AI for targeted, exactly-quoted edits and anchor each one to
+        # its real position in the source so the redline lands in the right
+        # place. Fall back to a single whole-document proposal if the skill is
+        # unavailable, so the tool never hard-fails mid-conversation.
+        anchored: list[dict[str, Any]] = []
+        summary: str | None = None
+        if source_text.strip():
+            try:
+                from app.ai.controller import ai_controller
+
+                suggestion_out = await ai_controller.run_structured_skill(
+                    db,
+                    skill_name="contract_edit_suggestions",
+                    org_id=user.org_id,
+                    created_by_user_id=user.id,
+                    input_payload={
+                        "contract_id": contract.id,
+                        "instructions": payload.instructions,
+                    },
+                    resource_type="contract",
+                    resource_id=contract.id,
+                    commit=False,
+                )
+                summary = getattr(suggestion_out, "summary", None)
+                anchored = _anchor_suggestions(
+                    source_text, list(getattr(suggestion_out, "edits", []) or [])
+                )
+            except Exception:  # noqa: BLE001 — redline must degrade, not crash
+                logging.getLogger(__name__).warning(
+                    "contract_edit_suggestions skill failed; using fallback",
+                    exc_info=True,
+                )
+
+        applied = [a for a in anchored if a.get("applied")]
+        if not applied:
+            # No anchored edits the model could quote exactly (commonly: the
+            # source is a placeholder/skeleton, or the request was too broad).
+            # Fail loudly instead of echoing the whole document back as a fake
+            # single "tracked change" that can be accepted.
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Couldn't produce tracked changes — the model could not locate "
+                "specific language to revise. The document may be a placeholder "
+                "draft, or the instruction may be too broad. Re-draft the "
+                "contract properly first, or give a more targeted change.",
+            )
+        proposed_text = _apply_anchored(source_text, anchored)
+        edit_docx = _build_redline_docx(
+            title=contract.title,
+            base_version_number=version.version_number,
+            source_text=source_text,
+            anchored=anchored,
+        )
+
+        storage_object = _store_docx(
+            db,
+            org_id=user.org_id,
+            user_id=user.id,
+            filename=f"{_safe_filename(contract.title)}-assistant-edit-v{version.version_number}.docx",
+            content=edit_docx,
+        )
+        edit_version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=next_version_number(db, contract_file.id),
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.ASSISTANT_EDIT,
+            change_summary=(
+                summary
+                or f"Assistant edit proposal: {payload.instructions[:240]}"
+            )[:240],
+            is_authoritative=False,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(edit_version)
+        db.flush()
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=edit_version.id,
+            extraction_method="assistant_edit_text",
+            extraction_quality_score=1.0,
+            text=proposed_text,
+            page_map=source_snapshot.page_map if source_snapshot else None,
+            ocr_provider=source_snapshot.ocr_provider if source_snapshot else None,
+            validation_status="complete",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        edit_version.text_snapshot_id = snapshot.id
+
+        # One ContractEdit per suggestion, carrying its anchor so the document
+        # view can highlight exactly where the change applies. Every row links
+        # back to the single proposal version (accept adopts the redline).
+        edit_rows: list[ContractEdit] = []
+        for a in anchored:
+            row = ContractEdit(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                contract_version_id=version.id,
+                edit_type=a.get("edit_type") or "replace",
+                status="proposed",
+                original_text=a.get("original_text"),
+                replacement_text=a.get("replacement_text"),
+                rationale=a.get("rationale"),
+                citation=[
+                    {
+                        "type": "assistant_edit_version",
+                        "contract_version_id": edit_version.id,
+                    },
+                    {
+                        "type": "anchor",
+                        "start": a.get("start", -1),
+                        "end": a.get("end", -1),
+                        "matched": bool(a.get("matched")),
+                        "applied": bool(a.get("applied")),
+                        "risk_level": a.get("risk_level", "medium"),
+                    },
+                    *[
+                        {"type": "source_quote", "quote": q}
+                        for q in (a.get("citations") or [])
+                    ],
+                ],
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(row)
+            edit_rows.append(row)
+        db.flush()
+
+        # The proposed edit is NOT authoritative and must not become the file's
+        # current version until it is explicitly accepted via accept_contract_edit.
+        primary_edit = edit_rows[0]
+        write_audit_log(
+            db,
+            action="assistant.contract_edit_created",
+            resource_type="contract_edit",
+            resource_id=primary_edit.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "base_version_id": version.id,
+                "contract_version_id": edit_version.id,
+                "edits": len(edit_rows),
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.tracked_change_created",
+            title="Assistant tracked-change version created",
+            actor_user_id=user.id,
+            details={
+                "contract_edit_id": primary_edit.id,
+                "contract_version_id": edit_version.id,
+                "edits": len(edit_rows),
+            },
+        )
+        db.flush()
+        result_citations = [
+            {"type": "edit", "excerpt": q}
+            for a in anchored
+            for q in (a.get("citations") or [])
+            if q
+        ]
+        return {
+            "status": "created",
+            "artifact_type": "assistant_edit",
+            "contract_id": contract.id,
+            "base_version_id": version.id,
+            "contract_version_id": edit_version.id,
+            "contract_edit_id": primary_edit.id,
+            "edits": len(edit_rows),
+            "summary": summary,
+            "citations": result_citations,
+        }
+
+    async def _redraft_contract(
+        self,
+        db: Session,
+        *,
+        payload: RedraftContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Rewrite the WHOLE contract into a complete new version.
+
+        Unlike edit_contract (which anchors quoted tracked changes and fails
+        when there is little existing language to quote), this generates a full,
+        properly-structured document from the current text + metadata and saves
+        it as a new version that becomes the current/authoritative document. The
+        prior version stays in history for rollback.
+        """
+        contract = self._resolve_contract(
+            db, payload=payload, user=user, session_id=session_id
+        )
+        version = (
+            db.get(ContractVersion, contract.current_authoritative_version_id)
+            if contract.current_authoritative_version_id
+            else None
+        )
+        contract_file = db.get(ContractFile, version.contract_file_id) if version else None
+        source_snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        source_text = source_snapshot.text if source_snapshot else ""
+
+        # Compose a rich redraft brief from the contract's known metadata + the
+        # current (possibly stub) text + the user's instructions.
+        meta: list[str] = [f"Title: {contract.title}"]
+        if contract.counterparty_name:
+            meta.append(f"Counterparty: {contract.counterparty_name}")
+        if contract.contract_type:
+            meta.append(f"Contract type: {contract.contract_type}")
+        if contract.value_amount is not None:
+            meta.append(
+                f"Contract value: {contract.value_amount} {contract.currency or ''}".strip()
+            )
+        if contract.jurisdiction:
+            meta.append(f"Governing law / jurisdiction: {contract.jurisdiction}")
+        if contract.effective_date:
+            meta.append(f"Effective date: {contract.effective_date}")
+        if contract.expiration_date:
+            meta.append(f"Expiration date: {contract.expiration_date}")
+        brief = (
+            "Redraft this into a COMPLETE, professional, properly-structured "
+            "agreement with all standard sections (parties & recitals, "
+            "definitions, scope of services, fees & payment, term & termination, "
+            "confidentiality, intellectual property, warranties, indemnification, "
+            "limitation of liability, governing law, dispute resolution, notices, "
+            "miscellaneous, and a signature block). Preserve the parties, "
+            "commercial terms, and intent below; expand thin or placeholder "
+            "language into full, enforceable clauses.\n\n"
+            "CONTRACT METADATA:\n" + "\n".join(meta) + "\n\n"
+            "CURRENT DRAFT (may be a stub — expand it):\n"
+            + (source_text.strip() or "(empty — draft from the metadata above)")
+            + "\n\nADDITIONAL INSTRUCTIONS: "
+            + (
+                payload.instructions.strip()
+                or "Produce a complete, market-standard contract."
+            )
+        )
+
+        from app.ai.controller import ai_controller
+
+        drafted = await ai_controller.run_structured_skill(
+            db,
+            skill_name="contract_docx_generation",
+            org_id=user.org_id,
+            created_by_user_id=user.id,
+            input_payload={"title": contract.title, "instructions": brief},
+            resource_type="contract",
+            resource_id=contract.id,
+            commit=False,
+        )
+        if drafted is None or not getattr(drafted, "sections", None):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "The drafting model returned no contract sections. Try again, or "
+                "give a tighter scope (e.g. name the sections you need).",
+            )
+
+        body_text, content = _render_structured_contract_docx(
+            title=getattr(drafted, "title", None) or contract.title,
+            sections=[(s.heading, s.body) for s in drafted.sections],
+            assumptions=list(getattr(drafted, "assumptions", []) or []),
+        )
+        storage_object = _store_docx(
+            db,
+            org_id=user.org_id,
+            user_id=user.id,
+            filename=f"{_safe_filename(contract.title)}-redraft.docx",
+            content=content,
+        )
+
+        # Attach the redraft as a new version of the contract's file (create a
+        # file if the contract somehow has none yet).
+        if contract_file is None:
+            contract_file = ContractFile(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                file_label=storage_object.filename,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(contract_file)
+            db.flush()
+
+        new_version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=next_version_number(db, contract_file.id),
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.ASSISTANT_GENERATED,
+            change_summary=(
+                f"AI full redraft: {payload.instructions[:200]}"
+                if payload.instructions.strip()
+                else "AI full redraft"
+            )[:240],
+            is_authoritative=True,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(new_version)
+        db.flush()
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=new_version.id,
+            extraction_method="assistant_generated_text",
+            extraction_quality_score=1.0,
+            text=body_text,
+            page_map=None,
+            validation_status="complete",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        new_version.text_snapshot_id = snapshot.id
+
+        # The redraft becomes the current/authoritative document; the prior
+        # version stays in history for rollback. Mirror the accept-edit flip so
+        # exactly one version is authoritative.
+        for v in db.scalars(
+            select(ContractVersion).where(
+                ContractVersion.org_id == user.org_id,
+                ContractVersion.contract_id == contract.id,
+                ContractVersion.deleted_at.is_(None),
+            )
+        ).all():
+            v.is_authoritative = v.id == new_version.id
+            v.updated_by_user_id = user.id
+        contract.current_authoritative_version_id = new_version.id
+        contract.current_contract_file_id = contract_file.id
+        contract_file.current_version_id = new_version.id
+
+        write_audit_log(
+            db,
+            action="assistant.contract_redrafted",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "new_version_id": new_version.id,
+                "sections": len(drafted.sections),
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_redrafted",
+            title="Assistant redrafted the contract into a new version",
+            actor_user_id=user.id,
+            details={
+                "new_version_id": new_version.id,
+                "sections": len(drafted.sections),
+            },
+        )
+        db.flush()
+        return {
+            "status": "created",
+            "artifact_type": "generated_contract",
+            "contract_id": contract.id,
+            "contract_version_id": new_version.id,
+            "version_number": new_version.version_number,
+            "sections": len(drafted.sections),
+        }
+
+    def _replicate_contract_version(
+        self,
+        db: Session,
+        *,
+        payload: ContractHandleInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        if version is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Current contract version not found")
+        contract_file = db.get(ContractFile, version.contract_file_id)
+        if contract_file is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
+        replicated = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=next_version_number(db, contract_file.id),
+            storage_object_id=version.storage_object_id,
+            source=ContractVersionSource.ASSISTANT_GENERATED,
+            change_summary=f"Replicated from version {version.version_number}",
+            is_authoritative=False,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(replicated)
+        db.flush()
+        source_snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+        if source_snapshot is not None:
+            snapshot = ContractTextSnapshot(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                contract_version_id=replicated.id,
+                extraction_method=source_snapshot.extraction_method,
+                extraction_quality_score=source_snapshot.extraction_quality_score,
+                text=source_snapshot.text,
+                page_map=source_snapshot.page_map,
+                ocr_provider=source_snapshot.ocr_provider,
+                validation_status=source_snapshot.validation_status,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(snapshot)
+            db.flush()
+            replicated.text_snapshot_id = snapshot.id
+        write_audit_log(
+            db,
+            action="assistant.contract_version_replicated",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "source_version_id": version.id,
+                "contract_version_id": replicated.id,
+                "contract_file_id": contract_file.id,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="assistant.contract_version_replicated",
+            title="Assistant replicated contract version",
+            actor_user_id=user.id,
+            details={"source_version_id": version.id, "contract_version_id": replicated.id},
+        )
+        db.flush()
+        return {
+            "status": "created",
+            "contract_id": contract.id,
+            "source_version_id": version.id,
+            "contract_version_id": replicated.id,
+        }
+
+    def _run_playbook_review(
+        self,
+        db: Session,
+        *,
+        payload: PlaybookToolInput,
+        user: User,
+        session_id: str,
+        create_redline: bool,
+    ) -> dict[str, Any]:
+        if not has_permission(user.permission_values, "contract:read"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: contract:read")
+        if not has_permission(user.permission_values, "playbook:run"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: playbook:run")
+        if create_redline and not has_permission(user.permission_values, "contract:redline"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: contract:redline")
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        playbook = get_playbook_for_user(db, playbook_id=payload.playbook_id, user=user)
+        version = select_run_version(
+            db,
+            playbook=playbook,
+            org_id=user.org_id,
+            version_id=payload.playbook_version_id,
+            test_mode=payload.test_mode,
+        )
+        artifacts = execute_playbook_run(
+            db,
+            user=user,
+            playbook=playbook,
+            version=version,
+            contract=contract,
+            create_redline=create_redline,
+        )
+        db.flush()
+        result = {
+            "status": artifacts.run.status,
+            "artifact_type": "playbook_redline" if artifacts.redline_version else "playbook_review",
+            "contract_id": contract.id,
+            "playbook_id": playbook.id,
+            "playbook_version_id": version.id,
+            "playbook_name": playbook.name,
+            "playbook_run_id": artifacts.run.id,
+            "deviation_count": len(artifacts.deviations),
+            "deviations": [
+                {
+                    "playbook_deviation_id": row.id,
+                    "clause_type": row.clause_type,
+                    "severity": row.severity,
+                    "issue": row.issue,
+                    "suggested_fix": row.suggested_fix,
+                }
+                for row in artifacts.deviations
+            ],
+        }
+        if artifacts.redline_version is not None:
+            result.update(
+                {
+                    "base_version_id": artifacts.contract_edit.contract_version_id if artifacts.contract_edit else None,
+                    "contract_version_id": artifacts.redline_version.id,
+                    "contract_edit_id": artifacts.contract_edit.id if artifacts.contract_edit else None,
+                }
+            )
+        return result
+
+    def _ask_contract_brain(
+        self,
+        db: Session,
+        *,
+        payload: BrainAskInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract_id = payload.contract_id
+        if payload.contract_handle or (payload.query_scope == "contract" and contract_id):
+            contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+            contract_id = contract.id
+        if payload.query_scope == "contract" and not contract_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
+        if payload.project_id:
+            get_project_for_user(db, project_id=payload.project_id, user=user)
+        parsed = BrainQueryParseOutput(query_scope=payload.query_scope)
+        context = assemble_context(
+            db,
+            user=user,
+            question=payload.question,
+            scope=payload.query_scope,
+            contract_id=contract_id,
+            project_id=payload.project_id,
+            parsed=parsed,
+        )
+        return {
+            "status": "retrieved",
+            "scope": payload.query_scope,
+            "source_count": context["source_count"],
+            "graph_fact_count": len(context["graph_facts"]),
+            "vector_chunk_count": len(context["vector_chunks"]),
+            "fulltext_clause_count": len(context["fulltext_clauses"]),
+            "context_text": context["context_text"][:12000],
+            "context_truncated": len(context["context_text"]) > 12000,
+        }
+
+    async def _submit_for_approval(
+        self,
+        db: Session,
+        *,
+        payload: ApprovalSubmitInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        requests = await submit_contract_for_approval(
+            db,
+            user=user,
+            contract=contract,
+            contract_version_id=contract.current_authoritative_version_id,
+            approver_user_id=payload.approver_user_id,
+            approver_role=payload.approver_role,
+        )
+        db.flush()
+        return {
+            "status": "submitted",
+            "contract_id": contract.id,
+            "approval_request_ids": [approval.id for approval in requests],
+            "approval_count": len(requests),
+        }
+
+    async def _send_for_signature(
+        self,
+        db: Session,
+        *,
+        payload: SignatureSendInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        if payload.override_lifecycle and not has_permission(
+            user.permission_values, "contract:lifecycle_override"
+        ):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "Overriding the approved-before-signature gate requires contract:lifecycle_override",
+            )
+        if contract.lifecycle_stage != ContractLifecycleStage.APPROVED and not payload.override_lifecycle:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Contract must be approved before signature")
+        version_id = contract.current_authoritative_version_id
+        version = db.get(ContractVersion, version_id)
+        if version is None or version.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
+        storage_object = db.get(StorageObject, version.storage_object_id)
+        if storage_object is None or storage_object.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
+        validate_signature_recipients(
+            db, contract=contract, org_id=user.org_id, recipients=payload.recipients
+        )
+        content = storage_service.read_bytes(storage_object.storage_key)
+        envelope = await docusign_client.create_envelope(
+            filename=storage_object.filename,
+            recipients=[recipient.model_dump(mode="json") for recipient in payload.recipients],
+            content=content,
+        )
+        signature = SignatureRequest(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            provider_envelope_id=envelope.envelope_id,
+            status=SignatureStatus.SENT,
+            sent_by_user_id=user.id,
+            sent_at=datetime.now(UTC),
+            metadata_json=envelope.metadata,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(signature)
+        db.flush()
+        for index, recipient in enumerate(payload.recipients, start=1):
+            db.add(
+                SignatureRecipient(
+                    org_id=user.org_id,
+                    signature_request_id=signature.id,
+                    name=recipient.name,
+                    email=str(recipient.email),
+                    role=recipient.role,
+                    routing_order=str(index),
+                    status="sent",
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
+            )
+            try:
+                safe_title = html.escape(contract.title or "Untitled contract")
+                safe_envelope = html.escape(str(envelope.envelope_id or "mock"))
+                await resend_client.send_email(
+                    to=str(recipient.email),
+                    subject=f"Signature requested: {contract.title}",
+                    html=(
+                        f"<p>You have been requested to sign <b>{safe_title}</b>.</p>"
+                        f"<p>Envelope: {safe_envelope}</p>"
+                    ),
+                )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "assistant signature notification email failed for %s: %s",
+                    recipient.email,
+                    exc,
+                )
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
+            actor_user_id=user.id,
+            reason="Sent for signature by assistant",
+            override=payload.override_lifecycle,
+            override_authorized=payload.override_lifecycle,
+        )
+        db.flush()
+        return {
+            "status": "sent",
+            "contract_id": contract.id,
+            "signature_request_id": signature.id,
+            "recipient_count": len(payload.recipients),
+            "provider_status": envelope.status,
+        }
+
+    def _extract_obligations(
+        self,
+        db: Session,
+        *,
+        payload: ExtractObligationsInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
+        if version is None or snapshot is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no extractable authoritative version")
+        job = create_job(
+            db,
+            org_id=user.org_id,
+            job_type="obligation_extraction",
+            resource_type="contract",
+            resource_id=contract.id,
+            created_by_user_id=user.id,
+            idempotency_key=f"obligation_extraction:{version.id}:{snapshot.id}:assistant",
+            metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
+        )
+        db.flush()
+        dispatch_job(db, job=job)
+        db.flush()
+        return {"status": "queued", "contract_id": contract.id, "job_id": job.id, "job_type": job.job_type}
+
+    def _create_tabular_review(
+        self,
+        db: Session,
+        *,
+        payload: TabularReviewInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract_ids = list(dict.fromkeys(payload.contract_ids))
+        for handle in payload.contract_handles:
+            contract = self._resolve_contract(
+                db,
+                payload=ContractHandleInput(contract_handle=handle),
+                user=user,
+                session_id=session_id,
+            )
+            contract_ids.append(contract.id)
+        contract_ids = list(dict.fromkeys(contract_ids))
+        if payload.project_id:
+            get_project_for_user(db, project_id=payload.project_id, user=user)
+            if not contract_ids:
+                contract_ids = list(
+                    db.scalars(
+                        select(ProjectContract.contract_id).where(
+                            ProjectContract.org_id == user.org_id,
+                            ProjectContract.project_id == payload.project_id,
+                        )
+                    ).all()
+                )
+        if not contract_ids:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
+        for contract_id in contract_ids:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+        review = TabularReview(
+            org_id=user.org_id,
+            name=payload.name,
+            project_id=payload.project_id,
+            source_contract_ids=contract_ids,
+            status="running",
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(review)
+        db.flush()
+        columns = []
+        for position, column_payload in enumerate(payload.columns):
+            column = TabularReviewColumn(
+                org_id=user.org_id,
+                tabular_review_id=review.id,
+                name=column_payload.name,
+                prompt=column_payload.prompt,
+                position=position,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(column)
+            db.flush()
+            columns.append(column)
+        cells = []
+        for contract_id in contract_ids:
+            for column in columns:
+                cell = TabularReviewCell(
+                    org_id=user.org_id,
+                    tabular_review_id=review.id,
+                    column_id=column.id,
+                    contract_id=contract_id,
+                    status=TabularCellStatus.PENDING,
+                    created_by_user_id=user.id,
+                    updated_by_user_id=user.id,
+                )
+                db.add(cell)
+                db.flush()
+                cells.append(cell)
+        dispatch_cells(db, user=user, review=review, cells=cells)
+        return {
+            "status": "created",
+            "tabular_review_id": review.id,
+            "contract_count": len(contract_ids),
+            "column_count": len(columns),
+            "cell_count": len(cells),
+        }
+
+    def _read_table_cells(
+        self,
+        db: Session,
+        *,
+        payload: ReadTableCellsInput,
+        user: User,
+    ) -> dict[str, Any]:
+        review = db.get(TabularReview, payload.tabular_review_id)
+        if review is None or review.org_id != user.org_id or review.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular review not found")
+        for contract_id in review.source_contract_ids or []:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+        columns = db.scalars(
+            select(TabularReviewColumn)
+            .where(TabularReviewColumn.tabular_review_id == review.id)
+            .order_by(TabularReviewColumn.position.asc())
+        ).all()
+        cells = db.scalars(
+            select(TabularReviewCell).where(
+                TabularReviewCell.org_id == user.org_id,
+                TabularReviewCell.tabular_review_id == review.id,
+            )
+        ).all()
+        return {
+            "tabular_review_id": review.id,
+            "columns": [{"column_id": column.id, "name": column.name} for column in columns],
+            "cells": [
+                {
+                    "column_id": cell.column_id,
+                    "contract_id": cell.contract_id,
+                    "status": cell.status,
+                    "answer": cell.answer,
+                    "confidence": cell.confidence,
+                    "citation_count": len(cell.citations or []),
+                }
+                for cell in cells
+            ],
+        }
+
+    def _external_share(
+        self,
+        db: Session,
+        *,
+        payload: ExternalShareInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        token = secrets.token_urlsafe(32)
+        expires_at = (
+            datetime.now(UTC) + timedelta(days=payload.expires_in_days)
+            if payload.expires_in_days
+            else None
+        )
+        share = ContractShare(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id if version else None,
+            token_hash=_hash_secret(token),
+            passcode_hash=_hash_secret(payload.passcode) if payload.passcode else None,
+            access_mode=ShareAccessMode.DOWNLOAD_ALLOWED if payload.download_allowed else ShareAccessMode.VIEW_ONLY,
+            expires_at=expires_at,
+            download_allowed=payload.download_allowed,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(share)
+        db.flush()
+        write_audit_log(
+            db,
+            action="contract.share_created",
+            resource_type="contract_share",
+            resource_id=share.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            after={
+                "contract_id": contract.id,
+                "contract_version_id": share.contract_version_id,
+                "download_allowed": share.download_allowed,
+                "expires_at": share.expires_at.isoformat() if share.expires_at else None,
+                "created_by": "assistant_tool",
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.share_created",
+            title="Contract share created by assistant",
+            actor_user_id=user.id,
+            details={"share_id": share.id, "download_allowed": share.download_allowed},
+        )
+        return {"status": "created", "contract_id": contract.id, "contract_share_id": share.id, "external_share_token": token}
+
+    def _archive_contract(
+        self,
+        db: Session,
+        *,
+        payload: ArchiveContractInput,
+        user: User,
+        session_id: str,
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.ARCHIVED,
+            actor_user_id=user.id,
+            reason=payload.reason or "Archived by assistant",
+            override=True,
+            override_authorized=True,
+        )
+        db.flush()
+        return {"status": "archived", "contract_id": contract.id, "lifecycle_stage": contract.lifecycle_stage}
+
+    def _resolve_contract(
+        self,
+        db: Session,
+        *,
+        payload: ContractHandleInput,
+        user: User,
+        session_id: str,
+    ) -> Contract:
+        contract_id = payload.contract_id
+        if payload.contract_handle:
+            handle = db.scalar(
+                select(AssistantContractHandle).where(
+                    AssistantContractHandle.org_id == user.org_id,
+                    AssistantContractHandle.session_id == session_id,
+                    AssistantContractHandle.handle == payload.contract_handle,
+                )
+            )
+            if handle is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract handle not found")
+            contract_id = handle.contract_id
+        if not contract_id:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract_id or contract_handle is required")
+        return get_contract_for_user(db, contract_id=contract_id, user=user)
+
+
+def _idempotency_key(tool_name: str, session_id: str, payload: dict[str, Any]) -> str:
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(f"{tool_name}:{session_id}:{canonical}".encode("utf-8")).hexdigest()
+
+
+def _hash_secret(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, content: bytes) -> StorageObject:
+    stored = storage_service.save_bytes(
+        org_id=org_id,
+        filename=filename,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content=content,
+    )
+    storage_object = StorageObject(
+        org_id=org_id,
+        storage_key=stored.storage_key,
+        filename=stored.filename,
+        mime_type=stored.mime_type,
+        size_bytes=stored.size_bytes,
+        sha256_hash=stored.sha256_hash,
+        storage_backend=StorageBackend.LOCAL_VOLUME,
+        created_by_user_id=user_id,
+        updated_by_user_id=user_id,
+    )
+    db.add(storage_object)
+    db.flush()
+    return storage_object
+
+
+def _render_structured_contract_docx(
+    *,
+    title: str,
+    sections: list[tuple[str, str]],
+    assumptions: list[str],
+) -> tuple[str, bytes]:
+    """Render an AI-drafted contract (real operative text) into a DOCX and a
+    plain-text snapshot used by clause/metadata extraction."""
+    from docx import Document
+
+    text_parts = [title]
+    document = Document()
+    document.add_heading(title, level=1)
+    for heading, body in sections:
+        heading = (heading or "").strip()
+        body = (body or "").strip()
+        if not body and not heading:
+            continue
+        if heading:
+            document.add_heading(heading, level=2)
+            text_parts.append(heading)
+        if body:
+            for para in body.split("\n\n"):
+                para = para.strip()
+                if para:
+                    document.add_paragraph(para)
+            text_parts.append(body)
+    if assumptions:
+        document.add_heading("Drafting Assumptions", level=2)
+        text_parts.append("Drafting Assumptions")
+        for note in assumptions:
+            note = (note or "").strip()
+            if note:
+                document.add_paragraph(note, style="List Bullet")
+                text_parts.append(f"- {note}")
+    buffer = BytesIO()
+    document.save(buffer)
+    return "\n\n".join(text_parts), buffer.getvalue()
+
+
+def _build_generated_contract_docx(*, title: str, instructions: str) -> tuple[str, bytes]:
+    from docx import Document
+
+    sections = [
+        ("Parties", "Identify the contracting parties and fill in any missing legal names."),
+        ("Purpose", "Describe the commercial purpose of this contract."),
+        ("Key Terms", instructions),
+        ("Obligations", "List each party's main obligations clearly and separately."),
+        ("Payment and Fees", "State payment amounts, timing, taxes, and invoicing rules if applicable."),
+        ("Confidentiality", "Include confidentiality duties, exclusions, and survival period."),
+        ("Term and Termination", "State effective date, renewal, termination rights, and notice periods."),
+        ("Governing Law", "State governing law and dispute forum."),
+        ("Open Issues", "Confirm all bracketed or business-specific terms before signature."),
+    ]
+    text_parts = [title]
+    document = Document()
+    document.add_heading(title, level=1)
+    document.add_paragraph("Assistant-generated working draft. Review before use.")
+    for heading, body in sections:
+        document.add_heading(heading, level=2)
+        document.add_paragraph(body)
+        text_parts.extend([heading, body])
+    buffer = BytesIO()
+    document.save(buffer)
+    return "\n\n".join(text_parts), buffer.getvalue()
+
+
+def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
+    """Locate needle in haystack. Exact match first; then a whitespace-tolerant
+    match (the model may quote across reflowed line breaks)."""
+    if not needle:
+        return None
+    i = haystack.find(needle)
+    if i != -1:
+        return (i, i + len(needle))
+    tokens = needle.split()
+    if not tokens:
+        return None
+    pattern = re.compile(r"\s+".join(re.escape(t) for t in tokens))
+    m = pattern.search(haystack)
+    return (m.start(), m.end()) if m else None
+
+
+def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[str, Any]]:
+    """Resolve each AI edit suggestion to a character span in the source so the
+    change can be applied — and rendered — at the right place. Overlapping or
+    unlocatable edits are kept (for display) but not applied to the text."""
+    anchored: list[dict[str, Any]] = []
+    for s in suggestions:
+        original = (getattr(s, "original_text", None) or "")
+        replacement = getattr(s, "replacement_text", None)
+        replacement = "" if replacement is None else replacement
+        rec: dict[str, Any] = {
+            "edit_type": getattr(s, "edit_type", None) or "replace",
+            "original_text": original or None,
+            "replacement_text": replacement,
+            "rationale": getattr(s, "rationale", None),
+            "risk_level": getattr(s, "risk_level", "medium"),
+            "citations": [
+                c.get("quote") if isinstance(c, dict) else getattr(c, "quote", None)
+                for c in (getattr(s, "citations", []) or [])
+            ],
+            "start": -1,
+            "end": -1,
+            "matched": False,
+            "applied": False,
+        }
+        rec["citations"] = [q for q in rec["citations"] if q]
+        if original == "":
+            rec["start"] = rec["end"] = 0
+            rec["matched"] = True
+        else:
+            span = _find_span(source_text, original)
+            if span is not None:
+                rec["start"], rec["end"] = span
+                rec["matched"] = True
+        anchored.append(rec)
+
+    # Mark which matched edits can actually be applied (no overlap, in order).
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a["matched"]], key=lambda a: (a["start"], a["end"])
+    ):
+        if rec["start"] >= cursor:
+            rec["applied"] = True
+            cursor = max(cursor, rec["end"])
+    return anchored
+
+
+def _apply_anchored(source_text: str, anchored: list[dict[str, Any]]) -> str:
+    """Produce the edited document by applying every applied edit in place."""
+    out: list[str] = []
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a.get("applied")], key=lambda a: a["start"]
+    ):
+        start, end = rec["start"], rec["end"]
+        if start < cursor:
+            continue
+        out.append(source_text[cursor:start])
+        out.append(rec.get("replacement_text") or "")
+        cursor = end
+    out.append(source_text[cursor:])
+    return "".join(out)
+
+
+def _build_redline_docx(
+    *,
+    title: str,
+    base_version_number: int,
+    source_text: str,
+    anchored: list[dict[str, Any]],
+) -> bytes:
+    """Render the full source as a Word document with native tracked changes
+    at each edit's true position — deletions struck, insertions marked."""
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
+    document.add_heading(title, level=1)
+    document.add_paragraph(
+        f"Tracked-change redline against V{base_version_number}. "
+        "Use accept/reject to adopt or close this proposal."
+    )
+
+    nodes: list[tuple[str, str]] = []
+    cursor = 0
+    for rec in sorted(
+        [a for a in anchored if a.get("applied")], key=lambda a: a["start"]
+    ):
+        start, end = rec["start"], rec["end"]
+        if start < cursor:
+            continue
+        if start > cursor:
+            nodes.append(("text", source_text[cursor:start]))
+        if rec.get("original_text"):
+            nodes.append(("del", rec["original_text"]))
+        if rec.get("replacement_text"):
+            nodes.append(("ins", rec["replacement_text"]))
+        cursor = end
+    nodes.append(("text", source_text[cursor:]))
+
+    paragraph = document.add_paragraph()
+    revision_id = 1
+    for kind, value in nodes:
+        if kind == "text":
+            blocks = value.split("\n\n")
+            for bi, block in enumerate(blocks):
+                if bi:
+                    paragraph = document.add_paragraph()
+                for li, line in enumerate(block.split("\n")):
+                    if li:
+                        paragraph.add_run().add_break()
+                    if line:
+                        paragraph.add_run(line)
+        elif kind == "del":
+            _append_deleted_text(
+                paragraph,
+                value,
+                author="Legal AI Assistant",
+                revision_id=str(revision_id),
+                OxmlElement=OxmlElement,
+                qn=qn,
+            )
+            revision_id += 1
+        elif kind == "ins":
+            _append_inserted_text(
+                paragraph,
+                value,
+                author="Legal AI Assistant",
+                revision_id=str(revision_id),
+                OxmlElement=OxmlElement,
+                qn=qn,
+            )
+            revision_id += 1
+
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _build_edit_docx(
+    *,
+    contract_title: str,
+    base_version_number: int,
+    instructions: str,
+    source_text: str,
+) -> bytes:
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    document = Document()
+    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
+    document.add_heading(f"{contract_title} - Assistant Redline Proposal", level=1)
+    document.add_paragraph(f"Base version: V{base_version_number}")
+    document.add_heading("Requested Change", level=2)
+    document.add_paragraph(instructions)
+    document.add_heading("Native Word Tracked Changes", level=2)
+    document.add_paragraph(
+        "This version contains native Word revision markup. "
+        "Use accept/reject endpoints to make the proposal authoritative or close it."
+    )
+    revision_paragraph = document.add_paragraph()
+    _append_deleted_text(
+        revision_paragraph,
+        source_text or "No source text snapshot was available.",
+        author="Legal AI Assistant",
+        revision_id="1",
+        OxmlElement=OxmlElement,
+        qn=qn,
+    )
+    _append_inserted_text(
+        revision_paragraph,
+        _assistant_edit_text(source_text=source_text, instructions=instructions),
+        author="Legal AI Assistant",
+        revision_id="2",
+        OxmlElement=OxmlElement,
+        qn=qn,
+    )
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _enable_word_track_revisions(document: Any, *, OxmlElement: Any, qn: Any) -> None:
+    settings = document.settings.element
+    if settings.find(qn("w:trackRevisions")) is None:
+        settings.append(OxmlElement("w:trackRevisions"))
+
+
+def _append_deleted_text(
+    paragraph: Any,
+    text: str,
+    *,
+    author: str,
+    revision_id: str,
+    OxmlElement: Any,
+    qn: Any,
+) -> None:
+    deletion = OxmlElement("w:del")
+    _set_revision_attrs(deletion, author=author, revision_id=revision_id, qn=qn)
+    _append_revision_runs(deletion, text, text_tag="w:delText", OxmlElement=OxmlElement)
+    paragraph._p.append(deletion)
+
+
+def _append_inserted_text(
+    paragraph: Any,
+    text: str,
+    *,
+    author: str,
+    revision_id: str,
+    OxmlElement: Any,
+    qn: Any,
+) -> None:
+    insertion = OxmlElement("w:ins")
+    _set_revision_attrs(insertion, author=author, revision_id=revision_id, qn=qn)
+    _append_revision_runs(insertion, text, text_tag="w:t", OxmlElement=OxmlElement)
+    paragraph._p.append(insertion)
+
+
+def _set_revision_attrs(element: Any, *, author: str, revision_id: str, qn: Any) -> None:
+    element.set(qn("w:id"), revision_id)
+    element.set(qn("w:author"), author)
+    element.set(qn("w:date"), utcnow().replace(microsecond=0).isoformat())
+
+
+def _append_revision_runs(parent: Any, text: str, *, text_tag: str, OxmlElement: Any) -> None:
+    xml_space = "{http://www.w3.org/XML/1998/namespace}space"
+    for line_index, line in enumerate(text.splitlines() or [""]):
+        if line_index:
+            break_run = OxmlElement("w:r")
+            break_run.append(OxmlElement("w:br"))
+            parent.append(break_run)
+        run = OxmlElement("w:r")
+        text_element = OxmlElement(text_tag)
+        text_element.set(xml_space, "preserve")
+        text_element.text = line
+        run.append(text_element)
+        parent.append(run)
+
+
+def _assistant_edit_text(*, source_text: str, instructions: str) -> str:
+    return "\n\n".join(
+        [
+            source_text,
+            "[Assistant proposed tracked change]",
+            instructions,
+        ]
+    ).strip()
+
+
+def _safe_filename(value: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
+    return cleaned[:120] or "contract"
+
+
+def _like_contains(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+tool_runtime = ToolRuntime()

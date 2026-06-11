@@ -1,0 +1,105 @@
+import uuid
+from datetime import UTC, datetime
+
+from sqlalchemy import Boolean, Column, DateTime, MetaData, String, create_engine, text
+from sqlalchemy.orm import DeclarativeBase, Session, declared_attr, sessionmaker
+
+from app.core.config import settings
+
+
+def new_uuid() -> str:
+    return str(uuid.uuid4())
+
+
+def utcnow() -> datetime:
+    return datetime.now(UTC)
+
+
+NAMING_CONVENTION = {
+    "ix": "ix_%(column_0_label)s",
+    "uq": "uq_%(table_name)s_%(column_0_name)s",
+    "ck": "ck_%(table_name)s_%(constraint_name)s",
+    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+    "pk": "pk_%(table_name)s",
+}
+
+
+class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+    pass
+
+
+class IdMixin:
+    id = Column(String(36), primary_key=True, default=new_uuid)
+
+
+class TimestampMixin:
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class OrgScopedMixin:
+    org_id = Column(String(36), index=True, nullable=False)
+
+
+class ActorTrackedMixin:
+    created_by_user_id = Column(String(36), nullable=True)
+    updated_by_user_id = Column(String(36), nullable=True)
+
+
+class SoftDeleteMixin:
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id = Column(String(36), nullable=True)
+    legal_hold = Column(Boolean, nullable=False, default=False)
+
+
+class TableNameMixin:
+    @declared_attr.directive
+    def __tablename__(cls) -> str:
+        name = cls.__name__
+        chars: list[str] = []
+        for index, char in enumerate(name):
+            if char.isupper() and index > 0:
+                chars.append("_")
+            chars.append(char.lower())
+        return "".join(chars)
+
+
+# Pool sized from env. SQLAlchemy's defaults (pool_size=5, max_overflow=10)
+# are fine for a single dev process but undersized for a multi-worker prod.
+# pool_pre_ping mitigates stale-connection errors after DB failovers.
+engine = create_engine(
+    settings.database_url,
+    pool_pre_ping=True,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_recycle=settings.db_pool_recycle_seconds,
+    pool_timeout=settings.db_pool_timeout_seconds,
+)
+# expire_on_commit=False: keep ORM instances usable after commit for the rest
+# of the request (response serialization, request-context logging middleware).
+# Without this, any endpoint that commits leaves request.state.current_user
+# expired and post-response access raises DetachedInstanceError.
+SessionLocal = sessionmaker(
+    autocommit=False, autoflush=False, expire_on_commit=False, bind=engine
+)
+
+
+def set_session_org(session: Session, org_id: str | None) -> None:
+    """Bind the current org onto the session for Postgres row-level security.
+
+    Issues ``SET LOCAL app.current_org_id`` so RLS policies can scope rows to
+    the active tenant. ``SET LOCAL`` is transaction-scoped, so this takes
+    effect for the remainder of the current transaction on ``session``.
+
+    No-op unless ``ENABLE_RLS`` is on AND an org id is supplied — when RLS is
+    disabled (the default) there are no policies to satisfy and existing
+    session usage is completely unaffected.
+    """
+    if not settings.enable_rls or not org_id:
+        return
+    # Parameter-bound to avoid any chance of injection via the org id.
+    session.execute(
+        text("SET LOCAL app.current_org_id = :org_id"), {"org_id": org_id}
+    )

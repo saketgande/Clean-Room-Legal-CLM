@@ -1,0 +1,19 @@
+[Unit]
+Description=AEGIS Legal CLM Celery Beat
+After=network.target postgresql.service redis-server.service
+Wants=postgresql.service redis-server.service
+
+[Service]
+Type=simple
+User=aegis
+Group=aegis
+WorkingDirectory=/opt/aegis/backend
+EnvironmentFile=/etc/aegis/backend.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/aegis/backend/.venv/bin/celery -A app.jobs.celery_app.celery_app beat --loglevel=info --schedule=/var/lib/aegis/celerybeat-schedule
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+{"timestamp": "2026-06-11T09:57:25.607830+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "be712520-c42d-49a6-9bd1-a413f86c1041", "route": "/api/v1/health", "method": "GET", "status_code": 404, "latency_ms": 1.1}
+INFO:     127.0.0.1:54193 - "GET /api/v1/health HTTP/1.1" 404 Not Found
+{"timestamp": "2026-06-11T09:57:25.714909+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "e27227db-a75e-4040-968e-347e6e13b05b", "route": "/docs", "method": "GET", "status_code": 200, "latency_ms": 2.05}
+INFO:     127.0.0.1:54195 - "GET /docs HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T09:57:56.378025+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "d5b3f730-06e9-48bf-af82-02f22081f6e1", "route": "/docs", "method": "GET", "status_code": 200, "latency_ms": 0.78}
+INFO:     127.0.0.1:60491 - "GET /docs HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T09:57:56.586415+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "baf1f2b6-7a74-426b-845b-7d1b1327aba7", "route": "/api/v1/auth/setup/status", "method": "GET", "status_code": 404, "latency_ms": 0.79}
+INFO:     127.0.0.1:64003 - "GET /api/v1/auth/setup/status HTTP/1.1" 404 Not Found
+{"timestamp": "2026-06-11T09:58:19.328847+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "4 changes detected"}
+{"timestamp": "2026-06-11T09:58:19.685790+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "4 changes detected"}
+{"timestamp": "2026-06-11T09:58:21.108991+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "4 changes detected"}
+{"timestamp": "2026-06-11T09:58:21.466637+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "5 changes detected"}
+{"timestamp": "2026-06-11T09:59:08.603375+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "3 changes detected"}
+{"timestamp": "2026-06-11T09:59:08.967490+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "3 changes detected"}
+{"timestamp": "2026-06-11T09:59:09.432686+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "2 changes detected"}
+{"timestamp": "2026-06-11T09:59:10.301696+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
+{"timestamp": "2026-06-11T09:59:10.664740+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "5 changes detected"}
+{"timestamp": "2026-06-11T09:59:11.080770+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "4 changes detected"}
+{"timestamp": "2026-06-11T10:00:00.054587+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
+{"timestamp": "2026-06-11T10:00:58.206926+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "2 changes detected"}
+{"timestamp": "2026-06-11T10:00:58.570411+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
+{"timestamp": "2026-06-11T10:03:57.782475+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "9fcdd5e0-5d6c-40f7-a634-d99c5202ef8b", "route": "/", "method": "GET", "status_code": 200, "latency_ms": 4.38}
+INFO:     127.0.0.1:59942 - "GET / HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:03:57.802865+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "b1286fc4-0975-4796-a1b5-625ad3eb6864", "route": "/api/v1", "method": "GET", "status_code": 404, "latency_ms": 5.36}
+INFO:     127.0.0.1:59951 - "GET /api/v1 HTTP/1.1" 404 Not Found
+{"timestamp": "2026-06-11T10:03:57.806053+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "5156204b-62f0-43b2-bf82-42db9dc74981", "route": "/api/v1/debug/health", "method": "GET", "status_code": 200, "latency_ms": 8.42}
+{"timestamp": "2026-06-11T10:03:57.806817+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "b8cd245c-2061-4b47-9bf2-a5546f9e2460", "route": "/docs", "method": "GET", "status_code": 200, "latency_ms": 4.09}
+INFO:     127.0.0.1:59952 - "GET /api/v1/debug/health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:59953 - "GET /docs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:65460 - "OPTIONS /api/v1/auth/me HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:03.185862+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "e79596e9-5e19-4864-b1af-bf5c6f970c9f", "route": "/api/v1/auth/me", "method": "GET", "status_code": 401, "latency_ms": 2.54}
+INFO:     127.0.0.1:63847 - "GET /api/v1/auth/me HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:65460 - "OPTIONS /api/v1/auth/refresh HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:03.232693+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "6eb463ac-9936-47dd-8afc-9fe04cbb3985", "route": "/api/v1/auth/refresh", "method": "POST", "status_code": 401, "latency_ms": 33.8}
+INFO:     127.0.0.1:63847 - "POST /api/v1/auth/refresh HTTP/1.1" 401 Unauthorized
+INFO:     127.0.0.1:64848 - "OPTIONS /api/v1/auth/login HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:35.514494+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "883bfe88-aa1e-46cd-a258-7161b45bcc66", "route": "/api/v1/auth/login", "method": "POST", "status_code": 200, "latency_ms": 684.19}
+INFO:     127.0.0.1:63117 - "POST /api/v1/auth/login HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:35.537367+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "8848e1e0-b305-4849-b206-bbcca7064816", "user_id": "2e056a30-31e5-470c-ab2f-26e685fa8e84", "org_id": "7efab682-8d75-4477-95b2-793b891145b2", "route": "/api/v1/auth/me", "method": "GET", "status_code": 200, "latency_ms": 18.22}
+INFO:     127.0.0.1:63117 - "GET /api/v1/auth/me HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64848 - "OPTIONS /api/v1/assistant/sessions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:64848 - "OPTIONS /api/v1/projects HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:35.979744+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "d7ede2d8-3778-4271-a172-8360b00d16d1", "user_id": "2e056a30-31e5-470c-ab2f-26e685fa8e84", "org_id": "7efab682-8d75-4477-95b2-793b891145b2", "route": "/api/v1/assistant/sessions", "method": "GET", "status_code": 200, "latency_ms": 39.99}
+INFO:     127.0.0.1:63117 - "GET /api/v1/assistant/sessions HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:04:36.012879+00:00", "level": "INFO", "logger": "app.requests", "message": "request.completed", "request_id": "92014fe9-8685-4c11-909e-6838c3238ddb", "user_id": "2e056a30-31e5-470c-ab2f-26e685fa8e84", "org_id": "7efab682-8d75-4477-95b2-793b891145b2", "route": "/api/v1/projects", "method": "GET", "status_code": 200, "latency_ms": 27.49}
+INFO:     127.0.0.1:63117 - "GET /api/v1/projects HTTP/1.1" 200 OK
+{"timestamp": "2026-06-11T10:05:00.131889+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
+{"timestamp": "2026-06-11T10:10:00.129612+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
+{"timestamp": "2026-06-11T10:10:43.553586+00:00", "level": "INFO", "logger": "watchfiles.main", "message": "1 change detected"}
