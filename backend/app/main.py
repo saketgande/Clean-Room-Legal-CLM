@@ -17,6 +17,7 @@ from app.auth.routes import users_router
 from app.contract_brain.routes import router as contract_brain_router
 from app.contract_files.routes import external_share_router, router as contract_files_router
 from app.contracts.routes import hub_router, router as contracts_router
+from app.contracts.comments_routes import router as contract_comments_router
 from app.core.config import settings, validate_runtime_settings
 from app.core.deps import get_db
 from app.core.exceptions import register_exception_handlers
@@ -128,6 +129,7 @@ def create_app() -> FastAPI:
     app.include_router(organizations_router, prefix=prefix)
     app.include_router(projects_router, prefix=prefix)
     app.include_router(contracts_router, prefix=prefix)
+    app.include_router(contract_comments_router, prefix=prefix)
     app.include_router(contract_files_router, prefix=prefix)
     app.include_router(external_share_router, prefix=prefix)
     app.include_router(ai_router, prefix=prefix)

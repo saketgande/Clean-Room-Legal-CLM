@@ -1,0 +1,93 @@
+# Development overrides — auto-merged by `docker compose up`.
+#
+# Turns the stack into a hot-reload dev environment AND makes it runnable over
+# plain http://localhost. App config (API keys, secrets, model, integration
+# mocks) comes from backend/.env; the settings below only force the
+# runtime/web values that production mode would otherwise reject locally.
+#
+#   make dev          (= docker compose up -d)        -> DEVELOPMENT (this file)
+#   make prod         (= docker compose -f docker-compose.yml up -d) -> PRODUCTION
+#
+# FORCE_POLLING / USEPOLLING are set because file-change events from the macOS
+# host don't reliably reach the Linux containers; polling makes reload work.
+
+# Local-safe runtime/web settings layered on top of backend/.env. ENVIRONMENT
+# is forced to "development" so validate_runtime_settings() doesn't demand the
+# full production hardening (HTTPS URLs, secure cookies, non-wildcard hosts…)
+# that can't be satisfied on localhost. Integration mocks are NOT set here, so
+# they follow backend/.env (real keys → real Claude/Reducto/Resend).
+x-dev-app-env: &dev_app_env
+  ENVIRONMENT: development
+  DEBUG: "true"
+  APP_BASE_URL: http://localhost:3000
+  CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+  ALLOWED_HOSTS: "*"
+  FORCE_HTTPS: "false"
+  REFRESH_COOKIE_SECURE: "false"
+  EXPOSE_REFRESH_TOKEN_IN_BODY: "true"
+
+services:
+  # Run migrations from the live source too (so edited migrations apply).
+  migrate:
+    environment:
+      <<: *dev_app_env
+    volumes:
+      - ./backend:/app
+
+  backend:
+    command:
+      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000",
+       "--reload", "--reload-dir", "/app/app"]
+    environment:
+      <<: *dev_app_env
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend:/app
+
+  worker:
+    # watchfiles restarts the Celery worker whenever app/ changes.
+    command:
+      ["watchfiles",
+       "celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=4",
+       "/app/app"]
+    environment:
+      <<: *dev_app_env
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend:/app
+
+  beat:
+    command:
+      ["watchfiles",
+       "celery -A app.jobs.celery_app.celery_app beat --loglevel=info --schedule=/tmp/celerybeat-schedule",
+       "/app/app"]
+    environment:
+      <<: *dev_app_env
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      target: dev
+    image: aegis/frontend:dev
+    command: ["npm", "run", "dev"]
+    environment:
+      NODE_ENV: development
+      # Reliable HMR/file-watching for Next.js inside Docker on macOS.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      # Anonymous volumes keep the image's node_modules + build cache, so the
+      # host (which has neither) doesn't shadow them.
+      - /app/node_modules
+      - /app/.next
+    # `next dev` compiles a route on first hit, so give it a longer warm-up.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s

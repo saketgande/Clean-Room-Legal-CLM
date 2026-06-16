@@ -8,6 +8,34 @@ from app.core.database import utcnow
 from app.projects.models import Project, ProjectContract, ProjectMember, ProjectShare
 
 
+def _is_pending_approver(db: Session, *, contract: Contract, user: User) -> bool:
+    """True if the user is assigned (directly, by role, or via an approver group)
+    to a still-pending approval request on this contract."""
+    from app.approvals.models import ApprovalRequest, ApproverGroup
+    from app.core.enums import ApprovalStatus
+
+    requests = db.scalars(
+        select(ApprovalRequest).where(
+            ApprovalRequest.org_id == user.org_id,
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.status == ApprovalStatus.PENDING,
+        )
+    ).all()
+    if not requests:
+        return False
+    role_names = {role.name for role in getattr(user, "roles", [])}
+    for req in requests:
+        if req.approver_user_id and req.approver_user_id == user.id:
+            return True
+        if req.approver_role and req.approver_role in role_names:
+            return True
+        if req.approver_group_id:
+            group = db.get(ApproverGroup, req.approver_group_id)
+            if group is not None and any(m.id == user.id for m in group.members):
+                return True
+    return False
+
+
 def accessible_contract_filter(user: User):
     # F-03: org scoping is ALWAYS enforced, including for admins. Previously this
     # returned true() for admins, which dropped the tenant boundary entirely and
@@ -66,6 +94,10 @@ def user_can_access_contract(db: Session, *, contract: Contract, user: User) -> 
     if contract.org_id != user.org_id:
         return False
     if is_org_admin(user) or contract.owner_user_id == user.id or contract.created_by_user_id == user.id:
+        return True
+    # An assigned approver can read the contract they're being asked to approve,
+    # while a decision is pending.
+    if _is_pending_approver(db, contract=contract, user=user):
         return True
     membership = (
         select(ProjectContract.id)

@@ -1,0 +1,13 @@
+node_modules/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Local env (never bake into an image)
+.env.local
+.env.production
+.env*.local
+
+# Misc
+.DS_Store
+*.log

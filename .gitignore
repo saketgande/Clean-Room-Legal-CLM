@@ -13,6 +13,11 @@ backend/secrets/
 **/*.pem
 **/*.key
 
+# Docker stack env (real file is local-only; the .example is committed)
+.env.docker
+.env.docker.local
+!.env.docker.example
+
 # Python virtualenvs (never commit)
 env/
 venv/

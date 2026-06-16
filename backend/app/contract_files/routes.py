@@ -25,11 +25,14 @@ from app.contract_files.schemas import (
     ContractShareResponse,
     ContractTextSnapshotResponse,
     ContractVersionResponse,
+    ExternalCommentCreate,
+    ExternalCommentResponse,
     ExternalShareResponse,
 )
 from app.contract_files.service import next_version_number, requeue_contract_ai_jobs
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -603,6 +606,55 @@ def view_external_share(
         download_allowed=share.download_allowed,
         text_excerpt=text[:EXTERNAL_TEXT_EXCERPT_CHARS] if text else None,
         text_truncated=len(text) > EXTERNAL_TEXT_EXCERPT_CHARS,
+    )
+
+
+def _share_contract(db: Session, share) -> Contract:
+    contract = db.get(Contract, share.contract_id)
+    if contract is None or contract.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Shared contract not found")
+    return contract
+
+
+@external_share_router.get("/{token}/comments", response_model=list[ExternalCommentResponse])
+@limiter.limit("30/minute", key_func=_share_rate_limit_key)
+def list_external_share_comments(
+    request: Request,
+    response: Response,
+    token: str,
+    passcode: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Shared (counterparty-visible) comments on the shared contract. Internal
+    comments are never exposed here."""
+    share = _get_active_share(db, token=token, passcode=passcode, request=request)
+    contract = _share_contract(db, share)
+    return list_shared_comments(db, contract=contract)
+
+
+@external_share_router.post(
+    "/{token}/comments",
+    response_model=ExternalCommentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit("10/minute", key_func=_share_rate_limit_key)
+def add_external_share_comment(
+    request: Request,
+    response: Response,
+    token: str,
+    payload: ExternalCommentCreate,
+    passcode: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Let the counterparty leave a (shared) comment via the share link."""
+    share = _get_active_share(db, token=token, passcode=passcode, request=request)
+    contract = _share_contract(db, share)
+    return add_counterparty_comment(
+        db,
+        contract=contract,
+        author_name=payload.author_name,
+        body=payload.body,
+        request_id=getattr(request.state, "request_id", None),
     )
 
 

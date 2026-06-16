@@ -10,7 +10,7 @@ import type { ContractResponse } from "@/lib/types";
  * Shared "import a file from outside" modal. Uploads a document via
  * /contracts/upload (MIME-sniffed, stored, text-extracted, AI-queued) and
  * hands the created contract back to the caller. Reused by Contract Hub,
- * Projects, Tabular Review and the AI Assistant so a new file can be brought
+ * Projects, Tabular Review and Ask Aegis so a new file can be brought
  * in from anywhere — not only Contract Hub.
  */
 export function ImportContractModal({

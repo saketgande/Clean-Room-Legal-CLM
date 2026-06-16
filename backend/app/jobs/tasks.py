@@ -450,7 +450,6 @@ async def _run_renewal_window_check() -> dict:
     import html
 
     from app.auth.models import User
-    from app.contracts.lifecycle import transition_contract_stage
     from app.core.enums import ContractLifecycleStage
     from app.integrations.resend import resend_client
     from app.renewals.models import RenewalEvent
@@ -466,7 +465,11 @@ async def _run_renewal_window_check() -> dict:
             if window is None or window > today:
                 continue
             contract = db.get(Contract, event.contract_id)
-            if contract is None or contract.lifecycle_stage != ContractLifecycleStage.ACTIVE:
+            if (
+                contract is None
+                or contract.lifecycle_stage != ContractLifecycleStage.ACTIVE
+                or contract.renewal_due
+            ):
                 continue
             actor_user_id = (
                 contract.owner_user_id
@@ -480,13 +483,9 @@ async def _run_renewal_window_check() -> dict:
                     extra={"contract_id": contract.id, "renewal_event_id": event.id},
                 )
                 continue
-            transition_contract_stage(
-                db,
-                contract=contract,
-                to_stage=ContractLifecycleStage.RENEWAL_DUE,
-                actor_user_id=actor_user_id,
-                reason="Renewal/notice window opened",
-            )
+            # Renewal-due is a flag on the (still ACTIVE) contract, not a stage.
+            contract.renewal_due = True
+            contract.updated_by_user_id = actor_user_id
             owner = db.get(User, event.owner_user_id or contract.owner_user_id)
             if owner is not None:
                 safe_title = html.escape(contract.title or "Untitled contract")

@@ -10,51 +10,36 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import ContractLifecycleStage, ContractVersionSource
 
 
+# Lean 7-stage flow. Most forward hops are auto-advanced by events (approval
+# completing → SIGNATURE, signing completing → ACTIVE), so users rarely drive
+# these by hand. Backward hops (e.g. APPROVAL/SIGNATURE → REVIEW) cover
+# rejections and rework. CLOSED is terminal (use the `archived` flag to retire).
 ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     ContractLifecycleStage.INTAKE: {
         ContractLifecycleStage.DRAFTING,
-        ContractLifecycleStage.AI_REVIEW,
+        ContractLifecycleStage.REVIEW,
     },
     ContractLifecycleStage.DRAFTING: {
-        ContractLifecycleStage.AI_REVIEW,
-        ContractLifecycleStage.INTERNAL_REVIEW,
+        ContractLifecycleStage.REVIEW,
     },
-    ContractLifecycleStage.AI_REVIEW: {
-        ContractLifecycleStage.INTERNAL_REVIEW,
-        ContractLifecycleStage.COUNTERPARTY_REVIEW,
+    ContractLifecycleStage.REVIEW: {
+        ContractLifecycleStage.DRAFTING,
+        ContractLifecycleStage.APPROVAL,
+        # Allow simple contracts to skip approval and go straight to signing.
+        ContractLifecycleStage.SIGNATURE,
     },
-    ContractLifecycleStage.INTERNAL_REVIEW: {
-        ContractLifecycleStage.COUNTERPARTY_REVIEW,
-        ContractLifecycleStage.APPROVAL_PENDING,
+    ContractLifecycleStage.APPROVAL: {
+        ContractLifecycleStage.SIGNATURE,   # approval chain completed
+        ContractLifecycleStage.REVIEW,      # rejected → back to review
     },
-    ContractLifecycleStage.COUNTERPARTY_REVIEW: {
-        ContractLifecycleStage.AI_REVIEW,
-        ContractLifecycleStage.INTERNAL_REVIEW,
-        ContractLifecycleStage.APPROVAL_PENDING,
-    },
-    ContractLifecycleStage.APPROVAL_PENDING: {
-        ContractLifecycleStage.APPROVED,
-        ContractLifecycleStage.INTERNAL_REVIEW,
-        ContractLifecycleStage.COUNTERPARTY_REVIEW,
-    },
-    ContractLifecycleStage.APPROVED: {
-        ContractLifecycleStage.SIGNATURE_PENDING,
-        ContractLifecycleStage.ACTIVE,
-    },
-    ContractLifecycleStage.SIGNATURE_PENDING: {
-        ContractLifecycleStage.ACTIVE,
-        ContractLifecycleStage.APPROVED,
+    ContractLifecycleStage.SIGNATURE: {
+        ContractLifecycleStage.ACTIVE,      # signing completed
+        ContractLifecycleStage.REVIEW,      # pulled back for changes
     },
     ContractLifecycleStage.ACTIVE: {
-        ContractLifecycleStage.RENEWAL_DUE,
-        ContractLifecycleStage.CLOSED,
-        ContractLifecycleStage.ARCHIVED,
-    },
-    ContractLifecycleStage.RENEWAL_DUE: {
-        ContractLifecycleStage.ACTIVE,
         ContractLifecycleStage.CLOSED,
     },
-    ContractLifecycleStage.CLOSED: {ContractLifecycleStage.ARCHIVED},
+    ContractLifecycleStage.CLOSED: set(),
 }
 
 

@@ -77,8 +77,11 @@ async def send_for_signature(
             status.HTTP_403_FORBIDDEN,
             "Overriding the approved-before-signature gate requires contract:lifecycle_override",
         )
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVED and not payload.override_lifecycle:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Contract must be approved before signature")
+    if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE and not payload.override_lifecycle:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Contract must reach the signature stage (approval complete) before sending for signature",
+        )
     version_id = payload.contract_version_id or contract.current_authoritative_version_id
     version = db.get(ContractVersion, version_id)
     if version is None or version.org_id != current_user.org_id:
@@ -124,15 +127,20 @@ async def send_for_signature(
                     updated_by_user_id=current_user.id,
                 )
             )
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
-            actor_user_id=current_user.id,
-            reason="Sent for signature",
-            override=payload.override_lifecycle,
-            override_authorized=payload.override_lifecycle,
-        )
+        # The contract is normally already in SIGNATURE (auto-advanced when the
+        # approval chain completed), so sending doesn't change the stage — the
+        # SignatureRequest status tracks sent/awaiting. Only move it when an
+        # override sends from another stage (e.g. skipping approval).
+        if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE:
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.SIGNATURE,
+                actor_user_id=current_user.id,
+                reason="Sent for signature",
+                override=payload.override_lifecycle,
+                override_authorized=payload.override_lifecycle,
+            )
         db.commit()
     except Exception:
         # The envelope is already live at DocuSign but our local persistence

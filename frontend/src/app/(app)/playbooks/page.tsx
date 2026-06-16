@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Plus, Sparkles } from "lucide-react";
+import { BookOpen, Bot, Plus, Sparkles } from "lucide-react";
 import { playbooksApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -48,11 +48,15 @@ export default function PlaybooksPage() {
         description="Negotiation rulebooks used to review contracts and surface deviations."
         actions={
           <>
+            <Button onClick={() => router.push("/playbooks/build")}>
+              <Bot className="h-4 w-4" />
+              Build with AI
+            </Button>
             <Button variant="outline" onClick={() => setGenerateOpen(true)}>
               <Sparkles className="h-4 w-4" />
-              Generate with AI
+              Quick generate
             </Button>
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button variant="outline" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
               New playbook
             </Button>
@@ -200,31 +204,33 @@ function GeneratePlaybookModal({
   onCreated: (id: string) => void;
 }) {
   const { notify } = useToast();
+  const [mode, setMode] = useState<"file" | "text">("file");
+  const [file, setFile] = useState<File | null>(null);
+  const [pastedText, setPastedText] = useState("");
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
   const [contractType, setContractType] = useState("");
-  const [focusAreas, setFocusAreas] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const canSubmit = mode === "file" ? !!file : pastedText.trim().length > 50;
+
   async function submit() {
-    if (!name.trim()) return;
+    if (!canSubmit) return;
     setBusy(true);
     try {
-      const focus = focusAreas
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const res = await playbooksApi.generate({
-        name: name.trim(),
-        description: description.trim() || undefined,
-        contract_type: contractType.trim() || undefined,
-        focus_areas: focus.length ? focus : undefined,
-      });
-      onCreated(res.id);
+      const form = new FormData();
+      if (mode === "file" && file) form.append("file", file);
+      if (mode === "text") form.append("pasted_text", pastedText);
+      if (name.trim()) form.append("name", name.trim());
+      if (contractType.trim()) form.append("contract_type", contractType.trim());
+      if (instructions.trim()) form.append("instructions", instructions.trim());
+      const res = await playbooksApi.generateFromDocument(form);
+      setFile(null);
+      setPastedText("");
       setName("");
-      setDescription("");
       setContractType("");
-      setFocusAreas("");
+      setInstructions("");
+      onCreated(res.id);
       onClose();
     } catch (e) {
       notify(e instanceof Error ? e.message : "Generation failed", "error");
@@ -243,7 +249,7 @@ function GeneratePlaybookModal({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit} loading={busy} disabled={!name.trim()}>
+          <Button onClick={submit} loading={busy} disabled={!canSubmit}>
             <Sparkles className="h-4 w-4" />
             Generate
           </Button>
@@ -251,35 +257,64 @@ function GeneratePlaybookModal({
       }
     >
       <div className="space-y-4">
-        <Field label="Name">
+        <p className="text-sm text-slate-500">
+          Upload a template, an exemplar contract, or your existing playbook — AI reads it and
+          drafts standard positions you can review and edit.
+        </p>
+        <div className="flex gap-1 rounded-md bg-slate-100 p-0.5 text-sm">
+          {(["file", "text"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={`flex-1 rounded px-3 py-1.5 font-medium ${
+                mode === m ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+              }`}
+            >
+              {m === "file" ? "Upload file" : "Paste text"}
+            </button>
+          ))}
+        </div>
+
+        {mode === "file" ? (
+          <Field label="Document" hint="PDF, DOCX, or text file">
+            <input
+              type="file"
+              accept=".pdf,.docx,.txt,.md,application/pdf,text/plain"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-brand-700 hover:file:bg-brand-100"
+            />
+          </Field>
+        ) : (
+          <Field label="Paste standard terms / playbook text">
+            <Textarea
+              rows={6}
+              value={pastedText}
+              onChange={(e) => setPastedText(e.target.value)}
+              placeholder="Paste contract clauses or playbook text…"
+            />
+          </Field>
+        )}
+
+        <Field label="Playbook name" hint="Optional — AI suggests one if left blank">
           <Input
             placeholder="e.g. Vendor MSA Playbook"
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <Field label="Description" hint="Optional — guides the generated rules">
-          <Textarea
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
         <Field label="Contract type" hint="Optional — e.g. saas, nda, msa">
-          <Input
-            value={contractType}
-            onChange={(e) => setContractType(e.target.value)}
-          />
+          <Input value={contractType} onChange={(e) => setContractType(e.target.value)} />
         </Field>
         <Field
-          label="Focus areas"
-          hint="Optional — comma-separated, e.g. liability, indemnity, data privacy"
+          label="Instructions"
+          hint="Optional — e.g. 'we are the customer; be strict on liability'"
         >
-          <Input
-            value={focusAreas}
-            onChange={(e) => setFocusAreas(e.target.value)}
-          />
+          <Input value={instructions} onChange={(e) => setInstructions(e.target.value)} />
         </Field>
+        <p className="text-[11px] text-slate-400">
+          This runs an AI analysis and may take ~10–30 seconds.
+        </p>
       </div>
     </Modal>
   );

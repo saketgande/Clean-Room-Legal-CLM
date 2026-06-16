@@ -209,7 +209,7 @@ export function ContractDocument({
   return (
     <div
       className={
-        "flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 " +
+        "flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm " +
         (className ?? "")
       }
     >
@@ -272,7 +272,7 @@ export function ContractDocument({
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-slate-50 px-8 py-8"
+        className="flex-1 overflow-y-auto bg-slate-100"
       >
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
@@ -291,7 +291,7 @@ export function ContractDocument({
             </p>
           </div>
         ) : (
-          <article className="mx-auto max-w-3xl whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-100 px-10 py-12 font-serif text-[15px] leading-7 text-slate-800 shadow-sm">
+          <article className="w-full whitespace-pre-wrap px-12 py-10 font-serif text-[15px] leading-7 text-slate-800">
             {redlineMode && edits
               ? buildSegments(docText, edits).map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;

@@ -13,6 +13,8 @@ class ContractResponse(BaseModel):
     title: str
     contract_type: str | None
     lifecycle_stage: str
+    renewal_due: bool = False
+    archived: bool = False
     owner_user_id: str
     counterparty_name: str | None
     jurisdiction: str | None
@@ -90,3 +92,64 @@ class ContractActivityResponse(BaseModel):
     assistant_run_id: str | None
     ai_call_id: str | None
     created_at: datetime
+
+
+class ReviewChecklistItem(BaseModel):
+    key: str
+    label: str
+    status: str  # done | todo | blocked | in_progress
+    count: int = 0
+    detail: str | None = None
+
+
+class ReviewStatusResponse(BaseModel):
+    contract_id: str
+    lifecycle_stage: str
+    ai_reviewed: bool
+    open_issues: int
+    high_severity_issues: int
+    pending_redlines: int
+    open_comments: int
+    counterparty_active: bool
+    ready_for_approval: bool
+    next_step: str
+    next_action: str | None = None
+    checklist: list[ReviewChecklistItem]
+
+
+class ContractPartyResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    contract_id: str
+    name: str
+    party_type: str | None
+    contact_email: str | None
+
+
+class ContractPartyCreate(BaseModel):
+    name: str
+    contact_email: str | None = None
+    party_type: str | None = None
+
+
+class SignerOption(BaseModel):
+    name: str
+    email: str
+    kind: str  # party | user
+
+
+class DiffLine(BaseModel):
+    type: str  # context | add | remove
+    text: str
+
+
+class VersionDiffResponse(BaseModel):
+    base_version_id: str
+    base_version_number: int
+    target_version_id: str
+    target_version_number: int
+    added: int
+    removed: int
+    truncated: bool
+    lines: list[DiffLine]

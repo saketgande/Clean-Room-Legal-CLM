@@ -39,7 +39,9 @@ const CONTRACTS = [
     org_id: "org-1",
     title: "Acme ↔ Globex Master Services Agreement",
     contract_type: "msa",
-    lifecycle_stage: "counterparty_review",
+    lifecycle_stage: "review",
+    renewal_due: false,
+    archived: false,
     owner_user_id: "u-1",
     counterparty_name: "Globex Corporation",
     jurisdiction: "Delaware, USA",
@@ -58,6 +60,8 @@ const CONTRACTS = [
     title: "Mutual NDA — Initech Partnership",
     contract_type: "nda",
     lifecycle_stage: "active",
+    renewal_due: false,
+    archived: false,
     owner_user_id: "u-1",
     counterparty_name: "Initech LLC",
     jurisdiction: "California, USA",
@@ -75,7 +79,9 @@ const CONTRACTS = [
     org_id: "org-1",
     title: "Cloud Infrastructure SaaS Subscription — Hooli",
     contract_type: "saas",
-    lifecycle_stage: "approval_pending",
+    lifecycle_stage: "approval",
+    renewal_due: false,
+    archived: false,
     owner_user_id: "u-1",
     counterparty_name: "Hooli Inc.",
     jurisdiction: "New York, USA",
@@ -93,7 +99,9 @@ const CONTRACTS = [
     org_id: "org-1",
     title: "Vendor Data Processing Addendum — Soylent",
     contract_type: "dpa",
-    lifecycle_stage: "renewal_due",
+    lifecycle_stage: "active",
+    renewal_due: true,
+    archived: false,
     owner_user_id: "u-1",
     counterparty_name: "Soylent Corp",
     jurisdiction: "EU (GDPR)",
@@ -121,7 +129,7 @@ const EDITS = [
 const ACTIVITY = [
   { id: "a-1", event_type: "contract.uploaded", title: "Contract uploaded from Globex paper", details: {}, request_id: null, job_id: null, skill_run_id: null, assistant_run_id: null, ai_call_id: null, created_at: iso(-7) },
   { id: "a-2", event_type: "playbook.run", title: "MSA Playbook v3 executed — 7 deviations", details: {}, request_id: null, job_id: null, skill_run_id: "sr-1", assistant_run_id: null, ai_call_id: "ai-1", created_at: iso(-5) },
-  { id: "a-3", event_type: "contract.lifecycle_changed", title: "Stage: internal_review → counterparty_review", details: {}, request_id: null, job_id: null, skill_run_id: null, assistant_run_id: null, ai_call_id: null, created_at: iso(-2) },
+  { id: "a-3", event_type: "contract.lifecycle_changed", title: "Stage: drafting → review", details: {}, request_id: null, job_id: null, skill_run_id: null, assistant_run_id: null, ai_call_id: null, created_at: iso(-2) },
 ];
 
 const PROJECTS = [
@@ -177,7 +185,7 @@ export function getMock(
   // Contract hub
   if (p === "/contract-hub")
     return ok({
-      contracts_by_stage: { intake: 3, drafting: 2, ai_review: 4, internal_review: 5, counterparty_review: 6, approval_pending: 3, approved: 2, signature_pending: 1, active: 14, renewal_due: 3, closed: 4, archived: 7 },
+      contracts_by_stage: { intake: 3, drafting: 6, review: 11, approval: 3, signature: 3, active: 14, closed: 11 },
       contracts_by_risk: { low: 18, medium: 21, high: 9, critical: 4 },
       total_contract_versions: 142,
       widgets: {
@@ -215,15 +223,14 @@ export function getMock(
   if (/^\/contracts\/[^/]+$/.test(p) && m === "PATCH")
     return ok({ ...CONTRACTS[0], ...(body as object) });
   if (/^\/contracts\/[^/]+\/lifecycle$/.test(p) && m === "GET")
-    return ok({ current_stage: "counterparty_review", allowed_transitions: ["ai_review", "internal_review", "approval_pending"] });
+    return ok({ current_stage: "review", allowed_transitions: ["drafting", "approval", "signature"] });
   if (/^\/contracts\/[^/]+\/lifecycle$/.test(p) && m === "POST")
     return ok(CONTRACTS[0]);
   if (/^\/contracts\/[^/]+\/stage-history$/.test(p))
     return ok([
       { id: "sh-1", contract_id: "c-1", from_stage: null, to_stage: "intake", reason: "Uploaded", changed_by_user_id: "u-1", changed_at: iso(-7), override_used: false },
-      { id: "sh-2", contract_id: "c-1", from_stage: "intake", to_stage: "ai_review", reason: "Auto", changed_by_user_id: "u-1", changed_at: iso(-6), override_used: false },
-      { id: "sh-3", contract_id: "c-1", from_stage: "ai_review", to_stage: "internal_review", reason: "Playbook complete", changed_by_user_id: "u-1", changed_at: iso(-5), override_used: false },
-      { id: "sh-4", contract_id: "c-1", from_stage: "internal_review", to_stage: "counterparty_review", reason: "Sent to Globex", changed_by_user_id: "u-1", changed_at: iso(-2), override_used: false },
+      { id: "sh-2", contract_id: "c-1", from_stage: "intake", to_stage: "drafting", reason: "Auto", changed_by_user_id: "u-1", changed_at: iso(-6), override_used: false },
+      { id: "sh-3", contract_id: "c-1", from_stage: "drafting", to_stage: "review", reason: "Playbook complete", changed_by_user_id: "u-1", changed_at: iso(-5), override_used: false },
     ]);
   if (/^\/contracts\/[^/]+\/activity$/.test(p)) return ok(ACTIVITY);
   if (/^\/contracts\/[^/]+\/files$/.test(p))
@@ -366,8 +373,26 @@ export function getMock(
     ]);
   if (p === "/approvals/routing-rules")
     return ok([
-      { id: "rr-1", org_id: "org-1", name: "High-value to GC", priority: "10", criteria: { value_gt: 1000000 }, approver_role: "general_counsel", approver_user_id: null, is_active: true, created_at: iso(-60), updated_at: iso(-60) },
-      { id: "rr-2", org_id: "org-1", name: "Critical risk escalation", priority: "5", criteria: { risk: "critical" }, approver_role: "general_counsel", approver_user_id: null, is_active: true, created_at: iso(-60), updated_at: iso(-60) },
+      { id: "rr-1", org_id: "org-1", name: "High-value chain", priority: "10", criteria: { min_value: 1000000 }, approver_role: null, approver_user_id: null, is_active: true, steps: [
+        { id: "st-1", step_order: 1, approver_group_id: "g-legal", approver_group_name: "Legal Counsel", approver_user_id: null, approver_user_name: null, approver_role: null, mode: "any" },
+        { id: "st-2", step_order: 2, approver_group_id: "g-fin", approver_group_name: "Finance", approver_user_id: null, approver_user_name: null, approver_role: null, mode: "any" },
+        { id: "st-3", step_order: 3, approver_group_id: "g-exec", approver_group_name: "Executive", approver_user_id: null, approver_user_name: null, approver_role: null, mode: "any" },
+      ], created_at: iso(-60), updated_at: iso(-60) },
+      { id: "rr-2", org_id: "org-1", name: "Critical risk escalation", priority: "5", criteria: { risk: "critical" }, approver_role: null, approver_user_id: null, is_active: true, steps: [
+        { id: "st-4", step_order: 1, approver_group_id: "g-legal", approver_group_name: "Legal Counsel", approver_user_id: null, approver_user_name: null, approver_role: null, mode: "any" },
+        { id: "st-5", step_order: 2, approver_group_id: "g-exec", approver_group_name: "Executive", approver_user_id: null, approver_user_name: null, approver_role: null, mode: "any" },
+      ], created_at: iso(-60), updated_at: iso(-60) },
+    ]);
+  if (p === "/approvals/groups")
+    return ok([
+      { id: "g-legal", org_id: "org-1", name: "Legal Counsel", description: "Reviews terms and legal risk.", is_active: true, members: [{ id: "u-2", full_name: "Jane Counsel", email: "jane@acme.com", roles: ["approver"] }], created_at: iso(-60), updated_at: iso(-60) },
+      { id: "g-fin", org_id: "org-1", name: "Finance", description: "Reviews pricing and budget.", is_active: true, members: [], created_at: iso(-60), updated_at: iso(-60) },
+      { id: "g-exec", org_id: "org-1", name: "Executive", description: "Final sign-off.", is_active: true, members: [], created_at: iso(-60), updated_at: iso(-60) },
+    ]);
+  if (p === "/approvals/eligible-approvers")
+    return ok([
+      { id: "u-1", full_name: "Demo Admin", email: "admin@acme.com", roles: ["admin"] },
+      { id: "u-2", full_name: "Jane Counsel", email: "jane@acme.com", roles: ["approver"] },
     ]);
 
   // Signatures

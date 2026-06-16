@@ -6,7 +6,7 @@ from app.ai.citations import validate_citation
 from app.ai.controller import ai_controller
 from app.ai.schemas import BrainAnswerOutput, BrainQueryParseOutput, CitationInput
 from app.contract_brain.models import BrainQuery
-from app.contract_brain.retrieval import assemble_context, precedent_contracts
+from app.contract_brain.retrieval import aggregate_answer, assemble_context, precedent_contracts
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
@@ -43,6 +43,47 @@ async def ask_contract_brain(
         get_project_for_user(db, project_id=payload.project_id, user=current_user)
 
     request_id = getattr(request.state, "request_id", None)
+
+    # Count/list questions ("how many contracts", "list contracts") are answered
+    # deterministically from the database — RAG retrieves snippets, not totals,
+    # so the LLM would otherwise guess a number.
+    agg = aggregate_answer(
+        db,
+        user=current_user,
+        question=payload.question,
+        scope=payload.query_scope,
+        contract_id=payload.contract_id,
+        project_id=payload.project_id,
+    )
+    if agg is not None:
+        query = BrainQuery(
+            org_id=current_user.org_id,
+            query_scope=payload.query_scope,
+            question=payload.question,
+            contract_id=payload.contract_id,
+            project_id=payload.project_id,
+            answer=agg["answer"],
+            citations=[],
+            retrieval_metadata={
+                "scope": payload.query_scope,
+                "source_count": len(agg["contract_ids"]),
+                "graph_facts": 0,
+                "vector_chunks": 0,
+                "fulltext_clauses": 0,
+                "contract_ids": agg["contract_ids"][:50],
+                "confidence": "high",
+                "citation_review": "deterministic",
+                "limitations": None,
+                "answer_mode": "database_count",
+            },
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+        )
+        db.add(query)
+        db.commit()
+        db.refresh(query)
+        return query
+
     parsed = await ai_controller.run_structured_skill(
         db,
         skill_name="contract_brain_query_parse",

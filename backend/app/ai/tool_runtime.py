@@ -1469,8 +1469,11 @@ class ToolRuntime:
                 status.HTTP_403_FORBIDDEN,
                 "Overriding the approved-before-signature gate requires contract:lifecycle_override",
             )
-        if contract.lifecycle_stage != ContractLifecycleStage.APPROVED and not payload.override_lifecycle:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Contract must be approved before signature")
+        if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE and not payload.override_lifecycle:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Contract must reach the signature stage (approval complete) before sending for signature",
+            )
         version_id = contract.current_authoritative_version_id
         version = db.get(ContractVersion, version_id)
         if version is None or version.org_id != user.org_id:
@@ -1532,15 +1535,18 @@ class ToolRuntime:
                     recipient.email,
                     exc,
                 )
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.SIGNATURE_PENDING,
-            actor_user_id=user.id,
-            reason="Sent for signature by assistant",
-            override=payload.override_lifecycle,
-            override_authorized=payload.override_lifecycle,
-        )
+        # Already in SIGNATURE after approval → no stage change; only move when an
+        # override sends from another stage.
+        if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE:
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.SIGNATURE,
+                actor_user_id=user.id,
+                reason="Sent for signature by assistant",
+                override=payload.override_lifecycle,
+                override_authorized=payload.override_lifecycle,
+            )
         db.flush()
         return {
             "status": "sent",
@@ -1765,17 +1771,26 @@ class ToolRuntime:
         session_id: str,
     ) -> dict[str, Any]:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        # Archiving = close the contract and flag it as archived (retained but
+        # hidden from default views). override=True allows it from any stage.
         transition_contract_stage(
             db,
             contract=contract,
-            to_stage=ContractLifecycleStage.ARCHIVED,
+            to_stage=ContractLifecycleStage.CLOSED,
             actor_user_id=user.id,
             reason=payload.reason or "Archived by assistant",
             override=True,
             override_authorized=True,
         )
+        contract.archived = True
+        contract.updated_by_user_id = user.id
         db.flush()
-        return {"status": "archived", "contract_id": contract.id, "lifecycle_stage": contract.lifecycle_stage}
+        return {
+            "status": "archived",
+            "contract_id": contract.id,
+            "lifecycle_stage": contract.lifecycle_stage,
+            "archived": True,
+        }
 
     def _resolve_contract(
         self,

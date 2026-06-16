@@ -140,16 +140,147 @@ export interface ProjectContractResponse {
 export type ContractLifecycleStage =
   | "intake"
   | "drafting"
-  | "ai_review"
-  | "internal_review"
-  | "counterparty_review"
-  | "approval_pending"
-  | "approved"
-  | "signature_pending"
+  | "review"
+  | "approval"
+  | "signature"
   | "active"
-  | "renewal_due"
-  | "closed"
-  | "archived";
+  | "closed";
+
+export interface ReviewChecklistItem {
+  key: string;
+  label: string;
+  status: "done" | "todo" | "blocked" | "in_progress";
+  count: number;
+  detail: string | null;
+}
+
+export interface ReviewStatusResponse {
+  contract_id: ID;
+  lifecycle_stage: ContractLifecycleStage;
+  ai_reviewed: boolean;
+  open_issues: number;
+  high_severity_issues: number;
+  pending_redlines: number;
+  open_comments: number;
+  counterparty_active: boolean;
+  ready_for_approval: boolean;
+  next_step: string;
+  next_action:
+    | "run_ai"
+    | "resolve_issues"
+    | "resolve_redlines"
+    | "resolve_comments"
+    | "submit_approval"
+    | null;
+  checklist: ReviewChecklistItem[];
+}
+
+export interface ContractComment {
+  id: ID;
+  contract_id: ID;
+  contract_version_id: ID | null;
+  parent_comment_id: ID | null;
+  visibility: "internal" | "shared";
+  author_kind: "user" | "counterparty";
+  author_user_id: ID | null;
+  author_name: string;
+  body: string;
+  anchor: Record<string, unknown> | null;
+  mentioned_user_ids: ID[];
+  resolved: boolean;
+  resolved_at: ISODateTime | null;
+  created_at: ISODateTime;
+}
+
+// Public (counterparty) external-share view — no account required.
+export interface ExternalShareView {
+  contract_id: ID;
+  contract_version_id: ID | null;
+  title: string;
+  filename: string | null;
+  access_mode: string;
+  download_allowed: boolean;
+  text_excerpt: string | null;
+  text_truncated: boolean;
+}
+
+export interface ExternalComment {
+  id: ID;
+  author_name: string;
+  author_kind: "user" | "counterparty";
+  body: string;
+  resolved: boolean;
+  created_at: ISODateTime;
+}
+
+export interface ContractParty {
+  id: ID;
+  contract_id: ID;
+  name: string;
+  party_type: string | null;
+  contact_email: string | null;
+}
+
+// A selectable signature recipient (a contract party or an org user).
+export interface SignerOption {
+  name: string;
+  email: string;
+  kind: "party" | "user";
+}
+
+export interface PlaybookRecommendation {
+  clause_type: string;
+  rule_id: string | null;
+  change_summary: string;
+  proposed_preferred_position: string | null;
+  proposed_fallback_position: string | null;
+  proposed_negotiation_guidance: string | null;
+  rationale: string;
+  risk_direction: "more_protected" | "less_protected" | "neutral";
+  confidence: "high" | "medium" | "low";
+}
+
+export interface PlaybookInsightsStat {
+  clause_type: string;
+  total: number;
+  concessions: number;
+  held: number;
+}
+
+export interface PlaybookInsights {
+  ready: boolean;
+  decided_count: number;
+  min_required: number;
+  stats: PlaybookInsightsStat[];
+  recommendations: PlaybookRecommendation[];
+  summary: string | null;
+}
+
+export interface PlaybookDraftRule {
+  clause_type: string;
+  rule_type?: string;
+  preferred_position?: string | null;
+  fallback_position?: string | null;
+  prohibited_language?: string | null;
+  required_language?: string | null;
+  risk_level?: string | null;
+  rationale?: string | null;
+  sample_clause?: string | null;
+  negotiation_guidance?: string | null;
+  approval_required?: boolean;
+}
+
+export interface ExtractedDoc {
+  filename: string;
+  content: string;
+  chars: number;
+}
+
+export interface BuildChatResponse {
+  reply: string;
+  suggested_name: string | null;
+  rules: PlaybookDraftRule[];
+}
 
 export type RiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -171,6 +302,8 @@ export interface ContractResponse {
   title: string;
   contract_type: string | null;
   lifecycle_stage: ContractLifecycleStage;
+  renewal_due: boolean;
+  archived: boolean;
   owner_user_id: ID;
   counterparty_name: string | null;
   jurisdiction: string | null;
@@ -211,6 +344,23 @@ export interface ContractVersionResponse {
   source: ContractVersionSource;
   change_summary: string | null;
   is_authoritative: boolean;
+  created_at: ISODateTime;
+}
+
+export interface VersionDiffLine {
+  type: "context" | "add" | "remove";
+  text: string;
+}
+
+export interface VersionDiffResponse {
+  base_version_id: ID;
+  base_version_number: number;
+  target_version_id: ID;
+  target_version_number: number;
+  added: number;
+  removed: number;
+  truncated: boolean;
+  lines: VersionDiffLine[];
 }
 
 export interface ContractTextSnapshotResponse {
@@ -244,6 +394,7 @@ export interface ContractShareResponse {
   expires_at: ISODateTime | null;
   revoked_at: ISODateTime | null;
   download_allowed: boolean;
+  created_at: ISODateTime;
 }
 
 export interface ContractShareCreateResponse {
@@ -567,14 +718,63 @@ export interface ApprovalRequest {
   org_id: ID;
   contract_id: ID;
   contract_version_id: ID | null;
-  status: "pending" | "approved" | "rejected" | "cancelled";
+  status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
   requested_by_user_id: ID;
   approver_user_id: ID | null;
   approver_role: string | null;
+  approver_group_id?: ID | null;
+  routing_rule_id?: ID | null;
+  step_order?: number;
   due_at: ISODateTime | null;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+  // Server-computed: whether the current user may decide this request (covers
+  // approver-group membership, which the client can't determine on its own).
+  can_decide?: boolean;
+}
+
+// Public token-authenticated review context for the emailed approver.
+export interface ApprovalReviewContext {
+  contract_title: string;
+  requester_name: string;
+  status: string;
+  can_decide: boolean;
+  due_at: ISODateTime | null;
+  document_text: string;
+  document_truncated: boolean;
+}
+
+// A user as surfaced for approver/member dropdowns.
+export interface ApproverBrief {
+  id: ID;
+  full_name: string;
+  email: string;
+  roles: string[];
+}
+
+// A named pool of approvers for a function (Legal Counsel, Finance, …).
+export interface ApproverGroup {
+  id: ID;
+  org_id: ID;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  members: ApproverBrief[];
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+// One ordered step of a routing rule's chain.
+export interface ApprovalRoutingStep {
+  id?: ID;
+  step_order: number;
+  approver_group_id: ID | null;
+  approver_group_name?: string | null;
+  approver_user_id: ID | null;
+  approver_user_name?: string | null;
+  approver_role: string | null;
+  mode: string;
 }
 
 export interface ApprovalRoutingRule {
@@ -586,6 +786,7 @@ export interface ApprovalRoutingRule {
   approver_role: string | null;
   approver_user_id: ID | null;
   is_active: boolean;
+  steps: ApprovalRoutingStep[];
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }

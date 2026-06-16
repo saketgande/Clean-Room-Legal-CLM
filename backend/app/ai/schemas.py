@@ -94,6 +94,51 @@ class PlaybookReviewOutput(BaseModel):
     citations: list[CitationInput] = Field(default_factory=list)
 
 
+class PlaybookGenerationRule(BaseModel):
+    clause_type: str
+    rule_type: str = "standard_position"
+    preferred_position: str | None = None
+    fallback_position: str | None = None
+    prohibited_language: str | None = None
+    required_language: str | None = None
+    risk_level: Literal["low", "medium", "high", "critical"] | None = None
+    rationale: str | None = None
+    sample_clause: str | None = None
+    negotiation_guidance: str | None = None
+    approval_required: bool = False
+
+
+class PlaybookGenerationOutput(BaseModel):
+    suggested_name: str | None = None
+    rules: list[PlaybookGenerationRule] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class PlaybookRecommendation(BaseModel):
+    clause_type: str
+    rule_id: str | None = None
+    change_summary: str
+    proposed_preferred_position: str | None = None
+    proposed_fallback_position: str | None = None
+    proposed_negotiation_guidance: str | None = None
+    rationale: str
+    # Does the change make the org MORE or LESS protected? Surfaced as a guardrail.
+    risk_direction: Literal["more_protected", "less_protected", "neutral"] = "neutral"
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
+class PlaybookRecommendationsOutput(BaseModel):
+    recommendations: list[PlaybookRecommendation] = Field(default_factory=list)
+    summary: str | None = None
+
+
+class PlaybookChatBuildOutput(BaseModel):
+    reply: str
+    suggested_name: str | None = None
+    # The COMPLETE current draft after applying the user's request (replace, not delta).
+    rules: list[PlaybookGenerationRule] = Field(default_factory=list)
+
+
 class ObligationOutput(BaseModel):
     obligation_type: str | None = None
     description: str = Field(min_length=1)

@@ -73,33 +73,23 @@ export function fmtMoney(
 export const STAGE_ORDER = [
   "intake",
   "drafting",
-  "ai_review",
-  "internal_review",
-  "counterparty_review",
-  "approval_pending",
-  "approved",
-  "signature_pending",
+  "review",
+  "approval",
+  "signature",
   "active",
-  "renewal_due",
   "closed",
-  "archived",
 ] as const;
 
 // Mirrors backend app/contracts/lifecycle.py ALLOWED_TRANSITIONS — UI hint
 // only; the backend remains the authority and rejects invalid moves.
 export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  intake: ["drafting", "ai_review", "active"],
-  drafting: ["ai_review", "internal_review"],
-  ai_review: ["internal_review", "counterparty_review"],
-  internal_review: ["counterparty_review", "approval_pending"],
-  counterparty_review: ["ai_review", "internal_review", "approval_pending"],
-  approval_pending: ["approved", "internal_review", "counterparty_review"],
-  approved: ["signature_pending", "active"],
-  signature_pending: ["active", "approved"],
-  active: ["renewal_due", "closed", "archived"],
-  renewal_due: ["active", "closed"],
-  closed: ["archived"],
-  archived: [],
+  intake: ["drafting", "review"],
+  drafting: ["review"],
+  review: ["drafting", "approval", "signature"],
+  approval: ["signature", "review"],
+  signature: ["active", "review"],
+  active: ["closed"],
+  closed: [],
 };
 
 export function nextStages(stage: string | null | undefined): string[] {
@@ -119,21 +109,16 @@ export function stageTone(stage?: string | null): Tone {
   switch (stage) {
     case "active":
       return "green";
-    case "approved":
-    case "signature_pending":
+    case "signature":
       return "cyan";
-    case "approval_pending":
-    case "renewal_due":
+    case "approval":
       return "amber";
     case "closed":
-    case "archived":
       return "slate";
-    case "ai_review":
-    case "internal_review":
-    case "counterparty_review":
+    case "review":
       return "violet";
     default:
-      return "blue";
+      return "blue"; // intake, drafting
   }
 }
 

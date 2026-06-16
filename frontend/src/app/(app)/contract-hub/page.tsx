@@ -50,11 +50,10 @@ const LANE_COLOR: Record<Lane, string> = {
   active: "#16A34A",
 };
 function laneFor(stage: string): Lane | null {
-  if (["intake", "drafting", "ai_review"].includes(stage)) return "drafting";
-  if (["internal_review", "counterparty_review", "approval_pending"].includes(stage))
-    return "negotiation";
-  if (["approved", "signature_pending"].includes(stage)) return "execution";
-  if (["active", "renewal_due"].includes(stage)) return "active";
+  if (["intake", "drafting"].includes(stage)) return "drafting";
+  if (["review", "approval"].includes(stage)) return "negotiation";
+  if (["signature"].includes(stage)) return "execution";
+  if (["active"].includes(stage)) return "active";
   return null;
 }
 function riskTone(r?: string | null): "red" | "amber" | "green" | "blue" {

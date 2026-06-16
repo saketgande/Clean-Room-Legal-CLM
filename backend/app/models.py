@@ -29,6 +29,7 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
+from app.contracts.comments_models import ContractComment
 from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
 from app.jobs.models import JobRun
 from app.notifications.models import Notification

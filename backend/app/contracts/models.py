@@ -26,6 +26,12 @@ class Contract(
     lifecycle_stage = Column(
         String(80), index=True, nullable=False, default=ContractLifecycleStage.INTAKE
     )
+    # Derived sub-states of ACTIVE / CLOSED, folded out of the stage enum:
+    #   renewal_due — ACTIVE contract whose renewal/notice window has opened
+    #                 (set by the renewal-window job; cleared on a renewal decision)
+    #   archived    — CLOSED contract kept for retention but hidden from default views
+    renewal_due = Column(Boolean, index=True, nullable=False, default=False)
+    archived = Column(Boolean, index=True, nullable=False, default=False)
     owner_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
     counterparty_name = Column(String(255), index=True, nullable=True)
     jurisdiction = Column(String(160), index=True, nullable=True)

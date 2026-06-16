@@ -1,15 +1,22 @@
+import difflib
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.approvals.models import ApprovalRequest
 from app.auth.models import User
-from app.playbooks.models import PlaybookDeviation
-from app.contract_files.models import ContractVersion
+from app.playbooks.models import PlaybookDeviation, PlaybookRun
+from app.contract_brain.models import ClauseExtraction
+from app.contract_files.models import (
+    ContractEdit,
+    ContractShare,
+    ContractTextSnapshot,
+    ContractVersion,
+)
 from app.contracts.access import accessible_contract_filter, user_can_access_contract
-from app.contracts.models import Contract, ContractStageHistory
+from app.contracts.models import Contract, ContractParty, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import (
     ApprovalStatus,
@@ -17,6 +24,7 @@ from app.core.enums import (
     ObligationStatus,
     RenewalDecision,
     SignatureStatus,
+    UserStatus,
 )
 from app.core.models import ResourceTimelineEvent
 from app.obligations.models import Obligation
@@ -234,7 +242,7 @@ def contract_hub_summary(db: Session, *, user: User) -> dict:
                 Contract.org_id == user.org_id,
                 Contract.deleted_at.is_(None),
                 contract_filter,
-                Contract.lifecycle_stage == ContractLifecycleStage.COUNTERPARTY_REVIEW,
+                Contract.lifecycle_stage == ContractLifecycleStage.REVIEW,
             )
             .group_by(Contract.counterparty_name)
             .order_by(desc(func.count(Contract.id)))
@@ -306,3 +314,315 @@ def list_contract_activity(db: Session, *, contract: Contract, limit: int = 100)
         .order_by(ResourceTimelineEvent.created_at.desc())
         .limit(min(limit, 200))
     ).all()
+
+
+# Pre-approval stages where a guided "what's next" review makes sense.
+_PRE_APPROVAL_STAGES = {
+    ContractLifecycleStage.INTAKE,
+    ContractLifecycleStage.DRAFTING,
+    ContractLifecycleStage.REVIEW,
+}
+_UNRESOLVED_DEVIATION = ("open", "needs_review")
+
+
+def compute_review_status(db: Session, *, contract: Contract) -> dict:
+    """Derive a guided "what to do next" view of a contract's review from signals
+    the app already produces — playbook deviations, proposed redlines, open
+    comments, and counterparty shares. Pure read; no state of its own."""
+    cid = contract.id
+    stage = contract.lifecycle_stage
+
+    # "AI reviewed" is satisfied by EITHER a structured clause/risk analysis OR a
+    # playbook review — so the one-click analysis clears this step, and a playbook
+    # run (which also yields deviations) counts as the deeper check.
+    playbook_reviewed = (
+        db.scalar(
+            select(func.count(PlaybookRun.id)).where(
+                PlaybookRun.contract_id == cid, PlaybookRun.status == "succeeded"
+            )
+        )
+        or 0
+    ) > 0
+    clause_analyzed = (
+        db.scalar(
+            select(func.count(ClauseExtraction.id)).where(ClauseExtraction.contract_id == cid)
+        )
+        or 0
+    ) > 0
+    ai_reviewed = playbook_reviewed or clause_analyzed
+    open_issues = (
+        db.scalar(
+            select(func.count(PlaybookDeviation.id)).where(
+                PlaybookDeviation.contract_id == cid,
+                PlaybookDeviation.status.in_(_UNRESOLVED_DEVIATION),
+            )
+        )
+        or 0
+    )
+    high_issues = (
+        db.scalar(
+            select(func.count(PlaybookDeviation.id)).where(
+                PlaybookDeviation.contract_id == cid,
+                PlaybookDeviation.status.in_(_UNRESOLVED_DEVIATION),
+                func.lower(PlaybookDeviation.severity).in_(("high", "critical")),
+            )
+        )
+        or 0
+    )
+    pending_redlines = (
+        db.scalar(
+            select(func.count(ContractEdit.id)).where(
+                ContractEdit.contract_id == cid, ContractEdit.status == "proposed"
+            )
+        )
+        or 0
+    )
+    open_comments = _open_comment_count(db, contract_id=cid)
+
+    now = datetime.now(UTC)
+    counterparty_active = (
+        db.scalar(
+            select(func.count(ContractShare.id)).where(
+                ContractShare.contract_id == cid,
+                ContractShare.revoked_at.is_(None),
+                ContractShare.deleted_at.is_(None),
+                or_(ContractShare.expires_at.is_(None), ContractShare.expires_at > now),
+            )
+        )
+        or 0
+    ) > 0
+
+    # High-severity issues, pending redlines, and open comments block approval.
+    blockers = high_issues + pending_redlines + open_comments
+    ready_for_approval = stage in _PRE_APPROVAL_STAGES and blockers == 0
+
+    def _item(key, label, status, count=0, detail=None):
+        return {"key": key, "label": label, "status": status, "count": count, "detail": detail}
+
+    checklist = [
+        _item(
+            "ai_review", "AI review",
+            "done" if ai_reviewed else "todo",
+            detail=(
+                "Analyzes risks & clauses in one click"
+                if not ai_reviewed
+                else (
+                    "Analysis done — run a playbook for a deeper standards check"
+                    if not playbook_reviewed
+                    else None
+                )
+            ),
+        ),
+        _item(
+            "issues", "Resolve flagged issues",
+            "done" if open_issues == 0 else ("blocked" if high_issues else "todo"),
+            count=open_issues,
+            detail=f"{high_issues} high/critical" if high_issues else None,
+        ),
+        _item(
+            "redlines", "Resolve redlines",
+            "done" if pending_redlines == 0 else "todo",
+            count=pending_redlines,
+        ),
+        _item(
+            "comments", "Resolve comments",
+            "done" if open_comments == 0 else "todo",
+            count=open_comments,
+        ),
+        _item(
+            "counterparty", "Counterparty round",
+            "in_progress" if counterparty_active else "todo",
+            detail="Shared — awaiting response" if counterparty_active else "Optional — send for negotiation",
+        ),
+    ]
+    if stage in _PRE_APPROVAL_STAGES:
+        checklist.append(
+            _item(
+                "approval", "Submit for approval",
+                "todo" if ready_for_approval else "blocked",
+                detail="Ready" if ready_for_approval else "Clear blockers first",
+            )
+        )
+    else:
+        checklist.append(_item("approval", "Submit for approval", "done"))
+
+    if stage not in _PRE_APPROVAL_STAGES:
+        next_action, next_step = None, f"Contract is in '{stage}' — review complete."
+    elif not ai_reviewed:
+        next_action, next_step = "run_ai", "Run an AI review to surface risks and missing clauses."
+    elif high_issues:
+        next_action, next_step = "resolve_issues", f"Resolve {high_issues} high-severity issue(s)."
+    elif pending_redlines:
+        next_action, next_step = "resolve_redlines", f"Accept or reject {pending_redlines} pending redline(s)."
+    elif open_comments:
+        next_action, next_step = "resolve_comments", f"Resolve {open_comments} open comment(s)."
+    else:
+        next_action, next_step = "submit_approval", "Looks clean — submit for approval."
+
+    return {
+        "contract_id": cid,
+        "lifecycle_stage": stage,
+        "ai_reviewed": ai_reviewed,
+        "open_issues": open_issues,
+        "high_severity_issues": high_issues,
+        "pending_redlines": pending_redlines,
+        "open_comments": open_comments,
+        "counterparty_active": counterparty_active,
+        "ready_for_approval": ready_for_approval,
+        "next_step": next_step,
+        "next_action": next_action,
+        "checklist": checklist,
+    }
+
+
+def _open_comment_count(db: Session, *, contract_id: str) -> int:
+    """Unresolved comments on the contract. Returns 0 until the comments feature
+    (Phase 2) adds the table — guarded so this works before that migration."""
+    try:
+        from app.contracts.comments_models import ContractComment
+    except Exception:
+        return 0
+    return (
+        db.scalar(
+            select(func.count(ContractComment.id)).where(
+                ContractComment.contract_id == contract_id,
+                ContractComment.resolved_at.is_(None),
+                ContractComment.deleted_at.is_(None),
+            )
+        )
+        or 0
+    )
+
+
+_DIFF_MAX_LINES = 4000
+
+
+def compute_version_diff(
+    db: Session, *, contract: Contract, base_version_id: str, target_version_id: str
+) -> dict:
+    """Line-level diff between two versions' extracted text — used to show what
+    the counterparty changed when they return a revision."""
+
+    def _resolve(version_id: str) -> tuple[ContractVersion, str]:
+        version = db.get(ContractVersion, version_id)
+        if (
+            version is None
+            or version.org_id != contract.org_id
+            or version.contract_id != contract.id
+        ):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version.text_snapshot_id
+            else None
+        )
+        return version, (snapshot.text if snapshot and snapshot.text else "")
+
+    base_version, base_text = _resolve(base_version_id)
+    target_version, target_text = _resolve(target_version_id)
+
+    base_lines = base_text.splitlines()
+    target_lines = target_text.splitlines()
+    lines: list[dict] = []
+    added = removed = 0
+    truncated = False
+    matcher = difflib.SequenceMatcher(a=base_lines, b=target_lines, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        if tag in ("delete", "replace"):
+            for text in base_lines[i1:i2]:
+                lines.append({"type": "remove", "text": text})
+                removed += 1
+        if tag in ("insert", "replace"):
+            for text in target_lines[j1:j2]:
+                lines.append({"type": "add", "text": text})
+                added += 1
+        if tag == "equal":
+            for text in base_lines[i1:i2]:
+                lines.append({"type": "context", "text": text})
+        if len(lines) > _DIFF_MAX_LINES:
+            truncated = True
+            lines = lines[:_DIFF_MAX_LINES]
+            break
+
+    return {
+        "base_version_id": base_version_id,
+        "base_version_number": base_version.version_number,
+        "target_version_id": target_version_id,
+        "target_version_number": target_version.version_number,
+        "added": added,
+        "removed": removed,
+        "truncated": truncated,
+        "lines": lines,
+    }
+
+
+# --- Contract parties (signers) ------------------------------------------
+def list_contract_parties(db: Session, *, contract: Contract) -> list[ContractParty]:
+    return list(
+        db.scalars(
+            select(ContractParty)
+            .where(
+                ContractParty.org_id == contract.org_id,
+                ContractParty.contract_id == contract.id,
+            )
+            .order_by(ContractParty.name)
+        ).all()
+    )
+
+
+def add_contract_party(
+    db: Session,
+    *,
+    contract: Contract,
+    user: User,
+    name: str,
+    contact_email: str | None = None,
+    party_type: str | None = None,
+) -> ContractParty:
+    if not name or not name.strip():
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Party name is required")
+    party = ContractParty(
+        org_id=contract.org_id,
+        contract_id=contract.id,
+        name=name.strip(),
+        party_type=(party_type.strip() if party_type else None),
+        contact_email=(contact_email.strip().lower() if contact_email else None),
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(party)
+    db.commit()
+    db.refresh(party)
+    return party
+
+
+def delete_contract_party(db: Session, *, contract: Contract, party_id: str) -> None:
+    party = db.get(ContractParty, party_id)
+    if party is None or party.org_id != contract.org_id or party.contract_id != contract.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Party not found")
+    db.delete(party)
+    db.commit()
+
+
+def list_signer_options(db: Session, *, contract: Contract) -> list[dict]:
+    """Valid signature recipients for the contract — its parties (with an email)
+    plus active org users. Mirrors the signature allowlist, so the picker can't
+    offer anyone the send would reject."""
+    options: dict[str, dict] = {}
+    for party in list_contract_parties(db, contract=contract):
+        if party.contact_email:
+            options[party.contact_email.lower()] = {
+                "name": party.name,
+                "email": party.contact_email,
+                "kind": "party",
+            }
+    for member in db.scalars(
+        select(User).where(
+            User.org_id == contract.org_id, User.status == UserStatus.ACTIVE
+        )
+    ):
+        options.setdefault(
+            member.email.lower(),
+            {"name": member.full_name or member.email, "email": member.email, "kind": "user"},
+        )
+    return list(options.values())

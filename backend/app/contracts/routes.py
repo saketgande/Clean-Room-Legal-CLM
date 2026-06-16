@@ -8,19 +8,30 @@ from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 from app.contracts.schemas import (
     ContractActivityResponse,
+    ContractPartyCreate,
+    ContractPartyResponse,
     ContractResponse,
     ContractStageHistoryResponse,
     ContractUpdate,
     ContractUploadResponse,
     LifecycleOptionsResponse,
     LifecycleTransitionRequest,
+    ReviewStatusResponse,
+    SignerOption,
+    VersionDiffResponse,
 )
 from app.contracts.service import (
+    add_contract_party,
+    compute_review_status,
+    compute_version_diff,
     contract_hub_summary,
+    delete_contract_party,
     get_contract_for_user,
     list_contract_activity,
+    list_contract_parties,
     list_contract_stage_history,
     list_contracts_for_user,
+    list_signer_options,
     update_contract_metadata,
 )
 from app.core.deps import get_db, require_permission
@@ -133,6 +144,91 @@ def get_lifecycle_options(
         "current_stage": contract.lifecycle_stage,
         "allowed_transitions": allowed_transitions_for(contract.lifecycle_stage),
     }
+
+
+@router.get("/{contract_id}/review-status", response_model=ReviewStatusResponse)
+def get_review_status(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Guided "what to do next" for a contract's review — derived from playbook
+    deviations, pending redlines, open comments, and counterparty shares."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return compute_review_status(db, contract=contract)
+
+
+@router.get(
+    "/{contract_id}/versions/{base_version_id}/diff/{target_version_id}",
+    response_model=VersionDiffResponse,
+)
+def get_version_diff(
+    contract_id: str,
+    base_version_id: str,
+    target_version_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Line-level diff between two versions (e.g. yours vs the counterparty's)."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return compute_version_diff(
+        db,
+        contract=contract,
+        base_version_id=base_version_id,
+        target_version_id=target_version_id,
+    )
+
+
+@router.get("/{contract_id}/parties", response_model=list[ContractPartyResponse])
+def list_parties(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return list_contract_parties(db, contract=contract)
+
+
+@router.post(
+    "/{contract_id}/parties", response_model=ContractPartyResponse, status_code=status.HTTP_201_CREATED
+)
+def add_party(
+    contract_id: str,
+    payload: ContractPartyCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:update")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return add_contract_party(
+        db,
+        contract=contract,
+        user=current_user,
+        name=payload.name,
+        contact_email=payload.contact_email,
+        party_type=payload.party_type,
+    )
+
+
+@router.delete("/{contract_id}/parties/{party_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_party(
+    contract_id: str,
+    party_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:update")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    delete_contract_party(db, contract=contract, party_id=party_id)
+
+
+@router.get("/{contract_id}/signers", response_model=list[SignerOption])
+def list_signers(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Valid signature recipients — contract parties + active org users."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return list_signer_options(db, contract=contract)
 
 
 @router.get("/{contract_id}/stage-history", response_model=list[ContractStageHistoryResponse])

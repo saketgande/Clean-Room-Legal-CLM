@@ -1,5 +1,9 @@
 # AEGIS Legal CLM - Ubuntu VM Deployment, No Docker
 
+> Prefer containers? See [DOCKER.md](DOCKER.md) for running the whole stack
+> (Postgres, Redis, API, worker, beat, frontend) with `docker compose`. This
+> guide is the native, no-Docker path.
+
 This guide runs the whole application directly on an Ubuntu VM:
 
 - Nginx listens on ports 80/443.

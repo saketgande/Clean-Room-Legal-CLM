@@ -6,7 +6,10 @@ import type {
   AdminSetting,
   ApiKeyResponse,
   ApprovalRequest,
+  ApprovalReviewContext,
   ApprovalRoutingRule,
+  ApproverGroup,
+  ApproverBrief,
   AssistantMessage,
   AssistantRun,
   AssistantSession,
@@ -19,7 +22,14 @@ import type {
   ContractEditResponse,
   ContractFileResponse,
   ContractHubResponse,
+  ContractComment,
+  ContractParty,
   ContractResponse,
+  ExternalComment,
+  SignerOption,
+  ExternalShareView,
+  ReviewStatusResponse,
+  VersionDiffResponse,
   ContractShareCreateResponse,
   ContractShareResponse,
   ContractStageHistoryResponse,
@@ -34,6 +44,10 @@ import type {
   Obligation,
   OrganizationResponse,
   OrgJoinRequestResponse,
+  BuildChatResponse,
+  ExtractedDoc,
+  PlaybookDraftRule,
+  PlaybookInsights,
   PlaybookResponse,
   PlaybookRuleResponse,
   PlaybookRunDetailResponse,
@@ -277,6 +291,39 @@ export const contractsApi = {
     }),
   stageHistory: (id: string) =>
     apiFetch<ContractStageHistoryResponse[]>(`/contracts/${id}/stage-history`),
+  reviewStatus: (id: string) =>
+    apiFetch<ReviewStatusResponse>(`/contracts/${id}/review-status`),
+  parties: (id: string) => apiFetch<ContractParty[]>(`/contracts/${id}/parties`),
+  addParty: (
+    id: string,
+    payload: { name: string; contact_email?: string; party_type?: string },
+  ) => apiFetch<ContractParty>(`/contracts/${id}/parties`, { method: "POST", body: payload }),
+  deleteParty: (id: string, partyId: string) =>
+    apiFetch<void>(`/contracts/${id}/parties/${partyId}`, { method: "DELETE" }),
+  signers: (id: string) => apiFetch<SignerOption[]>(`/contracts/${id}/signers`),
+  comments: (id: string) =>
+    apiFetch<ContractComment[]>(`/contracts/${id}/comments`),
+  addComment: (
+    id: string,
+    payload: {
+      body: string;
+      visibility?: "internal" | "shared";
+      contract_version_id?: string;
+      parent_comment_id?: string;
+      mentioned_user_ids?: string[];
+    },
+  ) =>
+    apiFetch<ContractComment>(`/contracts/${id}/comments`, {
+      method: "POST",
+      body: payload,
+    }),
+  resolveComment: (id: string, commentId: string, resolved: boolean) =>
+    apiFetch<ContractComment>(`/contracts/${id}/comments/${commentId}/resolve`, {
+      method: "POST",
+      body: { resolved },
+    }),
+  deleteComment: (id: string, commentId: string) =>
+    apiFetch<void>(`/contracts/${id}/comments/${commentId}`, { method: "DELETE" }),
   activity: (id: string, limit = 100) =>
     apiFetch<ContractActivityResponse[]>(
       `/contracts/${id}/activity${qs({ limit })}`,
@@ -288,6 +335,10 @@ export const contractsApi = {
   versionText: (id: string, versionId: string) =>
     apiFetch<ContractTextSnapshotResponse>(
       `/contracts/${id}/versions/${versionId}/text`,
+    ),
+  versionDiff: (id: string, baseVersionId: string, targetVersionId: string) =>
+    apiFetch<VersionDiffResponse>(
+      `/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}`,
     ),
   downloadVersion: (id: string, versionId: string, name?: string) =>
     apiDownload(`/contracts/${id}/versions/${versionId}/download`, name),
@@ -446,6 +497,36 @@ export const playbooksApi = {
       method: "POST",
       body: payload,
     }),
+  generateFromDocument: (form: FormData) =>
+    apiFetch<PlaybookResponse>("/playbooks/generate-from-document", { form }),
+  buildExtract: (form: FormData) =>
+    apiFetch<ExtractedDoc[]>("/playbooks/build/extract", { form }),
+  buildChat: (payload: {
+    message: string;
+    conversation: { role: string; content: string }[];
+    current_rules: PlaybookDraftRule[];
+    documents: { filename: string; content: string }[];
+    name?: string;
+  }) =>
+    apiFetch<BuildChatResponse>("/playbooks/build/chat", { method: "POST", body: payload }),
+  buildSave: (payload: { name: string; description?: string; rules: PlaybookDraftRule[] }) =>
+    apiFetch<PlaybookResponse>("/playbooks/build/save", { method: "POST", body: payload }),
+  insights: (id: string) =>
+    apiFetch<PlaybookInsights>(`/playbooks/${id}/insights`, { method: "POST" }),
+  applyInsight: (
+    id: string,
+    payload: {
+      clause_type: string;
+      preferred_position?: string | null;
+      fallback_position?: string | null;
+      negotiation_guidance?: string | null;
+      summary?: string;
+    },
+  ) =>
+    apiFetch<PlaybookVersionResponse>(`/playbooks/${id}/insights/apply`, {
+      method: "POST",
+      body: payload,
+    }),
   get: (id: string) => apiFetch<PlaybookResponse>(`/playbooks/${id}`),
   update: (id: string, payload: { name?: string; description?: string }) =>
     apiFetch<PlaybookResponse>(`/playbooks/${id}`, {
@@ -533,11 +614,31 @@ export const approvalsApi = {
       method: "POST",
       body: { decision, comment },
     }),
+  reviewByToken: (token: string) =>
+    apiFetch<ApprovalReviewContext>(`/approvals/review/${token}`, { noRetry: true }),
   tokenDecide: (token: string, decision: "approve" | "reject", comment?: string) =>
     apiFetch<{ approval_request_id: string; status: string; contract_id: string }>(
       "/approvals/token-decision",
       { method: "POST", body: { token, decision, comment }, noRetry: true },
     ),
+
+  // --- Approver groups (pools the routing-step dropdowns pick from) ---
+  groups: () => apiFetch<ApproverGroup[]>("/approvals/groups"),
+  createGroup: (payload: {
+    name: string;
+    description?: string;
+    is_active?: boolean;
+  }) => apiFetch<ApproverGroup>("/approvals/groups", { method: "POST", body: payload }),
+  updateGroup: (
+    id: string,
+    payload: { name?: string; description?: string; is_active?: boolean },
+  ) => apiFetch<ApproverGroup>(`/approvals/groups/${id}`, { method: "PATCH", body: payload }),
+  setGroupMembers: (id: string, userIds: string[]) =>
+    apiFetch<ApproverGroup>(`/approvals/groups/${id}/members`, {
+      method: "PUT",
+      body: { user_ids: userIds },
+    }),
+  eligibleApprovers: () => apiFetch<ApproverBrief[]>("/approvals/eligible-approvers"),
 };
 
 // ---- Signatures ----------------------------------------------------------
@@ -713,4 +814,29 @@ export const debugApi = {
     "/debug/health",
   ),
   configStatus: () => apiFetch<ConfigStatus>("/debug/config-status"),
+};
+
+// ---- External share (public, counterparty — no account) ------------------
+function shareQs(passcode?: string) {
+  return passcode ? `?passcode=${encodeURIComponent(passcode)}` : "";
+}
+export const externalShareApi = {
+  view: (token: string, passcode?: string) =>
+    apiFetch<ExternalShareView>(`/external-shares/${token}${shareQs(passcode)}`, {
+      noRetry: true,
+    }),
+  comments: (token: string, passcode?: string) =>
+    apiFetch<ExternalComment[]>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+      noRetry: true,
+    }),
+  addComment: (
+    token: string,
+    payload: { author_name?: string; body: string },
+    passcode?: string,
+  ) =>
+    apiFetch<ExternalComment>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+      method: "POST",
+      body: payload,
+      noRetry: true,
+    }),
 };

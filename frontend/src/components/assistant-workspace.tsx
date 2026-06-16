@@ -657,10 +657,8 @@ export function AssistantWorkspace() {
     sessRef.current = activeSession.id;
     startWatch(activeSession.id);
     abortActiveStream();
-    const wfPrompt =
-      wf && (wf.definition as { prompt?: string })?.prompt
-        ? `[Workflow: ${wf.name}]\n${(wf.definition as { prompt?: string }).prompt}\n\n`
-        : "";
+    const wfBody = wf ? workflowPrompt(wf) : "";
+    const wfPrompt = wf && wfBody ? `[Workflow: ${wf.name}]\n${wfBody}\n\n` : "";
     abortRef.current = await apiStream(
       `/assistant/sessions/${activeSession.id}/stream`,
       {
@@ -731,76 +729,44 @@ export function AssistantWorkspace() {
   const hasDoc = !!activeContractId;
 
   return (
-    <div className="-mx-4 -my-4 flex h-[calc(100vh-3.5rem)] flex-col bg-slate-50 sm:-mx-6 sm:-my-6">
-      {/* Top bar */}
-      <div className="flex h-12 shrink-0 items-center gap-3 border-b border-slate-200 bg-slate-100 px-4 text-sm">
-        <button
-          onClick={() => setRailOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-          title="Chats"
-        >
-          <PanelLeft className="h-4 w-4" />
-          <span className="hidden text-xs font-medium sm:inline">Chats</span>
-        </button>
-        <button
-          onClick={newSession}
-          className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-          title="New chat"
-        >
-          <Plus className="h-4 w-4" />
-          <span className="hidden text-xs font-medium sm:inline">
-            New chat
-          </span>
-        </button>
-        <div className="h-5 w-px bg-slate-200" />
-        {projectParam ? (
-          <nav className="flex min-w-0 items-center gap-1.5 text-slate-500">
-            <Link href="/projects" className="hover:text-slate-800">
-              Projects
-            </Link>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
-            <Link
-              href={`/projects/${projectParam}`}
-              className="truncate hover:text-slate-800"
-            >
-              {projectName(projectParam)}
-            </Link>
-            <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
-            <span className="font-medium text-slate-800">Assistant</span>
-          </nav>
-        ) : (
-          <span className="font-semibold text-slate-800">
-            Legal AI Assistant
-          </span>
-        )}
-        {activeContractId && (
-          <Link
-            href={`/contracts/${activeContractId}`}
-            className="ml-auto flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium text-brand-600 hover:bg-brand-50"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            Open contract page
-          </Link>
-        )}
-      </div>
-
+    <div className="flex h-full flex-col bg-slate-50">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Conversation column */}
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section className="relative flex min-w-0 flex-1 flex-col">
+          {/* Floating controls — replaces the removed top bar */}
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-2">
+            <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/85 p-1 shadow-sm backdrop-blur">
+              <button
+                onClick={() => setRailOpen(true)}
+                title="Chats"
+                aria-label="Chats"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              >
+                <PanelLeft className="h-4 w-4" />
+              </button>
+              <button
+                onClick={newSession}
+                title="New chat"
+                aria-label="New chat"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+            {activeContractId && (
+              <Link
+                href={`/contracts/${activeContractId}`}
+                className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/85 px-2.5 py-1.5 text-xs font-medium text-brand-600 shadow-sm backdrop-blur transition-colors hover:bg-brand-50"
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Open contract page
+              </Link>
+            )}
+          </div>
           {!activeSession ? (
             <div className="flex flex-1 flex-col items-center overflow-y-auto px-6">
               <div className="flex w-full max-w-[640px] flex-1 flex-col justify-center py-16">
-                <div className="flex animate-rise-in items-center gap-3">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
-                    Assistant
-                  </span>
-                  <span className="h-px w-10 bg-slate-200" />
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-brand-600" />
-                    Ready
-                  </span>
-                </div>
-                <h1 className="mt-5 animate-rise-in font-serif text-[52px] font-normal leading-[1.04] tracking-[-0.02em] text-slate-900">
+                <h1 className="animate-rise-in font-serif text-[52px] font-normal leading-[1.04] tracking-[-0.02em] text-slate-900">
                   {greeting},<br />
                   <span className="font-medium">{firstName}.</span>
                 </h1>
@@ -2072,6 +2038,30 @@ function ProjectPickerModal({
   );
 }
 
+// A workflow's definition is either { prompt } (assistant workflows) or
+// { columns: [{ name, prompt }] } (tabular-review workflows). Read the columns.
+function workflowColumns(wf: Workflow): { name: string; prompt?: string }[] {
+  const cols = (wf.definition as { columns?: { name: string; prompt?: string }[] })
+    ?.columns;
+  return Array.isArray(cols) ? cols : [];
+}
+
+// Turn any workflow into a chat instruction. Assistant workflows carry a ready
+// prompt; for review workflows we synthesize one from their extraction columns
+// so they can be applied to the attached document(s) in conversation too.
+function workflowPrompt(wf: Workflow): string {
+  const direct = (wf.definition as { prompt?: string })?.prompt;
+  if (direct && direct.trim()) return direct;
+  const cols = workflowColumns(wf);
+  if (cols.length) {
+    const lines = cols
+      .map((c, i) => `${i + 1}. ${c.name}${c.prompt ? ` — ${c.prompt}` : ""}`)
+      .join("\n");
+    return `Review the attached document(s) using the "${wf.name}" review. For each document, extract and report on the following, citing the relevant clause where possible:\n\n${lines}\n\nPresent the results as a clear, structured summary.`;
+  }
+  return "";
+}
+
 function WorkflowModal({
   open,
   onClose,
@@ -2087,9 +2077,27 @@ function WorkflowModal({
     enabled: open,
   });
   const [selected, setSelected] = useState<Workflow | null>(null);
-  const assistantWorkflows = (workflows ?? []).filter(
-    (w) => w.workflow_type === "assistant",
-  );
+  const [hovered, setHovered] = useState<Workflow | null>(null);
+  const preview = hovered ?? selected;
+  const all = workflows ?? [];
+  const groups = [
+    {
+      label: "Assistant workflows",
+      items: all.filter((w) => w.workflow_type === "assistant"),
+    },
+    {
+      label: "Document review workflows",
+      items: all.filter((w) => w.workflow_type === "tabular_review"),
+    },
+    {
+      label: "Other workflows",
+      items: all.filter(
+        (w) =>
+          w.workflow_type !== "assistant" &&
+          w.workflow_type !== "tabular_review",
+      ),
+    },
+  ].filter((g) => g.items.length > 0);
 
   return (
     <Modal
@@ -2116,44 +2124,99 @@ function WorkflowModal({
         <CenterSpinner />
       ) : (
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            {assistantWorkflows.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => setSelected(w)}
-                className={cn(
-                  "w-full rounded-lg border p-3 text-left transition-colors",
-                  selected?.id === w.id
-                    ? "border-brand-400 bg-brand-50"
-                    : "border-slate-200 hover:bg-slate-50",
-                )}
-              >
-                <p className="text-sm font-medium text-slate-900">{w.name}</p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                  {w.description}
-                </p>
-              </button>
-            ))}
-            {assistantWorkflows.length === 0 && (
+          <div
+            className="max-h-[60vh] space-y-4 overflow-y-auto pr-1"
+            onMouseLeave={() => setHovered(null)}
+          >
+            {all.length === 0 && (
               <p className="p-4 text-center text-sm text-slate-400">
-                No assistant workflows available.
+                No workflows available.
               </p>
             )}
+            {groups.map((g) => (
+              <div key={g.label} className="space-y-1.5">
+                <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                  {g.label} · {g.items.length}
+                </p>
+                {g.items.map((w) => (
+                  <button
+                    key={w.id}
+                    onClick={() => setSelected(w)}
+                    onMouseEnter={() => setHovered(w)}
+                    onFocus={() => setHovered(w)}
+                    className={cn(
+                      "w-full rounded-lg border p-3 text-left transition-colors",
+                      selected?.id === w.id
+                        ? "border-brand-400 bg-brand-50"
+                        : preview?.id === w.id
+                          ? "border-slate-300 bg-slate-50"
+                          : "border-slate-200 hover:bg-slate-50",
+                    )}
+                  >
+                    <p className="text-sm font-medium text-slate-900">{w.name}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                      {w.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            ))}
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            {selected ? (
-              <>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                  Prompt preview
-                </p>
-                <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
-                  {(selected.definition as { prompt?: string })?.prompt ??
-                    "This workflow has no preview prompt."}
-                </p>
-              </>
+          <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4">
+            {preview ? (
+              (() => {
+                const cols = workflowColumns(preview);
+                const prompt = (preview.definition as { prompt?: string })
+                  ?.prompt;
+                return (
+                  <>
+                    <p className="text-sm font-semibold text-slate-900">
+                      {preview.name}
+                    </p>
+                    {preview.description && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {preview.description}
+                      </p>
+                    )}
+                    {prompt ? (
+                      <>
+                        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          What it does
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                          {prompt}
+                        </p>
+                      </>
+                    ) : cols.length ? (
+                      <>
+                        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          Extracts {cols.length} field
+                          {cols.length === 1 ? "" : "s"}
+                        </p>
+                        <ul className="mt-1 space-y-1.5">
+                          {cols.map((c, i) => (
+                            <li key={i} className="text-sm text-slate-700">
+                              <span className="font-medium">{c.name}</span>
+                              {c.prompt && (
+                                <span className="mt-0.5 block text-xs text-slate-500">
+                                  {c.prompt}
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-400">
+                        This workflow has no preview.
+                      </p>
+                    )}
+                  </>
+                );
+              })()
             ) : (
               <p className="text-sm text-slate-400">
-                Select a workflow to preview its instructions.
+                Hover a workflow to preview its details, then click to select it.
               </p>
             )}
           </div>

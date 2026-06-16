@@ -1,4 +1,5 @@
 import logging
+import re
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -53,6 +54,79 @@ def resolve_scope_contract_ids(
         )
         base = base.where(Contract.id.in_(in_project))
     return list(db.scalars(base).all())
+
+
+# --- Deterministic answers for count / list questions ---------------------
+# RAG retrieves clause *snippets*, not totals, so "how many / list contracts"
+# can't be answered by the LLM (it guesses). These are answered straight from
+# the database. Anchored to the whole question so content questions like
+# "how many contracts have an indemnity cap" fall through to retrieval.
+_FILLER = (
+    r"(are there|do (i|we) have|are in (my |the )?portfolio|in (my |the )?portfolio"
+    r"|exist|in total|total|right now|now|currently|in this project|in the project"
+    r"|altogether|here)"
+)
+_COUNT_RE = re.compile(
+    rf"^\s*(how many|the number of|number of|count(\s+of)?|total(\s+number\s+of)?)\s+"
+    rf"(contracts?|agreements?)\b\s*(?:{_FILLER})?\s*[?.]?\s*$",
+    re.I,
+)
+_LIST_RE = re.compile(
+    rf"^\s*(list|show(\s+me)?|what|which)\s+(all\s+|my\s+|the\s+|our\s+)?"
+    rf"(contracts?|agreements?)\b\s*(?:{_FILLER}|do (i|we) have)?\s*[?.]?\s*$",
+    re.I,
+)
+
+
+def aggregate_answer(
+    db: Session,
+    *,
+    user: User,
+    question: str,
+    scope: str,
+    contract_id: str | None,
+    project_id: str | None,
+) -> dict | None:
+    """Answer a plain count/list-of-contracts question from the database. Returns
+    None for anything else, so content questions still go through retrieval."""
+    q = question.strip()
+    is_count = bool(_COUNT_RE.match(q))
+    is_list = bool(_LIST_RE.match(q)) and not is_count
+    if not (is_count or is_list):
+        return None
+
+    contract_ids = resolve_scope_contract_ids(
+        db, user=user, scope=scope, contract_id=contract_id, project_id=project_id
+    )
+    n = len(contract_ids)
+    label = {
+        "portfolio": "portfolio",
+        "project": "project",
+        "contract": "selected contract",
+    }.get(scope, "portfolio")
+
+    if is_count:
+        verb = "is" if n == 1 else "are"
+        noun = "contract" if n == 1 else "contracts"
+        return {"answer": f"There {verb} {n} {noun} in your {label}.", "contract_ids": contract_ids}
+
+    if n == 0:
+        return {"answer": f"There are no contracts in your {label}.", "contract_ids": []}
+    titles = list(
+        db.scalars(
+            select(Contract.title)
+            .where(Contract.id.in_(contract_ids))
+            .order_by(Contract.created_at.desc())
+            .limit(50)
+        ).all()
+    )
+    lines = "\n".join(f"- {t}" for t in titles)
+    more = f"\n…and {n - 50} more." if n > 50 else ""
+    plural = "contract" if n == 1 else "contracts"
+    return {
+        "answer": f"Your {label} has {n} {plural}:\n{lines}{more}",
+        "contract_ids": contract_ids,
+    }
 
 
 def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> list[dict]:

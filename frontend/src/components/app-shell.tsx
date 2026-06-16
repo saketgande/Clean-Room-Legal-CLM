@@ -25,7 +25,6 @@ import {
   LogOut,
   Menu,
   PanelLeftClose,
-  PanelLeftOpen,
   X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -40,7 +39,7 @@ const NAV: {
   {
     section: "Workspace",
     items: [
-      { href: "/", label: "AI Assistant", icon: Bot },
+      { href: "/", label: "Ask Aegis", icon: Bot },
       { href: "/contract-hub", label: "Contract Hub", icon: LayoutDashboard },
       { href: "/projects", label: "Projects", icon: FolderKanban },
       { href: "/search", label: "Search", icon: Search },
@@ -78,7 +77,14 @@ function SidebarNav({
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { setCollapsed, forceCollapsed } = useLayout();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const canToggle = !forceCollapsed;
+  const toggleCollapsed = () => {
+    if (canToggle) setCollapsed(!collapsed);
+  };
+  const notifActive = pathname.startsWith("/notifications");
 
   const isActive = (href: string) => {
     if (href === "/")
@@ -104,22 +110,45 @@ function SidebarNav({
       <div
         className={cn(
           "flex h-16 shrink-0 items-center",
-          collapsed ? "justify-center px-2" : "px-6",
+          collapsed ? "justify-center px-2" : "justify-between pl-6 pr-3",
         )}
       >
         {collapsed ? (
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-serif text-base font-medium text-white">
-            A
-          </div>
+          canToggle ? (
+            <button
+              onClick={toggleCollapsed}
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-serif text-base font-medium text-white transition-colors hover:bg-brand-700"
+            >
+              A
+            </button>
+          ) : (
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-serif text-base font-medium text-white">
+              A
+            </div>
+          )
         ) : (
-          <div className="flex items-baseline gap-2">
-            <span className="font-serif text-[21px] font-medium tracking-tight text-slate-900">
-              Aegis
-            </span>
-            <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Legal
-            </span>
-          </div>
+          <>
+            <div className="flex items-baseline gap-2">
+              <span className="font-serif text-[21px] font-medium tracking-tight text-slate-900">
+                Aegis
+              </span>
+              <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Legal
+              </span>
+            </div>
+            {canToggle && (
+              <button
+                onClick={toggleCollapsed}
+                title="Collapse sidebar"
+                aria-label="Collapse sidebar"
+                className="hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:inline-flex"
+              >
+                <PanelLeftClose className="h-5 w-5" />
+              </button>
+            )}
+          </>
         )}
       </div>
 
@@ -192,6 +221,30 @@ function SidebarNav({
           </div>
         ))}
       </nav>
+
+      {/* Notifications — relocated here from the removed top bar */}
+      <div className={cn("shrink-0", collapsed ? "px-2 pb-2" : "px-3 pb-2")}>
+        <Link
+          href="/notifications"
+          onClick={onNavigate}
+          title={collapsed ? "Notifications" : undefined}
+          className={cn(
+            "flex items-center rounded-lg text-sm transition-colors",
+            collapsed ? "justify-center px-2 py-2.5" : "gap-2.5 px-2.5 py-2",
+            notifActive
+              ? "bg-brand-50 font-semibold text-brand-700"
+              : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+          )}
+        >
+          <Bell
+            className={cn(
+              "h-[17px] w-[17px] shrink-0",
+              notifActive ? "text-brand-600" : "text-slate-400",
+            )}
+          />
+          {!collapsed && "Notifications"}
+        </Link>
+      </div>
 
       {/* Footer — theme toggle + user info (very bottom of the sidebar) */}
       <div
@@ -293,17 +346,19 @@ function SidebarNav({
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const {
-    collapsed,
-    setCollapsed,
-    mobileOpen,
-    setMobileOpen,
-    forceCollapsed,
-  } = useLayout();
+  const { collapsed, mobileOpen, setMobileOpen, forceCollapsed } = useLayout();
   const pathname = usePathname();
 
   const deskCollapsed = forceCollapsed || collapsed;
   const notifActive = pathname.startsWith("/notifications");
+  // Immersive routes fill the whole main area instead of the centered,
+  // max-width-capped content column: the playbook builder, the AI assistant
+  // workspace, and the contract detail workspace all run edge-to-edge.
+  const fullBleed =
+    pathname === "/playbooks/build" ||
+    pathname === "/" ||
+    pathname.startsWith("/assistant") ||
+    pathname.startsWith("/contracts/");
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -342,39 +397,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 sm:px-6">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {/* Mobile hamburger */}
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 lg:hidden"
-              aria-label="Open menu"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-            {/* Desktop collapse toggle */}
-            <button
-              onClick={() => setCollapsed(!collapsed)}
-              disabled={forceCollapsed}
-              title={
-                forceCollapsed
-                  ? "Expanded nav is hidden in this workspace"
-                  : collapsed
-                    ? "Expand sidebar"
-                    : "Collapse sidebar"
-              }
-              className="hidden rounded-lg p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-40 lg:inline-flex"
-              aria-label="Toggle sidebar"
-            >
-              {deskCollapsed ? (
-                <PanelLeftOpen className="h-5 w-5" />
-              ) : (
-                <PanelLeftClose className="h-5 w-5" />
-              )}
-            </button>
-          </div>
+        {/* Mobile top bar only — on desktop these controls live in the sidebar,
+            so the main area runs full-height with no top chrome. */}
+        <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 sm:px-6 lg:hidden">
+          <button
+            onClick={() => setMobileOpen(true)}
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
 
-          {/* Notifications — top-right */}
           <Link
             href="/notifications"
             aria-label="Notifications"
@@ -391,9 +424,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </header>
 
         <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
-            {children}
-          </div>
+          {fullBleed ? (
+            children
+          ) : (
+            <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+              {children}
+            </div>
+          )}
         </main>
       </div>
     </div>

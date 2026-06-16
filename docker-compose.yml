@@ -1,0 +1,141 @@
+# AEGIS Legal CLM — full local stack in Docker.
+#
+# This is the "with Docker" path. The "without Docker" path (host processes)
+# is still ./start.sh — the two are independent, switch whenever you like.
+#
+# Quick start:
+#   cp .env.docker.example .env.docker
+#   docker compose up -d --build
+#   open http://localhost:3000     (API: http://localhost:8000)
+#
+# All backend app config comes from .env.docker. The three networking/storage
+# vars below are pinned here (they point at the compose service names + the
+# contracts volume) so they're always correct regardless of the env file.
+
+name: aegis
+
+x-backend: &backend
+  build: ./backend
+  image: aegis/backend:local
+  # Single source of truth for app config (keys, secrets, model, integration
+  # mocks) — the SAME file the no-Docker start.sh uses. Compose reads it from
+  # the host, so it works in both dev and prod modes.
+  env_file:
+    - ./backend/.env
+  # Container-only overrides: point at the in-stack services + volume. These
+  # take precedence over whatever backend/.env says for these three keys.
+  environment:
+    DATABASE_URL: postgresql+psycopg://legal_clm:legal_clm@postgres:5432/legal_clm
+    REDIS_URL: redis://redis:6379/0
+    STORAGE_ROOT: /data/contracts
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: legal_clm
+      POSTGRES_PASSWORD: legal_clm
+      POSTGRES_DB: legal_clm
+    # Internal-only: the app reaches this at postgres:5432 over the compose
+    # network, so the port is NOT published to the host (avoids clashing with a
+    # local Postgres or another project's container). To inspect from the host,
+    # uncomment and use an unused host port, e.g.:
+    #   ports: ["5434:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U legal_clm -d legal_clm"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    # Internal-only (reached at redis:6379 over the compose network); not
+    # published to the host. To inspect from the host, uncomment with an unused
+    # host port, e.g.:
+    #   ports: ["6380:6379"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # One-shot: apply Alembic migrations, then exit. Everything that needs the
+  # schema waits for this to complete successfully.
+  migrate:
+    <<: *backend
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    <<: *backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - contracts:/data/contracts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  worker:
+    <<: *backend
+    command: ["celery", "-A", "app.jobs.celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    volumes:
+      - contracts:/data/contracts
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  beat:
+    <<: *backend
+    command: ["celery", "-A", "app.jobs.celery_app.celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    build:
+      context: ./frontend
+    image: aegis/frontend:local
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  contracts:

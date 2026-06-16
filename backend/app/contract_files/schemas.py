@@ -28,6 +28,7 @@ class ContractVersionResponse(BaseModel):
     source: str
     change_summary: str | None
     is_authoritative: bool
+    created_at: datetime
 
 
 class ContractFileResponse(BaseModel):
@@ -90,6 +91,7 @@ class ContractShareResponse(BaseModel):
     expires_at: datetime | None
     revoked_at: datetime | None
     download_allowed: bool
+    created_at: datetime
 
 
 class ContractShareCreateResponse(BaseModel):
@@ -106,3 +108,17 @@ class ExternalShareResponse(BaseModel):
     download_allowed: bool
     text_excerpt: str | None = None
     text_truncated: bool = False
+
+
+class ExternalCommentResponse(BaseModel):
+    id: str
+    author_name: str
+    author_kind: str  # user | counterparty
+    body: str
+    resolved: bool
+    created_at: datetime
+
+
+class ExternalCommentCreate(BaseModel):
+    author_name: str | None = None
+    body: str

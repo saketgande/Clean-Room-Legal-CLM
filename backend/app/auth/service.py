@@ -226,6 +226,12 @@ def create_first_admin(db: Session, payload: SetupAdminRequest, request_id: str 
     user.created_by_user_id = user.id
     user.updated_by_user_id = user.id
     bootstrap_roles(db, org.id, actor_user_id=user.id)
+    # Seed the default approver groups (Legal Counsel, Finance, …) so the
+    # approval-routing form has real options out of the box. Imported locally to
+    # keep auth's import graph light.
+    from app.approvals.service import ensure_default_approver_groups
+
+    ensure_default_approver_groups(db, org_id=org.id, actor_user_id=user.id)
     write_audit_log(
         db,
         action="organization.setup_completed",

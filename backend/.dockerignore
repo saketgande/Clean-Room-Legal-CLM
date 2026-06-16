@@ -1,0 +1,23 @@
+# Keep the build context small and free of host-only / secret files.
+.venv/
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Secrets & local env (never bake into an image)
+.env
+.env.*
+!.env.example
+
+# Local runtime artifacts
+.local-contract-storage/
+celerybeat-schedule*
+status_ok
+*.log
+
+# Tests are not needed in the runtime image
+tests/

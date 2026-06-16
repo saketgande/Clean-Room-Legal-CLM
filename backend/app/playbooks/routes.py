@@ -1,9 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
 from app.ai.schemas import PlaybookReviewOutput
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contract_files.text_extraction import extract_text
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -38,12 +41,17 @@ from app.playbooks.schemas import (
     PlaybookVersionResponse,
 )
 from app.playbooks.service import (
+    apply_playbook_recommendation,
+    chat_build_playbook,
     clone_playbook_version,
+    compute_playbook_insights,
     create_initial_playbook,
     execute_playbook_run,
+    generate_playbook_from_text,
     generated_default_rules,
     get_playbook_for_user,
     get_playbook_version,
+    save_built_playbook,
     select_run_version,
 )
 
@@ -99,6 +107,238 @@ def generate_playbook(
     db.commit()
     db.refresh(playbook)
     return playbook
+
+
+_DOC_MIME_BY_EXT = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+}
+
+
+async def _resolve_source_text(
+    db: Session,
+    *,
+    user,
+    file: UploadFile | None,
+    pasted_text: str | None,
+    source_contract_id: str | None,
+) -> str:
+    if file is not None:
+        content = await file.read()
+        if not content:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+        filename = file.filename or "document"
+        mime = file.content_type or ""
+        if not mime or mime == "application/octet-stream":
+            ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+            mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
+        result = extract_text(content, mime_type=mime, filename=filename)
+        if not result.text or not result.text.strip():
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Couldn't extract text from that file (scanned or empty?). Paste the text instead.",
+            )
+        return result.text
+    if pasted_text and pasted_text.strip():
+        return pasted_text
+    if source_contract_id:
+        contract = get_contract_for_user(db, contract_id=source_contract_id, user=user)
+        version = (
+            db.get(ContractVersion, contract.current_authoritative_version_id)
+            if contract.current_authoritative_version_id
+            else None
+        )
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        if snapshot is None or not (snapshot.text or "").strip():
+            raise HTTPException(
+                status.HTTP_409_CONFLICT, "That contract has no extracted text to learn from"
+            )
+        return snapshot.text
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY, "Provide a file, pasted text, or a source contract"
+    )
+
+
+@router.post(
+    "/generate-from-document",
+    response_model=PlaybookResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_playbook_from_document(
+    request: Request,
+    file: UploadFile | None = File(default=None),
+    pasted_text: str | None = Form(default=None),
+    source_contract_id: str | None = Form(default=None),
+    name: str | None = Form(default=None),
+    contract_type: str | None = Form(default=None),
+    instructions: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """AI-draft a playbook from a source document — an uploaded file, pasted
+    text, or an existing contract. Returns a DRAFT playbook to review + publish."""
+    text = await _resolve_source_text(
+        db,
+        user=current_user,
+        file=file,
+        pasted_text=pasted_text,
+        source_contract_id=source_contract_id,
+    )
+    return await generate_playbook_from_text(
+        db,
+        user=current_user,
+        source_text=text,
+        name=name,
+        contract_type=contract_type,
+        instructions=instructions,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+class ApplyRecommendationRequest(BaseModel):
+    clause_type: str
+    preferred_position: str | None = None
+    fallback_position: str | None = None
+    negotiation_guidance: str | None = None
+    summary: str | None = None
+
+
+@router.post("/{playbook_id}/insights")
+async def playbook_insights(
+    playbook_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """Data-driven rule-change suggestions from this playbook's decided
+    deviations. Returns ready=False until there's enough history."""
+    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    return await compute_playbook_insights(
+        db,
+        playbook=playbook,
+        user=current_user,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.post(
+    "/{playbook_id}/insights/apply",
+    response_model=PlaybookVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def apply_insight(
+    playbook_id: str,
+    payload: ApplyRecommendationRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """Apply a recommendation into a new DRAFT version (review then publish)."""
+    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    return apply_playbook_recommendation(
+        db,
+        playbook=playbook,
+        user=current_user,
+        clause_type=payload.clause_type,
+        preferred_position=payload.preferred_position,
+        fallback_position=payload.fallback_position,
+        negotiation_guidance=payload.negotiation_guidance,
+        summary=payload.summary,
+    )
+
+
+# --- Conversational "Build playbook with AI" ------------------------------
+class BuildChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class BuildChatRequest(BaseModel):
+    message: str
+    conversation: list[BuildChatMessage] = []
+    current_rules: list[dict] = []
+    documents: list[dict] = []
+    name: str | None = None
+
+
+class BuildSaveRequest(BaseModel):
+    name: str
+    description: str | None = None
+    rules: list[dict] = []
+
+
+_BUILD_MAX_DOC_CHARS = 30_000
+
+
+@router.post("/build/extract")
+async def build_extract_documents(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """Extract text from uploaded files for the conversational playbook builder."""
+    extracted: list[dict] = []
+    for upload in files:
+        content = await upload.read()
+        if not content:
+            continue
+        filename = upload.filename or "document"
+        mime = upload.content_type or ""
+        if not mime or mime == "application/octet-stream":
+            ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+            mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
+        try:
+            result = extract_text(content, mime_type=mime, filename=filename)
+            text = result.text or ""
+        except Exception:
+            text = ""
+        extracted.append(
+            {"filename": filename, "content": text[:_BUILD_MAX_DOC_CHARS], "chars": len(text)}
+        )
+    if not extracted:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No readable files uploaded")
+    return extracted
+
+
+@router.post("/build/chat")
+async def build_chat(
+    payload: BuildChatRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """One turn of the conversational builder — returns a reply + the full draft."""
+    return await chat_build_playbook(
+        db,
+        user=current_user,
+        message=payload.message,
+        conversation=[m.model_dump() for m in payload.conversation],
+        current_rules=payload.current_rules,
+        documents=payload.documents,
+        name=payload.name,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
+@router.post("/build/save", response_model=PlaybookResponse, status_code=status.HTTP_201_CREATED)
+def build_save(
+    payload: BuildSaveRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:create")),
+):
+    """Persist the conversational draft as a new DRAFT playbook."""
+    return save_built_playbook(
+        db,
+        user=current_user,
+        name=payload.name,
+        description=payload.description,
+        rules=payload.rules,
+    )
 
 
 @router.get("/runs/{run_id}", response_model=PlaybookRunDetailResponse)

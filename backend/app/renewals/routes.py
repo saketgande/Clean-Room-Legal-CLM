@@ -86,6 +86,23 @@ def decide_renewal(
     row.decision = decision_map[payload.decision]
     row.decision_note = payload.note
     row.updated_by_user_id = current_user.id
+    # Deciding clears the renewal-due flag; terminating also closes the contract.
+    contract = db.get(Contract, row.contract_id)
+    if contract is not None and contract.org_id == current_user.org_id:
+        contract.renewal_due = False
+        contract.updated_by_user_id = current_user.id
+        if (
+            payload.decision == "terminate"
+            and contract.lifecycle_stage == ContractLifecycleStage.ACTIVE
+        ):
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.CLOSED,
+                actor_user_id=current_user.id,
+                reason="Renewal decision: terminate",
+                request_id=getattr(request.state, "request_id", None),
+            )
     write_audit_log(
         db,
         action="renewal.decided",
@@ -135,16 +152,12 @@ async def run_renewal_window_check(
             contract is None
             or contract.org_id != current_user.org_id
             or contract.lifecycle_stage != ContractLifecycleStage.ACTIVE
+            or contract.renewal_due  # already flagged → don't re-notify
         ):
             continue
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.RENEWAL_DUE,
-            actor_user_id=current_user.id,
-            reason="Renewal/notice window opened",
-            request_id=getattr(request.state, "request_id", None),
-        )
+        # Renewal-due is a flag on the (still ACTIVE) contract, not a stage.
+        contract.renewal_due = True
+        contract.updated_by_user_id = current_user.id
         owner = db.get(User, event.owner_user_id) if event.owner_user_id else None
         if owner is not None:
             safe_title = html.escape(contract.title or "Untitled contract")

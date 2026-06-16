@@ -11,8 +11,10 @@ from app.approvals.models import (
     ApprovalRequest,
     ApprovalRoutingRule,
     ApprovalToken,
+    ApproverGroup,
 )
 from app.auth.models import User
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
@@ -34,6 +36,43 @@ logger = logging.getLogger(__name__)
 # is added here — doing so would change the API contract the frontend relies on.
 APPROVAL_TOKEN_TTL_HOURS = 48  # 2 days
 
+# Functional approver pools seeded for every org. These are *groups* (data), not
+# permission-bearing RBAC roles — every member is gated by the single
+# ``approval:decide`` permission, so the names don't multiply roles.
+DEFAULT_APPROVER_GROUPS: list[tuple[str, str]] = [
+    ("Legal Counsel", "Reviews terms, enforceability, and legal risk."),
+    ("Finance", "Reviews pricing, payment terms, budget, and revenue impact."),
+    ("Procurement", "Reviews supplier terms and sourcing-policy compliance."),
+    ("Compliance", "Reviews regulatory, privacy, and security requirements."),
+    ("Executive", "Final sign-off for high-value or strategic agreements."),
+]
+
+
+def ensure_default_approver_groups(
+    db: Session, *, org_id: str, actor_user_id: str | None = None
+) -> list[ApproverGroup]:
+    """Idempotently create the default (empty) approver groups for an org so the
+    routing form has real options to pick from. Admins then add members."""
+    existing = {
+        g.name
+        for g in db.scalars(select(ApproverGroup).where(ApproverGroup.org_id == org_id)).all()
+    }
+    created: list[ApproverGroup] = []
+    for name, description in DEFAULT_APPROVER_GROUPS:
+        if name in existing:
+            continue
+        group = ApproverGroup(
+            org_id=org_id,
+            name=name,
+            description=description,
+            is_active=True,
+            created_by_user_id=actor_user_id,
+            updated_by_user_id=actor_user_id,
+        )
+        db.add(group)
+        created.append(group)
+    return created
+
 
 def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
     criteria = rule.criteria or {}
@@ -52,9 +91,12 @@ def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
     return True
 
 
-def evaluate_routing(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
-    """Return [{approver_user_id, approver_role}] from active routing rules that
-    match the contract. Empty list means no rule matched (caller falls back)."""
+def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
+    """Pick the single best-matching active rule (lowest priority number) and
+    return its ordered approval chain as a list of step targets:
+    ``{routing_rule_id, step_order, approver_user_id, approver_group_id,
+    approver_role, mode}``. Empty list means no rule matched (caller falls back
+    to the manually-specified approver)."""
     rules = db.scalars(
         select(ApprovalRoutingRule).where(
             ApprovalRoutingRule.org_id == org_id,
@@ -65,10 +107,120 @@ def evaluate_routing(db: Session, *, contract: Contract, org_id: str) -> list[di
         (r for r in rules if _matches(r, contract)),
         key=lambda r: int(r.priority) if str(r.priority).isdigit() else 100,
     )
+    if not matched:
+        return []
+    rule = matched[0]
+    steps = sorted(rule.steps, key=lambda s: s.step_order)
+    if steps:
+        return [
+            {
+                "routing_rule_id": rule.id,
+                "step_order": idx + 1,
+                "approver_user_id": step.approver_user_id,
+                "approver_group_id": step.approver_group_id,
+                "approver_role": step.approver_role,
+                "mode": step.mode or "any",
+            }
+            for idx, step in enumerate(steps)
+        ]
+    # Legacy single-approver rule (no steps) → a one-step chain.
     return [
-        {"approver_user_id": r.approver_user_id, "approver_role": r.approver_role}
-        for r in matched
+        {
+            "routing_rule_id": rule.id,
+            "step_order": 1,
+            "approver_user_id": rule.approver_user_id,
+            "approver_group_id": None,
+            "approver_role": rule.approver_role,
+            "mode": "any",
+        }
     ]
+
+
+def _step_recipients(db: Session, *, approval: ApprovalRequest) -> list[User]:
+    """Users who should be emailed when ``approval`` becomes active: the named
+    user, or every active member of the assigned group. Role-only steps have no
+    direct recipients (those approvers act in-app)."""
+    if approval.approver_user_id:
+        user = db.get(User, approval.approver_user_id)
+        return [user] if user and user.org_id == approval.org_id else []
+    if approval.approver_group_id:
+        group = db.get(ApproverGroup, approval.approver_group_id)
+        if group is None or group.org_id != approval.org_id:
+            return []
+        return [m for m in group.members if m.org_id == approval.org_id]
+    return []
+
+
+async def _activate_step(
+    db: Session, *, approval: ApprovalRequest, contract: Contract, requester: User | None
+) -> bool | None:
+    """Issue single-use tokens + send the approve/reject email to every recipient
+    of a now-active step. Returns True/False once a send is attempted, or None
+    when there is no direct recipient (role-only / unresolved)."""
+    recipients = _step_recipients(db, approval=approval)
+    if not recipients:
+        return None
+
+    base = settings.app_base_url.rstrip("/")
+    ttl_days = APPROVAL_TOKEN_TTL_HOURS // 24
+    expiry_note = (
+        f"{ttl_days} day{'s' if ttl_days != 1 else ''}"
+        if ttl_days
+        else f"{APPROVAL_TOKEN_TTL_HOURS} hours"
+    )
+    safe_title = html.escape(contract.title or "Untitled contract")
+    safe_requester = html.escape(
+        (requester.full_name or requester.email) if requester else "A colleague"
+    )
+    actor_id = requester.id if requester else None
+
+    any_sent = False
+    for approver in recipients:
+        token_secret = create_token_secret("apvl_")
+        db.add(
+            ApprovalToken(
+                org_id=approval.org_id,
+                approval_request_id=approval.id,
+                intended_approver_email=approver.email.lower(),
+                token_hash=hash_token(token_secret),
+                expires_at=datetime.now(UTC) + timedelta(hours=APPROVAL_TOKEN_TTL_HOURS),
+                created_by_user_id=actor_id,
+                updated_by_user_id=actor_id,
+            )
+        )
+        review_url = f"{base}/approve/{token_secret}"
+        # A notification-send failure must NOT roll back an approval that was
+        # already created + tokenized. Catch per-recipient and log.
+        try:
+            await resend_client.send_email(
+                to=approver.email,
+                subject=f"Approval requested: {contract.title}",
+                html=(
+                    f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px\">"
+                    f"<p style=\"font-size:15px;color:#0f172a\">"
+                    f"<b>{safe_requester}</b> requested your approval on "
+                    f"<b>{safe_title}</b>.</p>"
+                    f"<p style=\"font-size:14px;color:#475569\">"
+                    f"Open the secure link to read the document and approve or reject.</p>"
+                    f"<p style=\"margin:24px 0\">"
+                    f"<a href=\"{review_url}\" "
+                    f"style=\"display:inline-block;background:#4f46e5;color:#fff;"
+                    f"padding:11px 22px;border-radius:8px;text-decoration:none;"
+                    f"font-weight:600\">Review document &amp; decide</a>"
+                    f"</p>"
+                    f"<p style=\"font-size:12px;color:#64748b\">"
+                    f"This secure link expires in {expiry_note} and can be used once. "
+                    f"If you didn't expect this request, you can ignore this email.</p>"
+                    f"</div>"
+                ),
+            )
+            any_sent = True
+        except Exception:
+            logger.exception(
+                "approval notification email failed",
+                extra={"approval_request_id": approval.id},
+            )
+    return any_sent
 
 
 async def submit_contract_for_approval(
@@ -81,114 +233,93 @@ async def submit_contract_for_approval(
     approver_role: str | None,
     request_id: str | None = None,
 ) -> list[ApprovalRequest]:
-    targets = evaluate_routing(db, contract=contract, org_id=user.org_id)
-    if not targets:
-        targets = [{"approver_user_id": approver_user_id, "approver_role": approver_role}]
-
-    requests: list[ApprovalRequest] = []
+    # Approval applies to pre-execution contracts. Submitting one that's already
+    # in signing / active / closed makes no sense — block it clearly. (From
+    # intake/drafting/review the submit auto-advances the stage to APPROVAL.)
+    if contract.lifecycle_stage in {
+        ContractLifecycleStage.SIGNATURE,
+        ContractLifecycleStage.ACTIVE,
+        ContractLifecycleStage.CLOSED,
+    }:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            f"Cannot submit a contract in '{contract.lifecycle_stage}' for approval",
+        )
     target_version_id = contract_version_id or contract.current_authoritative_version_id
-    for target in targets:
-        approver_user_id = target.get("approver_user_id")
-        approver_role = target.get("approver_role")
-        approver = None
-        if approver_user_id:
-            approver = db.get(User, approver_user_id)
+
+    # If a chain is already live for this contract+version, return it unchanged
+    # (idempotent re-submit) rather than stacking a second chain.
+    existing = db.scalars(
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.org_id == user.org_id,
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.contract_version_id == target_version_id,
+            ApprovalRequest.status.in_([ApprovalStatus.PENDING, ApprovalStatus.WAITING]),
+        )
+        .order_by(ApprovalRequest.step_order)
+    ).all()
+    if existing:
+        return existing
+
+    chain = resolve_chain(db, contract=contract, org_id=user.org_id)
+    if not chain:
+        # No rule matched → fall back to the explicitly-supplied approver as a
+        # single step (preserves the manual "submit to X" behaviour).
+        chain = [
+            {
+                "routing_rule_id": None,
+                "step_order": 1,
+                "approver_user_id": approver_user_id,
+                "approver_group_id": None,
+                "approver_role": approver_role,
+                "mode": "any",
+            }
+        ]
+
+    due_at = datetime.now(UTC) + timedelta(days=max(1, settings.approval_default_due_days))
+    requests: list[ApprovalRequest] = []
+    for target in chain:
+        # Validate referenced approver/group belong to this org.
+        if target["approver_user_id"]:
+            approver = db.get(User, target["approver_user_id"])
             if approver is None or approver.org_id != user.org_id:
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_ENTITY,
                     "Approver user must belong to this organization",
                 )
-        existing_pending = db.scalar(
-            select(ApprovalRequest).where(
-                ApprovalRequest.org_id == user.org_id,
-                ApprovalRequest.contract_id == contract.id,
-                ApprovalRequest.contract_version_id == target_version_id,
-                ApprovalRequest.status == ApprovalStatus.PENDING,
-                ApprovalRequest.approver_user_id == approver_user_id,
-                ApprovalRequest.approver_role == approver_role,
-            )
-        )
-        if existing_pending is not None:
-            requests.append(existing_pending)
-            continue
+        if target["approver_group_id"]:
+            group = db.get(ApproverGroup, target["approver_group_id"])
+            if group is None or group.org_id != user.org_id:
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "Approver group must belong to this organization",
+                )
+
+        is_first = target["step_order"] == 1
         approval = ApprovalRequest(
             org_id=user.org_id,
             contract_id=contract.id,
             contract_version_id=target_version_id,
             requested_by_user_id=user.id,
-            approver_user_id=approver_user_id,
-            approver_role=approver_role,
-            due_at=datetime.now(UTC)
-            + timedelta(days=max(1, settings.approval_default_due_days)),
+            approver_user_id=target["approver_user_id"],
+            approver_role=target["approver_role"],
+            approver_group_id=target["approver_group_id"],
+            routing_rule_id=target["routing_rule_id"],
+            step_order=target["step_order"],
+            status=ApprovalStatus.PENDING if is_first else ApprovalStatus.WAITING,
+            due_at=due_at,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
         db.add(approval)
         db.flush()
-        token_secret = None
-        # None = no email attempted (no resolved approver user). True/False once a
-        # send is attempted. Surfaced in the audit record so an operator can see
-        # whether the approver was actually notified.
+
         email_sent: bool | None = None
-        if approver is not None:
-            token_secret = create_token_secret("apvl_")
-            db.add(
-                ApprovalToken(
-                    org_id=user.org_id,
-                    approval_request_id=approval.id,
-                    intended_approver_email=approver.email.lower(),
-                    token_hash=hash_token(token_secret),
-                    expires_at=datetime.now(UTC) + timedelta(hours=APPROVAL_TOKEN_TTL_HOURS),
-                    created_by_user_id=user.id,
-                    updated_by_user_id=user.id,
-                )
+        if is_first:
+            email_sent = await _activate_step(
+                db, approval=approval, contract=contract, requester=user
             )
-            base = settings.app_base_url.rstrip("/")
-            approve_url = f"{base}/#approve?token={token_secret}&d=approve"
-            reject_url = f"{base}/#approve?token={token_secret}&d=reject"
-            ttl_days = APPROVAL_TOKEN_TTL_HOURS // 24
-            expiry_note = (
-                f"{ttl_days} day{'s' if ttl_days != 1 else ''}"
-                if ttl_days
-                else f"{APPROVAL_TOKEN_TTL_HOURS} hours"
-            )
-            safe_title = html.escape(contract.title or "Untitled contract")
-            safe_requester = html.escape(user.full_name or user.email)
-            # A notification-send failure must NOT roll back an approval that was
-            # already created + tokenized. Catch per-approver, log, and record the
-            # outcome via email_sent rather than 500-ing the whole submission.
-            try:
-                await resend_client.send_email(
-                    to=approver.email,
-                    subject=f"Approval requested: {contract.title}",
-                    html=(
-                        f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px\">"
-                        f"<p style=\"font-size:15px;color:#0f172a\">"
-                        f"<b>{safe_requester}</b> requested your approval on "
-                        f"<b>{safe_title}</b>.</p>"
-                        f"<p style=\"margin:24px 0\">"
-                        f"<a href=\"{approve_url}\" "
-                        f"style=\"display:inline-block;background:#16a34a;color:#fff;"
-                        f"padding:11px 22px;border-radius:8px;text-decoration:none;"
-                        f"font-weight:600;margin-right:10px\">Approve</a>"
-                        f"<a href=\"{reject_url}\" "
-                        f"style=\"display:inline-block;background:#dc2626;color:#fff;"
-                        f"padding:11px 22px;border-radius:8px;text-decoration:none;"
-                        f"font-weight:600\">Reject</a>"
-                        f"</p>"
-                        f"<p style=\"font-size:12px;color:#64748b\">"
-                        f"This secure link expires in {expiry_note} and can be used once. "
-                        f"If you didn't expect this request, you can ignore this email.</p>"
-                        f"</div>"
-                    ),
-                )
-                email_sent = True
-            except Exception:
-                logger.exception(
-                    "approval notification email failed",
-                    extra={"approval_request_id": approval.id},
-                )
-                email_sent = False
         write_audit_log(
             db,
             action="approval.requested",
@@ -199,27 +330,31 @@ async def submit_contract_for_approval(
             request_id=request_id,
             after={
                 "contract_id": contract.id,
+                "step_order": approval.step_order,
+                "status": approval.status,
                 "approver_user_id": approval.approver_user_id,
+                "approver_group_id": approval.approver_group_id,
                 "approver_role": approval.approver_role,
-                "token_issued": token_secret is not None,
                 "email_sent": email_sent,
             },
         )
         requests.append(approval)
 
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL_PENDING:
+    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
         transition_contract_stage(
             db,
             contract=contract,
-            to_stage=ContractLifecycleStage.APPROVAL_PENDING,
+            to_stage=ContractLifecycleStage.APPROVAL,
             actor_user_id=user.id,
             reason="Submitted for approval",
+            override=True,
+            override_authorized=True,
             request_id=request_id,
         )
     return requests
 
 
-def _apply_decision(
+async def _apply_decision(
     db: Session,
     *,
     approval: ApprovalRequest,
@@ -252,11 +387,15 @@ def _apply_decision(
     contract = db.get(Contract, approval.contract_id)
     if contract is None or contract.org_id != approval.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL_PENDING:
+    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Approval can only be decided while the contract is approval pending",
+            "Approval can only be decided while the contract is in the approval stage",
         )
+
+    # The active chain = the other non-cancelled steps for this contract+version.
+    # Only one chain is ever live at a time (submit is idempotent), so its
+    # WAITING rows uniquely identify the steps still ahead.
     siblings = db.scalars(
         select(ApprovalRequest).where(
             ApprovalRequest.org_id == approval.org_id,
@@ -266,32 +405,65 @@ def _apply_decision(
             ApprovalRequest.status != ApprovalStatus.CANCELLED,
         )
     ).all()
+
     if decision == "reject":
+        # Reject short-circuits the whole chain and sends the contract back.
         for sibling in siblings:
-            if sibling.status == ApprovalStatus.PENDING:
+            if sibling.status in (ApprovalStatus.PENDING, ApprovalStatus.WAITING):
                 sibling.status = ApprovalStatus.CANCELLED
                 sibling.updated_by_user_id = actor_user_id
         transition_contract_stage(
             db,
             contract=contract,
-            to_stage=ContractLifecycleStage.INTERNAL_REVIEW,
+            to_stage=ContractLifecycleStage.REVIEW,
             actor_user_id=actor_user_id,
             reason=comment,
             override=True,
             override_authorized=True,
             request_id=request_id,
         )
-    elif all(sibling.status == ApprovalStatus.APPROVED for sibling in siblings):
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.APPROVED,
-            actor_user_id=actor_user_id,
-            reason=comment,
-            override=True,
-            override_authorized=True,
-            request_id=request_id,
+    else:
+        # Approve → activate the next waiting step, or finish the chain.
+        waiting_ahead = sorted(
+            (
+                s
+                for s in siblings
+                if s.status == ApprovalStatus.WAITING and s.step_order > approval.step_order
+            ),
+            key=lambda s: s.step_order,
         )
+        if waiting_ahead:
+            next_step = waiting_ahead[0]
+            next_step.status = ApprovalStatus.PENDING
+            next_step.updated_by_user_id = actor_user_id
+            requester = db.get(User, next_step.requested_by_user_id)
+            email_sent = await _activate_step(
+                db, approval=next_step, contract=contract, requester=requester
+            )
+            write_audit_log(
+                db,
+                action="approval.step_activated",
+                resource_type="approval_request",
+                resource_id=next_step.id,
+                org_id=approval.org_id,
+                actor_user_id=actor_user_id,
+                request_id=request_id,
+                after={"step_order": next_step.step_order, "email_sent": email_sent},
+            )
+        else:
+            # Last step approved → the whole chain is done, so the contract
+            # auto-advances into the signature (execution) stage.
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.SIGNATURE,
+                actor_user_id=actor_user_id,
+                reason="Approval chain completed",
+                override=True,
+                override_authorized=True,
+                request_id=request_id,
+            )
+
     write_audit_log(
         db,
         action="approval.decided",
@@ -300,7 +472,12 @@ def _apply_decision(
         org_id=approval.org_id,
         actor_user_id=actor_user_id,
         request_id=request_id,
-        after={"decision": decision, "decided_by": actor_label, "comment": comment},
+        after={
+            "decision": decision,
+            "decided_by": actor_label,
+            "step_order": approval.step_order,
+            "comment": comment,
+        },
     )
     write_timeline_event(
         db,
@@ -308,7 +485,7 @@ def _apply_decision(
         resource_type="contract",
         resource_id=approval.contract_id,
         event_type="approval.decided",
-        title=f"Approval {decision}d",
+        title=f"Approval {decision}d (step {approval.step_order})",
         actor_user_id=actor_user_id,
         request_id=request_id,
         details={"approval_request_id": approval.id, "decided_by": actor_label},
@@ -316,7 +493,7 @@ def _apply_decision(
     return approval
 
 
-def decide_in_app(
+async def decide_in_app(
     db: Session,
     *,
     user: User,
@@ -325,7 +502,7 @@ def decide_in_app(
     comment: str | None,
     request_id: str | None = None,
 ) -> ApprovalRequest:
-    return _apply_decision(
+    return await _apply_decision(
         db,
         approval=approval,
         decision=decision,
@@ -336,7 +513,7 @@ def decide_in_app(
     )
 
 
-def redeem_token_decision(
+async def redeem_token_decision(
     db: Session,
     *,
     token: str,
@@ -381,7 +558,7 @@ def redeem_token_decision(
     )
     if approver is not None and approver.id == approval.requested_by_user_id:
         raise _reject("requester_cannot_approve_own_request")
-    return _apply_decision(
+    return await _apply_decision(
         db,
         approval=approval,
         decision=decision,
@@ -390,3 +567,50 @@ def redeem_token_decision(
         actor_label=f"token:{row.intended_approver_email}",
         request_id=request_id,
     )
+
+
+def get_review_context_for_token(db: Session, *, token: str) -> dict:
+    """Read-only context for the emailed approver: the document text plus what
+    they're being asked to approve. Does NOT consume the token — that only
+    happens when they actually decide via /approvals/token-decision."""
+
+    def _reject() -> HTTPException:
+        return HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "Invalid or expired approval link"
+        )
+
+    row = db.scalar(select(ApprovalToken).where(ApprovalToken.token_hash == hash_token(token)))
+    if row is None or row.expires_at < datetime.now(UTC):
+        raise _reject()
+    approval = db.scalar(
+        select(ApprovalRequest).where(ApprovalRequest.id == row.approval_request_id)
+    )
+    if approval is None or approval.org_id != row.org_id:
+        raise _reject()
+
+    contract = db.get(Contract, approval.contract_id)
+    requester = db.get(User, approval.requested_by_user_id)
+    version_id = approval.contract_version_id or (
+        contract.current_authoritative_version_id if contract else None
+    )
+    text = ""
+    if version_id:
+        version = db.get(ContractVersion, version_id)
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        text = snapshot.text if snapshot and snapshot.text else ""
+
+    return {
+        "contract_title": contract.title if contract else "Contract",
+        "requester_name": (requester.full_name or requester.email)
+        if requester
+        else "A colleague",
+        "status": approval.status,
+        "can_decide": approval.status == ApprovalStatus.PENDING and row.used_at is None,
+        "due_at": approval.due_at,
+        "document_text": text[:200_000],
+        "document_truncated": len(text) > 200_000,
+    }

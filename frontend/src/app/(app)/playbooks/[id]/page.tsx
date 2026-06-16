@@ -29,6 +29,8 @@ import {
 import { fmtDateTime, riskTone, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type {
+  PlaybookInsights,
+  PlaybookRecommendation,
   PlaybookRunDetailResponse,
   PlaybookVersionResponse,
 } from "@/lib/types";
@@ -117,12 +119,14 @@ export default function PlaybookDetailPage({
           { id: "versions", label: "Versions" },
           { id: "rules", label: "Rules" },
           { id: "runs", label: "Runs" },
+          { id: "insights", label: "AI insights" },
         ]}
       />
 
       {tab === "versions" && <VersionsTab playbookId={id} />}
       {tab === "rules" && <RulesTab playbookId={id} />}
       {tab === "runs" && <RunsTab playbookId={id} />}
+      {tab === "insights" && <InsightsTab playbookId={id} />}
     </div>
   );
 }
@@ -921,6 +925,127 @@ function DeviationCard({
             Record decision
           </Button>
         </div>
+      </CardBody>
+    </Card>
+  );
+}
+
+function riskDirectionTone(dir: string): "red" | "green" | "slate" {
+  return dir === "less_protected" ? "red" : dir === "more_protected" ? "green" : "slate";
+}
+
+function InsightsTab({ playbookId }: { playbookId: string }) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const [data, setData] = useState<PlaybookInsights | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [applying, setApplying] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<number>>(new Set());
+
+  async function analyze() {
+    setBusy(true);
+    try {
+      setData(await playbooksApi.insights(playbookId));
+      setDismissed(new Set());
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Analysis failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function apply(rec: PlaybookRecommendation, idx: number) {
+    setApplying(rec.clause_type + idx);
+    try {
+      await playbooksApi.applyInsight(playbookId, {
+        clause_type: rec.clause_type,
+        preferred_position: rec.proposed_preferred_position,
+        fallback_position: rec.proposed_fallback_position,
+        negotiation_guidance: rec.proposed_negotiation_guidance,
+        summary: rec.change_summary,
+      });
+      qc.invalidateQueries({ queryKey: ["playbook", playbookId, "versions"] });
+      setDismissed((s) => new Set(s).add(idx));
+      notify("Applied to a new draft version — review and publish it", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Apply failed", "error");
+    } finally {
+      setApplying(null);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>AI insights</CardTitle>
+        <Button size="sm" loading={busy} onClick={analyze}>
+          Analyze usage
+        </Button>
+      </CardHeader>
+      <CardBody>
+        {!data ? (
+          <p className="text-sm text-slate-500">
+            Analyze how this playbook&apos;s rules performed across past contract reviews and get
+            evidence-based suggestions for changes. (Needs decided deviation history first.)
+          </p>
+        ) : !data.ready ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            Not enough usage data yet — {data.decided_count} decided deviation(s); need at least{" "}
+            {data.min_required}. Run this playbook on contracts and decide the flagged deviations to
+            build history, then re-analyze.
+          </div>
+        ) : data.recommendations.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No changes recommended — your rules align with how deviations are being decided.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {data.summary && <p className="text-sm text-slate-600">{data.summary}</p>}
+            {data.recommendations.map((r, i) =>
+              dismissed.has(i) ? null : (
+                <div key={i} className="rounded-lg border border-slate-200 p-3">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-slate-900">{titleCase(r.clause_type)}</span>
+                    <Badge tone={riskDirectionTone(r.risk_direction)}>
+                      {r.risk_direction.replace(/_/g, " ")}
+                    </Badge>
+                    <Badge tone="slate">{r.confidence} confidence</Badge>
+                  </div>
+                  <p className="text-sm text-slate-800">{r.change_summary}</p>
+                  {r.proposed_preferred_position && (
+                    <p className="mt-1 text-xs text-slate-600">
+                      <span className="font-medium">New preferred:</span>{" "}
+                      {r.proposed_preferred_position}
+                    </p>
+                  )}
+                  {r.proposed_fallback_position && (
+                    <p className="text-xs text-slate-600">
+                      <span className="font-medium">New fallback:</span>{" "}
+                      {r.proposed_fallback_position}
+                    </p>
+                  )}
+                  <p className="mt-1 text-xs text-slate-500">{r.rationale}</p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      loading={applying === r.clause_type + i}
+                      onClick={() => apply(r, i)}
+                    >
+                      Apply to new version
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setDismissed((s) => new Set(s).add(i))}
+                    >
+                      Dismiss
+                    </Button>
+                  </div>
+                </div>
+              ),
+            )}
+          </div>
+        )}
       </CardBody>
     </Card>
   );

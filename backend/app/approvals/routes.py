@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -6,9 +8,15 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.rate_limit import limiter
 
-from app.approvals.models import ApprovalRequest, ApprovalRoutingRule
+from app.approvals.models import (
+    ApprovalRequest,
+    ApprovalRoutingRule,
+    ApprovalRoutingStep,
+    ApproverGroup,
+)
 from app.approvals.service import (
     decide_in_app,
+    get_review_context_for_token,
     redeem_token_decision,
     submit_contract_for_approval,
 )
@@ -17,6 +25,7 @@ from app.contracts.models import Contract
 from app.contracts.access import user_can_access_contract
 from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
+from app.core.enums import UserStatus
 from app.core.rbac import has_permission
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -40,15 +49,134 @@ class TokenDecisionPayload(BaseModel):
     comment: str | None = None
 
 
+class ApprovalReviewResponse(BaseModel):
+    contract_title: str
+    requester_name: str
+    status: str
+    can_decide: bool
+    due_at: datetime | None
+    document_text: str
+    document_truncated: bool
+
+
+class RoutingStepPayload(BaseModel):
+    """One step of a routing chain. Supply exactly one approver target — a group
+    (preferred), a specific user, or a role."""
+
+    approver_group_id: str | None = None
+    approver_user_id: str | None = None
+    approver_role: str | None = None
+    mode: str = Field(default="any", pattern="^(any|all)$")
+
+
 class RoutingRulePayload(BaseModel):
     name: str
     priority: str = "100"
     criteria: dict = Field(default_factory=dict)
+    is_active: bool = True
+    # Ordered chain. When provided it is authoritative; the legacy single-approver
+    # fields below remain for backward compatibility / one-off rules.
+    steps: list[RoutingStepPayload] = Field(default_factory=list)
     approver_role: str | None = None
     approver_user_id: str | None = None
+
+
+class GroupPayload(BaseModel):
+    name: str
+    description: str | None = None
     is_active: bool = True
 
 
+class GroupUpdatePayload(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    is_active: bool | None = None
+
+
+class GroupMembersPayload(BaseModel):
+    user_ids: list[str] = Field(default_factory=list)
+
+
+# --- Serializers ----------------------------------------------------------
+def _user_brief(user: User) -> dict:
+    return {
+        "id": user.id,
+        "full_name": user.full_name,
+        "email": user.email,
+        "roles": [role.name for role in user.roles],
+    }
+
+
+def _serialize_group(group: ApproverGroup) -> dict:
+    return {
+        "id": group.id,
+        "org_id": group.org_id,
+        "name": group.name,
+        "description": group.description,
+        "is_active": group.is_active,
+        "members": [_user_brief(m) for m in group.members],
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
+    }
+
+
+def _serialize_step(
+    step: ApprovalRoutingStep,
+    *,
+    group_names: dict[str, str],
+    user_names: dict[str, str],
+) -> dict:
+    return {
+        "id": step.id,
+        "step_order": step.step_order,
+        "approver_group_id": step.approver_group_id,
+        "approver_group_name": group_names.get(step.approver_group_id or ""),
+        "approver_user_id": step.approver_user_id,
+        "approver_user_name": user_names.get(step.approver_user_id or ""),
+        "approver_role": step.approver_role,
+        "mode": step.mode,
+    }
+
+
+def _serialize_rule(
+    rule: ApprovalRoutingRule,
+    *,
+    group_names: dict[str, str],
+    user_names: dict[str, str],
+) -> dict:
+    steps = sorted(rule.steps, key=lambda s: s.step_order)
+    return {
+        "id": rule.id,
+        "org_id": rule.org_id,
+        "name": rule.name,
+        "priority": rule.priority,
+        "criteria": rule.criteria,
+        "is_active": rule.is_active,
+        "approver_role": rule.approver_role,
+        "approver_user_id": rule.approver_user_id,
+        "steps": [
+            _serialize_step(s, group_names=group_names, user_names=user_names) for s in steps
+        ],
+        "created_at": rule.created_at,
+        "updated_at": rule.updated_at,
+    }
+
+
+def _org_name_maps(db: Session, *, org_id: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Build {id: name} maps for the org's groups and users so step targets can be
+    labelled without an N+1 lookup per step."""
+    group_names = {
+        g.id: g.name
+        for g in db.scalars(select(ApproverGroup).where(ApproverGroup.org_id == org_id)).all()
+    }
+    user_names = {
+        u.id: (u.full_name or u.email)
+        for u in db.scalars(select(User).where(User.org_id == org_id)).all()
+    }
+    return group_names, user_names
+
+
+# --- Approval requests ----------------------------------------------------
 @router.get("")
 def list_approvals(
     db: Session = Depends(get_db),
@@ -67,20 +195,156 @@ def list_approvals(
     # per-row visibility check below doesn't fire one db.get() per approval (N+1).
     contracts = _load_contracts_for_approvals(db, approvals=rows, user=current_user)
     return [
-        row
+        _serialize_approval(
+            row, can_decide=_can_decide_approval(db, approval=row, user=current_user)
+        )
         for row in rows
         if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
     ]
 
 
+def _serialize_approval(req: ApprovalRequest, *, can_decide: bool) -> dict:
+    """Approval row + a server-computed can_decide (so the UI shows the
+    Approve/Reject buttons for group members, not just role/user matches)."""
+    return {
+        "id": req.id,
+        "org_id": req.org_id,
+        "contract_id": req.contract_id,
+        "contract_version_id": req.contract_version_id,
+        "status": req.status,
+        "requested_by_user_id": req.requested_by_user_id,
+        "approver_user_id": req.approver_user_id,
+        "approver_role": req.approver_role,
+        "approver_group_id": req.approver_group_id,
+        "routing_rule_id": req.routing_rule_id,
+        "step_order": req.step_order,
+        "due_at": req.due_at,
+        "metadata_json": req.metadata_json,
+        "created_at": req.created_at,
+        "updated_at": req.updated_at,
+        "can_decide": can_decide,
+    }
+
+
+# --- Approver groups ------------------------------------------------------
+@router.get("/groups")
+def list_groups(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    groups = db.scalars(
+        select(ApproverGroup)
+        .where(ApproverGroup.org_id == current_user.org_id)
+        .order_by(ApproverGroup.name)
+    ).all()
+    return [_serialize_group(g) for g in groups]
+
+
+@router.post("/groups", status_code=status.HTTP_201_CREATED)
+def create_group(
+    payload: GroupPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Group name is required")
+    existing = db.scalar(
+        select(ApproverGroup).where(
+            ApproverGroup.org_id == current_user.org_id, ApproverGroup.name == name
+        )
+    )
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "A group with that name already exists")
+    group = ApproverGroup(
+        org_id=current_user.org_id,
+        name=name,
+        description=payload.description,
+        is_active=payload.is_active,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(group)
+    db.commit()
+    db.refresh(group)
+    return _serialize_group(group)
+
+
+@router.patch("/groups/{group_id}")
+def update_group(
+    group_id: str,
+    payload: GroupUpdatePayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    group = db.get(ApproverGroup, group_id)
+    if group is None or group.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
+    if payload.name is not None:
+        group.name = payload.name.strip()
+    if payload.description is not None:
+        group.description = payload.description
+    if payload.is_active is not None:
+        group.is_active = payload.is_active
+    group.updated_by_user_id = current_user.id
+    db.commit()
+    db.refresh(group)
+    return _serialize_group(group)
+
+
+@router.put("/groups/{group_id}/members")
+def set_group_members(
+    group_id: str,
+    payload: GroupMembersPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    group = db.get(ApproverGroup, group_id)
+    if group is None or group.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Group not found")
+    members: list[User] = []
+    for user_id in dict.fromkeys(payload.user_ids):  # de-dupe, preserve order
+        member = db.get(User, user_id)
+        if member is None or member.org_id != current_user.org_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Every member must belong to this organization",
+            )
+        members.append(member)
+    group.members = members
+    group.updated_by_user_id = current_user.id
+    db.commit()
+    db.refresh(group)
+    return _serialize_group(group)
+
+
+@router.get("/eligible-approvers")
+def list_eligible_approvers(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Active users in the org, for populating approver/member dropdowns."""
+    users = db.scalars(
+        select(User)
+        .where(User.org_id == current_user.org_id, User.status == UserStatus.ACTIVE)
+        .order_by(User.full_name)
+    ).all()
+    return [_user_brief(u) for u in users]
+
+
+# --- Routing rules --------------------------------------------------------
 @router.get("/routing-rules")
 def list_routing_rules(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("approval:admin")),
 ):
-    return db.scalars(
+    rules = db.scalars(
         select(ApprovalRoutingRule).where(ApprovalRoutingRule.org_id == current_user.org_id)
     ).all()
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    return [
+        _serialize_rule(r, group_names=group_names, user_names=user_names) for r in rules
+    ]
 
 
 @router.post("/routing-rules", status_code=status.HTTP_201_CREATED)
@@ -89,30 +353,72 @@ def create_routing_rule(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("approval:admin")),
 ):
-    if payload.approver_user_id:
-        approver = db.get(User, payload.approver_user_id)
+    def _validate_user(user_id: str | None) -> None:
+        if not user_id:
+            return
+        approver = db.get(User, user_id)
         if approver is None or approver.org_id != current_user.org_id:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Approver user must belong to this organization",
             )
+
+    def _validate_group(group_id: str | None) -> None:
+        if not group_id:
+            return
+        group = db.get(ApproverGroup, group_id)
+        if group is None or group.org_id != current_user.org_id:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Approver group must belong to this organization",
+            )
+
+    # Validate the legacy single-approver fields (used only when no steps given).
+    _validate_user(payload.approver_user_id)
+
     rule = ApprovalRoutingRule(
         org_id=current_user.org_id,
         name=payload.name,
         priority=payload.priority,
         criteria=payload.criteria,
-        approver_role=payload.approver_role,
-        approver_user_id=payload.approver_user_id,
+        approver_role=payload.approver_role if not payload.steps else None,
+        approver_user_id=payload.approver_user_id if not payload.steps else None,
         is_active=payload.is_active,
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
     )
     db.add(rule)
+    db.flush()
+
+    for idx, step in enumerate(payload.steps):
+        if not (step.approver_group_id or step.approver_user_id or step.approver_role):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Step {idx + 1} needs an approver group, user, or role",
+            )
+        _validate_group(step.approver_group_id)
+        _validate_user(step.approver_user_id)
+        db.add(
+            ApprovalRoutingStep(
+                org_id=current_user.org_id,
+                rule_id=rule.id,
+                step_order=idx + 1,
+                approver_group_id=step.approver_group_id,
+                approver_user_id=step.approver_user_id,
+                approver_role=step.approver_role,
+                mode=step.mode,
+                created_by_user_id=current_user.id,
+                updated_by_user_id=current_user.id,
+            )
+        )
+
     db.commit()
     db.refresh(rule)
-    return rule
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    return _serialize_rule(rule, group_names=group_names, user_names=user_names)
 
 
+# --- Submit & decide ------------------------------------------------------
 @router.post("/requests", status_code=status.HTTP_201_CREATED)
 async def submit_for_approval(
     payload: ApprovalSubmit,
@@ -137,7 +443,7 @@ async def submit_for_approval(
 
 
 @router.post("/requests/{approval_request_id}/decision")
-def decide_approval(
+async def decide_approval(
     approval_request_id: str,
     payload: ApprovalDecisionPayload,
     request: Request,
@@ -151,9 +457,9 @@ def decide_approval(
     )
     if approval is None or approval.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
-    if not _can_decide_approval(approval=approval, user=current_user):
+    if not _can_decide_approval(db, approval=approval, user=current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
-    decide_in_app(
+    await decide_in_app(
         db,
         user=current_user,
         approval=approval,
@@ -168,7 +474,7 @@ def decide_approval(
 
 @router.post("/token-decision")
 @limiter.limit(settings.rate_limit_token_decision)
-def decide_via_token(
+async def decide_via_token(
     payload: TokenDecisionPayload,
     request: Request,
     response: Response,
@@ -178,7 +484,7 @@ def decide_via_token(
     expiring, email-bound token is the credential. Rate-limited per IP (F-02);
     ``response`` is required so slowapi can inject rate-limit headers."""
     _ = response
-    approval = redeem_token_decision(
+    approval = await redeem_token_decision(
         db,
         token=payload.token,
         decision=payload.decision,
@@ -194,11 +500,25 @@ def decide_via_token(
     }
 
 
+@router.get("/review/{token}", response_model=ApprovalReviewResponse)
+@limiter.limit(settings.rate_limit_token_decision)
+def review_via_token(
+    token: str,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    """Read-only review context for the emailed approver — the document + what
+    they're approving. Token-authenticated, no login; does not consume the token."""
+    _ = response
+    return get_review_context_for_token(db, token=token)
+
+
 def _user_role_names(user) -> set[str]:
     return {role.name for role in getattr(user, "roles", [])}
 
 
-def _can_decide_approval(*, approval: ApprovalRequest, user) -> bool:
+def _can_decide_approval(db: Session, *, approval: ApprovalRequest, user) -> bool:
     if has_permission(user.permission_values, "approval:admin"):
         return True
     if approval.requested_by_user_id == user.id:
@@ -207,6 +527,14 @@ def _can_decide_approval(*, approval: ApprovalRequest, user) -> bool:
         return True
     if approval.approver_role and approval.approver_role in _user_role_names(user):
         return True
+    if approval.approver_group_id:
+        group = db.get(ApproverGroup, approval.approver_group_id)
+        if (
+            group is not None
+            and group.org_id == user.org_id
+            and any(member.id == user.id for member in group.members)
+        ):
+            return True
     return False
 
 
@@ -239,7 +567,7 @@ def _can_view_approval(
     user,
     contracts: dict[str, Contract] | None = None,
 ) -> bool:
-    if _can_decide_approval(approval=approval, user=user):
+    if _can_decide_approval(db, approval=approval, user=user):
         return True
     if approval.requested_by_user_id == user.id:
         return True

@@ -17,18 +17,22 @@ class ProjectType(StrEnum):
 
 
 class ContractLifecycleStage(StrEnum):
+    """Lean 7-stage contract lifecycle.
+
+    The earlier 12-stage model split one "review" phase into three stages and
+    tracked pending/approved and renewal/archived as stages. Those are now
+    folded in: review type is metadata, approval pending/approved is the
+    approval-workflow status, and renewal-due / archived are boolean flags on
+    the contract (see Contract.renewal_due / Contract.archived).
+    """
+
     INTAKE = "intake"
     DRAFTING = "drafting"
-    AI_REVIEW = "ai_review"
-    INTERNAL_REVIEW = "internal_review"
-    COUNTERPARTY_REVIEW = "counterparty_review"
-    APPROVAL_PENDING = "approval_pending"
-    APPROVED = "approved"
-    SIGNATURE_PENDING = "signature_pending"
-    ACTIVE = "active"
-    RENEWAL_DUE = "renewal_due"
-    CLOSED = "closed"
-    ARCHIVED = "archived"
+    REVIEW = "review"            # was ai_review / internal_review / counterparty_review
+    APPROVAL = "approval"        # was approval_pending
+    SIGNATURE = "signature"      # was approved + signature_pending (execution phase)
+    ACTIVE = "active"            # renewal-due is now a flag, not a stage
+    CLOSED = "closed"            # archived is now a flag, not a stage
 
 
 class ContractVersionSource(StrEnum):
@@ -104,6 +108,9 @@ class ApprovalStatus(StrEnum):
     APPROVED = "approved"
     REJECTED = "rejected"
     CANCELLED = "cancelled"
+    # A step in a multi-step routing chain that is not yet active: it only
+    # becomes PENDING once the preceding step is approved.
+    WAITING = "waiting"
 
 
 class JobStatus(StrEnum):
