@@ -2,7 +2,18 @@ import hashlib
 import logging
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
@@ -29,7 +40,11 @@ from app.contract_files.schemas import (
     ExternalCommentResponse,
     ExternalShareResponse,
 )
-from app.contract_files.service import next_version_number, requeue_contract_ai_jobs
+from app.contract_files.service import (
+    add_version_from_upload,
+    next_version_number,
+    requeue_contract_ai_jobs,
+)
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
@@ -102,6 +117,35 @@ def list_contract_versions(
         )
         .order_by(ContractVersion.version_number.asc())
     ).all()
+
+
+@router.post(
+    "/versions",
+    response_model=ContractVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit(settings.rate_limit_contract_upload)
+async def upload_contract_version(
+    contract_id: str,
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    change_summary: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:update")),
+):
+    """Create a new authoritative version of an existing contract from an
+    uploaded .docx — used by the Word add-in to push the edited draft back."""
+    _ = response  # present for slowapi's rate-limit header injection
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return await add_version_from_upload(
+        db,
+        contract=contract,
+        upload=file,
+        user=current_user,
+        change_summary=change_summary,
+        request_id=getattr(request.state, "request_id", None),
+    )
 
 
 @router.get("/versions/{version_id}/text", response_model=ContractTextSnapshotResponse)

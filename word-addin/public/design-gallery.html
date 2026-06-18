@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Aegis add-in — choose a design</title>
+<style>
+  :root{ --pg:#eef0f3; --tx:#1f2430; --sub:#67708? }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,system-ui,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:#eceef1;color:#1f2430;-webkit-font-smoothing:antialiased}
+  .page{max-width:760px;margin:0 auto;padding:32px 20px 60px}
+  h1{font-size:22px;font-weight:600;margin:0 0 4px}
+  .lead{color:#667085;font-size:14px;margin:0 0 22px;line-height:1.5}
+  .switch{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px}
+  .sbtn{display:flex;flex-direction:column;gap:1px;align-items:flex-start;padding:9px 14px;border-radius:11px;border:1px solid #d8dce3;background:#fff;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .sbtn b{font-size:13.5px;font-weight:600;color:#1f2430}
+  .sbtn span{font-size:11.5px;color:#667085}
+  .sbtn.on{border-color:#6d28d9;border-width:2px;padding:8px 13px;box-shadow:0 4px 14px -6px rgba(109,40,217,.4)}
+  .stage{display:flex;justify-content:center}
+  .frame{width:380px;max-width:100%;border-radius:18px;overflow:hidden;border:1px solid #d8dce3;box-shadow:0 24px 60px -24px rgba(15,23,42,.4)}
+  .pane{background:var(--bg);color:var(--ink);min-height:520px}
+  .s-a{--bg:#fff;--surf:#fff;--ink:#0f172a;--mut:#64748b;--bd:#e6ebf0;--acc:#0d9488;--ai:#fff;--asoft:#c9f7ef;--high:#e11d48;--med:#d97706;--low:#0d9488;--rad:11px}
+  .s-b{--bg:#fbfbf9;--surf:#fff;--ink:#191919;--mut:#7a7a76;--bd:#eceae4;--acc:#2e4b8f;--ai:#fff;--asoft:#e9eef7;--high:#a23a36;--med:#9a6b1e;--low:#2e4b8f;--rad:10px}
+  .s-c{--bg:#0e1116;--surf:#171b22;--ink:#e9ebee;--mut:#9298a2;--bd:#252b34;--acc:#c83fd6;--ai:#fff;--asoft:rgba(200,63,214,.18);--high:#ef4444;--med:#f59e0b;--low:#c83fd6;--rad:11px}
+  .s-d{--bg:#f7f9fc;--surf:#fff;--ink:#0f1b2d;--mut:#5b6b82;--bd:#e1e8f0;--acc:#2563eb;--ai:#fff;--asoft:#dbeafe;--high:#dc2626;--med:#f59e0b;--low:#2563eb;--rad:13px}
+  .ph{display:flex;align-items:center;gap:9px;padding:14px 16px;border-bottom:1px solid var(--bd)}
+  .pdot{width:9px;height:9px;border-radius:50%;background:var(--acc)}
+  .pname{font-weight:600;font-size:17px;letter-spacing:-.01em}
+  .pbody{padding:15px 16px}
+  .cmd{border:1px solid var(--bd);border-radius:var(--rad);background:var(--surf);padding:11px 12px;font-size:13px;color:var(--mut);display:flex;align-items:center;justify-content:space-between}
+  .cmd .snd{width:26px;height:26px;border-radius:999px;background:var(--acc);color:var(--ai);display:flex;align-items:center;justify-content:center;font-size:14px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0 4px}
+  .chip{padding:6px 12px;border-radius:999px;border:1px solid var(--bd);background:var(--surf);color:var(--mut);font-size:12.5px;font-weight:500;cursor:pointer;transition:.14s}
+  .chip:hover{color:var(--ink)}
+  .chip.on{background:var(--acc);color:var(--ai);border-color:transparent}
+  .res{padding-top:14px}
+  .glab{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--mut);margin-bottom:10px}
+  .heat{display:flex;gap:2px;height:7px;border-radius:4px;overflow:hidden;margin:0 0 9px}
+  .risk-chip{display:inline-block;font-size:11.5px;font-weight:600;padding:3px 12px;border-radius:999px;background:var(--asoft);color:var(--acc);margin-bottom:9px}
+  .counts{font-size:12px;color:var(--mut);margin-bottom:13px}
+  .card{border:1px solid var(--bd);border-radius:var(--rad);background:var(--surf);padding:11px 13px;margin-bottom:10px}
+  .ch{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+  .ch.sb{justify-content:space-between}
+  .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--c)}
+  .ct{font-size:13.5px;font-weight:600;color:var(--ink)}
+  .stext{font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--c)}
+  .cx{font-size:12.5px;color:var(--mut);line-height:1.45;margin-bottom:10px}
+  .ca{display:flex;gap:7px}
+  .cbtn{font-size:11.5px;font-weight:600;padding:6px 12px;border-radius:9px;background:var(--acc);color:var(--ai);border:none;cursor:pointer}
+  .cbtn.gh{background:transparent;color:var(--mut);border:1px solid var(--bd)}
+  .cbtn.done{background:var(--asoft);color:var(--acc)}
+  .prose{font-size:13px;color:var(--ink);line-height:1.6;margin:0}
+  .prose.mut{color:var(--mut)} .prose ul{margin:0;padding-left:18px} .prose li{margin:5px 0;color:var(--mut)}
+  .sev-high{--c:var(--high)} .sev-med{--c:var(--med)} .sev-low{--c:var(--low)}
+  .pick{border:1px solid var(--bd);border-radius:var(--rad);overflow:hidden}
+  .pick button{display:block;width:100%;text-align:left;padding:11px 13px;border:none;border-bottom:1px solid var(--bd);background:var(--surf);color:var(--ink);font-size:13px;font-weight:500;cursor:pointer}
+  .pick button:last-child{border-bottom:none}
+  .foot{text-align:center;color:#667085;font-size:13px;margin-top:22px}
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Choose a design for the Aegis Word add-in</h1>
+  <p class="lead">Tap a style to preview it. Click the chips (Review / Playbook / Obligations / Summarize) and the Redline buttons to interact. Then tell me the letter you want.</p>
+  <div class="switch" id="switch">
+    <button class="sbtn on" data-s="a"><b>A · Spellbook</b><span>teal, clean &amp; approachable</span></button>
+    <button class="sbtn" data-s="b"><b>B · Harvey</b><span>minimal, premium</span></button>
+    <button class="sbtn" data-s="c"><b>C · Luminance</b><span>dark, risk-forward</span></button>
+    <button class="sbtn" data-s="d"><b>D · Ironclad / LegalOn</b><span>structured, blue</span></button>
+  </div>
+  <div class="stage">
+    <div class="frame">
+      <div class="pane s-a" id="pane">
+        <div class="ph"><span class="pdot"></span><span class="pname">Aegis</span></div>
+        <div class="pbody">
+          <div class="cmd"><span>Review, redline, or ask anything…</span><span class="snd">&#8593;</span></div>
+          <div class="chips" id="chips">
+            <button class="chip on" data-t="review">Review</button>
+            <button class="chip" data-t="playbook">Playbook</button>
+            <button class="chip" data-t="obligations">Obligations</button>
+            <button class="chip" data-t="summarize">Summarize</button>
+          </div>
+          <div class="res" id="res"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="foot">Reply with <b>A</b>, <b>B</b>, <b>C</b>, or <b>D</b> and I'll build the full add-in in that style (light + dark, all features).</p>
+</div>
+<script>
+(function(){
+  var F=[{t:"Uncapped liability",sev:"high",x:"Cap at 12 months' fees per playbook."},{t:"Auto-renewal without notice",sev:"med",x:"Renews automatically with no notice window."},{t:"Governing law",sev:"low",x:"Delaware — confirm preferred forum."}];
+  var MODE={a:"dot",b:"text",c:"heat",d:"bar"};
+  var state={s:"a",t:"review"};
+  function lab(s){return s==="high"?"High":s==="med"?"Med":"Low"}
+  function card(mode,f){
+    var sc="sev-"+(f.sev==="med"?"med":f.sev), head;
+    if(mode==="dot") head='<span class="dot '+sc+'"></span><span class="ct">'+f.t+'</span>';
+    else if(mode==="text") head='<span class="ct">'+f.t+'</span><span class="stext '+sc+'">'+lab(f.sev)+'</span>';
+    else if(mode==="heat") head='<span class="stext '+sc+'">'+lab(f.sev)+'</span><span class="ct">'+f.t+'</span>';
+    else head='<span class="ct">'+f.t+'</span>';
+    var st=mode==="bar"?(' style="border-left:3px solid var(--'+(f.sev==="med"?"med":f.sev)+');border-radius:0 var(--rad) var(--rad) 0"'):"";
+    var acts=f.sev==="low"?'<button class="cbtn gh">Locate</button>':'<button class="cbtn rl">Redline</button><button class="cbtn gh">Locate</button>';
+    return '<div class="card"'+st+'><div class="ch '+(mode==="text"?"sb":"")+'">'+head+'</div><div class="cx">'+f.x+'</div><div class="ca">'+acts+'</div></div>';
+  }
+  function review(s){
+    var mode=MODE[s], top="";
+    if(mode==="heat") top='<div class="heat"><i style="flex:2;background:var(--high)"></i><i style="flex:1;background:var(--med)"></i><i style="flex:3;background:#10b981"></i></div>';
+    else if(mode==="bar") top='<span class="risk-chip">Risk · Elevated</span>';
+    var html='<div class="glab">Review</div>'+top+'<div class="counts">3 issues · 1 high · 1 medium · 1 low</div>';
+    for(var i=0;i<F.length;i++) html+=card(mode,F[i]);
+    return html;
+  }
+  function render(){
+    var t=state.t,h="";
+    if(t==="review") h=review(state.s);
+    else if(t==="summarize") h='<div class="glab">Summarize</div><p class="prose mut">Moderate risk overall. The agreement is broadly standard, but the liability cap and the auto-renewal both favour the counterparty and should be negotiated before signing.</p>';
+    else if(t==="obligations") h='<div class="glab">Obligations</div><ul class="prose"><li>Pay fees within 30 days of invoice.</li><li>Give 30 days’ notice to prevent auto-renewal.</li><li>Maintain insurance for the term.</li></ul>';
+    else h='<div class="glab">Playbook</div><div class="pick"><button>Standard MSA Playbook</button><button>NDA Negotiation Playbook</button></div>';
+    document.getElementById("res").innerHTML=h;
+  }
+  function setStyle(s){
+    state.s=s; document.getElementById("pane").className="pane s-"+s;
+    var b=document.querySelectorAll("#switch .sbtn");
+    for(var i=0;i<b.length;i++) b[i].classList.toggle("on",b[i].getAttribute("data-s")===s);
+    render();
+  }
+  document.getElementById("switch").addEventListener("click",function(e){var b=e.target.closest(".sbtn");if(b)setStyle(b.getAttribute("data-s"))});
+  document.getElementById("chips").addEventListener("click",function(e){var c=e.target.closest(".chip");if(!c)return;state.t=c.getAttribute("data-t");var ch=document.querySelectorAll("#chips .chip");for(var i=0;i<ch.length;i++)ch[i].classList.toggle("on",ch[i]===c);render()});
+  document.getElementById("res").addEventListener("click",function(e){var b=e.target.closest(".rl");if(b){b.textContent="Inserted ✓";b.classList.add("done");b.classList.remove("rl")}});
+  render();
+})();
+</script>
+</body>
+</html>

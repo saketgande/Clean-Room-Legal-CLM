@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aegis</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600&display=swap" rel="stylesheet" />
+    <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link rel="stylesheet" href="taskpane.css" />
+  </head>
+  <body>
+    <header id="topbar" class="topbar hidden">
+      <div class="brand"><span class="brand-dot"></span><span class="brand-name">Aegis</span></div>
+      <div class="topbar-actions">
+        <button id="theme-btn" class="icon-btn" title="Toggle theme" aria-label="Toggle theme"></button>
+        <button id="logout-btn" class="icon-btn" title="Sign out" aria-label="Sign out"></button>
+      </div>
+    </header>
+
+    <button id="ctx-chip" class="ctx-chip hidden" aria-label="Linked contract"></button>
+
+    <div id="preview-banner" class="banner hidden"></div>
+
+    <!-- Sign in -->
+    <section id="view-auth" class="view">
+      <div class="auth">
+        <span class="brand-dot xl"></span>
+        <h1 class="wordmark">Aegis</h1>
+        <p class="lead center">Review, redline, and ask about your contracts — without leaving Word.</p>
+        <div class="auth-form">
+          <input id="email" class="input" type="email" autocomplete="username" placeholder="Email" />
+          <input id="password" class="input" type="password" autocomplete="current-password" placeholder="Password" />
+          <button id="login-btn" class="btn primary block">Sign in</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main: conversation above, input pinned at the bottom -->
+    <section id="view-main" class="view hidden">
+      <div id="results" class="results"></div>
+      <div class="composer">
+        <div id="chips" class="chips"></div>
+        <div class="cmd">
+          <textarea id="cmd-input" rows="1" placeholder="Ask about this contract, or describe what you need…"></textarea>
+          <div class="cmd-row">
+            <label class="track" id="track-label"><input id="track" type="checkbox" checked /><span>Track changes</span></label>
+            <button id="cmd-send" class="send-btn" aria-label="Send"></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Contract details -->
+    <section id="view-contract" class="view hidden">
+      <div class="panel-head">
+        <button id="ct-back" class="icon-btn" aria-label="Back"></button>
+        <span class="panel-title">Contract</span>
+      </div>
+      <div id="contract-body" class="scroll"></div>
+    </section>
+
+    <div id="status" class="status"></div>
+
+    <script src="taskpane.js"></script>
+  </body>
+</html>

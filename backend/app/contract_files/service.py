@@ -574,3 +574,175 @@ def requeue_contract_ai_jobs(
             except Exception:
                 pass
     db.commit()
+
+
+def _resolve_contract_file(db: Session, *, contract: Contract, org_id: str) -> ContractFile:
+    """Return the contract's current ContractFile (or its first file), 404-ing
+    if the contract has no file to attach a new version to."""
+    contract_file = None
+    if contract.current_contract_file_id:
+        contract_file = db.get(ContractFile, contract.current_contract_file_id)
+    if contract_file is None:
+        contract_file = db.scalars(
+            select(ContractFile)
+            .where(
+                ContractFile.org_id == org_id,
+                ContractFile.contract_id == contract.id,
+                ContractFile.deleted_at.is_(None),
+            )
+            .order_by(ContractFile.created_at.asc())
+        ).first()
+    if contract_file is None or contract_file.org_id != org_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Contract has no file to attach a version to"
+        )
+    return contract_file
+
+
+async def add_version_from_upload(
+    db: Session,
+    *,
+    contract: Contract,
+    upload: UploadFile,
+    user: User,
+    change_summary: str | None = None,
+    request_id: str | None = None,
+) -> ContractVersion:
+    """Create a new authoritative version of an EXISTING contract from an
+    uploaded ``.docx`` (e.g. the edited draft pushed from the Word add-in).
+
+    Mirrors ``create_contract_from_upload`` (validate → store → extract → persist
+    → requeue AI jobs) and the version-promotion logic of ``restore_contract_version``,
+    but targets a contract that already exists. The caller is expected to have
+    already authorized access via ``get_contract_for_user``."""
+    mime_type = upload.content_type or "application/octet-stream"
+    if mime_type not in settings.allowed_mime_types:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+        )
+    content = await _read_upload_with_limit(
+        upload,
+        limit=settings.max_upload_size_bytes,
+        chunk_size=settings.upload_stream_chunk_bytes,
+    )
+    mime_type = _sniff_mime_type(content, mime_type)
+    _scan_for_malware(content)
+
+    contract_file = _resolve_contract_file(db, contract=contract, org_id=user.org_id)
+
+    stored = storage_service.save_bytes(
+        org_id=user.org_id,
+        filename=upload.filename or "contract.docx",
+        mime_type=mime_type,
+        content=content,
+    )
+    try:
+        extracted = await _resolve_extracted_text(
+            content=content, mime_type=mime_type, filename=stored.filename
+        )
+        storage_object = StorageObject(
+            org_id=user.org_id,
+            storage_key=stored.storage_key,
+            filename=stored.filename,
+            mime_type=stored.mime_type,
+            size_bytes=stored.size_bytes,
+            sha256_hash=stored.sha256_hash,
+            storage_backend=StorageBackend.LOCAL_VOLUME,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(storage_object)
+        db.flush()
+
+        version = ContractVersion(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_file_id=contract_file.id,
+            version_number=next_version_number(db, contract_file.id),
+            storage_object_id=storage_object.id,
+            source=ContractVersionSource.MANUAL_UPLOAD,
+            change_summary=change_summary or "New version uploaded from Word",
+            is_authoritative=True,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(version)
+        db.flush()
+
+        snapshot = ContractTextSnapshot(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=version.id,
+            extraction_method=extracted.method,
+            extraction_quality_score=extracted.quality_score,
+            text=extracted.text,
+            page_map=extracted.page_map,
+            ocr_provider=extracted.ocr_provider,
+            validation_status=_text_snapshot_validation_status(
+                extracted.text, extracted.quality_score
+            ),
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(snapshot)
+        db.flush()
+        version.text_snapshot_id = snapshot.id
+
+        # Promote the new version to authoritative; demote the rest (mirrors
+        # restore_contract_version / accept_contract_edit).
+        existing_versions = db.scalars(
+            select(ContractVersion).where(
+                ContractVersion.org_id == user.org_id,
+                ContractVersion.contract_id == contract.id,
+                ContractVersion.deleted_at.is_(None),
+            )
+        ).all()
+        for row in existing_versions:
+            row.is_authoritative = row.id == version.id
+            row.updated_by_user_id = user.id
+        contract_file.current_version_id = version.id
+        contract_file.updated_by_user_id = user.id
+        contract.current_contract_file_id = contract_file.id
+        contract.current_authoritative_version_id = version.id
+        contract.updated_by_user_id = user.id
+
+        write_audit_log(
+            db,
+            action="contract.version_uploaded",
+            resource_type="contract_version",
+            resource_id=version.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            request_id=request_id,
+            after={
+                "contract_id": contract.id,
+                "contract_file_id": contract_file.id,
+                "version_number": version.version_number,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.version_uploaded",
+            title="New version uploaded",
+            actor_user_id=user.id,
+            request_id=request_id,
+            details={
+                "contract_version_id": version.id,
+                "version_number": version.version_number,
+                "source": "word_addin",
+            },
+        )
+        db.commit()
+    except Exception:
+        # Bytes are on disk now; delete them on rollback so storage has no
+        # orphan referenced by no row.
+        db.rollback()
+        storage_service.delete_bytes_permanently(stored.storage_key)
+        raise
+
+    requeue_contract_ai_jobs(db, user=user, contract=contract, version=version)
+    db.refresh(version)
+    return version

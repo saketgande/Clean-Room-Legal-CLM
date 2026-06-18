@@ -1,0 +1,20 @@
+{
+  "name": "aegis-word-addin",
+  "version": "1.0.0",
+  "description": "Microsoft Word task-pane add-in for the Aegis Legal CLM.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "certs": "office-addin-dev-certs install",
+    "serve": "node server.mjs",
+    "dev-server": "node server.mjs",
+    "sideload": "office-addin-debugging start manifest.xml desktop",
+    "stop": "office-addin-debugging stop manifest.xml",
+    "validate": "office-addin-manifest validate manifest.xml"
+  },
+  "devDependencies": {
+    "office-addin-debugging": "^6.0.0",
+    "office-addin-dev-certs": "^1.13.0",
+    "office-addin-manifest": "^2.0.0"
+  }
+}

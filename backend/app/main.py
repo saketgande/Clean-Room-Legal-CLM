@@ -42,6 +42,7 @@ from app.observability.routes import router as observability_router
 from app.search.routes import router as search_router
 from app.signatures.routes import router as signatures_router
 from app.tabular_review.routes import router as tabular_review_router
+from app.word_addin.routes import router as word_addin_router
 from app.workflows.routes import router as workflows_router
 
 
@@ -148,6 +149,8 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router, prefix=prefix)
     app.include_router(jobs_router, prefix=prefix)
     app.include_router(admin_router, prefix=prefix)
+    # Microsoft Word task-pane add-in (see top-level word-addin/).
+    app.include_router(word_addin_router, prefix=prefix)
     # Internal traces / config-disclosure router is only mounted outside
     # production. The LB-facing /healthz and /readyz below are always present.
     if settings.environment.lower() in {"local", "development", "test"}:

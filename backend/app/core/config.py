@@ -15,7 +15,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
 
     # Comma-separated. Override per-environment; no wildcard in production.
-    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # https://localhost:3001 is the local Word add-in dev server (word-addin/).
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://localhost:3001"
     # Pinned CORS — '*' is rejected when allow_credentials is true anyway, but
     # we also keep the verb/header lists explicit so we can audit the surface.
     cors_allow_methods: str = "GET,POST,PATCH,PUT,DELETE,OPTIONS"
