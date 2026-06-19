@@ -36,8 +36,11 @@ word-addin/
 
 How it connects: the panel is served from `https://localhost:3001`. It calls
 `/api/v1/...` on that same origin, and `server.mjs` proxies those calls to the
-FastAPI backend at `http://localhost:8000`. Keeping everything on one HTTPS
-origin avoids browser CORS and mixed-content blocks inside Word's webview.
+FastAPI backend — by default the Aegis VM at `http://10.1.128.137:8000` (override
+with `AEGIS_BACKEND`, e.g. `http://localhost:8000` for a local backend). Keeping
+everything on one HTTPS origin avoids browser CORS and mixed-content blocks
+inside Word's webview, and lets the panel reach the VM's plain-HTTP API from an
+HTTPS page.
 
 Backend endpoints used: `app/word_addin/` (`/word/ping`, `/word/review`,
 `/word/ask`) plus the existing CLM API — `/contracts`, `/contracts/{id}/versions`
@@ -49,10 +52,14 @@ and `/playbooks/{id}/runs`.
 ## Prerequisites
 
 - **Node.js 18+** (`node -v`).
-- **The Aegis backend running** on `http://localhost:8000`:
+- **The Aegis backend reachable.** By default the add-in proxies to the Aegis VM
+  at `http://10.1.128.137:8000`, so you just need network access to it — nothing
+  to start locally. To run against a **local** backend instead, start it and set
+  `AEGIS_BACKEND`:
   ```bash
   cd ..            # repo root
   ENVIRONMENT=development ./start.sh backend
+  AEGIS_BACKEND=http://localhost:8000 npm run serve
   ```
   Tip: to test the wiring without spending Claude tokens, start the backend with
   `MOCK_CLAUDE=true` — `/word/review` will return mock findings.

@@ -10,7 +10,9 @@
 //
 // Env:
 //   PORT            add-in port (default 3001)
-//   AEGIS_BACKEND   backend base URL (default http://localhost:8000)
+//   AEGIS_BACKEND   backend base URL (default http://10.1.128.137:8000 — the
+//                   Aegis VM; set AEGIS_BACKEND=http://localhost:8000 for a
+//                   local backend)
 
 import https from "node:https";
 import http from "node:http";
@@ -22,7 +24,7 @@ import { getHttpsServerOptions } from "office-addin-dev-certs";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const PORT = Number(process.env.PORT || 3001);
-const BACKEND = process.env.AEGIS_BACKEND || "http://localhost:8000";
+const BACKEND = process.env.AEGIS_BACKEND || "http://10.1.128.137:8000";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",

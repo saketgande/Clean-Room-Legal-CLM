@@ -3,8 +3,8 @@
 // you can iterate on the look/flows without sideloading into Word. For the
 // real Word add-in use server.mjs (HTTPS) instead.
 //
-//   node preview-server.mjs        # http://localhost:3030
-//   PORT=4000 AEGIS_BACKEND=http://localhost:8000 node preview-server.mjs
+//   node preview-server.mjs        # http://localhost:3030, /api -> the Aegis VM
+//   AEGIS_BACKEND=http://localhost:8000 node preview-server.mjs   # local backend
 
 import http from "node:http";
 import { readFile } from "node:fs/promises";
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const PORT = Number(process.env.PORT || 3030);
-const BACKEND = process.env.AEGIS_BACKEND || "http://localhost:8000";
+const BACKEND = process.env.AEGIS_BACKEND || "http://10.1.128.137:8000";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
