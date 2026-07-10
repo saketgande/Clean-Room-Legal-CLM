@@ -12,5 +12,6 @@ class Notification(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, T
     status = Column(String(80), index=True, nullable=False, default="queued")
     provider_message_id = Column(String(255), nullable=True)
     sent_at = Column(DateTime(timezone=True), nullable=True)
+    read_at = Column(DateTime(timezone=True), index=True, nullable=True)
     error_message = Column(Text, nullable=True)
     metadata_json = Column(JSON, nullable=False, default=dict)

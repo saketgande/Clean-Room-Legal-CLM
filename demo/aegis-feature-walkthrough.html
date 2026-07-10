@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Aegis Legal CLM — Feature Walkthrough</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600;6..72,700&family=JetBrains+Mono:wght@500&display=swap');
+
+  :root{
+    --ink:#0f172a; --ink2:#334155; --muted:#64748b; --faint:#94a3b8;
+    --line:#e6e8ef; --line2:#eef1f6; --panel:#f8fafc; --panel2:#f1f5f9;
+    --brand:#4f46e5; --brand-d:#4338ca; --violet:#7c3aed; --sky:#0ea5e9;
+    --high:#dc2626; --med:#d97706; --low:#059669;
+    --paper:#ffffff;
+  }
+
+  *{ box-sizing:border-box; }
+  @page{ size:Letter; margin:15mm 14mm 16mm; }
+
+  html,body{ margin:0; padding:0; }
+  body{
+    font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    color:var(--ink); font-size:10.2pt; line-height:1.5;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  h1,h2,h3,h4{ font-family:'Newsreader',Georgia,'Times New Roman',serif; font-weight:600; line-height:1.15; margin:0; }
+  p{ margin:0 0 8px; color:var(--ink2); }
+  .mono{ font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .small{ font-size:8.6pt; }
+
+  /* ---------- COVER ---------- */
+  .cover{
+    position:relative; height:247mm; border-radius:16px; overflow:hidden;
+    background:
+      radial-gradient(120% 80% at 78% 8%, rgba(124,58,237,.55), transparent 55%),
+      radial-gradient(90% 60% at 12% 96%, rgba(14,165,233,.40), transparent 55%),
+      linear-gradient(150deg,#0b1020 0%, #1b1c4d 48%, #312e81 78%, #4338ca 100%);
+    color:#fff; padding:20mm 18mm; display:flex; flex-direction:column;
+    break-after:page;
+  }
+  .cover::after{
+    content:""; position:absolute; inset:0;
+    background-image:linear-gradient(rgba(255,255,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.05) 1px,transparent 1px);
+    background-size:26px 26px; opacity:.5; mask-image:radial-gradient(80% 70% at 70% 20%, #000, transparent 75%);
+  }
+  .cv-top{ display:flex; align-items:center; gap:11px; position:relative; z-index:2; }
+  .cv-logo{ width:38px; height:38px; border-radius:10px; background:linear-gradient(150deg,#fff,#c7d2fe); display:flex; align-items:center; justify-content:center; }
+  .cv-logo svg{ width:22px; height:22px; }
+  .cv-brand{ font-weight:700; letter-spacing:.02em; font-size:12pt; }
+  .cv-brand span{ opacity:.7; font-weight:500; }
+  .cv-mid{ margin-top:auto; position:relative; z-index:2; }
+  .cv-kicker{ text-transform:uppercase; letter-spacing:.34em; font-size:8.5pt; font-weight:600; color:#c7d2fe; }
+  .cv-title{ font-size:56pt; line-height:1.02; margin:14px 0 0; letter-spacing:-.01em; }
+  .cv-title b{ font-weight:700; }
+  .cv-sub{ font-family:'Newsreader',serif; font-size:17pt; color:#dbe2ff; font-weight:400; margin-top:12px; max-width:150mm; line-height:1.35; }
+  .cv-rule{ height:3px; width:80px; background:linear-gradient(90deg,#a5b4fc,#7c3aed); border-radius:3px; margin:22px 0 0; }
+  .cv-bottom{ position:relative; z-index:2; margin-top:26px; display:flex; gap:34px; flex-wrap:wrap; }
+  .cv-bottom .lbl{ text-transform:uppercase; letter-spacing:.18em; font-size:7pt; color:#a9b2d8; }
+  .cv-bottom .val{ font-size:10.5pt; color:#fff; font-weight:600; margin-top:3px; }
+  .cv-tagstrip{ position:relative; z-index:2; margin-top:20px; display:flex; gap:8px; flex-wrap:wrap; }
+  .cv-tag{ font-size:8pt; font-weight:600; color:#e0e7ff; border:1px solid rgba(255,255,255,.28); border-radius:999px; padding:4px 11px; background:rgba(255,255,255,.06); }
+
+  /* ---------- GENERIC ---------- */
+  .wrap{ }
+  .kicker{ text-transform:uppercase; letter-spacing:.2em; font-size:8pt; font-weight:700; color:var(--brand); }
+  .sec-head{ break-after:avoid; margin:0 0 14px; }
+  .sec-head .kicker{ display:block; margin-bottom:6px; }
+  .sec-head h2{ font-size:23pt; letter-spacing:-.01em; }
+  .sec-head .lede{ color:var(--muted); font-size:10.5pt; margin-top:7px; max-width:165mm; }
+  .sec-rule{ height:2px; background:linear-gradient(90deg,var(--brand),rgba(124,58,237,.15)); border-radius:2px; margin:12px 0 18px; }
+  .divider-sec{ break-before:page; }
+
+  /* ---------- TOC ---------- */
+  .toc{ display:grid; grid-template-columns:1fr 1fr; gap:9px 34px; margin-top:6px; }
+  .toc-item{ display:flex; align-items:baseline; gap:10px; padding:7px 0; border-bottom:1px solid var(--line2); }
+  .toc-n{ font-family:'JetBrains Mono',monospace; font-size:8.5pt; color:var(--brand); font-weight:600; width:20px; }
+  .toc-t{ font-weight:600; color:var(--ink); font-size:10pt; }
+  .toc-d{ color:var(--faint); font-size:8.4pt; margin-left:auto; }
+
+  /* intro band */
+  .band{ background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:16px 18px; margin:14px 0; }
+  .grid2{ display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .grid3{ display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+
+  /* lifecycle */
+  .life{ display:flex; align-items:stretch; gap:0; margin:6px 0 2px; flex-wrap:nowrap; }
+  .life-step{ flex:1; text-align:center; position:relative; padding:0 2px; }
+  .life-pill{ background:#fff; border:1.5px solid var(--line); border-radius:10px; padding:9px 4px 8px; }
+  .life-step.on .life-pill{ border-color:var(--brand); box-shadow:0 4px 12px rgba(79,70,229,.13); }
+  .life-ico{ width:24px;height:24px;border-radius:7px;margin:0 auto 5px;display:flex;align-items:center;justify-content:center;background:var(--panel2); color:var(--brand);}
+  .life-step.on .life-ico{ background:var(--brand); color:#fff; }
+  .life-ico svg{ width:13px;height:13px; }
+  .life-name{ font-size:8pt; font-weight:700; color:var(--ink); }
+  .life-sub{ font-size:6.6pt; color:var(--faint); margin-top:1px; }
+  .life-arrow{ display:flex; align-items:center; color:var(--faint); font-weight:700; font-size:11pt; padding:0 1px; }
+
+  /* screen card */
+  .screen{ border:1px solid var(--line); border-radius:15px; overflow:hidden; margin:0 0 14px; break-inside:avoid; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+  .scr-head{ display:flex; align-items:center; gap:12px; padding:13px 16px; background:linear-gradient(180deg,#fbfcff,#f6f8fe); border-bottom:1px solid var(--line); }
+  .scr-num{ flex:0 0 auto; width:30px; height:30px; border-radius:9px; background:linear-gradient(150deg,var(--brand),var(--violet)); color:#fff; font-weight:700; font-size:11pt; display:flex; align-items:center; justify-content:center; font-family:'Inter'; }
+  .scr-tt{ flex:1; }
+  .scr-tt h3{ font-size:14.5pt; }
+  .scr-tt .where{ font-size:8pt; color:var(--muted); margin-top:2px; }
+  .route{ font-family:'JetBrains Mono',monospace; font-size:7.8pt; color:var(--brand-d); background:#eef0fe; border:1px solid #e0e3fb; border-radius:6px; padding:3px 8px; white-space:nowrap; }
+  .scr-body{ padding:13px 16px 15px; }
+  .scr-body > p:first-child{ color:var(--ink2); }
+  .doflow{ display:grid; grid-template-columns:1fr 1fr; gap:3px 22px; margin-top:9px; }
+  .doflow.one{ grid-template-columns:1fr; }
+  .do{ display:flex; gap:8px; align-items:flex-start; padding:4px 0; font-size:9.4pt; color:var(--ink2); }
+  .do svg{ flex:0 0 auto; width:13px; height:13px; color:var(--low); margin-top:2px; }
+  .do b{ color:var(--ink); font-weight:600; }
+  .seeline{ margin-top:11px; padding:9px 12px; background:var(--panel); border-left:3px solid var(--brand); border-radius:0 8px 8px 0; font-size:8.8pt; color:var(--ink2); }
+  .seeline b{ color:var(--ink); }
+
+  .tag{ display:inline-block; font-size:7pt; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:2px 7px; border-radius:5px; vertical-align:middle; }
+  .tag.ai{ background:#eef0fe; color:var(--brand-d); }
+  .tag.flow{ background:#ecfdf5; color:#047857; }
+
+  /* mockups */
+  .mock{ border:1px solid var(--line); border-radius:11px; overflow:hidden; margin-top:12px; background:#fff; }
+  .mbar{ display:flex; align-items:center; gap:6px; padding:7px 11px; background:#f5f7fc; border-bottom:1px solid var(--line); }
+  .mdot{ width:8px;height:8px;border-radius:50%; }
+  .r{ background:#f87171;} .y{ background:#fbbf24;} .g{ background:#34d399;}
+  .mtitle{ font-size:7.6pt; color:var(--muted); font-weight:600; margin-left:6px; }
+  .mtools{ margin-left:auto; display:flex; gap:5px; }
+  .mtab{ font-size:7pt; padding:2px 7px; border-radius:5px; color:var(--muted); background:#fff; border:1px solid var(--line); }
+  .mtab.on{ background:var(--brand); color:#fff; border-color:var(--brand); }
+
+  .board{ display:grid; grid-template-columns:repeat(4,1fr); gap:7px; padding:10px; background:var(--panel); }
+  .lane-h{ font-size:7.2pt; font-weight:700; color:var(--ink2); text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; display:flex; justify-content:space-between; }
+  .lane-h span{ color:var(--faint); }
+  .kc{ background:#fff; border:1px solid var(--line); border-radius:7px; padding:7px; margin-bottom:6px; }
+  .kc .kt{ height:5px; width:72%; background:#cbd5e1; border-radius:3px; }
+  .kc .ks{ height:4px; width:46%; background:#e2e8f0; border-radius:3px; margin-top:5px; }
+  .kc .kf{ display:flex; gap:4px; margin-top:7px; align-items:center; }
+  .pill{ height:8px; border-radius:4px; }
+  .pill.hi{ width:26px; background:#fecaca;} .pill.me{ width:20px; background:#fde68a;} .pill.lo{ width:22px; background:#bbf7d0;}
+  .av{ width:10px;height:10px;border-radius:50%; background:#c7d2fe; margin-left:auto;}
+
+  .detail{ display:grid; grid-template-columns:1.25fr 1fr; gap:0; }
+  .doc{ padding:12px; border-right:1px solid var(--line); }
+  .ln{ height:5px; background:#e2e8f0; border-radius:3px; margin-bottom:6px; }
+  .ln.t{ height:8px; width:55%; background:#cbd5e1; margin-bottom:9px;}
+  .ln.s{ width:90%;} .ln.m{ width:80%;} .ln.del{ background:#fecaca; width:70%; position:relative;}
+  .ln.add{ background:#bbf7d0; width:74%;}
+  .side{ padding:11px; background:var(--panel); }
+  .side .stabs{ display:flex; gap:5px; margin-bottom:9px; }
+  .rl{ background:#fff; border:1px solid var(--line); border-radius:7px; padding:8px; }
+  .rl .rh{ display:flex; align-items:center; gap:6px; margin-bottom:6px;}
+  .badge{ font-size:6.4pt; font-weight:800; color:#fff; border-radius:4px; padding:2px 5px; letter-spacing:.04em;}
+  .badge.hi{ background:var(--high);} .badge.me{ background:var(--med);} .badge.lo{ background:var(--low);}
+  .rl .rt{ font-size:7.6pt; font-weight:700; color:var(--ink);}
+  .diff{ margin-top:6px; }
+  .diff .o{ font-size:6.8pt; color:#b91c1c; text-decoration:line-through; background:#fef2f2; padding:2px 5px; border-radius:4px; display:block;}
+  .diff .n{ font-size:6.8pt; color:#047857; background:#ecfdf5; padding:2px 5px; border-radius:4px; display:block; margin-top:3px;}
+  .rbtns{ display:flex; gap:5px; margin-top:7px;}
+  .rbtn{ font-size:6.6pt; font-weight:600; padding:3px 7px; border-radius:5px;}
+  .rbtn.p{ background:var(--brand); color:#fff;} .rbtn.o{ background:#fff; border:1px solid var(--line); color:var(--ink2);}
+
+  /* word pane mock */
+  .panewrap{ display:grid; grid-template-columns:1fr 1.1fr; gap:14px; align-items:start; }
+  .pane{ max-width:none; }
+  .chiprow{ display:flex; gap:6px; padding:10px; background:var(--panel); flex-wrap:wrap; }
+  .wchip{ display:flex; align-items:center; gap:5px; font-size:7.6pt; font-weight:600; color:var(--ink2); background:#fff; border:1px solid var(--line); border-radius:7px; padding:5px 9px; }
+  .wchip svg{ width:11px;height:11px; color:var(--brand);}
+  .panebody{ padding:11px; }
+  .hero-risk{ border:1px solid var(--line); border-radius:8px; padding:9px; margin-bottom:8px; }
+  .hr-row{ display:flex; justify-content:space-between; align-items:center; }
+  .hr-lvl{ font-size:8pt; font-weight:800; color:var(--high);}
+  .meter{ display:flex; gap:3px; margin-top:7px; height:7px;}
+  .meter i{ border-radius:3px; display:block;}
+  .meter .mh{ flex:2; background:var(--high);} .meter .mm{ flex:1.3; background:var(--med);} .meter .ml{ flex:1; background:var(--low);}
+
+  /* journeys */
+  .journey{ border:1px solid var(--line); border-radius:13px; padding:13px 15px; margin-bottom:11px; break-inside:avoid; background:#fff; }
+  .jh{ display:flex; align-items:center; gap:9px; margin-bottom:9px; }
+  .jn{ width:24px;height:24px;border-radius:7px; background:var(--ink); color:#fff; font-weight:700; font-size:9pt; display:flex;align-items:center;justify-content:center;}
+  .jh h4{ font-size:12pt; }
+  .steps{ display:flex; align-items:stretch; gap:0; flex-wrap:wrap; }
+  .st{ display:flex; align-items:center; gap:7px; }
+  .stbox{ font-size:8.2pt; color:var(--ink2); background:var(--panel); border:1px solid var(--line); border-radius:7px; padding:5px 9px; font-weight:500; }
+  .stbox b{ color:var(--ink); }
+  .stsep{ color:var(--brand); font-weight:800; padding:0 6px; }
+
+  /* reference table */
+  table.ref{ width:100%; border-collapse:collapse; font-size:8.8pt; margin-top:4px; }
+  table.ref th{ text-align:left; background:var(--ink); color:#fff; font-weight:600; padding:8px 10px; font-size:8pt; text-transform:uppercase; letter-spacing:.04em;}
+  table.ref th:first-child{ border-radius:8px 0 0 0;} table.ref th:last-child{ border-radius:0 8px 0 0;}
+  table.ref td{ padding:7px 10px; border-bottom:1px solid var(--line2); color:var(--ink2); vertical-align:top; }
+  table.ref tr:nth-child(even) td{ background:var(--panel); }
+  table.ref td b{ color:var(--ink); }
+
+  .endcard{ background:linear-gradient(150deg,#0b1020,#312e81); color:#fff; border-radius:15px; padding:22px 24px; margin-top:8px; }
+  .endcard h3{ font-size:18pt; color:#fff; } .endcard p{ color:#cdd5f7; }
+  .foot{ margin-top:14px; padding-top:10px; border-top:1px solid var(--line); color:var(--faint); font-size:7.6pt; display:flex; justify-content:space-between; }
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<section class="cover">
+  <div class="cv-top">
+    <div class="cv-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#4338ca" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+    </div>
+    <div class="cv-brand">Aegis <span>· Legal CLM</span></div>
+  </div>
+
+  <div class="cv-mid">
+    <span class="cv-kicker">Product Walkthrough</span>
+    <h1 class="cv-title">A guided tour<br><b>of Aegis</b></h1>
+    <div class="cv-sub">Screen by screen — from contract intake to AI review, approvals, e‑signature and renewal, plus the Microsoft Word add‑in that brings Aegis into your document.</div>
+    <div class="cv-rule"></div>
+    <div class="cv-tagstrip">
+      <span class="cv-tag">AI Contract Review</span>
+      <span class="cv-tag">Playbooks</span>
+      <span class="cv-tag">Approvals &amp; e‑Signature</span>
+      <span class="cv-tag">Obligations &amp; Renewals</span>
+      <span class="cv-tag">Word Add‑in</span>
+    </div>
+  </div>
+
+  <div class="cv-bottom">
+    <div><div class="lbl">Document</div><div class="val">Feature Walkthrough Guide</div></div>
+    <div><div class="lbl">Audience</div><div class="val">New users &amp; onboarding</div></div>
+    <div><div class="lbl">Prepared</div><div class="val">June 2026</div></div>
+    <div><div class="lbl">Status</div><div class="val">Confidential</div></div>
+  </div>
+</section>
+
+<!-- ============ CONTENTS + INTRO ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Inside this guide</span>
+    <h2>Contents</h2>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="toc">
+    <div class="toc-item"><span class="toc-n">01</span><span class="toc-t">Signing in</span><span class="toc-d">Access &amp; workspace</span></div>
+    <div class="toc-item"><span class="toc-n">02</span><span class="toc-t">The workspace &amp; navigation</span><span class="toc-d">Sidebar map</span></div>
+    <div class="toc-item"><span class="toc-n">03</span><span class="toc-t">Ask Aegis — AI assistant</span><span class="toc-d">Home</span></div>
+    <div class="toc-item"><span class="toc-n">04</span><span class="toc-t">Contract Hub</span><span class="toc-d">Portfolio</span></div>
+    <div class="toc-item"><span class="toc-n">05</span><span class="toc-t">Contract workspace</span><span class="toc-d">Review &amp; negotiate</span></div>
+    <div class="toc-item"><span class="toc-n">06</span><span class="toc-t">Playbooks</span><span class="toc-d">Standards</span></div>
+    <div class="toc-item"><span class="toc-n">07</span><span class="toc-t">Approvals</span><span class="toc-d">Sign‑off</span></div>
+    <div class="toc-item"><span class="toc-n">08</span><span class="toc-t">Signatures</span><span class="toc-d">Execution</span></div>
+    <div class="toc-item"><span class="toc-n">09</span><span class="toc-t">Obligations</span><span class="toc-d">Tracking</span></div>
+    <div class="toc-item"><span class="toc-n">10</span><span class="toc-t">Renewals</span><span class="toc-d">Expirations</span></div>
+    <div class="toc-item"><span class="toc-n">11</span><span class="toc-t">Contract Brain</span><span class="toc-d">Portfolio Q&amp;A</span></div>
+    <div class="toc-item"><span class="toc-n">12</span><span class="toc-t">Tabular Review</span><span class="toc-d">Bulk extract</span></div>
+    <div class="toc-item"><span class="toc-n">13</span><span class="toc-t">Search, Projects &amp; Workflows</span><span class="toc-d">Organize</span></div>
+    <div class="toc-item"><span class="toc-n">14</span><span class="toc-t">Admin, Jobs &amp; Notifications</span><span class="toc-d">Operate</span></div>
+    <div class="toc-item"><span class="toc-n">15</span><span class="toc-t">The Microsoft Word add‑in</span><span class="toc-d">In‑document</span></div>
+    <div class="toc-item"><span class="toc-n">16</span><span class="toc-t">End‑to‑end journeys</span><span class="toc-d">Putting it together</span></div>
+  </div>
+
+  <div class="band" style="margin-top:18px">
+    <span class="kicker">What Aegis is</span>
+    <h3 style="font-size:15pt; margin:6px 0 6px">Contract lifecycle management, with AI built into every step.</h3>
+    <p>Aegis is a contract‑first legal platform. You bring contracts in, and Aegis reviews them for risk, checks them against your negotiation playbooks, routes them for approval and signature, then tracks the obligations and renewals that follow. The same intelligence is available right inside Microsoft Word through the Aegis add‑in — so reviewing and redlining never means leaving your document.</p>
+  </div>
+
+  <div style="margin-top:14px">
+    <span class="kicker">The contract lifecycle</span>
+    <h3 style="font-size:13pt; margin:6px 0 10px">Every contract moves through seven stages</h3>
+    <div class="life">
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg></div><div class="life-name">Intake</div><div class="life-sub">Received</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div><div class="life-name">Drafting</div><div class="life-sub">In progress</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z"/><path d="m21 21-4.3-4.3"/></svg></div><div class="life-name">Review</div><div class="life-sub">Risk check</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div><div class="life-name">Approval</div><div class="life-sub">Sign‑off</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18z"/><path d="M2 2l7.586 7.586"/></svg></div><div class="life-name">Signature</div><div class="life-sub">Execution</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step on"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg></div><div class="life-name">Active</div><div class="life-sub">In force</div></div></div>
+      <div class="life-arrow">›</div>
+      <div class="life-step"><div class="life-pill"><div class="life-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg></div><div class="life-name">Closed</div><div class="life-sub">Archived</div></div></div>
+    </div>
+    <div class="seeline" style="margin-top:12px"><b>Good to know:</b> Active contracts approaching expiry are flagged <b>renewal&nbsp;due</b>, and closed contracts can be <b>archived</b> — retained for compliance but out of the way. You'll see these stages everywhere: on the Hub board, in filters, and on each contract's progress stepper.</div>
+  </div>
+</section>
+
+<!-- ============ 01 LOGIN ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Getting started</span>
+    <h2>01 · Signing in</h2>
+    <div class="lede">Your entry point to the workspace — sign in, or get set up for the first time.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">1</div>
+      <div class="scr-tt"><h3>Login &amp; first‑time setup</h3><div class="where">The door to your organization's workspace</div></div>
+      <div class="route">/login</div>
+    </div>
+    <div class="scr-body">
+      <p>Sign in with your work email and password. New organizations bootstrap a first admin; teammates join by invitation. There's also a no‑backend demo mode to explore Aegis with sample data.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Sign in</b> with email &amp; password</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Request access</b> (admin approval)</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Create an organization</b> via setup token</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Accept an invitation</b> at <span class="mono small">/invitations/accept</span></span></div>
+      </div>
+      <div class="seeline"><b>You'll land on</b> “Ask Aegis,” your home base. The left sidebar is always there to move between every area of the product.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 NAV ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Orientation</span>
+    <h2>02 · The workspace &amp; navigation</h2>
+    <div class="lede">A persistent left sidebar groups everything into four simple bands.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="grid2">
+    <div class="band" style="margin:0">
+      <span class="kicker">Workspace</span>
+      <p class="small" style="margin-top:6px"><b>Ask Aegis</b> · home AI assistant<br><b>Contract Hub</b> · your whole portfolio<br><b>Projects</b> · deal rooms &amp; matters<br><b>Search</b> · find anything, anywhere</p>
+    </div>
+    <div class="band" style="margin:0">
+      <span class="kicker">Intelligence</span>
+      <p class="small" style="margin-top:6px"><b>Contract Brain</b> · portfolio‑wide Q&amp;A<br><b>Tabular Review</b> · extract across many contracts<br><b>Playbooks</b> · negotiation rulebooks<br><b>Workflows</b> · custom automations</p>
+    </div>
+    <div class="band" style="margin:0">
+      <span class="kicker">Lifecycle</span>
+      <p class="small" style="margin-top:6px"><b>Approvals</b> · multi‑step sign‑off<br><b>Signatures</b> · e‑signature envelopes<br><b>Obligations</b> · tasks &amp; deadlines<br><b>Renewals</b> · expirations &amp; decisions</p>
+    </div>
+    <div class="band" style="margin:0">
+      <span class="kicker">Operate</span>
+      <p class="small" style="margin-top:6px"><b>Notifications</b> · alerts &amp; email log<br><b>Jobs</b> · background task monitor<br><b>Admin &amp; settings</b> · org, users, integrations<br><b>Account menu</b> · profile &amp; sign out</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 ASK AEGIS ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Workspace</span>
+    <h2>03 · Ask Aegis — the AI assistant</h2>
+    <div class="lede">Your home screen: a chat‑style assistant that understands your contracts.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">3</div>
+      <div class="scr-tt"><h3>Ask Aegis <span class="tag ai">AI</span></h3><div class="where">Natural‑language questions, cited answers</div></div>
+      <div class="route">/ · /assistant</div>
+    </div>
+    <div class="scr-body">
+      <p>Ask anything about your contracts in plain language and get a streamed answer with citations back to the source documents. Scope a conversation to your whole portfolio, a single project, or one contract — and the assistant can call tools (find contracts, extract clauses, look up obligations) to answer.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Ask in <b>natural language</b></span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Scope to <b>portfolio, project or contract</b></span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Get <b>streamed answers</b> with sources</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Confirm <b>sensitive actions</b> before they run</span></div>
+      </div>
+      <div class="seeline"><b>Try asking:</b> “Which active contracts allow termination for convenience?” or “Summarize our exposure on the Acme MSA.”</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 CONTRACT HUB ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Workspace</span>
+    <h2>04 · Contract Hub</h2>
+    <div class="lede">The command center for your entire contract portfolio — three views, one place.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">4</div>
+      <div class="scr-tt"><h3>Contract Hub</h3><div class="where">Board · Table · Analytics</div></div>
+      <div class="route">/contract-hub</div>
+    </div>
+    <div class="scr-body">
+      <p>See every contract and move it forward. Switch between a Kanban <b>Board</b>, a spreadsheet‑style <b>Table</b>, and an executive <b>Analytics</b> dashboard. Filter to <i>Mine</i>, <i>At‑risk</i>, <i>Redlines</i>, <i>Expiring</i> or <i>Deviations</i>, and upload or create new contracts that auto‑extract their own metadata.</p>
+
+      <div class="mock">
+        <div class="mbar"><span class="mdot r"></span><span class="mdot y"></span><span class="mdot g"></span><span class="mtitle">Contract Hub</span>
+          <span class="mtools"><span class="mtab on">Board</span><span class="mtab">Table</span><span class="mtab">Analytics</span></span></div>
+        <div class="board">
+          <div><div class="lane-h">Drafting <span>3</span></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill lo"></span><span class="av"></span></div></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill me"></span><span class="av"></span></div></div>
+          </div>
+          <div><div class="lane-h">Negotiation <span>2</span></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill hi"></span><span class="av"></span></div></div>
+          </div>
+          <div><div class="lane-h">Execution <span>1</span></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill me"></span><span class="av"></span></div></div>
+          </div>
+          <div><div class="lane-h">Active <span>5</span></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill lo"></span><span class="av"></span></div></div>
+            <div class="kc"><div class="kt"></div><div class="ks"></div><div class="kf"><span class="pill lo"></span><span class="av"></span></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="doflow" style="margin-top:11px">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Drag</b> contracts across lifecycle lanes</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Upload / create</b> a new contract</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Analytics</b>: value, risk mix, bottlenecks</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Renewal pipeline</b> &amp; “action required” queue</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 CONTRACT DETAIL ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Workspace</span>
+    <h2>05 · The contract workspace</h2>
+    <div class="lede">Where the real work happens — the document on the left, smart side panels on the right.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">5</div>
+      <div class="scr-tt"><h3>Contract detail</h3><div class="where">Review · redline · negotiate · progress the stage</div></div>
+      <div class="route">/contracts/{id}</div>
+    </div>
+    <div class="scr-body">
+      <p>Open any contract to read the document alongside everything that surrounds it. A lifecycle stepper tracks progress, and a “next step” hero tells you exactly what to do — <i>Run AI review</i>, <i>Resolve issues</i>, <i>Submit for approval</i>, <i>Send for signature</i>. Five panels do the heavy lifting:</p>
+
+      <div class="mock">
+        <div class="mbar"><span class="mdot r"></span><span class="mdot y"></span><span class="mdot g"></span><span class="mtitle">Acme Master Services Agreement · Review</span></div>
+        <div class="detail">
+          <div class="doc">
+            <div class="ln t"></div><div class="ln s"></div><div class="ln m"></div>
+            <div class="ln del"></div><div class="ln add"></div>
+            <div class="ln s"></div><div class="ln m"></div><div class="ln s"></div>
+          </div>
+          <div class="side">
+            <div class="stabs"><span class="mtab on">Redlines</span><span class="mtab">Versions</span><span class="mtab">Comments</span></div>
+            <div class="rl">
+              <div class="rh"><span class="badge hi">HIGH</span><span class="rt">Uncapped liability</span></div>
+              <div class="diff"><span class="o">…liable for all damages without limit…</span><span class="n">…liability capped at fees paid in 12 months…</span></div>
+              <div class="rbtns"><span class="rbtn p">Apply</span><span class="rbtn o">Accept</span><span class="rbtn o">Reject</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="doflow" style="margin-top:12px">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Redlines</b> — accept / reject tracked changes</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Versions</b> — full history &amp; side‑by‑side diff</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Comments</b> — internal or shared‑with‑counterparty</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Negotiation</b> — secure share links &amp; rounds</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Ask AI</b> — review &amp; Q&amp;A on this contract</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Metadata</b> — counterparty, value, risk, stage</span></div>
+      </div>
+      <div class="seeline"><b>Send to counterparty</b> generates a secure, optionally pass‑coded link (see <span class="mono small">/s/{token}</span>) so the other side can view and comment without an account — and you can diff their version against your last send.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 PLAYBOOKS ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Intelligence</span>
+    <h2>06 · Playbooks</h2>
+    <div class="lede">Turn your negotiation standards into rules Aegis can check automatically.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">6</div>
+      <div class="scr-tt"><h3>Playbooks &amp; the AI builder <span class="tag ai">AI</span></h3><div class="where">House positions, applied to any contract</div></div>
+      <div class="route">/playbooks · /playbooks/build</div>
+    </div>
+    <div class="scr-body">
+      <p>A playbook is a set of clause‑level rules — your preferred position, prohibited language, required terms and negotiation guidance. Create one by hand, or use the interactive AI builder: attach an exemplar contract or template, then chat to refine (“be strict on liability,” “we're the vendor”). When you run a playbook against a contract, Aegis surfaces <b>deviations</b> and proposes redlines to bring it back in line.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Generate</b> a playbook from an exemplar with AI</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Publish</b> versions; keep a clean history</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Run</b> against a contract → deviations + fixes</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Insights</b> — which clauses deviate most often</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 APPROVALS ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Lifecycle</span>
+    <h2>07 · Approvals</h2>
+    <div class="lede">Route a contract to the right people, automatically, before it can be signed.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">7</div>
+      <div class="scr-tt"><h3>Approvals</h3><div class="where">Requests · Routing rules · Approver groups</div></div>
+      <div class="route">/approvals · /approve/{token}</div>
+    </div>
+    <div class="scr-body">
+      <p>Define routing rules that match contracts by type, value and risk, then send them to the right approver group in sequence — any‑one or all‑must‑approve. Approvers decide in‑app, or via a one‑time email link with no login required. On final approval, the contract advances toward signature.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Requests</b> — approve / reject with a comment</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Routing rules</b> — criteria → approver chain</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Approver groups</b> — e.g. Senior Counsel, Finance</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Email decisions</b> via secure token links</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 08 SIGNATURES -->
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">8</div>
+      <div class="scr-tt"><h3>Signatures</h3><div class="where">Send for e‑signature &amp; track to completion</div></div>
+      <div class="route">/signatures</div>
+    </div>
+    <div class="scr-body">
+      <p>Send the authoritative version for e‑signature (DocuSign), assign signers and fields, and set a deadline. Track each envelope as it moves <i>Sent → Viewed → Signed → Completed</i>, with status synced automatically. When everyone has signed, the contract advances to <b>Active</b>.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Send</b> to recipients with fields &amp; deadline</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Track</b> envelope &amp; per‑signer progress</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Resend, void</b> or cancel envelopes</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Download</b> signed PDF &amp; audit trail</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 09 / 10 OBLIGATIONS + RENEWALS ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Lifecycle</span>
+    <h2>09 · Obligations &nbsp;&amp;&nbsp; 10 · Renewals</h2>
+    <div class="lede">Once a contract is live, Aegis keeps you ahead of every deadline and expiry.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">9</div>
+      <div class="scr-tt"><h3>Obligations</h3><div class="where">Deadlines, payments &amp; duties — tracked</div></div>
+      <div class="route">/obligations</div>
+    </div>
+    <div class="scr-body">
+      <p>Obligations are pulled from contract clauses (or added by hand) and tracked to completion, colour‑coded by status. Aegis emails owners ahead of due dates so nothing slips.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Filter by <b>open · due soon · overdue · done</b></span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Automated reminders</b> (5‑day / 1‑day)</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Mark complete</b> or reschedule</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Jump to the <b>source clause</b> &amp; contract</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">10</div>
+      <div class="scr-tt"><h3>Renewals</h3><div class="where">Never miss a notice window</div></div>
+      <div class="route">/renewals</div>
+    </div>
+    <div class="scr-body">
+      <p>Aegis watches expiry and notice windows and flags contracts as <b>renewal due</b>. Decide to renew, renegotiate or terminate — with the value at stake bucketed by 30 / 60 / 90 days so you can prioritise.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>See <b>upcoming renewals</b> by notice date</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Record a <b>decision</b> + memo</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Window check</b> auto‑detects due renewals</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>$ at stake</b> by time window</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 11 / 12 BRAIN + TABULAR ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Intelligence</span>
+    <h2>11 · Contract Brain &nbsp;&amp;&nbsp; 12 · Tabular Review</h2>
+    <div class="lede">Two ways to ask questions of <i>many</i> contracts at once.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">11</div>
+      <div class="scr-tt"><h3>Contract Brain <span class="tag ai">AI</span></h3><div class="where">Portfolio‑wide Q&amp;A with citations</div></div>
+      <div class="route">/brain</div>
+    </div>
+    <div class="scr-body">
+      <p>Ask questions across your whole portfolio — or scope to a project or contract — and get an answer grounded in specific documents. Counting questions are answered straight from the database (no guesswork); text questions use retrieval over your clause library, every answer backed by citations.</p>
+      <div class="seeline"><b>Ask:</b> “How many vendor contracts have a 2‑year initial term?” · “List every limitation‑of‑liability clause we've agreed above our cap.”</div>
+    </div>
+  </div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">12</div>
+      <div class="scr-tt"><h3>Tabular Review <span class="tag ai">AI</span></h3><div class="where">A spreadsheet, filled in by AI</div></div>
+      <div class="route">/tabular-reviews</div>
+    </div>
+    <div class="scr-body">
+      <p>Pick a set of contracts and define the columns you care about (Liability cap, Term, Renewal clause…). Aegis extracts each value for every contract — rows are contracts, columns are your questions — and flags cells that need a human look. Export the finished grid to spreadsheet.</p>
+      <div class="doflow">
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Select contracts &amp; define <b>columns</b></span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span>Watch cells fill in as <b>jobs complete</b></span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Chat</b> to refine within the review</span></div>
+        <div class="do"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Export</b> the results table</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 13 SEARCH / PROJECTS / WORKFLOWS ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Organize</span>
+    <h2>13 · Search, Projects &amp; Workflows</h2>
+    <div class="lede">Find anything, group your work, and standardize how it gets done.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="grid3">
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">13</div><div class="scr-tt"><h3 style="font-size:12pt">Search</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">Global search across <b>contracts, full text, clauses</b> and <b>projects</b> — filter by stage, risk and counterparty, and jump straight to the source.</p><div class="route" style="margin-top:4px">/search</div></div>
+    </div>
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">·</div><div class="scr-tt"><h3 style="font-size:12pt">Projects</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">Group contracts into <b>deal rooms &amp; matters</b> (review, due‑diligence, regulatory). Add members, share access, and get project‑level insights.</p><div class="route" style="margin-top:4px">/projects</div></div>
+    </div>
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">·</div><div class="scr-tt"><h3 style="font-size:12pt">Workflows</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">Built‑in and custom <b>automation templates</b> (intake, review, drafting, tabular). Set visibility — private, shared, or org‑wide.</p><div class="route" style="margin-top:4px">/workflows</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 14 ADMIN / JOBS / NOTIFS ============ -->
+<section class="wrap">
+  <div class="sec-head">
+    <span class="kicker">Operate</span>
+    <h2>14 · Admin, Jobs &amp; Notifications</h2>
+    <div class="lede">Run the workspace: people &amp; access, background processing, and a full audit of what was sent.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="grid3">
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">14</div><div class="scr-tt"><h3 style="font-size:12pt">Admin &amp; settings</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">Manage the <b>organization, users &amp; roles, invitations, API keys</b> and <b>integrations</b> (e‑signature, storage).</p><div class="route" style="margin-top:4px">/admin</div></div>
+    </div>
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">·</div><div class="scr-tt"><h3 style="font-size:12pt">Jobs</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">Monitor background work — extraction, embeddings, reminders. <b>Cancel</b> or <b>re‑run</b>; auto‑refreshes live.</p><div class="route" style="margin-top:4px">/jobs</div></div>
+    </div>
+    <div class="screen" style="margin:0">
+      <div class="scr-head" style="padding:11px 13px"><div class="scr-num" style="width:26px;height:26px;font-size:9.5pt">·</div><div class="scr-tt"><h3 style="font-size:12pt">Notifications</h3></div></div>
+      <div class="scr-body" style="padding:11px 13px"><p class="small">A complete <b>log of every alert &amp; email</b> — event, channel, delivery status and timestamp.</p><div class="route" style="margin-top:4px">/notifications</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 15 WORD ADD-IN ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">In your document</span>
+    <h2>15 · The Microsoft Word add‑in</h2>
+    <div class="lede">All of Aegis's intelligence, in a task pane next to your contract — review and redline without ever leaving Word.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="screen">
+    <div class="scr-head">
+      <div class="scr-num">15</div>
+      <div class="scr-tt"><h3>Ask Aegis for Word <span class="tag ai">AI</span></h3><div class="where">Sign in · auto‑link · review · redline · save versions</div></div>
+      <div class="route">Word · task pane</div>
+    </div>
+    <div class="scr-body">
+      <p>Open the Aegis pane in Word and sign in once. The add‑in <b>auto‑links</b> the open document to its contract in Aegis (matching by content, or creating a new one), so everything you do stays connected to the record. Four quick actions sit a click away.</p>
+
+      <div class="panewrap">
+        <div class="mock pane">
+          <div class="mbar"><span class="mdot r"></span><span class="mdot y"></span><span class="mdot g"></span><span class="mtitle">Aegis · Acme MSA — linked</span></div>
+          <div class="chiprow">
+            <span class="wchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>Review</span>
+            <span class="wchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>Playbook</span>
+            <span class="wchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>Obligations</span>
+            <span class="wchip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></svg>Summarize</span>
+          </div>
+          <div class="panebody">
+            <div class="hero-risk">
+              <div class="hr-row"><span class="hr-lvl">Elevated risk</span><span class="small" style="color:var(--muted)">4 issues · 1 high</span></div>
+              <div class="meter"><i class="mh"></i><i class="mm"></i><i class="ml"></i></div>
+            </div>
+            <div class="rl">
+              <div class="rh"><span class="badge hi">HIGH</span><span class="rt">Uncapped liability</span></div>
+              <div class="diff"><span class="o">…liable for all damages…</span><span class="n">…capped at 12 months' fees…</span></div>
+              <div class="rbtns"><span class="rbtn o">Locate</span><span class="rbtn p">Insert redline</span><span class="rbtn o">Copy</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Review</b> — ranked findings with severity, the issue, and suggested wording</span></div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Playbook</b> — pick a playbook; get deviations &amp; fixes for this document</span></div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Obligations</b> &amp; <b>Summarize</b> — one‑click extraction and a concise brief</span></div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Ask anything</b> — free‑form questions about the open contract</span></div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Locate &amp; redline</b> — jump to a clause; apply fixes as <b>tracked changes</b></span></div>
+          <div class="do" style="font-size:9.6pt"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg><span><b>Save a version</b> — push the current draft back to Aegis</span></div>
+        </div>
+      </div>
+
+      <div class="seeline" style="margin-top:13px"><b>Redlines flow both ways.</b> Suggestions from a review or playbook can be inserted into Word as tracked changes, and the contract's proposed redlines can be <b>accepted or rejected</b> right from the pane — keeping Word and Aegis perfectly in sync.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 16 JOURNEYS ============ -->
+<section class="wrap divider-sec">
+  <div class="sec-head">
+    <span class="kicker">Putting it together</span>
+    <h2>16 · End‑to‑end journeys</h2>
+    <div class="lede">How the pieces connect across a contract's life.</div>
+  </div>
+  <div class="sec-rule"></div>
+
+  <div class="journey">
+    <div class="jh"><div class="jn">A</div><h4>From upload to signed</h4></div>
+    <div class="steps">
+      <div class="st"><span class="stbox"><b>Upload</b> to Hub</span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox"><b>AI review</b> + playbook</span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Redline &amp; <b>negotiate</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Route for <b>approval</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Send for <b>signature</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox"><b>Active</b></span></div>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="jh"><div class="jn">B</div><h4>Reviewing inside Word</h4></div>
+    <div class="steps">
+      <div class="st"><span class="stbox">Open pane &amp; <b>sign in</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox"><b>Auto‑link</b> document</span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Run <b>Review</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Insert <b>tracked redlines</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox"><b>Save version</b> to Aegis</span></div>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="jh"><div class="jn">C</div><h4>Living contract management</h4></div>
+    <div class="steps">
+      <div class="st"><span class="stbox"><b>Obligations</b> extracted</span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Reminders &amp; <b>completion</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox"><b>Renewal due</b> flag</span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Renew / renegotiate / <b>terminate</b></span></div>
+    </div>
+  </div>
+
+  <div class="journey">
+    <div class="jh"><div class="jn">D</div><h4>Portfolio intelligence</h4></div>
+    <div class="steps">
+      <div class="st"><span class="stbox">Ask <b>Contract Brain</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Build a <b>Tabular Review</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Spot <b>risk &amp; deviations</b></span><span class="stsep">›</span></div>
+      <div class="st"><span class="stbox">Act from <b>Hub analytics</b></span></div>
+    </div>
+  </div>
+
+  <!-- quick reference -->
+  <div style="margin-top:18px">
+    <span class="kicker">Quick reference</span>
+    <h3 style="font-size:14pt; margin:6px 0 10px">Every capability at a glance</h3>
+    <table class="ref">
+      <thead><tr><th style="width:24%">Capability</th><th style="width:38%">What you do</th><th>What you get back</th></tr></thead>
+      <tbody>
+        <tr><td><b>Ask Aegis</b></td><td>Ask a question (any scope)</td><td>Cited, streamed answer from your contracts</td></tr>
+        <tr><td><b>Contract Hub</b></td><td>Board / table / analytics, drag stages</td><td>Portfolio status &amp; one‑click new contracts</td></tr>
+        <tr><td><b>Contract review</b></td><td>Run AI review on a contract</td><td>Ranked risk findings with suggested redlines</td></tr>
+        <tr><td><b>Playbooks</b></td><td>Run a playbook against a contract</td><td>Deviations from house positions + fixes</td></tr>
+        <tr><td><b>Approvals</b></td><td>Submit for sign‑off</td><td>Auto‑routed chain; in‑app or email decisions</td></tr>
+        <tr><td><b>Signatures</b></td><td>Send for e‑signature</td><td>Tracked envelope; auto‑activates when signed</td></tr>
+        <tr><td><b>Obligations</b></td><td>Track duties &amp; deadlines</td><td>Reminders and live status per obligation</td></tr>
+        <tr><td><b>Renewals</b></td><td>Review the renewal window</td><td>Decision capture with value at stake</td></tr>
+        <tr><td><b>Contract Brain</b></td><td>Ask across the portfolio</td><td>Synthesised answer with citations</td></tr>
+        <tr><td><b>Tabular Review</b></td><td>Define contracts × columns</td><td>A filled grid, exportable</td></tr>
+        <tr><td><b>Word add‑in</b></td><td>Review &amp; redline in Word</td><td>Tracked changes synced back to Aegis</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="endcard">
+    <span class="kicker" style="color:#c7d2fe">You've seen the whole tour</span>
+    <h3>One platform, from first draft to renewal.</h3>
+    <p style="margin-top:6px; max-width:160mm">Aegis brings AI review, negotiation playbooks, approvals, e‑signature and obligation tracking into a single contract‑first workflow — and meets your team where they already work, inside Microsoft Word.</p>
+  </div>
+
+  <div class="foot">
+    <span>Aegis Legal CLM — Feature Walkthrough</span>
+    <span>Confidential · June 2026</span>
+  </div>
+</section>
+
+</body>
+</html>

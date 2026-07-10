@@ -4,11 +4,11 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CenterSpinner } from "@/components/ui";
 
-// Contracts now live inside the Contract Hub.
+// The portfolio lives on the Command wall now.
 export default function ContractsRedirect() {
   const router = useRouter();
   useEffect(() => {
-    router.replace("/contract-hub");
+    router.replace("/command");
   }, [router]);
-  return <CenterSpinner label="Opening Contract Hub…" />;
+  return <CenterSpinner label="Opening Command…" />;
 }

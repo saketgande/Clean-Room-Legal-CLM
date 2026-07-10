@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, JSON, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, JSON, String, Text
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -26,6 +26,24 @@ class Workflow(
     visibility = Column(String(80), index=True, nullable=False, default=Visibility.PRIVATE)
     description = Column(Text, nullable=True)
     definition = Column(JSON, nullable=False, default=dict)
+    # User ids this prompt is explicitly shared with (visibility=shared_with_users).
+    shared_user_ids = Column(JSON, nullable=True, default=list)
+
+
+class WorkflowVersion(
+    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
+):
+    """An immutable snapshot of a workflow's editable content, written on every
+    edit so users can review history and revert. Mirrors PlaybookVersion."""
+
+    workflow_id = Column(String(36), ForeignKey("workflow.id"), index=True, nullable=False)
+    version_number = Column(Integer, nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    definition = Column(JSON, nullable=False, default=dict)
+    visibility = Column(String(80), nullable=False, default=Visibility.PRIVATE)
+    # Human note on why this version exists, e.g. "Reverted to v2".
+    note = Column(Text, nullable=True)
 
 
 class WorkflowRun(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

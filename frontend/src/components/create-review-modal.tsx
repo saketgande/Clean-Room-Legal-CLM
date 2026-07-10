@@ -74,8 +74,8 @@ export function CreateReviewModal({
     if (open) setProjectId(defaultProjectId ?? "");
   }, [open, defaultProjectId]);
 
-  // Pre-select & seed columns from a workflow template when launched
-  // from the Workflows page "Use workflow" action.
+  // Pre-select & seed columns from a prompt template when launched
+  // from the Prompt Library "Use prompt" action.
   useEffect(() => {
     if (open && defaultWorkflowId && workflows) {
       applyWorkflow(defaultWorkflowId);
@@ -162,7 +162,7 @@ export function CreateReviewModal({
       footer={
         <>
           {!canSubmit && (
-            <span className="mr-auto text-xs text-slate-400">
+            <span aria-live="polite" className="mr-auto text-xs text-slate-500">
               {!name.trim()
                 ? "Add a review name"
                 : contractIds.length === 0
@@ -190,8 +190,8 @@ export function CreateReviewModal({
         </Field>
 
         <Field
-          label="Workflow template"
-          hint="Optional — seeds the columns from a reusable tabular workflow"
+          label="Prompt template"
+          hint="Optional — seeds the columns from a reusable tabular prompt"
         >
           <Select
             value={workflowId}
@@ -291,6 +291,7 @@ export function CreateReviewModal({
                   <Button
                     size="icon"
                     variant="ghost"
+                    aria-label="Remove column"
                     disabled={columns.length === 1}
                     onClick={() =>
                       setColumns((cols) => cols.filter((_, i) => i !== idx))

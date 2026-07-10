@@ -21,7 +21,7 @@ export default function LoginPage() {
   async function exploreDemo() {
     enableDemo();
     await refreshUser();
-    router.push("/");
+    router.push("/command");
   }
   const [mode, setMode] = useState<Mode>("login");
   const [loading, setLoading] = useState(false);
@@ -61,7 +61,7 @@ export default function LoginPage() {
         const tokens = await authApi.login(email, password);
         tokenStore.set(tokens);
         notify("Organization created", "success");
-        router.push("/");
+        router.push("/command");
       }
     } catch (err) {
       notify(err instanceof Error ? err.message : "Request failed", "error");

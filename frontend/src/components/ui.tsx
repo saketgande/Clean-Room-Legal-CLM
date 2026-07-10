@@ -4,15 +4,23 @@ import {
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   type TdHTMLAttributes,
   type ThHTMLAttributes,
+  Children,
+  cloneElement,
   forwardRef,
+  isValidElement,
   useEffect,
+  useId,
+  useRef,
 } from "react";
-import { Loader2, X } from "lucide-react";
+import Link from "next/link";
+import { ChevronRight, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ---- Button --------------------------------------------------------------
@@ -26,7 +34,7 @@ type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm",
+    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm dark:bg-brand-400 dark:text-slate-50 dark:hover:bg-brand-300 dark:active:bg-brand-500",
   secondary:
     "bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950 shadow-sm",
   outline:
@@ -57,7 +65,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
         buttonVariants[variant],
         buttonSizes[size],
         className,
@@ -79,7 +87,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-2xl border border-slate-200 bg-slate-100 shadow-card",
+        "rounded-md border border-slate-200 bg-slate-100 shadow-card",
         className,
       )}
       {...props}
@@ -153,13 +161,57 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset",
+        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-semibold ring-1 ring-inset",
         badgeTones[tone],
         className,
       )}
     >
       {children}
     </span>
+  );
+}
+
+// ---- MessageBar (Fluent inline notification) -----------------------------
+type MessageIntent = "info" | "success" | "warning" | "error";
+
+const messageIntents: Record<MessageIntent, string> = {
+  info: "bg-brand-50 border-brand-200 text-brand-800 dark:bg-brand-400/10 dark:text-brand-200",
+  success: "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-200",
+  warning: "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-400/10 dark:text-amber-200",
+  error: "bg-red-50 border-red-200 text-red-800 dark:bg-red-400/10 dark:text-red-200",
+};
+
+const messageIcons: Record<MessageIntent, string> = {
+  info: "ⓘ",
+  success: "✓",
+  warning: "⚠",
+  error: "✕",
+};
+
+/** Fluent 2 MessageBar â a tinted inline banner for page-level status. */
+export function MessageBar({
+  intent = "info",
+  children,
+  className,
+}: {
+  intent?: MessageIntent;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div
+      role={intent === "error" ? "alert" : "status"}
+      className={cn(
+        "flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm",
+        messageIntents[intent],
+        className,
+      )}
+    >
+      <span aria-hidden="true" className="mt-px flex-none font-semibold">
+        {messageIcons[intent]}
+      </span>
+      <div className="min-w-0">{children}</div>
+    </div>
   );
 }
 
@@ -171,7 +223,7 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      "h-9 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50 disabled:text-slate-500",
+      "h-9 w-full rounded border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 placeholder:text-slate-500 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50 disabled:text-slate-500",
       className,
     )}
     {...props}
@@ -186,7 +238,7 @@ export const Textarea = forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "w-full rounded border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
       className,
     )}
     {...props}
@@ -201,7 +253,7 @@ export const Select = forwardRef<
   <select
     ref={ref}
     className={cn(
-      "h-9 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "h-9 w-full rounded border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
       className,
     )}
     {...props}
@@ -222,15 +274,45 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  const autoId = useId();
+  const hintId = useId();
+
+  // Programmatically associate label + hint with the control (WCAG 1.3.1 /
+  // 3.3.2). When Field wraps a single element, give it an id (unless it has
+  // one) and point the hint at it via aria-describedby.
+  let controlId: string | undefined;
+  let content: ReactNode = children;
+  const items = Children.toArray(children);
+  if (items.length === 1 && isValidElement(items[0])) {
+    const el = items[0] as ReactElement<{
+      id?: string;
+      "aria-describedby"?: string;
+    }>;
+    controlId = el.props.id ?? autoId;
+    content = cloneElement(el, {
+      id: controlId,
+      "aria-describedby": hint
+        ? (el.props["aria-describedby"] ?? hintId)
+        : el.props["aria-describedby"],
+    });
+  }
+
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
-        <label className="block text-xs font-medium text-slate-700">
+        <label
+          htmlFor={controlId}
+          className="block text-xs font-medium text-slate-700"
+        >
           {label}
         </label>
       )}
-      {children}
-      {hint && <p className="text-xs text-slate-400">{hint}</p>}
+      {content}
+      {hint && (
+        <p id={hintId} className="text-xs text-slate-500">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -299,15 +381,25 @@ export function TD({
 // ---- Spinner / states ----------------------------------------------------
 export function Spinner({ className }: { className?: string }) {
   return (
-    <Loader2 className={cn("h-5 w-5 animate-spin text-brand-600", className)} />
+    <Loader2
+      aria-hidden="true"
+      className={cn("h-5 w-5 animate-spin text-brand-600", className)}
+    />
   );
 }
 
 export function CenterSpinner({ label }: { label?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 py-20 text-slate-400">
+    <div
+      role="status"
+      className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500"
+    >
       <Spinner className="h-6 w-6" />
-      {label && <p className="text-sm">{label}</p>}
+      {label ? (
+        <p className="text-sm">{label}</p>
+      ) : (
+        <span className="sr-only">Loading</span>
+      )}
     </div>
   );
 }
@@ -324,13 +416,13 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-100 py-16 text-center">
+    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-100 py-16 text-center">
       {icon && (
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
           {icon}
         </div>
       )}
-      <p className="font-serif text-lg font-medium text-slate-900">{title}</p>
+      <p className="text-lg font-semibold text-slate-900">{title}</p>
       {description && (
         <p className="mt-1.5 max-w-sm text-sm text-slate-500">{description}</p>
       )}
@@ -343,7 +435,10 @@ export function ErrorState({ error }: { error: unknown }) {
   const message =
     error instanceof Error ? error.message : "Something went wrong";
   return (
-    <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+    <div
+      role="alert"
+      className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+    >
       {message}
     </div>
   );
@@ -360,6 +455,76 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
+/** Content-shaped loading placeholder for list/table screens — reads as "the
+ * rows are coming" instead of a blank pane with a spinner. */
+export function SkeletonRows({ rows = 6 }: { rows?: number }) {
+  return (
+    <div className="space-y-2" role="status" aria-label="Loading">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-4 rounded-md border border-slate-200 bg-slate-100 px-4 py-3.5"
+        >
+          <Skeleton className="h-4 w-4 rounded-full" />
+          <Skeleton className="h-4 max-w-[28rem] flex-1" />
+          <Skeleton className="hidden h-4 w-24 sm:block" />
+          <Skeleton className="hidden h-4 w-16 md:block" />
+          <Skeleton className="h-5 w-14 rounded-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- Breadcrumbs -----------------------------------------------------------
+/** Fluent 2 breadcrumb trail for detail routes. The last item is the current
+ * page (aria-current); earlier items link back up the hierarchy. */
+export function Breadcrumbs({
+  items,
+  className,
+}: {
+  items: { label: string; href?: string }[];
+  className?: string;
+}) {
+  return (
+    <nav aria-label="Breadcrumb" className={cn("mb-3", className)}>
+      <ol className="flex flex-wrap items-center gap-1 text-sm">
+        {items.map((item, i) => {
+          const last = i === items.length - 1;
+          return (
+            <li key={`${item.label}-${i}`} className="flex min-w-0 items-center gap-1">
+              {item.href && !last ? (
+                <Link
+                  href={item.href}
+                  className="rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  {item.label}
+                </Link>
+              ) : (
+                <span
+                  aria-current={last ? "page" : undefined}
+                  className={cn(
+                    "truncate px-1 py-0.5",
+                    last ? "font-medium text-slate-900" : "text-slate-500",
+                  )}
+                >
+                  {item.label}
+                </span>
+              )}
+              {!last && (
+                <ChevronRight
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 flex-none text-slate-400"
+                />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 // ---- Page header ---------------------------------------------------------
 export function PageHeader({
   title,
@@ -373,7 +538,7 @@ export function PageHeader({
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 className="font-serif text-[26px] font-medium leading-tight tracking-[-0.015em] text-slate-900">
+        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
           {title}
         </h1>
         {description && (
@@ -401,11 +566,46 @@ export function Modal({
   footer?: ReactNode;
   size?: "sm" | "md" | "lg" | "xl";
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+
+  // Focus management (WCAG 2.4.3 / 2.1.2): move focus into the dialog on
+  // open, trap Tab inside it, and return focus to the trigger on close.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const focusables = () =>
+      Array.from(
+        dialog?.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      );
+    (focusables()[0] ?? dialog)?.focus();
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const els = focusables();
+      if (els.length === 0) return;
+      const first = els[0];
+      const last = els[els.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previouslyFocused?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
@@ -420,20 +620,29 @@ export function Modal({
       <div
         className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden="true"
       />
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
         className={cn(
-          "relative z-10 w-full animate-fade-in rounded-2xl border border-slate-200 bg-slate-100 shadow-pop",
+          "relative z-10 w-full animate-fade-in rounded-md border border-slate-200 bg-slate-100 shadow-pop focus:outline-none",
           widths[size],
         )}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          <h2 id={titleId} className="text-sm font-semibold text-slate-900">
+            {title}
+          </h2>
           <button
             onClick={onClose}
-            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close dialog"
+            className="rounded p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
@@ -477,15 +686,15 @@ export function StatCard({
           <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
             {label}
           </p>
-          <p className="mt-2 font-serif text-[28px] font-medium tracking-tight text-slate-900">
+          <p className="mt-2 text-[28px] font-semibold tracking-tight text-slate-900">
             {value}
           </p>
-          {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+          {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
         </div>
         {icon && (
           <div
             className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-lg",
+              "flex h-10 w-10 items-center justify-center rounded-md",
               iconTones[tone],
             )}
           >
@@ -502,22 +711,48 @@ export function Tabs({
   tabs,
   active,
   onChange,
+  label,
 }: {
   tabs: { id: string; label: string; count?: number }[];
   active: string;
   onChange: (id: string) => void;
+  label?: string;
 }) {
+  // Roving tabindex + arrow-key navigation per the WAI-ARIA tabs pattern
+  // (WCAG 2.1.1 / 4.1.2).
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    e.preventDefault();
+    const idx = tabs.findIndex((t) => t.id === active);
+    const delta = e.key === "ArrowRight" ? 1 : -1;
+    const next = tabs[(idx + delta + tabs.length) % tabs.length];
+    onChange(next.id);
+    const el = e.currentTarget.querySelector<HTMLElement>(
+      `[data-tab-id="${next.id}"]`,
+    );
+    el?.focus();
+  };
+
   return (
-    <div className="flex gap-1 border-b border-slate-200">
+    <div
+      role="tablist"
+      aria-label={label}
+      onKeyDown={onKeyDown}
+      className="flex gap-1 border-b border-slate-200"
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
+          data-tab-id={t.id}
+          role="tab"
+          aria-selected={active === t.id}
+          tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           className={cn(
-            "relative -mb-px px-3 py-2 text-sm font-medium transition-colors",
+            "relative -mb-px px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
             active === t.id
-              ? "border-b-2 border-brand-600 text-brand-700"
-              : "border-b-2 border-transparent text-slate-500 hover:text-slate-800",
+              ? "border-b-2 border-brand-600 text-slate-900"
+              : "border-b-2 border-transparent text-slate-500 hover:text-slate-900",
           )}
         >
           {t.label}

@@ -40,6 +40,8 @@ class ContractVersionSource(StrEnum):
     MANUAL_UPLOAD = "manual_upload"
     ASSISTANT_GENERATED = "assistant_generated"
     ASSISTANT_EDIT = "assistant_edit"
+    USER_REDLINE = "user_redline"
+    MANUAL_EDIT = "manual_edit"
     PLAYBOOK_REDLINE = "playbook_redline"
     COUNTERPARTY_REVISION = "counterparty_revision"
     APPROVED_CLEAN = "approved_clean"

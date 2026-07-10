@@ -1470,6 +1470,8 @@ class AIController:
         for clause in existing:
             clause.is_stale = True
             clause.updated_by_user_id = created_by_user_id
+        from app.contract_brain.clause_taxonomy import canonical_clause_type
+
         for clause in clauses.clauses:
             db.add(
                 ClauseExtraction(
@@ -1477,7 +1479,7 @@ class AIController:
                     contract_id=context.contract.id,
                     contract_version_id=context.version.id,
                     text_snapshot_id=context.snapshot.id,
-                    clause_type=clause.clause_type,
+                    clause_type=canonical_clause_type(clause.clause_type),
                     heading=clause.heading,
                     text=clause.text,
                     start_char=clause.start_char,

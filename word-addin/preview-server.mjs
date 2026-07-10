@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
 const PORT = Number(process.env.PORT || 3030);
-const BACKEND = process.env.AEGIS_BACKEND || "http://10.1.128.137:8000";
+const BACKEND = process.env.AEGIS_BACKEND || "http://10.1.127.3:8000";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",

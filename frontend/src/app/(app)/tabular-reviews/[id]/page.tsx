@@ -4,11 +4,9 @@ import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   Download,
   RotateCcw,
   Send,
-  ChevronRight,
   Plus,
   Trash2,
   Columns3,
@@ -19,6 +17,7 @@ import { ImportContractModal } from "@/components/import-contract-modal";
 import { contractsApi, projectsApi, tabularApi } from "@/lib/endpoints";
 import {
   Badge,
+  Breadcrumbs,
   Button,
   Card,
   CardBody,
@@ -96,30 +95,20 @@ export default function TabularReviewDetailPage({
   return (
     <div className="space-y-6">
       <div>
-        {project ? (
-          <nav className="mb-3 flex items-center gap-1.5 text-sm text-slate-500">
-            <Link href="/projects" className="hover:text-slate-800">
-              Projects
-            </Link>
-            <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-            <Link
-              href={`/projects/${project.id}`}
-              className="hover:text-slate-800"
-            >
-              {project.name}
-            </Link>
-            <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
-            <span className="font-medium text-slate-800">Tabular Reviews</span>
-          </nav>
-        ) : (
-          <Link
-            href="/tabular-reviews"
-            className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Tabular Reviews
-          </Link>
-        )}
+        <Breadcrumbs
+          items={
+            project
+              ? [
+                  { label: "Projects", href: "/projects" },
+                  { label: project.name, href: `/projects/${project.id}` },
+                  { label: review.name },
+                ]
+              : [
+                  { label: "Tabular Reviews", href: "/tabular-reviews" },
+                  { label: review.name },
+                ]
+          }
+        />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900">
@@ -528,8 +517,15 @@ function CellView({
 
   if (cell.status === "failed") {
     return (
-      <button onClick={onOpen} className="text-left">
+      <button
+        onClick={onOpen}
+        title={cell.error_message ?? "Extraction failed"}
+        className="flex w-full flex-col items-start gap-1 text-left"
+      >
         <Badge tone="red">Failed</Badge>
+        <span className="line-clamp-2 text-xs text-red-600/90">
+          {cell.error_message ?? "Extraction failed — click to retry."}
+        </span>
       </button>
     );
   }
@@ -577,6 +573,9 @@ function CellModal({
       size="lg"
       footer={
         <>
+          <Link href={`/contracts/${cell.contract_id}`} className="mr-auto">
+            <Button variant="outline">Open contract →</Button>
+          </Link>
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>
@@ -599,14 +598,16 @@ function CellModal({
           )}
         </div>
 
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Answer
-          </p>
-          <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-800">
-            {cell.answer ?? "—"}
-          </p>
-        </div>
+        {cell.status !== "failed" && (
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Answer
+            </p>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-800">
+              {cell.answer ?? "—"}
+            </p>
+          </div>
+        )}
 
         {cell.reasoning && (
           <div>
@@ -620,8 +621,16 @@ function CellModal({
         )}
 
         {cell.error_message && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {cell.error_message}
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-red-500">
+              Why it failed
+            </p>
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-red-700">
+              {cell.error_message}
+            </p>
+            <p className="mt-2 text-xs text-red-500">
+              Use “Re-run cell” below to try again.
+            </p>
           </div>
         )}
 

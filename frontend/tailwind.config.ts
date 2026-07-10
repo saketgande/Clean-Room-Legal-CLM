@@ -23,18 +23,21 @@ const config: Config = {
           900: "rgb(var(--color-slate-900) / <alpha-value>)",
           950: "rgb(var(--color-slate-950) / <alpha-value>)",
         },
+        // Fluent 2 "communication blue" brand ramp (Microsoft Fluent design
+        // language). 600 = #0F6CBD (Fluent brand-80, primary): 4.8:1 on white,
+        // so it passes WCAG AA for both link text and white-on-brand buttons.
         brand: {
-          50: "#F5F3FF",
-          100: "#EDE9FE",
-          200: "#DDD6FE",
-          300: "#C4B5FD",
-          400: "#A78BFA", // primary accent (links, active nav)
-          500: "#8B5CF6",
-          600: "#7C3AED", // primary action button background
-          700: "#6D28D9", // button hover
-          800: "#5B21B6",
-          900: "#4C1D95",
-          950: "#2E1065",
+          50: "#EBF3FC",
+          100: "#CFE4FA",
+          200: "#B4D6FA",
+          300: "#96C6FA",
+          400: "#479EF5", // dark-mode accent (links, active nav)
+          500: "#2886DE",
+          600: "#0F6CBD", // primary action button background + light-mode links
+          700: "#115EA3", // button hover
+          800: "#0F548C",
+          900: "#0C3B5E",
+          950: "#082338",
         },
       },
       fontFamily: {
@@ -62,8 +65,9 @@ const config: Config = {
         },
       },
       animation: {
-        "fade-in": "fade-in 0.2s ease-out",
-        "rise-in": "rise-in 0.6s cubic-bezier(0.16,1,0.3,1) both",
+        // Fluent 2 motion — decelerate-mid curve for entrances.
+        "fade-in": "fade-in 0.2s cubic-bezier(0,0,0.2,1)",
+        "rise-in": "rise-in 0.4s cubic-bezier(0,0,0.2,1) both",
       },
     },
   },

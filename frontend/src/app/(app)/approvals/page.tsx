@@ -32,6 +32,7 @@ import {
   THead,
   TR,
   Tabs,
+  SkeletonRows,
 } from "@/components/ui";
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
@@ -132,7 +133,7 @@ function RequestsTab() {
       </div>
 
       {isLoading ? (
-        <CenterSpinner label="Loading approvals…" />
+        <SkeletonRows rows={5} />
       ) : error ? (
         <ErrorState error={error} />
       ) : (data ?? []).length === 0 ? (
@@ -161,7 +162,9 @@ function RequestsTab() {
               </tr>
             </THead>
             <tbody>
-              {(data ?? []).map((req) => (
+              {[...(data ?? [])]
+                .sort((a, b) => Number(b.overdue ?? false) - Number(a.overdue ?? false))
+                .map((req) => (
                 <TR key={req.id}>
                   <TD className="font-medium">
                     <Link
@@ -173,7 +176,10 @@ function RequestsTab() {
                   </TD>
                   <TD>{req.step_order ? `Step ${req.step_order}` : "—"}</TD>
                   <TD>
-                    <Badge tone={statusTone(req.status)}>{titleCase(req.status)}</Badge>
+                    <span className="flex items-center gap-1.5">
+                      <Badge tone={statusTone(req.status)}>{titleCase(req.status)}</Badge>
+                      {req.overdue && <Badge tone="red">Overdue</Badge>}
+                    </span>
                   </TD>
                   <TD>
                     {req.approver_role
@@ -182,7 +188,9 @@ function RequestsTab() {
                         ? "Group"
                         : req.approver_user_id ?? "—"}
                   </TD>
-                  <TD>{fmtDate(req.due_at)}</TD>
+                  <TD className={req.overdue ? "font-semibold text-rose-600" : undefined}>
+                    {fmtDate(req.due_at)}
+                  </TD>
                   <TD className="text-right">
                     {req.status === "pending" && canDecide(req) ? (
                       <div className="flex justify-end gap-2">
@@ -392,7 +400,7 @@ function RulesTab() {
       </div>
 
       {isLoading ? (
-        <CenterSpinner label="Loading routing rules…" />
+        <SkeletonRows rows={4} />
       ) : error ? (
         <ErrorState error={error} />
       ) : (data ?? []).length === 0 ? (
@@ -557,7 +565,7 @@ function NewRuleModal({
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="Priority" hint="Lower wins when rules overlap.">
             <Input
               type="number"

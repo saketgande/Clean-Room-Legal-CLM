@@ -1,21 +1,192 @@
 import logging
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.embeddings import _embed
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction, KnowledgeEdge, KnowledgeNode
-from app.contract_files.models import ContractEmbedding
+from app.contract_files.models import ContractEmbedding, ContractTextSnapshot
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
+from app.search.fts import (
+    clause_vector,
+    fts_usable,
+    like_contains,
+    snapshot_headline,
+    snapshot_vector,
+    text_matches,
+)
 
 
 logger = logging.getLogger(__name__)
+
+
+def hybrid_sources(
+    db: Session,
+    *,
+    org_id: str,
+    contract_ids: list[str],
+    question: str,
+    limit: int = 8,
+) -> dict:
+    """The ONE hybrid retrieval used by both /search ("Find sources only") and
+    /ask. Because the answer is grounded in exactly what this returns, the two
+    can never diverge — the sources under an answer are the same sources Find
+    shows. Three complementary lenses, no LLM cost:
+      - semantic: pgvector cosine over embedded chunks (meaning, not words)
+      - clauses:  full-text over extracted, classified clauses
+      - text:     full-text over raw contract text, with highlighted excerpts
+    """
+    limit = min(max(limit, 1), 25)
+    if not contract_ids:
+        return {"semantic": [], "clauses": [], "text": []}
+    titles = dict(
+        db.execute(
+            select(Contract.id, Contract.title).where(Contract.id.in_(contract_ids))
+        ).all()
+    )
+    ids = list(titles)
+
+    from app.contract_brain.rerank import rerank_enabled, rerank_order
+
+    semantic: list[dict] = []
+    try:
+        # When a reranker is configured, over-fetch a wider candidate pool and
+        # let the cross-encoder pick the true top-N. Otherwise take the top-N
+        # by cosine directly.
+        do_rerank = rerank_enabled()
+        candidate_limit = limit * 4 if do_rerank else limit
+        query_vec = _embed([question])[0]
+        distance = ContractEmbedding.embedding.cosine_distance(query_vec)
+        rows = db.execute(
+            select(
+                ContractEmbedding.contract_id,
+                ContractEmbedding.chunk_text,
+                distance.label("distance"),
+            )
+            .join(Contract, Contract.id == ContractEmbedding.contract_id)
+            .where(
+                ContractEmbedding.contract_id.in_(ids),
+                ContractEmbedding.contract_version_id
+                == Contract.current_authoritative_version_id,
+            )
+            .order_by(distance)
+            .limit(candidate_limit)
+        ).all()
+        semantic = [
+            {
+                "contract_id": cid,
+                "contract_title": titles.get(cid, ""),
+                "text": chunk[:600],
+                "score": round(1.0 - float(dist), 4),
+            }
+            for cid, chunk, dist in rows
+        ]
+        if do_rerank and semantic:
+            order = rerank_order(question, [s["text"] for s in semantic], limit)
+            semantic = [semantic[i] for i in order]
+    except Exception:
+        logger.warning("hybrid retrieval: vector search failed", exc_info=True)
+
+    use_fts = fts_usable(db, question)
+    tsq = func.websearch_to_tsquery("english", question)
+    q_like = like_contains(question)
+
+    clause_query = (
+        select(ClauseExtraction, Contract.title)
+        .join(Contract, Contract.id == ClauseExtraction.contract_id)
+        .where(
+            ClauseExtraction.org_id == org_id,
+            ClauseExtraction.is_stale.is_(False),
+            ClauseExtraction.contract_id.in_(ids),
+        )
+    )
+    if use_fts:
+        cvec = clause_vector()
+        clause_query = clause_query.where(
+            or_(cvec.op("@@")(tsq), ClauseExtraction.clause_type.ilike(q_like, escape="\\"))
+        ).order_by(func.ts_rank(cvec, tsq).desc())
+    else:
+        clause_query = clause_query.where(
+            or_(
+                ClauseExtraction.text.ilike(q_like, escape="\\"),
+                ClauseExtraction.heading.ilike(q_like, escape="\\"),
+                ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
+            )
+        )
+    clauses = [
+        {
+            "clause_id": clause.id,
+            "contract_id": clause.contract_id,
+            "contract_title": title,
+            "clause_type": clause.clause_type,
+            "heading": clause.heading,
+            "excerpt": clause.text[:600],
+        }
+        for clause, title in db.execute(clause_query.limit(limit)).all()
+    ]
+
+    headline = (
+        snapshot_headline(tsq)
+        if use_fts
+        else func.substr(ContractTextSnapshot.text, 1, 0)
+    )
+    text_query = (
+        select(ContractTextSnapshot, Contract.title, headline.label("headline"))
+        .join(Contract, Contract.id == ContractTextSnapshot.contract_id)
+        .where(
+            ContractTextSnapshot.org_id == org_id,
+            ContractTextSnapshot.deleted_at.is_(None),
+            ContractTextSnapshot.contract_id.in_(ids),
+        )
+    )
+    if use_fts:
+        svec = snapshot_vector()
+        text_query = text_query.where(svec.op("@@")(tsq)).order_by(
+            func.ts_rank(svec, tsq).desc()
+        )
+    else:
+        text_query = text_query.where(
+            ContractTextSnapshot.text.ilike(q_like, escape="\\")
+        )
+    text_hits = []
+    for snapshot, title, headline_text in db.execute(text_query.limit(limit)).all():
+        matches = text_matches(snapshot.text, question)
+        if not matches and headline_text:
+            matches = [
+                {"start_char": -1, "end_char": -1, "excerpt": frag.strip()}
+                for frag in str(headline_text).split(" ... ")
+                if frag.strip()
+            ]
+        text_hits.append(
+            {
+                "contract_id": snapshot.contract_id,
+                "contract_title": title,
+                "matches": matches[:3],
+            }
+        )
+
+    return {"semantic": semantic, "clauses": clauses, "text": text_hits}
+
+
+def sources_to_context(sources: dict) -> str:
+    """Flatten hybrid sources into the exact text block the answer LLM sees.
+    Every line the model reads is a source the user can also open."""
+    parts: list[str] = []
+    for s in sources.get("semantic", []):
+        parts.append(f"[snippet · {s['contract_title']}] {s['text']}")
+    for c in sources.get("clauses", []):
+        head = c.get("heading") or c.get("clause_type") or "clause"
+        parts.append(f"[clause · {c['contract_title']} · {head}] {c['excerpt']}")
+    for t in sources.get("text", []):
+        for m in t.get("matches", []):
+            parts.append(f"[text · {t['contract_title']}] {m['excerpt']}")
+    return "\n\n".join(parts)
 
 MAX_VECTOR_CHUNKS = 8
 MAX_GRAPH_FACTS = 40

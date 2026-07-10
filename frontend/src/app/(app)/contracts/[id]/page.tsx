@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { use, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -9,12 +9,17 @@ import {
   Download,
   RotateCcw,
   Check,
+  PenLine,
+  Lock,
+  ChevronUp,
+  ChevronDown,
   X,
   Send,
   ChevronRight,
   BookMarked,
   Sparkles,
   ListChecks,
+  RefreshCw,
   ClipboardCheck,
   FileSignature,
   FileDiff,
@@ -42,6 +47,7 @@ import {
   contractsApi,
   obligationsApi,
   playbooksApi,
+  renewalsApi,
   signaturesApi,
 } from "@/lib/endpoints";
 import {
@@ -52,6 +58,7 @@ import {
   CardHeader,
   CardTitle,
   CenterSpinner,
+  EmptyState,
   ErrorState,
   Field,
   Input,
@@ -66,23 +73,62 @@ import {
   fmtDateTime,
   fmtMoney,
   riskTone,
+  statusTone,
   titleCase,
 } from "@/lib/utils";
 import { useToast } from "@/components/toast";
+import { useAuth } from "@/lib/auth";
 import { useLayout } from "@/lib/layout";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
 import { apiStream } from "@/lib/api";
 import type {
+  ApprovalChainStep,
   Citation,
   ContractComment,
+  ContractEditResponse,
   ContractLifecycleStage,
   ContractShareResponse,
   ContractVersionResponse,
+  ReviewChecklistItem,
   ReviewStatusResponse,
 } from "@/lib/types";
 
-type PanelId = "redlines" | "versions" | "comments" | "negotiation" | "ask";
+type PanelId =
+  | "ask"
+  | "risk"
+  | "redlines"
+  | "comments"
+  | "negotiation"
+  | "versions"
+  | "obligations"
+  | "renewals";
+
+// The workspace has two modes. Pre-signature it's a NEGOTIATION surface
+// (redline / comment / negotiate); once signed it's a MANAGEMENT surface
+// (monitor obligations & renewals). Deriving the phase from the stage lets the
+// tab set, the at-a-glance strip, and the header all adapt to where the
+// contract actually is, instead of showing the same heavy chrome everywhere.
+type WorkspacePhase = "negotiate" | "manage";
+function phaseForStage(stage: ContractLifecycleStage): WorkspacePhase {
+  return stage === "active" || stage === "closed" ? "manage" : "negotiate";
+}
+const NEGOTIATE_PANELS: PanelId[] = [
+  "ask",
+  "redlines",
+  "risk",
+  "comments",
+  "negotiation",
+  "versions",
+];
+const MANAGE_PANELS: PanelId[] = [
+  "ask",
+  "risk",
+  "comments",
+  "versions",
+  "obligations",
+  "renewals",
+];
 
 // The full contract lifecycle, in order — drives the stage stepper.
 const LIFECYCLE_STAGES: ContractLifecycleStage[] = [
@@ -95,18 +141,19 @@ const LIFECYCLE_STAGES: ContractLifecycleStage[] = [
   "closed",
 ];
 
-const PANELS: {
-  id: PanelId;
-  label: string;
-  hint: string;
-  icon: typeof Wand2;
-}[] = [
-  { id: "redlines", label: "Redlines", hint: "Tracked changes", icon: FileDiff },
-  { id: "versions", label: "Versions", hint: "Document history", icon: History },
-  { id: "comments", label: "Comments", hint: "Discussion", icon: MessageSquare },
-  { id: "negotiation", label: "Negotiation", hint: "Counterparty rounds", icon: Handshake },
-  { id: "ask", label: "Ask AI", hint: "Edit & analyze", icon: Sparkles },
-];
+const PANELS: Record<
+  PanelId,
+  { id: PanelId; label: string; hint: string; icon: typeof Wand2 }
+> = {
+  ask: { id: "ask", label: "Ask", hint: "Edit & analyze", icon: Sparkles },
+  risk: { id: "risk", label: "Risk", hint: "Weighted risk score", icon: AlertTriangle },
+  redlines: { id: "redlines", label: "Redlines", hint: "Tracked changes", icon: FileDiff },
+  comments: { id: "comments", label: "Comments", hint: "Discussion", icon: MessageSquare },
+  negotiation: { id: "negotiation", label: "Negotiation", hint: "Counterparty rounds", icon: Handshake },
+  versions: { id: "versions", label: "Versions", hint: "Document history", icon: History },
+  obligations: { id: "obligations", label: "Obligations", hint: "Commitments to monitor", icon: ListChecks },
+  renewals: { id: "renewals", label: "Renewals", hint: "Renewal & expiry", icon: RefreshCw },
+};
 
 const CTA_LABEL: Record<string, string> = {
   run_ai: "Run AI review",
@@ -114,6 +161,8 @@ const CTA_LABEL: Record<string, string> = {
   resolve_redlines: "Review redlines",
   resolve_comments: "Review comments",
   submit_approval: "Submit for approval",
+  move_to_drafting: "Move to drafting",
+  move_to_review: "Send for review",
   send_signature: "Send for signature",
   view_approvals: "View approvals",
   view_obligations: "View obligations",
@@ -123,6 +172,9 @@ const CTA_LABEL: Record<string, string> = {
 // comes from the review-status engine; the later-stage ones are stage-driven.
 type HeroAction =
   | "run_ai"
+  | "move_to_drafting"
+  | "move_to_review"
+  | "counterparty_round"
   | "resolve_issues"
   | "resolve_redlines"
   | "resolve_comments"
@@ -196,8 +248,17 @@ function CommentsPanel({ contractId }: { contractId: string }) {
     if (!body.trim()) return;
     setBusy(true);
     try {
-      await contractsApi.addComment(contractId, { body: body.trim(), visibility });
+      const created = await contractsApi.addComment(contractId, {
+        body: body.trim(),
+        visibility,
+      });
       setBody("");
+      // Show the new comment immediately (list is oldest-first); the refetch
+      // below reconciles ordering/fields from the server.
+      qc.setQueryData<ContractComment[]>(
+        ["contract-comments", contractId],
+        (old) => [...(old ?? []), created],
+      );
       refresh();
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed to post", "error");
@@ -206,11 +267,20 @@ function CommentsPanel({ contractId }: { contractId: string }) {
     }
   }
 
-  async function act(fn: () => Promise<unknown>) {
+  // Optimistic action: apply the expected list change instantly, roll back on
+  // failure, and reconcile with the server afterwards.
+  async function act(
+    fn: () => Promise<unknown>,
+    apply?: (list: ContractComment[]) => ContractComment[],
+  ) {
+    const key = ["contract-comments", contractId] as const;
+    const prev = qc.getQueryData<ContractComment[]>(key);
+    if (apply && prev) qc.setQueryData<ContractComment[]>(key, apply(prev));
     try {
       await fn();
       refresh();
     } catch (e) {
+      if (prev) qc.setQueryData(key, prev);
       notify(e instanceof Error ? e.message : "Failed", "error");
     }
   }
@@ -262,6 +332,7 @@ function CommentsPanel({ contractId }: { contractId: string }) {
           {comments.map((c) => (
             <div
               key={c.id}
+              id={`comment-${c.id}`}
               className={cn(
                 "rounded-lg border p-3",
                 c.resolved
@@ -277,16 +348,42 @@ function CommentsPanel({ contractId }: { contractId: string }) {
                   {new Date(c.created_at).toLocaleString()}
                 </span>
               </div>
+              {(c.anchor as { quote?: string } | null)?.quote && (
+                <button
+                  onClick={() =>
+                    document
+                      .getElementById(`anchor-comment-${c.id}`)
+                      ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                  }
+                  title="Jump to this passage in the document"
+                  className="mb-1.5 block w-full truncate border-l-2 border-sky-300 pl-2 text-left text-xs italic text-slate-500 hover:text-sky-700"
+                >
+                  “{(c.anchor as { quote?: string }).quote}”
+                </button>
+              )}
               <p className="whitespace-pre-wrap text-sm text-slate-700">{c.body}</p>
               <div className="mt-2 flex items-center gap-3 text-xs">
                 <button
-                  onClick={() => act(() => contractsApi.resolveComment(contractId, c.id, !c.resolved))}
+                  onClick={() =>
+                    act(
+                      () => contractsApi.resolveComment(contractId, c.id, !c.resolved),
+                      (list) =>
+                        list.map((x) =>
+                          x.id === c.id ? { ...x, resolved: !c.resolved } : x,
+                        ),
+                    )
+                  }
                   className="font-medium text-slate-500 hover:text-slate-900"
                 >
                   {c.resolved ? "Reopen" : "Resolve"}
                 </button>
                 <button
-                  onClick={() => act(() => contractsApi.deleteComment(contractId, c.id))}
+                  onClick={() =>
+                    act(
+                      () => contractsApi.deleteComment(contractId, c.id),
+                      (list) => list.filter((x) => x.id !== c.id),
+                    )
+                  }
                   className="inline-flex items-center gap-1 text-slate-400 hover:text-rose-600"
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete
@@ -510,7 +607,7 @@ function SendCounterpartyModal({
             Share this secure link. The counterparty can view the document and leave comments —
             no account needed.
           </p>
-          <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2">
+          <div className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 focus-within:border-brand-400 focus-within:ring-1 focus-within:ring-brand-400">
             <input
               readOnly
               value={link}
@@ -621,7 +718,54 @@ function DiffModal({
 const ACTION_BUSY: Record<string, string> = {
   run_ai: "analyze",
   submit_approval: "approve",
+  move_to_drafting: "stage",
+  move_to_review: "stage",
 };
+
+function ChainPill({ step }: { step: ApprovalChainStep }) {
+  const overdueDays =
+    step.overdue && step.due_at
+      ? Math.max(1, Math.floor((Date.now() - new Date(step.due_at).getTime()) / 86_400_000))
+      : 0;
+  if (step.status === "approved")
+    return (
+      <span
+        title={step.decided_by ? `Approved by ${step.decided_by}` : "Approved"}
+        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+      >
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {step.approver_label}
+      </span>
+    );
+  if (step.status === "rejected")
+    return (
+      <span
+        title={step.decided_by ? `Rejected by ${step.decided_by}` : "Rejected"}
+        className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700"
+      >
+        <X className="h-3.5 w-3.5" />
+        {step.approver_label}
+      </span>
+    );
+  if (step.status === "pending")
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
+          step.overdue ? "bg-rose-600 text-white" : "bg-brand-600 text-white",
+        )}
+      >
+        <Circle className="h-2 w-2 fill-current" />
+        {step.approver_label}
+        {step.overdue && ` · ${overdueDays}d overdue`}
+      </span>
+    );
+  return (
+    <span className="inline-flex items-center rounded-full border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-400">
+      {step.approver_label}
+    </span>
+  );
+}
 
 function NextStepHero({
   contract,
@@ -640,17 +784,28 @@ function NextStepHero({
     queryKey: ["review-status", contract.id],
     queryFn: () => contractsApi.reviewStatus(contract.id),
   });
-
-  const chipIcon = (status: string) =>
-    status === "done" ? (
-      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-    ) : status === "blocked" ? (
-      <AlertTriangle className="h-3.5 w-3.5 text-rose-500" />
-    ) : status === "in_progress" ? (
-      <Circle className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-    ) : (
-      <Circle className="h-3.5 w-3.5 text-slate-300" />
-    );
+  const { data: chain } = useQuery({
+    queryKey: ["approval-chain", contract.id],
+    queryFn: () => approvalsApi.chain(contract.id),
+    enabled: contract.lifecycle_stage === "approval",
+    refetchInterval: 60_000,
+  });
+  // Mission control can collapse to a slim strip — the header must never
+  // crowd out the document (the actual work surface). Remembered per user.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("aegis-mission-collapsed") === "1";
+  });
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      try {
+        window.localStorage.setItem("aegis-mission-collapsed", c ? "0" : "1");
+      } catch {
+        /* ignore */
+      }
+      return !c;
+    });
+  };
 
   const TONE = {
     brand: { band: "bg-brand-50/60", icon: "bg-brand-100 text-brand-700" },
@@ -703,27 +858,88 @@ function NextStepHero({
             </Button>
           )}
         </div>
+        {contract.lifecycle_stage === "approval" &&
+          (chain?.steps?.length ?? 0) > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-11">
+              {(chain?.steps ?? []).map((step, i) => (
+                <span key={step.approval_request_id} className="flex items-center gap-2">
+                  {i > 0 && <span className="text-slate-300">→</span>}
+                  <ChainPill step={step} />
+                </span>
+              ))}
+            </div>
+          )}
       </div>
     );
   }
 
-  // Early stages (intake/drafting/review): guided review from the engine.
+  // Early stages (intake/drafting/review): MISSION CONTROL — the guided
+  // checklist as real, clickable steps with one reconciled set of numbers.
   const review: ReviewStatusResponse | undefined = data;
   if (!review) return null;
-  return (
-    <div className="shrink-0 border-b border-slate-200 bg-brand-50/60 px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-100 text-brand-700">
-          <Wand2 className="h-4 w-4" />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-500">
-            Next step
-          </p>
-          <p className="text-sm font-medium text-slate-800">
-            {review.next_step}
-          </p>
-        </div>
+  const doneCount = review.checklist.filter((c) => c.status === "done").length;
+
+  const stepMeta = (
+    c: ReviewChecklistItem,
+  ): { style: string; sub: string; action: HeroAction | null } => {
+    switch (c.key) {
+      case "ai_review":
+        return c.status === "done"
+          ? { style: "done", sub: c.detail ?? "Completed", action: null }
+          : { style: "todo", sub: c.detail ?? "One-click risk & clause analysis", action: "run_ai" };
+      case "issues":
+        // Advisory now — reviewing is encouraged but doesn't block approval.
+        return c.count > 0
+          ? {
+              style: "amber",
+              sub: `${c.count} open${c.detail ? ` · ${c.detail}` : ""}`,
+              action: "resolve_issues",
+            }
+          : { style: "done", sub: "None open", action: null };
+      case "redlines":
+        return c.count > 0
+          ? { style: "amber", sub: `${c.count} proposed — blocks approval`, action: "resolve_redlines" }
+          : { style: "done", sub: "All decided", action: null };
+      case "comments":
+        return c.count > 0
+          ? { style: "todo", sub: `${c.count} open`, action: "resolve_comments" }
+          : { style: "done", sub: "All resolved", action: null };
+      case "counterparty":
+        return c.status === "in_progress"
+          ? { style: "amber", sub: c.detail ?? "Awaiting response", action: "counterparty_round" }
+          : { style: "opt", sub: c.detail ?? "Optional", action: "counterparty_round" };
+      case "approval":
+        return c.status === "done"
+          ? { style: "done", sub: "Submitted", action: null }
+          : c.status === "blocked"
+            ? { style: "lock", sub: c.detail ?? "Clear blockers first", action: null }
+            : { style: "ready", sub: c.detail ?? "Ready", action: "submit_approval" };
+      default:
+        return { style: "todo", sub: c.detail ?? "", action: null };
+    }
+  };
+  const stepIcon = (style: string) =>
+    style === "done" ? (
+      <CheckCircle2 className="h-3.5 w-3.5" />
+    ) : style === "red" ? (
+      <AlertTriangle className="h-3.5 w-3.5" />
+    ) : style === "amber" ? (
+      <FileDiff className="h-3.5 w-3.5" />
+    ) : style === "lock" ? (
+      <Lock className="h-3 w-3" />
+    ) : style === "ready" ? (
+      <ArrowRight className="h-3 w-3" />
+    ) : (
+      <Circle className="h-3 w-3" />
+    );
+
+  if (collapsed) {
+    return (
+      <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-brand-50/60 px-4 py-1.5">
+        <Wand2 className="h-3.5 w-3.5 shrink-0 text-brand-600" />
+        <p className="min-w-0 flex-1 truncate font-serif text-[13.5px] text-slate-800">
+          {review.next_step}
+        </p>
         {review.next_action && (
           <Button
             size="sm"
@@ -731,25 +947,376 @@ function NextStepHero({
             onClick={() => onAction(review.next_action as HeroAction)}
           >
             {CTA_LABEL[review.next_action] ?? "Next"}
-            <ArrowRight className="h-4 w-4" />
           </Button>
         )}
-        <div className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1">
-          {review.checklist.map((c) => (
-            <span
-              key={c.key}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-500"
-              title={c.detail ?? undefined}
+        <span className="font-mono text-[10px] text-slate-400">
+          {doneCount}/{review.checklist.length}
+        </span>
+        <button
+          onClick={toggleCollapsed}
+          aria-label="Expand checklist"
+          className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative grid shrink-0 grid-cols-1 border-b border-slate-200 lg:grid-cols-[minmax(260px,0.9fr)_minmax(0,1.5fr)]">
+      <button
+        onClick={toggleCollapsed}
+        aria-label="Collapse checklist"
+        className="absolute right-1.5 top-1.5 z-10 rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+      >
+        <ChevronUp className="h-4 w-4" />
+      </button>
+      {/* Left: the single next step, spoken plainly. */}
+      <div className="flex flex-col justify-center gap-1.5 border-b border-slate-200 bg-brand-50/60 px-4 py-2.5 lg:border-b-0 lg:border-r">
+        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-brand-600">
+          <Wand2 className="h-3.5 w-3.5" />
+          Next step · {titleCase(contract.lifecycle_stage)}
+        </p>
+        <p className="font-serif text-[15px] leading-snug text-slate-900">
+          {review.next_step}
+        </p>
+        <div className="flex items-center gap-3">
+          {review.next_action && (
+            <Button
+              size="sm"
+              loading={busyAction === ACTION_BUSY[review.next_action]}
+              onClick={() => onAction(review.next_action as HeroAction)}
             >
-              {chipIcon(c.status)}
-              <span className={c.status === "done" ? "text-slate-400" : ""}>
-                {c.label}
-                {c.count ? ` (${c.count})` : ""}
-              </span>
+              {CTA_LABEL[review.next_action] ?? "Next"}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          )}
+          <div className="flex min-w-0 max-w-[160px] flex-1 flex-col gap-1">
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className="h-full rounded-full bg-brand-500 transition-all"
+                style={{ width: `${Math.round((doneCount / Math.max(review.checklist.length, 1)) * 100)}%` }}
+              />
+            </div>
+            <span className="font-mono text-[10px] text-slate-400">
+              {doneCount} of {review.checklist.length} complete
             </span>
-          ))}
+          </div>
         </div>
       </div>
+
+      {/* Right: every step, clickable, with real state + consequence. */}
+      <div className="grid grid-cols-1 gap-1 bg-slate-50 p-2 pr-8 sm:grid-cols-2 xl:grid-cols-3">
+        {review.checklist.map((c) => {
+          const m = stepMeta(c);
+          const clickable = Boolean(m.action);
+          return (
+            <button
+              key={c.key}
+              disabled={!clickable}
+              onClick={() => m.action && onAction(m.action)}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+                m.style === "red" &&
+                  "border-rose-200 bg-rose-50/40 hover:border-rose-300 dark:border-rose-400/40 dark:bg-rose-400/10",
+                m.style === "amber" &&
+                  "border-amber-200 bg-amber-50/40 hover:border-amber-300 dark:border-amber-400/40 dark:bg-amber-400/10",
+                m.style === "done" && "cursor-default border-slate-200 bg-slate-100/60",
+                m.style === "todo" && "border-slate-200 bg-slate-100 hover:border-brand-300",
+                m.style === "opt" && "border-dashed border-slate-300 bg-transparent hover:border-brand-300",
+                m.style === "lock" && "cursor-default border-slate-200 bg-slate-100/40 opacity-70",
+                m.style === "ready" && "border-brand-300 bg-brand-50/60 hover:border-brand-400",
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
+                  m.style === "done" &&
+                    "bg-emerald-100 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400",
+                  m.style === "red" &&
+                    "bg-rose-100 text-rose-600 dark:bg-rose-400/15 dark:text-rose-400",
+                  m.style === "amber" &&
+                    "bg-amber-100 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400",
+                  (m.style === "todo" || m.style === "opt" || m.style === "lock") &&
+                    "text-slate-400",
+                  m.style === "ready" && "bg-brand-100 text-brand-600",
+                )}
+              >
+                {stepIcon(m.style)}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span
+                  className={cn(
+                    "block truncate text-xs font-semibold",
+                    m.style === "done" ? "text-slate-500" : "text-slate-800",
+                  )}
+                >
+                  {c.label}
+                </span>
+                <span
+                  className={cn(
+                    "block truncate text-[10.5px]",
+                    m.style === "red"
+                      ? "text-rose-600/90 dark:text-rose-400/90"
+                      : m.style === "amber"
+                        ? "text-amber-600/90 dark:text-amber-400/90"
+                        : "text-slate-400",
+                  )}
+                >
+                  {m.sub}
+                </span>
+              </span>
+              {clickable && (
+                <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// A constant 3-line summary pinned above the right-rail tabs so the contract's
+// health is visible whatever tab you're on. Content is phase-appropriate:
+// Manage -> risk / obligations / renewal; Negotiate -> issues / redlines / comments.
+function AtAGlance({
+  contractId,
+  phase,
+  riskScore,
+  riskBand,
+  onOpen,
+}: {
+  contractId: string;
+  phase: WorkspacePhase;
+  riskScore: number | null;
+  riskBand: string | null;
+  onOpen: (panel: PanelId) => void;
+}) {
+  const { data: review } = useQuery({
+    queryKey: ["review-status", contractId],
+    queryFn: () => contractsApi.reviewStatus(contractId),
+  });
+  const { data: obligations } = useQuery({
+    queryKey: ["contract", contractId, "obligations"],
+    queryFn: () => obligationsApi.list({ contract_id: contractId }),
+    enabled: phase === "manage",
+  });
+  const { data: renewals } = useQuery({
+    queryKey: ["contract", contractId, "renewals"],
+    queryFn: () => renewalsApi.list(contractId),
+    enabled: phase === "manage",
+  });
+
+  const Row = ({
+    tone,
+    icon,
+    label,
+    value,
+    valueTone,
+    onClick,
+  }: {
+    tone: string;
+    icon: ReactNode;
+    label: string;
+    value: ReactNode;
+    valueTone?: string;
+    onClick?: () => void;
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "flex w-full items-center gap-2 py-1 text-left text-xs",
+        onClick && "-mx-1 rounded px-1 hover:bg-slate-100",
+      )}
+    >
+      <span className={cn("grid h-5 w-5 flex-none place-items-center rounded", tone)}>{icon}</span>
+      <span className="text-slate-500">{label}</span>
+      <span className={cn("ml-auto font-semibold text-slate-900", valueTone)}>{value}</span>
+    </button>
+  );
+
+  const band = (riskBand ?? "").toLowerCase();
+  const riskValueTone =
+    band === "high" ? "text-rose-600" : band === "medium" ? "text-amber-600" : "text-emerald-600";
+
+  return (
+    <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
+      <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.1em] text-slate-400">
+        At a glance
+      </p>
+      <Row
+        tone="bg-amber-100 text-amber-700"
+        icon={<AlertTriangle className="h-3 w-3" />}
+        label="Risk"
+        value={riskScore != null ? `${riskScore} Â· ${titleCase(riskBand ?? "")}` : "Not scored"}
+        valueTone={riskScore != null ? riskValueTone : "text-slate-400 font-normal"}
+        onClick={() => onOpen("risk")}
+      />
+      {phase === "manage" ? (
+        <>
+          <Row
+            tone="bg-brand-50 text-brand-700"
+            icon={<ListChecks className="h-3 w-3" />}
+            label="Obligations"
+            value={`${(obligations ?? []).filter((o) => o.status !== "completed" && o.status !== "cancelled").length} open`}
+            onClick={() => onOpen("obligations")}
+          />
+          <Row
+            tone="bg-sky-100 text-sky-700"
+            icon={<RefreshCw className="h-3 w-3" />}
+            label="Renewal notice"
+            value={renewalNoticeLabel(renewals ?? [])}
+            valueTone={renewalNoticeTone(renewals ?? [])}
+            onClick={() => onOpen("renewals")}
+          />
+        </>
+      ) : (
+        <>
+          <Row
+            tone="bg-rose-100 text-rose-700"
+            icon={<AlertTriangle className="h-3 w-3" />}
+            label="Open issues"
+            value={
+              review
+                ? `${review.open_issues}${review.high_severity_issues ? ` Â· ${review.high_severity_issues} high` : ""}`
+                : "â"
+            }
+            valueTone={review?.high_severity_issues ? "text-rose-600" : undefined}
+            onClick={() => onOpen("redlines")}
+          />
+          <Row
+            tone="bg-amber-100 text-amber-700"
+            icon={<FileDiff className="h-3 w-3" />}
+            label="Pending redlines"
+            value={review ? String(review.pending_redlines) : "â"}
+            onClick={() => onOpen("redlines")}
+          />
+          <Row
+            tone="bg-brand-50 text-brand-700"
+            icon={<MessageSquare className="h-3 w-3" />}
+            label="Open comments"
+            value={review ? String(review.open_comments) : "â"}
+            onClick={() => onOpen("comments")}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function renewalNoticeLabel(renewals: { notice_date: string | null }[]): string {
+  const next = renewals
+    .map((r) => r.notice_date)
+    .filter((d): d is string => !!d)
+    .sort()[0];
+  if (!next) return "none set";
+  const days = Math.round((new Date(next).getTime() - Date.now()) / 86_400_000);
+  if (days < 0) return "window open";
+  if (days === 0) return "today";
+  return `in ${days}d`;
+}
+function renewalNoticeTone(renewals: { notice_date: string | null }[]): string {
+  const next = renewals
+    .map((r) => r.notice_date)
+    .filter((d): d is string => !!d)
+    .sort()[0];
+  if (!next) return "text-slate-400 font-normal";
+  const days = Math.round((new Date(next).getTime() - Date.now()) / 86_400_000);
+  return days <= 30 ? "text-amber-600" : "text-slate-900";
+}
+
+// Inline obligations for the contract (Manage phase) -- no jump to the global page.
+function ObligationsPanel({ contractId }: { contractId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["contract", contractId, "obligations"],
+    queryFn: () => obligationsApi.list({ contract_id: contractId }),
+  });
+  if (isLoading) return <CenterSpinner />;
+  const rows = data ?? [];
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        icon={<ListChecks className="h-6 w-6" />}
+        title="No obligations yet"
+        description="Obligations extracted from this contract will appear here."
+      />
+    );
+  return (
+    <div className="space-y-2">
+      {rows.map((o) => (
+        <div key={o.id} className="rounded-md border border-slate-200 p-3">
+          <div className="mb-1 flex items-center gap-2">
+            {o.obligation_type && (
+              <span className="rounded-sm bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-700 dark:bg-brand-400/10 dark:text-brand-300">
+                {o.obligation_type}
+              </span>
+            )}
+            <Badge tone={statusTone(o.status)}>{titleCase(o.status)}</Badge>
+          </div>
+          <p className="text-sm font-medium text-slate-900">{o.description}</p>
+          <p className="mt-1 text-[11px] text-slate-400">
+            {o.responsible_party ?? "Unassigned"}
+            {o.due_date ? ` Â· due ${fmtDate(o.due_date)}` : o.recurrence ? ` Â· ${o.recurrence}` : " Â· on trigger"}
+          </p>
+        </div>
+      ))}
+      <Link
+        href="/obligations"
+        className="block pt-1 text-center text-xs font-semibold text-brand-600 hover:underline"
+      >
+        Open in Obligations â
+      </Link>
+    </div>
+  );
+}
+
+// Inline renewals / expiry for the contract (Manage phase).
+function RenewalsPanel({ contractId }: { contractId: string }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["contract", contractId, "renewals"],
+    queryFn: () => renewalsApi.list(contractId),
+  });
+  if (isLoading) return <CenterSpinner />;
+  const rows = data ?? [];
+  if (rows.length === 0)
+    return (
+      <EmptyState
+        icon={<RefreshCw className="h-6 w-6" />}
+        title="No renewal tracked"
+        description="Renewal and expiry dates extracted from this contract will appear here."
+      />
+    );
+  return (
+    <div className="space-y-3">
+      {rows.map((r) => (
+        <div key={r.id} className="rounded-md border border-brand-200 bg-brand-50 p-3 dark:bg-brand-400/5">
+          <p className="mb-1 text-xs font-bold text-brand-700 dark:text-brand-300">
+            {r.notice_date
+              ? `Renewal notice window: ${fmtDate(r.notice_date)}`
+              : r.expiration_date
+                ? `Expires: ${fmtDate(r.expiration_date)}`
+                : "Renewal tracked"}
+          </p>
+          <div className="space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+            {r.expiration_date && <p>Expiration: {fmtDate(r.expiration_date)}</p>}
+            {r.renewal_window_starts_at && <p>Window opens: {fmtDate(r.renewal_window_starts_at)}</p>}
+            <p>
+              Decision:{" "}
+              <span className="font-semibold text-slate-900">{titleCase(r.decision)}</span>
+            </p>
+          </div>
+          <Link
+            href="/renewals"
+            className="mt-2 inline-block text-[11px] font-semibold text-brand-600 hover:underline"
+          >
+            Manage renewal â
+          </Link>
+        </div>
+      ))}
     </div>
   );
 }
@@ -773,6 +1340,7 @@ export default function ContractDetailPage({
   const { setForceCollapsed } = useLayout();
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [activityOpen, setActivityOpen] = useState(false);
 
   // The workspace needs the room — collapse the main nav to an icon rail while
   // the contract document pane is open.
@@ -833,10 +1401,32 @@ export default function ContractDetailPage({
   }
 
   // The "Next step" hero asks for a stage action; route it to the right handler.
+  async function advanceStage(to: ContractLifecycleStage) {
+    setBusy("stage");
+    try {
+      await contractsApi.transition(id, to, {
+        reason: "Guided next step",
+      });
+      qc.invalidateQueries({ queryKey: ["contract", id] });
+      qc.invalidateQueries({ queryKey: ["review-status", id] });
+      notify(`Moved to ${to}`, "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Transition failed", "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   function handleHeroAction(action: HeroAction) {
     switch (action) {
       case "run_ai":
         reAnalyze();
+        break;
+      case "move_to_drafting":
+        advanceStage("drafting");
+        break;
+      case "move_to_review":
+        advanceStage("review");
         break;
       case "resolve_issues":
       case "resolve_redlines":
@@ -844,6 +1434,9 @@ export default function ContractDetailPage({
         break;
       case "resolve_comments":
         setPanel("comments");
+        break;
+      case "counterparty_round":
+        setPanel("negotiation");
         break;
       case "submit_approval":
         submitApproval();
@@ -855,52 +1448,81 @@ export default function ContractDetailPage({
         router.push("/approvals");
         break;
       case "view_obligations":
-        router.push("/obligations");
+        setPanel("obligations");
         break;
     }
   }
 
   // Everything that used to crowd the header now lives in one "More" menu.
-  const moreActions: {
-    key: string;
-    label: string;
-    icon: typeof Wand2;
-    onClick: () => void;
-    loading?: boolean;
-  }[] = [
-    { key: "playbook", label: "Run playbook", icon: BookMarked, onClick: () => setRunPbOpen(true) },
-    { key: "analyze", label: "Re-run analysis", icon: ScanSearch, onClick: reAnalyze, loading: busy === "analyze" },
-    { key: "oblig", label: "Extract obligations", icon: ListChecks, onClick: extractObligations, loading: busy === "oblig" },
-    { key: "approve", label: "Submit for approval", icon: ClipboardCheck, onClick: submitApproval, loading: busy === "approve" },
-    { key: "sign", label: "Send for signature", icon: FileSignature, onClick: () => setSigOpen(true) },
-    { key: "ask", label: "Ask AI", icon: Sparkles, onClick: () => { setAskMounted(true); setPanel("ask"); } },
-  ];
+  // The More menu is UTILITY only + stage-aware. Primary stage actions (submit
+  // for approval, send for signature) live in the mission-control CTA and the
+  // Advance-stage button, so we don't duplicate them here. `show` gates each
+  // action to the stages where it's meaningful.
+  const stage = contract?.lifecycle_stage;
+  const moreActions = (
+    [
+      { key: "playbook", label: "Run playbook", icon: BookMarked, onClick: () => setRunPbOpen(true), show: stage !== "active" && stage !== "closed" },
+      { key: "analyze", label: "Re-run AI analysis", icon: ScanSearch, onClick: reAnalyze, loading: busy === "analyze", show: true },
+      { key: "oblig", label: "Extract obligations", icon: ListChecks, onClick: extractObligations, loading: busy === "oblig", show: stage === "active" },
+      { key: "activity", label: "Activity & audit trail", icon: History, onClick: () => setActivityOpen(true), show: true },
+    ] as {
+      key: string;
+      label: string;
+      icon: typeof Wand2;
+      onClick: () => void;
+      loading?: boolean;
+      show: boolean;
+    }[]
+  ).filter((a) => a.show);
 
   if (isLoading) return <CenterSpinner label="Loading contract…" />;
   if (error) return <ErrorState error={error} />;
   if (!contract) return null;
+
+  // The workspace adapts to the contract's phase: negotiate (pre-signature) vs
+  // manage (active/closed). The tab set, at-a-glance strip, and header all key
+  // off this. `shownPanel` guards against a stale tab from another phase.
+  const phase = phaseForStage(contract.lifecycle_stage as ContractLifecycleStage);
+  const visiblePanels = phase === "manage" ? MANAGE_PANELS : NEGOTIATE_PANELS;
+  const shownPanel: PanelId = visiblePanels.includes(panel) ? panel : "ask";
 
   return (
     <div className="flex h-full flex-col">
       {/* Slim header — title + status; every action lives in the More menu. */}
       <div className="shrink-0 border-b border-slate-200 bg-slate-100 px-4 py-2.5">
         <div className="flex items-center gap-3">
-          <Link
-            href="/contract-hub"
-            title="Contract Hub"
-            aria-label="Back to Contract Hub"
-            className="shrink-0 text-slate-400 transition-colors hover:text-slate-700"
+          <nav
+            aria-label="Breadcrumb"
+            className="flex shrink-0 items-center gap-1 text-sm"
           >
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+            <Link
+              href="/command"
+              className="flex items-center gap-1.5 rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Command
+            </Link>
+            <ChevronRight
+              aria-hidden="true"
+              className="h-3.5 w-3.5 text-slate-400"
+            />
+          </nav>
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <h1 className="truncate text-base font-semibold tracking-tight text-slate-900">
               {contract.title}
             </h1>
-            {contract.risk_level && (
-              <Badge tone={riskTone(contract.risk_level)}>
-                {titleCase(contract.risk_level)} risk
-              </Badge>
+            {(contract.risk_score != null || contract.risk_level) && (
+              <button
+                onClick={() => setPanel("risk")}
+                title="View the weighted risk breakdown"
+                className="shrink-0"
+              >
+                <Badge tone={riskTone(contract.risk_band ?? contract.risk_level)}>
+                  {contract.risk_score != null
+                    ? `Risk ${contract.risk_score} · ${titleCase(contract.risk_band ?? "")}`
+                    : `${titleCase(contract.risk_level ?? "")} risk`}
+                </Badge>
+              </button>
             )}
             {contract.counterparty_name && (
               <span className="hidden truncate text-sm text-slate-500 sm:inline">
@@ -951,13 +1573,15 @@ export default function ContractDetailPage({
         </div>
       </div>
 
-      <OverviewBar contractId={id} />
+      <OverviewBar contractId={id} collapsed={phase === "manage"} />
 
-      <NextStepHero
-        contract={contract}
-        busyAction={busy}
-        onAction={handleHeroAction}
-      />
+      {phase !== "manage" && (
+        <NextStepHero
+          contract={contract}
+          busyAction={busy}
+          onAction={handleHeroAction}
+        />
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* The document is the focus; it fills the whole left column. */}
@@ -976,6 +1600,14 @@ export default function ContractDetailPage({
                     ?.scrollIntoView({ behavior: "smooth", block: "center" }),
                 );
               }}
+              onSelectComment={(cid) => {
+                setPanel("comments");
+                requestAnimationFrame(() =>
+                  document
+                    .getElementById(`comment-${cid}`)
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" }),
+                );
+              }}
             />
           </div>
         </div>
@@ -983,57 +1615,65 @@ export default function ContractDetailPage({
         {/* Right: Redlines / Versions / Ask AI as switchable tabs, so the
             document stays put while you move between them. */}
         <section className="flex flex-1 flex-col bg-slate-100 lg:w-[26rem] lg:flex-none lg:shrink-0 lg:border-l lg:border-slate-200">
-          <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-200 p-2">
-            {/* Ask Aegis is the featured view; the review tools are compact icons. */}
-            <button
-              onClick={() => {
-                setAskMounted(true);
-                setPanel("ask");
+          {/* At a glance — Manage phase only. In Negotiate the mission-control
+              band already summarises issues/redlines/comments, so a second copy
+              here would just duplicate it. */}
+          {phase === "manage" && (
+            <AtAGlance
+              contractId={id}
+              phase={phase}
+              riskScore={contract.risk_score ?? null}
+              riskBand={contract.risk_band ?? null}
+              onOpen={(pnl) => {
+                if (pnl === "ask") setAskMounted(true);
+                setPanel(pnl);
               }}
-              className={cn(
-                "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
-                panel === "ask"
-                  ? "bg-brand-50 text-brand-700"
-                  : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-              )}
-            >
-              <Sparkles className="h-4 w-4" />
-              Ask Aegis
-            </button>
-            <div className="mx-0.5 h-5 w-px bg-slate-200" />
-            {PANELS.filter((p) => p.id !== "ask").map((p) => {
-              const active = panel === p.id;
-              const Icon = p.icon;
+            />
+          )}
+          {/* Labeled Pivot tabs, filtered to the current phase. */}
+          <div className="flex shrink-0 items-center gap-0 overflow-x-auto border-b border-slate-200 px-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {visiblePanels.map((pid) => {
+              const meta = PANELS[pid];
+              const active = shownPanel === pid;
+              const Icon = meta.icon;
+              const count =
+                pid === "redlines" && pendingRedlines > 0 ? pendingRedlines : undefined;
               return (
                 <button
-                  key={p.id}
-                  onClick={() => setPanel(p.id)}
-                  title={p.label}
-                  aria-label={p.label}
+                  key={pid}
+                  onClick={() => {
+                    if (pid === "ask") setAskMounted(true);
+                    setPanel(pid);
+                  }}
                   className={cn(
-                    "relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
-                    active
-                      ? "bg-brand-50 text-brand-700"
-                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
+                    "relative flex items-center gap-1.5 whitespace-nowrap px-2.5 py-2.5 text-xs font-semibold transition-colors",
+                    active ? "text-slate-900" : "text-slate-500 hover:text-slate-900",
                   )}
                 >
-                  <Icon className="h-4 w-4" />
-                  {p.id === "redlines" && pendingRedlines > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-100 px-1 text-[10px] font-semibold text-amber-700">
-                      {pendingRedlines}
+                  <Icon className="h-3.5 w-3.5" />
+                  {meta.label}
+                  {count !== undefined && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                      {count}
                     </span>
+                  )}
+                  {active && (
+                    <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-brand-600" />
                   )}
                 </button>
               );
             })}
           </div>
           <div className="relative flex-1 overflow-hidden">
-            {panel !== "ask" && (
+            {shownPanel !== "ask" && (
               <div className="h-full overflow-y-auto p-4">
-                {panel === "versions" && <Versions contractId={id} />}
-                {panel === "comments" && <CommentsPanel contractId={id} />}
-                {panel === "negotiation" && <NegotiationPanel contractId={id} />}
-                {panel === "redlines" && (
+                {shownPanel === "risk" && <RiskPanel contractId={id} />}
+                {shownPanel === "versions" && <Versions contractId={id} />}
+                {shownPanel === "comments" && <CommentsPanel contractId={id} />}
+                {shownPanel === "negotiation" && <NegotiationPanel contractId={id} />}
+                {shownPanel === "obligations" && <ObligationsPanel contractId={id} />}
+                {shownPanel === "renewals" && <RenewalsPanel contractId={id} />}
+                {shownPanel === "redlines" && (
                   <Redlines
                     contractId={id}
                     onGenerate={() => setRunPbOpen(true)}
@@ -1056,7 +1696,7 @@ export default function ContractDetailPage({
               <div
                 className={cn(
                   "absolute inset-0 flex flex-col",
-                  panel === "ask" ? "" : "hidden",
+                  shownPanel === "ask" ? "" : "hidden",
                 )}
               >
                 <AskAIPanel contractId={id} contractTitle={contract.title} />
@@ -1086,12 +1726,141 @@ export default function ContractDetailPage({
           qc.invalidateQueries({ queryKey: ["contract", id] });
         }}
       />
+      {activityOpen && (
+        <Modal
+          open
+          onClose={() => setActivityOpen(false)}
+          title="Activity & audit trail"
+          size="lg"
+        >
+          <ActivityTab contractId={id} />
+        </Modal>
+      )}
     </div>
   );
 }
 
 // ---- Overview band (sits above the document) -----------------------------
-function OverviewBar({ contractId }: { contractId: string }) {
+function RiskPanel({ contractId }: { contractId: string }) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const [busy, setBusy] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["contract-risk", contractId],
+    queryFn: () => contractsApi.risk(contractId),
+  });
+
+  async function compute() {
+    setBusy(true);
+    try {
+      const res = await contractsApi.computeRisk(contractId);
+      qc.setQueryData(["contract-risk", contractId], res);
+      qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      notify("Risk score computed", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Failed to compute risk", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const bandTone = (b?: string | null) =>
+    b === "high" ? "red" : b === "medium" ? "amber" : "green";
+
+  if (isLoading) return <CenterSpinner label="Loading risk…" />;
+  const has = data && typeof data.score === "number";
+
+  if (!has) {
+    return (
+      <div className="space-y-3">
+        <EmptyState
+          icon={<AlertTriangle className="h-6 w-6" />}
+          title="No risk score yet"
+          description={
+            data?.note ??
+            "Compute a weighted, explainable risk score from this contract's clauses."
+          }
+        />
+        <Button className="w-full" loading={busy} onClick={compute}>
+          <AlertTriangle className="h-4 w-4" />
+          Compute risk score
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-slate-200 bg-slate-100 p-4">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-3xl font-semibold tabular-nums text-slate-900">
+            {data!.score}
+          </span>
+          <span className="text-sm text-slate-400">/100</span>
+          <Badge tone={bandTone(data!.band)} className="ml-auto">
+            {titleCase(data!.band)} risk
+          </Badge>
+        </div>
+        <p className="mt-1.5 text-xs text-slate-500">
+          <span className="font-medium text-rose-600">{data!.counts.high} high</span>{" "}
+          ·{" "}
+          <span className="font-medium text-amber-600">
+            {data!.counts.medium} medium
+          </span>{" "}
+          · {data!.counts.low} low — weighted by clause impact
+        </p>
+        {data!.summary && (
+          <p className="mt-2.5 text-sm leading-relaxed text-slate-600">
+            {data!.summary}
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <p className="px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Top risk drivers
+        </p>
+        {data!.drivers.map((d, i) => (
+          <div
+            key={i}
+            className="rounded-lg border border-slate-200 bg-slate-100 p-3"
+          >
+            <div className="mb-1 flex items-center gap-2">
+              <Badge tone={bandTone(d.risk)}>{titleCase(d.risk)}</Badge>
+              <span className="text-sm font-medium text-slate-800">{d.label}</span>
+              <span className="ml-auto font-mono text-xs text-slate-400">
+                weight {d.weight}
+              </span>
+            </div>
+            <p className="text-sm text-slate-600">{d.rationale}</p>
+            {d.quote && (
+              <p className="mt-1.5 border-l-2 border-slate-300 pl-2 text-xs italic text-slate-500">
+                “{d.quote}”
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <span className="text-xs text-slate-400">
+          {data!.clause_count} clauses assessed
+        </span>
+        <Button size="sm" variant="outline" loading={busy} onClick={compute}>
+          Recompute
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function OverviewBar({
+  contractId,
+  collapsed = false,
+}: {
+  contractId: string;
+  collapsed?: boolean;
+}) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { data: contract } = useQuery({
@@ -1103,11 +1872,80 @@ function OverviewBar({ contractId }: { contractId: string }) {
     queryFn: () => contractsApi.lifecycleOptions(contractId),
   });
   const [transitionOpen, setTransitionOpen] = useState(false);
+  const [trackerOpen, setTrackerOpen] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const { user } = useAuth();
+  const { data: history } = useQuery({
+    queryKey: ["contract", contractId, "stage-history"],
+    queryFn: () => contractsApi.stageHistory(contractId),
+  });
+  const { data: review } = useQuery({
+    queryKey: ["review-status", contractId],
+    queryFn: () => contractsApi.reviewStatus(contractId),
+  });
+  const { data: chain } = useQuery({
+    queryKey: ["approval-chain", contractId],
+    queryFn: () => approvalsApi.chain(contractId),
+    enabled: contract?.lifecycle_stage === "approval",
+  });
 
   if (!contract) return null;
 
   const currentIdx = LIFECYCLE_STAGES.indexOf(contract.lifecycle_stage);
+
+  // ---- Stage-tracker derivations (all from data we already store) ----
+  const sortedHistory = [...(history ?? [])].sort(
+    (a, b) => new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime(),
+  );
+  const enteredAt = (stage: string): string | null => {
+    for (let i = sortedHistory.length - 1; i >= 0; i--)
+      if (sortedHistory[i].to_stage === stage) return sortedHistory[i].changed_at;
+    return null;
+  };
+  const daysBetween = (a: string, b: string) =>
+    Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000));
+  const stageMeta = (s: ContractLifecycleStage, i: number): string | null => {
+    const at = enteredAt(s);
+    if (i < currentIdx) {
+      if (!at) return null;
+      const idx = sortedHistory.findIndex((h) => h.changed_at === at && h.to_stage === s);
+      const next = sortedHistory.slice(idx + 1).find((h) => h.to_stage !== s);
+      const d = next ? daysBetween(at, next.changed_at) : null;
+      return `${fmtDate(at)}${d ? ` · ${d}d` : ""}`;
+    }
+    if (i === currentIdx && at) {
+      const d = daysBetween(at, new Date().toISOString());
+      return d > 0 ? `${d}d in stage` : "entered today";
+    }
+    return null;
+  };
+  const preApproval = ["intake", "drafting", "review"].includes(contract.lifecycle_stage);
+  // The ONE gate to approval is undecided redlines (the text must be final).
+  // Open issues / comments are advisory and no longer lock the Approval node.
+  const blockerParts: string[] = [];
+  if (preApproval && review && review.pending_redlines > 0) {
+    blockerParts.push(
+      `${review.pending_redlines} open redline${review.pending_redlines === 1 ? "" : "s"}`,
+    );
+  }
+  const lastMove = sortedHistory[sortedHistory.length - 1];
+  const pendingApprover = chain?.steps?.find((st) => st.status === "pending");
+  const waitingOn =
+    contract.lifecycle_stage === "approval"
+      ? pendingApprover
+        ? `Waiting on ${pendingApprover.approver_label}`
+        : "Awaiting approvals"
+      : contract.lifecycle_stage === "signature"
+        ? "Waiting on signature"
+        : contract.lifecycle_stage === "active"
+          ? "Monitoring — renewals & obligations"
+          : contract.lifecycle_stage === "closed"
+            ? null
+            : user?.id === contract.owner_user_id
+              ? "Waiting on you"
+              : "Waiting on contract owner";
+
   const facts: [string, string][] = [
     ["Counterparty", contract.counterparty_name ?? "—"],
     ["Type", contract.contract_type ? titleCase(contract.contract_type) : "—"],
@@ -1119,58 +1957,205 @@ function OverviewBar({ contractId }: { contractId: string }) {
 
   return (
     <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-4 py-2.5">
-      {/* Lifecycle stepper + collapsible details + advance. */}
-      <div className="flex items-center gap-3">
-        <ol className="flex flex-1 items-center gap-1.5 overflow-x-auto pb-0.5">
+      {/* Rich lifecycle tracker: state + dates + durations per stage, whose
+          turn, last move, and a gate-aware Advance button. */}
+      {collapsed && !trackerOpen ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="flex items-center gap-1.5 font-semibold text-slate-700">
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            {titleCase(contract.lifecycle_stage)}
+          </span>
+          {(() => {
+            const at = enteredAt(contract.lifecycle_stage);
+            const d = at ? daysBetween(at, new Date().toISOString()) : null;
+            return (
+              <span className="text-slate-400">
+                {at ? `since ${fmtDate(at)}` : ""}
+                {d != null ? ` · ${d}d in stage` : ""}
+              </span>
+            );
+          })()}
+          {waitingOn && <span className="text-slate-400">· {waitingOn}</span>}
+          <button
+            onClick={() => setTrackerOpen(true)}
+            className="ml-auto font-semibold text-brand-600 hover:underline"
+          >
+            Timeline ▾
+          </button>
+          {options && options.allowed_transitions.length > 0 && (
+            <button
+              onClick={() => setTransitionOpen(true)}
+              className="rounded-md border border-slate-300 px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-100"
+            >
+              Advance stage
+            </button>
+          )}
+        </div>
+      ) : (
+      <>
+      {collapsed && (
+        <button
+          onClick={() => setTrackerOpen(false)}
+          className="mb-1.5 text-[11px] font-semibold text-brand-600 hover:underline"
+        >
+          ▴ Hide timeline
+        </button>
+      )}
+      <div className="flex items-start gap-3">
+        <ol className="flex flex-1 items-start overflow-x-auto pb-0.5">
           {LIFECYCLE_STAGES.map((s, i) => {
             const done = i < currentIdx;
             const current = i === currentIdx;
+            const locked =
+              s === "approval" && preApproval && blockerParts.length > 0;
+            const meta = stageMeta(s, i);
             return (
-              <li key={s} className="flex shrink-0 items-center gap-1.5">
-                {i > 0 && (
-                  <ChevronRight
+              <li key={s} className="flex min-w-0 flex-1 items-start last:flex-none">
+                <div className="flex shrink-0 flex-col items-center gap-1 px-1" style={{ minWidth: 70 }}>
+                  <span
+                    aria-current={current ? "step" : undefined}
                     className={cn(
-                      "h-3 w-3 shrink-0",
-                      done || current ? "text-brand-300" : "text-slate-300",
+                      "flex h-6 w-6 items-center justify-center rounded-full text-[11px] transition-colors",
+                      done && "bg-brand-600 text-white",
+                      current &&
+                        "bg-brand-500 text-white ring-4 ring-brand-500/20",
+                      locked &&
+                        "border-[1.5px] border-dashed border-amber-400/70 text-amber-500",
+                      !done && !current && !locked &&
+                        "border-[1.5px] border-slate-300 text-slate-300",
                     )}
+                  >
+                    {done ? (
+                      <Check className="h-3.5 w-3.5" />
+                    ) : current ? (
+                      <Circle className="h-2.5 w-2.5 fill-current" />
+                    ) : locked ? (
+                      <Lock className="h-3 w-3" />
+                    ) : null}
+                  </span>
+                  <span
+                    className={cn(
+                      "whitespace-nowrap text-[11px] font-semibold",
+                      current
+                        ? "text-brand-600"
+                        : done
+                          ? "text-slate-500"
+                          : locked
+                            ? "text-amber-600/90 dark:text-amber-400/90"
+                            : "text-slate-400",
+                    )}
+                  >
+                    {titleCase(s)}
+                  </span>
+                  <span
+                    className={cn(
+                      "whitespace-nowrap font-mono text-[9.5px]",
+                      current
+                        ? options?.sla_breached
+                          ? "font-semibold text-rose-500"
+                          : "text-brand-500/90"
+                        : locked
+                          ? "text-amber-500/80"
+                          : "text-slate-400",
+                    )}
+                  >
+                    {locked
+                      ? `${blockerParts.length} blocker${blockerParts.length === 1 ? "" : "s"}`
+                      : current && options?.sla_breached
+                        ? `${meta ?? ""} · SLA ${options.stage_sla_days}d ⚠`
+                        : meta ?? "—"}
+                  </span>
+                </div>
+                {i < LIFECYCLE_STAGES.length - 1 && (
+                  <span
+                    className={cn(
+                      "mt-3 h-0.5 flex-1",
+                      i < currentIdx ? "bg-brand-500/70" : "bg-slate-200",
+                    )}
+                    style={{ minWidth: 10 }}
                   />
                 )}
-                <span
-                  aria-current={current ? "step" : undefined}
-                  className={cn(
-                    "whitespace-nowrap text-xs transition-colors",
-                    current
-                      ? "rounded-full bg-brand-600 px-2.5 py-1 font-semibold text-white"
-                      : done
-                        ? "font-medium text-brand-600"
-                        : "text-slate-400",
-                  )}
-                >
-                  {titleCase(s)}
-                </span>
               </li>
             );
           })}
         </ol>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0"
-          onClick={() => setShowDetails((s) => !s)}
-        >
-          <Info className="h-4 w-4" />
-          Details
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="shrink-0"
-          disabled={!options?.allowed_transitions.length}
-          onClick={() => setTransitionOpen(true)}
-        >
-          Advance stage
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => setShowDetails((v) => !v)}>
+              <Info className="h-4 w-4" />
+              Details
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className={cn(
+                blockerParts.length > 0 &&
+                  "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-400/50 dark:text-amber-400",
+              )}
+              disabled={!options?.allowed_transitions.length}
+              onClick={() => setTransitionOpen(true)}
+            >
+              Advance stage
+              {blockerParts.length > 0 && (
+                <span className="rounded bg-amber-100 px-1.5 font-mono text-[10px] font-semibold text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                  {blockerParts.length}
+                </span>
+              )}
+            </Button>
+          </div>
+          {blockerParts.length > 0 && (
+            <span className="text-[10px] text-slate-400">
+              {blockerParts.join(" · ")} — override needs a reason
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Whose turn + last move + expandable history. */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
+        {waitingOn && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand-700 dark:border-brand-400/40 dark:bg-brand-400/10 dark:text-brand-300">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
+            {waitingOn}
+          </span>
+        )}
+        {lastMove && (
+          <span>
+            Moved to{" "}
+            <span className="font-medium text-slate-600">
+              {titleCase(lastMove.to_stage)}
+            </span>
+            {user?.id && lastMove.changed_by_user_id === user.id ? " by you" : ""} ·{" "}
+            {fmtDateTime(lastMove.changed_at)}
+          </span>
+        )}
+        {sortedHistory.length > 0 && (
+          <button
+            onClick={() => setHistoryOpen((o) => !o)}
+            className="font-medium text-brand-600 hover:text-brand-700"
+          >
+            {historyOpen ? "Hide history" : "View full history"}
+          </button>
+        )}
+      </div>
+      {historyOpen && (
+        <ol className="mt-2 space-y-1 border-l-2 border-slate-200 pl-3 text-xs text-slate-500">
+          {[...sortedHistory].reverse().map((h) => (
+            <li key={h.id}>
+              {h.from_stage ? `${titleCase(h.from_stage)} → ` : ""}
+              <span className="font-medium text-slate-700">{titleCase(h.to_stage)}</span>
+              {" · "}
+              {fmtDateTime(h.changed_at)}
+              {h.override_used && (
+                <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                  override
+                </span>
+              )}
+              {h.reason && <span className="text-slate-400"> — {h.reason}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
 
       {/* Key metadata — tucked away by default to keep the document in focus. */}
       {showDetails && (
@@ -1190,6 +2175,8 @@ function OverviewBar({ contractId }: { contractId: string }) {
             </div>
           ))}
         </dl>
+      )}
+      </>
       )}
 
       {transitionOpen && options && (
@@ -1425,14 +2412,55 @@ function Redlines({
     queryFn: () => contractsApi.edits(contractId),
   });
 
+  const [modifyId, setModifyId] = useState<string | null>(null);
+  const [modifyText, setModifyText] = useState("");
+
+  // "Modify" = supersede the AI's suggestion with your own wording. Rides the
+  // manual-redline pipeline (propose your text, reject the original) so accept
+  // applies exactly your language and it works even for multi-edit AI batches.
+  async function saveModify(e: ContractEditResponse) {
+    if (!e.original_text || !modifyText.trim()) return;
+    try {
+      await contractsApi.proposeEdit(contractId, {
+        original_text: e.original_text,
+        replacement_text: modifyText,
+        rationale: `Modified from AI suggestion${e.rationale ? " — " + e.rationale : ""}`,
+      });
+      await contractsApi.rejectEdit(contractId, e.id);
+      qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
+      qc.invalidateQueries({ queryKey: ["contract", contractId, "versions"] });
+      qc.invalidateQueries({ queryKey: ["review-status", contractId] });
+      setModifyId(null);
+      notify("Saved your modified redline", "success");
+    } catch (err) {
+      notify(err instanceof Error ? err.message : "Failed to modify", "error");
+    }
+  }
+
   async function decide(editId: string, accept: boolean) {
+    // Optimistically flip the edit's status so the card updates instantly;
+    // roll back if the API call fails, reconcile with the server either way.
+    const key = ["contract", contractId, "edits"] as const;
+    const prev = qc.getQueryData<ContractEditResponse[]>(key);
+    if (prev) {
+      qc.setQueryData<ContractEditResponse[]>(
+        key,
+        prev.map((e) =>
+          e.id === editId
+            ? { ...e, status: accept ? "accepted" : "rejected" }
+            : e,
+        ),
+      );
+    }
     try {
       if (accept) await contractsApi.acceptEdit(contractId, editId);
       else await contractsApi.rejectEdit(contractId, editId);
-      qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
+      qc.invalidateQueries({ queryKey: key });
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      qc.invalidateQueries({ queryKey: ["review-status", contractId] });
       notify(accept ? "Edit accepted" : "Edit rejected", "success");
     } catch (e) {
+      if (prev) qc.setQueryData(key, prev);
       notify(e instanceof Error ? e.message : "Failed", "error");
     }
   }
@@ -1464,7 +2492,19 @@ function Redlines({
           Generate more
         </Button>
       </div>
-      {data.map((e) => {
+      {[...data]
+        .sort((a, b) => {
+          // Proposed first, then by severity (high → low) so the changes that
+          // matter most sit at the top.
+          const ap = a.status === "proposed" ? 0 : 1;
+          const bp = b.status === "proposed" ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          const sev: Record<string, number> = { high: 0, medium: 1, low: 2 };
+          const as = sev[editAnchor(a.citation)?.risk_level ?? ""] ?? 3;
+          const bs = sev[editAnchor(b.citation)?.risk_level ?? ""] ?? 3;
+          return as - bs;
+        })
+        .map((e) => {
         const anchor = editAnchor(e.citation);
         const quotes = editQuotes(e.citation);
         const unlocated =
@@ -1536,31 +2576,77 @@ function Redlines({
                   manually.
                 </p>
               )}
-              {e.status === "proposed" && (
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      decide(e.id, true);
-                    }}
+              {e.status === "proposed" &&
+                (modifyId === e.id ? (
+                  <div
+                    className="space-y-2"
+                    onClick={(ev) => ev.stopPropagation()}
                   >
-                    <Check className="h-3.5 w-3.5" />
-                    Accept
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(ev) => {
-                      ev.stopPropagation();
-                      decide(e.id, false);
-                    }}
-                  >
-                    <X className="h-3.5 w-3.5" />
-                    Reject
-                  </Button>
-                </div>
-              )}
+                    <textarea
+                      value={modifyText}
+                      onChange={(ev) => setModifyText(ev.target.value)}
+                      rows={4}
+                      autoFocus
+                      placeholder="Your replacement language…"
+                      className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-sm focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                    />
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        loading={false}
+                        disabled={!modifyText.trim()}
+                        onClick={() => saveModify(e)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Save change
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setModifyId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        decide(e.id, true);
+                      }}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        decide(e.id, false);
+                      }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Reject
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      title="Edit the language before accepting"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        setModifyId(e.id);
+                        setModifyText(e.replacement_text ?? "");
+                      }}
+                    >
+                      <PenLine className="h-3.5 w-3.5" />
+                      Modify
+                    </Button>
+                  </div>
+                ))}
             </CardBody>
           </Card>
         );

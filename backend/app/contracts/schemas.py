@@ -19,6 +19,9 @@ class ContractResponse(BaseModel):
     counterparty_name: str | None
     jurisdiction: str | None
     risk_level: str | None
+    risk_score: int | None = None
+    risk_band: str | None = None
+    risk_summary: dict | None = None
     value_amount: float | None
     currency: str | None
     effective_date: date | None
@@ -64,6 +67,9 @@ class LifecycleTransitionRequest(BaseModel):
 class LifecycleOptionsResponse(BaseModel):
     current_stage: str
     allowed_transitions: list[str]
+    days_in_stage: int = 0
+    stage_sla_days: int | None = None
+    sla_breached: bool = False
 
 
 class ContractStageHistoryResponse(BaseModel):

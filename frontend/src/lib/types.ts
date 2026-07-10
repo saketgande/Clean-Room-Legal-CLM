@@ -167,6 +167,8 @@ export interface ReviewStatusResponse {
   next_step: string;
   next_action:
     | "run_ai"
+    | "move_to_drafting"
+    | "move_to_review"
     | "resolve_issues"
     | "resolve_redlines"
     | "resolve_comments"
@@ -296,6 +298,27 @@ export type ContractVersionSource =
   | "restored"
   | "template_generated";
 
+export interface RiskDriver {
+  clause_type: string;
+  label: string;
+  weight: number;
+  risk: "low" | "medium" | "high";
+  rationale: string;
+  quote?: string | null;
+  contribution: number;
+}
+
+export interface ContractRiskSummary {
+  score: number | null;
+  band: "low" | "medium" | "high" | "unknown" | string;
+  drivers: RiskDriver[];
+  counts: { high: number; medium: number; low: number };
+  clause_count: number;
+  summary?: string | null;
+  computed_at?: string | null;
+  note?: string | null;
+}
+
 export interface ContractResponse {
   id: ID;
   org_id: ID;
@@ -308,6 +331,9 @@ export interface ContractResponse {
   counterparty_name: string | null;
   jurisdiction: string | null;
   risk_level: string | null;
+  risk_score?: number | null;
+  risk_band?: string | null;
+  risk_summary?: ContractRiskSummary | null;
   value_amount: number | null;
   currency: string | null;
   effective_date: ISODate | null;
@@ -428,6 +454,9 @@ export interface ContractStageHistoryResponse {
 
 export interface LifecycleOptionsResponse {
   current_stage: ContractLifecycleStage;
+  days_in_stage?: number;
+  stage_sla_days?: number | null;
+  sla_breached?: boolean;
   allowed_transitions: ContractLifecycleStage[];
 }
 
@@ -630,6 +659,25 @@ export interface Workflow {
   created_by_user_id: ID;
   practice?: string | null;
   is_builtin?: boolean;
+  shared_user_ids?: string[] | null;
+}
+
+export interface WorkflowVersion {
+  id: ID;
+  version_number: number;
+  name: string;
+  description: string | null;
+  definition: Record<string, unknown>;
+  visibility: string;
+  note: string | null;
+  edited_by_user_id: ID | null;
+  created_at: ISODateTime | null;
+}
+
+export interface WorkflowUsage {
+  run_count: number;
+  last_run_at: ISODateTime | null;
+  distinct_users: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -726,12 +774,25 @@ export interface ApprovalRequest {
   routing_rule_id?: ID | null;
   step_order?: number;
   due_at: ISODateTime | null;
+  overdue?: boolean;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
   updated_at: ISODateTime;
   // Server-computed: whether the current user may decide this request (covers
   // approver-group membership, which the client can't determine on its own).
   can_decide?: boolean;
+}
+
+export interface ApprovalChainStep {
+  approval_request_id: ID;
+  step_order: number;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
+  approver_label: string;
+  due_at: ISODateTime | null;
+  overdue: boolean;
+  decided_at: ISODateTime | null;
+  decided_by: string | null;
+  comment: string | null;
 }
 
 // Public token-authenticated review context for the emailed approver.
@@ -838,7 +899,10 @@ export interface Obligation {
   org_id: ID;
   contract_id: ID;
   contract_version_id: ID | null;
+  contract_title: string | null;
+  counterparty_name: string | null;
   owner_user_id: ID | null;
+  owner_name: string | null;
   responsible_party: string | null;
   obligation_type: string | null;
   description: string;
@@ -873,6 +937,35 @@ export interface RenewalEvent {
 
 export type BrainScope = "contract" | "project" | "portfolio";
 
+export interface BrainSearchSemanticHit {
+  contract_id: ID;
+  contract_title: string;
+  text: string;
+  score: number;
+}
+
+export interface BrainSearchClauseHit {
+  clause_id: ID;
+  contract_id: ID;
+  contract_title: string;
+  clause_type: string;
+  heading: string | null;
+  excerpt: string;
+}
+
+export interface BrainSearchTextHit {
+  contract_id: ID;
+  contract_title: string;
+  matches: { start_char: number; end_char: number; excerpt: string }[];
+}
+
+export interface BrainSearchResponse {
+  query: string;
+  semantic: BrainSearchSemanticHit[];
+  clauses: BrainSearchClauseHit[];
+  text: BrainSearchTextHit[];
+}
+
 export interface BrainQuery {
   id: ID;
   org_id: ID;
@@ -892,6 +985,11 @@ export interface BrainQuery {
     confidence: "high" | "medium" | "low";
     citation_review: string;
     limitations: string | null;
+    sources?: BrainSearchResponse;
+    grounding?: number;
+    verified_citations?: number;
+    total_citations?: number;
+    model_confidence?: "high" | "medium" | "low";
   };
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -973,6 +1071,7 @@ export interface Notification {
   status: string;
   provider_message_id: string | null;
   sent_at: ISODateTime | null;
+  read_at: ISODateTime | null;
   error_message: string | null;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
@@ -1048,4 +1147,96 @@ export interface ApiError {
   status: number;
   message: string;
   detail?: unknown;
+}
+
+// ---- Command console (Contracts Hub) ----
+export interface ConsoleQueueItem {
+  kind: string;
+  action: string;
+  contract_id: ID;
+  title: string;
+  counterparty: string | null;
+  stage: string;
+  days_in_stage: number;
+  sla_days: number | null;
+  sla_breached: boolean;
+  issues: number;
+  high_issues: number;
+  redlines: number;
+}
+
+export interface ConsoleResponse {
+  strip: {
+    live_value: number;
+    contracts: number;
+    needs_you: number;
+    sla_breaches: number;
+    approvals_pending: number;
+    approvals_overdue: number;
+    to_sign: number;
+    obligations_due_14d: number;
+    obligations_total: number;
+    renewals_90d: number;
+    automated_pct: number | null;
+    cycle_median_days: number | null;
+  };
+  action_queue: ConsoleQueueItem[];
+  approvals_in_flight: {
+    contract_id: ID;
+    title: string;
+    steps: { label: string; status: string; overdue: boolean; due_at: string | null }[];
+  }[];
+  deadlines: {
+    kind: "obligation" | "renewal" | "expiry";
+    what: string;
+    contract_id: ID;
+    contract_title: string;
+    due: string;
+    days: number;
+  }[];
+  pipeline: {
+    stage: string;
+    count: number;
+    avg_days: number | null;
+    sla_days: number | null;
+    breached: number;
+  }[];
+  risk_board: {
+    contract_id: ID;
+    title: string;
+    score: number | null;
+    band: string | null;
+    top_driver: string | null;
+  }[];
+  engine_log: { ts: string; event: string; auto: boolean; contract_id?: string }[];
+  triage: {
+    rank: number;
+    kind: "send" | "work" | "decide" | "classify" | "nudge" | "move";
+    title: string;
+    detail: string;
+    reason: string;
+    urgency: number;
+    contract_id: ID;
+    stage: string;
+    sla_breached: boolean;
+  }[];
+  friction: { counterparty: string; rounds: number; contracts: number }[];
+  register: {
+    contract_id: ID;
+    title: string;
+    stage: string;
+    risk_score: number | null;
+    risk_band: string | null;
+    days_in_stage: number;
+    sla_days: number | null;
+    sla_breached: boolean;
+    health: "critical" | "working" | "moving" | "healthy" | "idle";
+    counterparty: string | null;
+    value: number | null;
+    issues: number;
+    redlines: number;
+    obligations: number;
+  }[];
+  recent_activity: { ts: string; title: string; contract_id: ID; contract_title: string }[];
+  value_by_stage: { stage: string; value: number }[];
 }

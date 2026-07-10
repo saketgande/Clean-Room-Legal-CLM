@@ -28,6 +28,37 @@ logger = logging.getLogger(__name__)
 # real bugs behind retry noise.
 TRANSIENT_ERRORS = (httpx.TransportError, ConnectionError, TimeoutError)
 
+
+def _humanize_cell_error(exc: Exception) -> str:
+    """Turn a raw exception into a reason a lawyer can read.
+
+    The raw ``str(exc)`` (a pydantic ValidationError dump, an httpx timeout, a
+    provider 429) is meaningless to an end user and sometimes leaks internals.
+    Map the common cases to a plain sentence; fall back to a trimmed message
+    for anything unrecognized. The full traceback still lands on the JobRun
+    (error_stack) for debugging, so nothing is lost.
+    """
+    raw = str(exc).strip()
+    lowered = raw.lower()
+    if isinstance(exc, (httpx.TimeoutException, TimeoutError)) or "timed out" in lowered or "timeout" in lowered:
+        return "The AI request timed out before finishing. Re-run this cell to retry."
+    if "event loop is closed" in lowered:
+        return "A temporary worker error interrupted this cell. Re-run to retry."
+    status_code = getattr(getattr(exc, "response", None), "status_code", None)
+    if status_code == 429 or "rate limit" in lowered or "429" in raw:
+        return "The AI provider is rate-limiting requests. Wait a moment, then re-run this cell."
+    if status_code in (401, 403) or "api key" in lowered or "unauthorized" in lowered:
+        return "The AI provider rejected the request (auth/configuration). Contact an admin."
+    if isinstance(exc, (httpx.TransportError, ConnectionError)) or "connection" in lowered:
+        return "Could not reach the AI provider (network error). Re-run this cell to retry."
+    if "validation" in lowered or "validationerror" in exc.__class__.__name__.lower():
+        return "The AI returned an unexpected format for this column. Re-run this cell to retry."
+    if "no text" in lowered or "snapshot" in lowered or "not found" in lowered:
+        return "This contract has no extracted text to analyze yet. Ensure extraction finished, then re-run."
+    # Unknown: surface a trimmed single line so the table stays readable.
+    first_line = raw.splitlines()[0] if raw else exc.__class__.__name__
+    return f"Extraction failed: {first_line[:200]}"
+
 # JobStatus has no dedicated dead-letter member, so terminal failures use the
 # closest existing value (FAILED) and are tagged in metadata_json["dead_letter"]
 # rather than silently dropped. Introducing a real DEAD_LETTER enum value would
@@ -187,7 +218,7 @@ async def _run_ai_job(job_id: str) -> dict:
                 db.commit()
             except Exception as cell_exc:
                 cell.status = TabularCellStatus.FAILED
-                cell.error_message = str(cell_exc)
+                cell.error_message = _humanize_cell_error(cell_exc)
                 cell.updated_by_user_id = job.created_by_user_id
                 db.commit()
                 raise
@@ -441,6 +472,168 @@ def prune_expired_tokens() -> dict:
 
 
 @celery_app.task
+def check_stage_slas() -> dict:
+    """Daily: flag contracts stuck past their stage SLA.
+
+    Day 1 over SLA -> notify the contract owner. sla_escalation_after_days
+    later -> escalate to org admins. Exact-day matching keeps this
+    naturally idempotent for a once-daily schedule (no dedupe table needed).
+    """
+    from app.auth.models import Role, User
+    from app.contracts.lifecycle import parse_stage_slas
+    from app.contracts.models import Contract, ContractStageHistory
+    from app.core.config import settings
+    from app.notifications.models import Notification
+    from sqlalchemy import func
+
+    sla_map = parse_stage_slas(settings.stage_sla_days)
+    if not sla_map:
+        return {"notified": 0, "escalated": 0}
+    db = SessionLocal()
+    try:
+        now = utcnow()
+        contracts = db.scalars(
+            select(Contract).where(
+                Contract.deleted_at.is_(None),
+                Contract.lifecycle_stage.in_(list(sla_map.keys())),
+            )
+        ).all()
+        notified = escalated = 0
+        admin_cache: dict[str, list[str]] = {}
+
+        def org_admin_ids(org_id: str) -> list[str]:
+            if org_id not in admin_cache:
+                rows = db.scalars(
+                    select(User).join(User.roles).where(
+                        User.org_id == org_id, Role.name == "admin"
+                    )
+                ).all()
+                admin_cache[org_id] = [u.id for u in rows]
+            return admin_cache[org_id]
+
+        for contract in contracts:
+            entered = db.scalar(
+                select(func.max(ContractStageHistory.changed_at)).where(
+                    ContractStageHistory.contract_id == contract.id
+                )
+            ) or contract.created_at
+            days = (now - entered).days
+            sla = sla_map[contract.lifecycle_stage]
+            over = days - sla
+            stage = contract.lifecycle_stage
+            if over == 1 and contract.owner_user_id:
+                db.add(
+                    Notification(
+                        org_id=contract.org_id,
+                        user_id=contract.owner_user_id,
+                        channel="in_app",
+                        event_type="lifecycle.sla_breach",
+                        subject=f"Stuck in {stage}: {contract.title}",
+                        body=(
+                            f'"{contract.title}" has been in {stage} for {days} days '
+                            f"(SLA {sla}d). Move it along or flag the blocker."
+                        ),
+                        status="sent",
+                    )
+                )
+                notified += 1
+            elif over == settings.sla_escalation_after_days + 1:
+                recipients = set(org_admin_ids(contract.org_id))
+                if contract.owner_user_id:
+                    recipients.add(contract.owner_user_id)
+                for uid in recipients:
+                    db.add(
+                        Notification(
+                            org_id=contract.org_id,
+                            user_id=uid,
+                            channel="in_app",
+                            event_type="lifecycle.sla_escalation",
+                            subject=f"Escalation — stuck in {stage}: {contract.title}",
+                            body=(
+                                f'"{contract.title}" has now been in {stage} for {days} days '
+                                f"(SLA {sla}d) with no movement. Needs intervention."
+                            ),
+                            status="sent",
+                        )
+                    )
+                escalated += 1
+        db.commit()
+        return {"notified": notified, "escalated": escalated}
+    finally:
+        db.close()
+
+
+@celery_app.task
+def close_expired_contracts() -> dict:
+    """Daily: close ACTIVE contracts whose expiration date has passed.
+
+    Guardrails: skip any contract with an undecided renewal (an open decision
+    means someone is actively working it) or with the renewal_due flag set.
+    ACTIVE -> CLOSED is an allowed transition, so the normal state machine,
+    stage history and audit trail all apply; the actor is None (system).
+    Idempotent — already-closed contracts never match the query.
+    """
+    from app.contracts.lifecycle import transition_contract_stage
+    from app.contracts.models import Contract
+    from app.core.enums import ContractLifecycleStage, RenewalDecision
+    from app.notifications.models import Notification
+    from app.renewals.models import RenewalEvent
+
+    db = SessionLocal()
+    try:
+        today = utcnow().date()
+        candidates = db.scalars(
+            select(Contract).where(
+                Contract.deleted_at.is_(None),
+                Contract.lifecycle_stage == ContractLifecycleStage.ACTIVE,
+                Contract.expiration_date.is_not(None),
+                Contract.expiration_date < today,
+            )
+        ).all()
+        closed = 0
+        skipped = 0
+        for contract in candidates:
+            undecided_renewal = db.scalar(
+                select(RenewalEvent.id).where(
+                    RenewalEvent.contract_id == contract.id,
+                    RenewalEvent.decision == RenewalDecision.UNDECIDED,
+                )
+            )
+            if undecided_renewal or contract.renewal_due:
+                skipped += 1
+                continue
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.CLOSED,
+                actor_user_id=None,
+                reason=f"Closed automatically — expired on {contract.expiration_date.isoformat()}",
+            )
+            if contract.owner_user_id:
+                db.add(
+                    Notification(
+                        org_id=contract.org_id,
+                        user_id=contract.owner_user_id,
+                        channel="in_app",
+                        event_type="contract.auto_closed",
+                        subject=f"Contract closed: {contract.title}",
+                        body=(
+                            f'"{contract.title}" expired on '
+                            f"{contract.expiration_date.isoformat()} and was closed "
+                            "automatically. Reopen it from the contract page if this "
+                            "was renewed outside Aegis."
+                        ),
+                        status="sent",
+                    )
+                )
+            closed += 1
+        db.commit()
+        return {"closed": closed, "skipped_pending_renewal": skipped}
+    finally:
+        db.close()
+
+
+@celery_app.task
 def run_renewal_window_check() -> dict:
     """Daily: move active contracts into renewal_due when their window opens."""
     return asyncio.run(_run_renewal_window_check())
@@ -533,6 +726,10 @@ def mark_overdue_approvals() -> dict:
                 ApprovalRequest.due_at < now,
             )
         ).all()
+        from app.approvals.models import ApproverGroup
+        from app.contracts.models import Contract
+        from app.notifications.models import Notification
+
         flagged = 0
         for req in overdue_requests:
             meta = req.metadata_json or {}
@@ -540,6 +737,39 @@ def mark_overdue_approvals() -> dict:
                 continue
             req.metadata_json = {**meta, "overdue": {"at": now.isoformat()}}
             flagged += 1
+
+            # Surface it: in-app notifications for whoever must act (the
+            # assigned approver, or every member of the approver group) and
+            # for the submitter. Flag-gated above, so this fires once per
+            # request, not once per day.
+            contract = db.get(Contract, req.contract_id)
+            title = contract.title if contract else "a contract"
+            recipient_ids: set[str] = set()
+            if req.approver_user_id:
+                recipient_ids.add(req.approver_user_id)
+            elif req.approver_group_id:
+                group = db.get(ApproverGroup, req.approver_group_id)
+                if group is not None:
+                    recipient_ids.update(m.id for m in group.members)
+            if req.requested_by_user_id:
+                recipient_ids.add(req.requested_by_user_id)
+            due_label = req.due_at.date().isoformat() if req.due_at else "its due date"
+            for uid in recipient_ids:
+                db.add(
+                    Notification(
+                        org_id=req.org_id,
+                        user_id=uid,
+                        channel="in_app",
+                        event_type="approval.overdue",
+                        subject=f"Approval overdue: {title}",
+                        body=(
+                            f"Step {req.step_order} of the approval chain for "
+                            f"\"{title}\" passed its due date ({due_label}) "
+                            "and is still waiting for a decision."
+                        ),
+                        status="sent",
+                    )
+                )
         db.commit()
         return {"marked_overdue": flagged}
     finally:

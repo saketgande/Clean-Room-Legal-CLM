@@ -59,7 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenStore.set(tokens);
       const me = await authApi.me();
       setUser(me);
-      router.push("/");
+      router.push("/command");
     },
     [queryClient, router],
   );

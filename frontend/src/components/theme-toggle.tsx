@@ -7,11 +7,11 @@ type Theme = "light" | "dark";
 
 /**
  * Light/dark theme toggle. The actual class is applied pre-paint by the inline
- * script in app/layout.tsx (default dark); this button reflects + flips it and
- * persists the choice to localStorage under "aegis-theme".
+ * script in app/layout.tsx (Fluent is light-first, so default light); this
+ * button reflects + flips it and persists the choice under "aegis-theme".
  */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

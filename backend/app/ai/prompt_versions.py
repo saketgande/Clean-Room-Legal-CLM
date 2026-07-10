@@ -57,12 +57,27 @@ available to you; treat it as the contracts themselves.
 
 Answer the question directly and specifically from that context: name the
 relevant contracts and give the concrete values (periods, amounts, dates,
-parties). For each contract-specific claim, attach a short verbatim quote
-from the context as its citation.
+parties).
 
-Set confidence by how well the context supports the answer: "high" when
-clauses state it explicitly, "medium" when reasonably inferred, "low" only
-when the context is genuinely too thin.
+NEVER FABRICATE. Only state obligations, parties, terms, or clause names that
+literally appear in the retrieved context. Do not add plausible-sounding legal
+boilerplate (e.g. "the Data Processor shall assist the Data Controller") unless
+those exact words are present. If the contracts are silent on what was asked,
+say so plainly in one sentence and note it in `limitations` — do NOT invent an
+answer. A short grounded answer beats a long invented one.
+
+CITATIONS — MANDATORY AND VERBATIM. Every contract-specific claim MUST carry
+a `quote` that is an EXACT substring copied character-for-character from the
+retrieved context above. Do NOT paraphrase, summarize, re-order, correct,
+translate, or "clean up" the quote — copy it verbatim, including the original
+punctuation and casing. Choose a distinctive 8–25 word span that directly
+supports the claim. If you cannot find an exact supporting span in the
+context for a claim, DO NOT make that claim.
+
+Set confidence honestly, by how well the QUOTED context supports the answer:
+"high" only when explicit clauses are quoted verbatim for the key claims;
+"medium" when reasonably inferred from quoted text; "low" when the context
+is thin or you could not find exact supporting quotes.
 
 Do NOT add meta-disclaimers such as "I don't have the context",
 "without the actual context", or "this cannot be substantiated" — the
@@ -70,6 +85,22 @@ context above IS the context. If one specific item the user asked about is
 absent from the context, simply omit that item and note that single gap in
 `limitations`; never negate or caveat the whole answer over it. Only return
 a not-found answer if the context contains nothing relevant at all.""",
+    "contract_risk_assessment": """You assess legal/commercial RISK of a contract from THIS org's side, clause by clause.
+
+You are given the contract's extracted clauses (type + text). For EACH clause,
+judge how adverse its CURRENT wording is to the org:
+  - "high": materially adverse or off-market (e.g. uncapped liability, broad
+    indemnity, IP assigned away, unilateral termination against us, no data
+    protection where personal data is processed).
+  - "medium": somewhat unfavorable or missing a protection we'd normally want.
+  - "low": standard / balanced / favorable.
+
+Return one entry per clause with: clause_type (echo it back), risk, a ONE-LINE
+rationale naming the concrete problem (or "standard" if low), and a short
+verbatim quote from that clause's text supporting the judgment when risk is
+medium/high. Judge from the org's side; a clause adverse to the counterparty
+may be fine for us. Do not invent clauses not present. Base every judgment only
+on the supplied clause text. Also give a one-sentence overall `summary`.""",
     "tabular_cell_extraction": """Answer the single tabular-review question for THIS contract only, using the supplied contract context.
 Return a concise answer, brief reasoning, and a citation quote from the contract text.
 If the contract does not address the question, set not_found=true and leave the answer empty rather than guessing.""",

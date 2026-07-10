@@ -88,6 +88,44 @@ def get_contract(
     return get_contract_for_user(db, contract_id=contract_id, user=current_user)
 
 
+@router.get("/{contract_id}/risk")
+def get_contract_risk(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """The stored weighted risk summary (score + drivers). Empty until computed."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return contract.risk_summary or {
+        "score": contract.risk_score,
+        "band": contract.risk_band,
+        "drivers": [],
+        "counts": {"high": 0, "medium": 0, "low": 0},
+        "clause_count": 0,
+        "note": "Not computed yet.",
+    }
+
+
+@router.post("/{contract_id}/risk")
+async def compute_contract_risk_route(
+    contract_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Compute (or recompute) the weighted, explainable risk score from the
+    contract's extracted clauses."""
+    from app.contracts.risk import compute_contract_risk
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return await compute_contract_risk(
+        db,
+        contract=contract,
+        user=current_user,
+        request_id=getattr(request.state, "request_id", None),
+    )
+
+
 @router.patch("/{contract_id}", response_model=ContractResponse)
 def update_contract(
     contract_id: str,
@@ -140,9 +178,27 @@ def get_lifecycle_options(
     current_user=Depends(require_permission("contract:read")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    from datetime import UTC, datetime
+
+    from sqlalchemy import func as _func, select
+
+    from app.contracts.lifecycle import parse_stage_slas
+    from app.contracts.models import ContractStageHistory
+    from app.core.config import settings as _settings
+
+    entered = db.scalar(
+        select(_func.max(ContractStageHistory.changed_at)).where(
+            ContractStageHistory.contract_id == contract.id
+        )
+    ) or contract.created_at
+    days_in_stage = max(0, (datetime.now(UTC) - entered).days)
+    sla = parse_stage_slas(_settings.stage_sla_days).get(contract.lifecycle_stage)
     return {
         "current_stage": contract.lifecycle_stage,
         "allowed_transitions": allowed_transitions_for(contract.lifecycle_stage),
+        "days_in_stage": days_in_stage,
+        "stage_sla_days": sla,
+        "sla_breached": bool(sla is not None and days_in_stage > sla),
     }
 
 
@@ -250,6 +306,18 @@ def get_contract_activity(
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     return list_contract_activity(db, contract=contract, limit=limit)
+
+
+@hub_router.get("/console")
+def contract_hub_console(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Single aggregate powering the Command console — every operational
+    signal in one response."""
+    from app.contracts.console import build_console
+
+    return build_console(db, user=current_user)
 
 
 @hub_router.get("")

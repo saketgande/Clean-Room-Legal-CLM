@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import time
+import weakref
 from dataclasses import dataclass
 from typing import Any, AsyncIterator
 
@@ -25,29 +27,37 @@ class ClaudeProviderResponse:
     model: str
 
 
-# A long-lived shared HTTP client. The previous implementation constructed a
-# new ``httpx.AsyncClient`` per call, which forfeited connection pooling and
-# HTTP/2 reuse. ``httpx.AsyncClient`` is safe to share across asyncio tasks.
+# A shared HTTP client PER EVENT LOOP. A single module-level client forfeits
+# nothing in the API server (one long-lived loop) but crashes Celery workers:
+# run_ai_job uses asyncio.run(), which creates and CLOSES a fresh loop per
+# job, so a client created on job A's loop dies with "Event loop is closed"
+# when job B reuses its pooled connections. Keying by the running loop keeps
+# connection pooling within each loop's lifetime; dead loops' entries are
+# garbage-collected via the weak keys.
 #
 # 120s read timeout: long enough for a large structured/tool completion but
 # bounded so a stalled upstream connection can't pin a worker for ten minutes.
 _CLAUDE_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
-_shared_client: httpx.AsyncClient | None = None
+_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _client() -> httpx.AsyncClient:
-    global _shared_client
-    if _shared_client is None or _shared_client.is_closed:
-        _shared_client = httpx.AsyncClient(timeout=_CLAUDE_TIMEOUT)
-    return _shared_client
+    loop = asyncio.get_running_loop()
+    client = _clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=_CLAUDE_TIMEOUT)
+        _clients[loop] = client
+    return client
 
 
 async def aclose_claude_client() -> None:
-    """Close the shared HTTP client. Called on app shutdown."""
-    global _shared_client
-    if _shared_client is not None and not _shared_client.is_closed:
-        await _shared_client.aclose()
-    _shared_client = None
+    """Close this loop's shared HTTP client. Called on app shutdown."""
+    loop = asyncio.get_running_loop()
+    client = _clients.pop(loop, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
 
 
 class ClaudeClient:

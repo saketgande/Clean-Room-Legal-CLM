@@ -1,9 +1,8 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Send, Play } from "lucide-react";
+import { Plus, Send, Play, Pencil, Trash2 } from "lucide-react";
 import { contractsApi, playbooksApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -17,6 +16,7 @@ import {
   Field,
   Input,
   Modal,
+  Breadcrumbs,
   Select,
   Tabs,
   Table,
@@ -26,7 +26,7 @@ import {
   TR,
   Textarea,
 } from "@/components/ui";
-import { fmtDateTime, riskTone, statusTone, titleCase } from "@/lib/utils";
+import { cn, fmtDateTime, riskTone, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type {
   PlaybookInsights,
@@ -77,13 +77,12 @@ export default function PlaybookDetailPage({
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          href="/playbooks"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Playbooks
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Playbooks", href: "/playbooks" },
+            { label: playbook.name },
+          ]}
+        />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900">
@@ -203,21 +202,36 @@ function VersionsTab({ playbookId }: { playbookId: string }) {
 }
 
 // ---- Rules ---------------------------------------------------------------
+const CLAUSE_TYPES = [
+  "amendment", "assignment", "audit_rights", "confidentiality", "counterparts",
+  "data_protection", "dispute_resolution", "entire_agreement", "exclusivity",
+  "force_majeure", "governing_law", "indemnification", "insurance", "ip_ownership",
+  "license_grant", "limitation_of_liability", "non_compete", "non_solicitation",
+  "notices", "payment_terms", "remedies", "renewal", "representations_and_warranties",
+  "service_levels", "severability", "term_and_termination", "waiver", "warranty",
+];
+const RULE_TYPES = ["position", "prohibition", "requirement", "fallback", "approval_gate", "preference"];
+
+type PlaybookRule = Awaited<ReturnType<typeof playbooksApi.rules>>[number];
+
 function RulesTab({ playbookId }: { playbookId: string }) {
   const { data: versions } = useQuery({
     queryKey: ["playbook", playbookId, "versions"],
     queryFn: () => playbooksApi.versions(playbookId),
   });
   const [versionId, setVersionId] = useState("");
-  const [addOpen, setAddOpen] = useState(false);
+  const [modal, setModal] = useState<{ mode: "add" } | { mode: "edit"; rule: PlaybookRule } | null>(null);
 
   useEffect(() => {
     if (!versionId && versions && versions.length > 0) {
-      setVersionId(versions[0].id);
+      // Default to the newest draft if there is one, else the first version.
+      const draft = versions.find((v) => v.status === "draft");
+      setVersionId((draft ?? versions[0]).id);
     }
   }, [versions, versionId]);
 
   const selectedVersion = versions?.find((v) => v.id === versionId);
+  const editable = selectedVersion?.status === "draft";
 
   const { data: rules, isLoading } = useQuery({
     queryKey: ["playbook", playbookId, "rules", versionId],
@@ -229,26 +243,30 @@ function RulesTab({ playbookId }: { playbookId: string }) {
     <div className="space-y-4">
       <Card>
         <CardBody className="flex flex-wrap items-end justify-between gap-3">
-          <Field label="Version" className="w-64">
-            <Select
-              value={versionId}
-              onChange={(e) => setVersionId(e.target.value)}
-            >
-              {(versions ?? []).length === 0 && (
-                <option value="">No versions</option>
-              )}
-              {(versions ?? []).map((v) => (
-                <option key={v.id} value={v.id}>
-                  V{v.version_number} — {titleCase(v.status)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          {selectedVersion?.status === "draft" && (
-            <Button size="sm" onClick={() => setAddOpen(true)}>
+          <div className="flex flex-wrap items-end gap-3">
+            <Field label="Editing version" className="w-64">
+              <Select value={versionId} onChange={(e) => setVersionId(e.target.value)}>
+                {(versions ?? []).length === 0 && <option value="">No versions</option>}
+                {(versions ?? []).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    V{v.version_number} — {titleCase(v.status)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="pb-2 text-sm text-slate-500">
+              {rules ? `${rules.length} rule${rules.length === 1 ? "" : "s"}` : ""}
+            </div>
+          </div>
+          {editable ? (
+            <Button size="sm" onClick={() => setModal({ mode: "add" })}>
               <Plus className="h-3.5 w-3.5" />
               Add rule
             </Button>
+          ) : (
+            <span className="pb-2 text-xs text-slate-400">
+              This version is {titleCase(selectedVersion?.status ?? "")} — create a new draft to edit rules.
+            </span>
           )}
         </CardBody>
       </Card>
@@ -263,167 +281,257 @@ function RulesTab({ playbookId }: { playbookId: string }) {
         <CenterSpinner />
       ) : (rules ?? []).length === 0 ? (
         <Card>
-          <CardBody className="py-12 text-center text-sm text-slate-400">
-            No rules in this version yet.
+          <CardBody className="flex flex-col items-center gap-3 py-12 text-center">
+            <p className="text-sm text-slate-400">No rules in this version yet.</p>
+            {editable && (
+              <Button size="sm" onClick={() => setModal({ mode: "add" })}>
+                <Plus className="h-3.5 w-3.5" />
+                Add your first rule
+              </Button>
+            )}
           </CardBody>
         </Card>
       ) : (
         <div className="space-y-3">
           {(rules ?? []).map((r) => (
-            <Card key={r.id}>
-              <CardBody className="space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-slate-900">
-                      {titleCase(r.clause_type)}
-                    </span>
-                    <Badge tone="slate">{titleCase(r.rule_type)}</Badge>
-                  </div>
-                  <Badge tone={riskTone(r.risk_level)}>
-                    {titleCase(r.risk_level)} risk
-                  </Badge>
-                </div>
-                <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-                  <Detail label="Preferred position" value={r.preferred_position} />
-                  <Detail label="Fallback position" value={r.fallback_position} />
-                  <Detail
-                    label="Prohibited language"
-                    value={r.prohibited_language}
-                  />
-                  <Detail
-                    label="Required language"
-                    value={r.required_language}
-                  />
-                  <Detail label="Escalation role" value={r.escalation_role} />
-                  <Detail
-                    label="Approval required"
-                    value={r.approval_required ? "Yes" : "No"}
-                  />
-                </dl>
-                {r.rationale && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Rationale
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      {r.rationale}
-                    </p>
-                  </div>
-                )}
-                {r.negotiation_guidance && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Negotiation guidance
-                    </p>
-                    <p className="mt-1 text-sm text-slate-700">
-                      {r.negotiation_guidance}
-                    </p>
-                  </div>
-                )}
-                {r.sample_clause && (
-                  <div>
-                    <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                      Sample clause
-                    </p>
-                    <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-                      {r.sample_clause}
-                    </p>
-                  </div>
-                )}
-              </CardBody>
-            </Card>
+            <RuleCard
+              key={r.id}
+              rule={r}
+              playbookId={playbookId}
+              versionId={versionId}
+              editable={editable}
+              onEdit={() => setModal({ mode: "edit", rule: r })}
+            />
           ))}
         </div>
       )}
 
-      {addOpen && versionId && (
-        <AddRuleModal
+      {modal && versionId && (
+        <RuleModal
           playbookId={playbookId}
           versionId={versionId}
-          onClose={() => setAddOpen(false)}
+          rule={modal.mode === "edit" ? modal.rule : undefined}
+          onClose={() => setModal(null)}
         />
       )}
     </div>
   );
 }
 
+function RuleCard({
+  rule: r,
+  playbookId,
+  versionId,
+  editable,
+  onEdit,
+}: {
+  rule: PlaybookRule;
+  playbookId: string;
+  versionId: string;
+  editable: boolean;
+  onEdit: () => void;
+}) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function del() {
+    setDeleting(true);
+    try {
+      await playbooksApi.deleteRule(playbookId, versionId, r.id);
+      qc.invalidateQueries({ queryKey: ["playbook", playbookId, "rules", versionId] });
+      notify("Rule deleted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setDeleting(false);
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardBody className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-900">
+              {titleCase(r.clause_type)}
+            </span>
+            <Badge tone="slate">{titleCase(r.rule_type)}</Badge>
+            <Badge tone={riskTone(r.risk_level)}>{titleCase(r.risk_level)} risk</Badge>
+            {r.approval_required && <Badge tone="amber">Approval required</Badge>}
+          </div>
+          {editable && (
+            <div className="flex items-center gap-2">
+              {confirming ? (
+                <>
+                  <span className="text-xs text-slate-500">Delete this rule?</span>
+                  <Button size="sm" variant="danger" loading={deleting} onClick={del}>
+                    Confirm
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setConfirming(false)}>
+                    Cancel
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" variant="outline" onClick={onEdit}>
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setConfirming(true)}
+                    aria-label="Delete rule"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-slate-400" />
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {(r.preferred_position || r.fallback_position) && (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            {r.preferred_position && (
+              <Detail label="Preferred position" value={r.preferred_position} />
+            )}
+            {r.fallback_position && (
+              <Detail label="Fallback position" value={r.fallback_position} />
+            )}
+          </div>
+        )}
+
+        {(r.prohibited_language || r.required_language) && (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            {r.prohibited_language && (
+              <Detail label="Prohibited language" value={r.prohibited_language} tone="red" />
+            )}
+            {r.required_language && (
+              <Detail label="Required language" value={r.required_language} tone="green" />
+            )}
+          </div>
+        )}
+
+        {(r.escalation_role || r.rationale || r.negotiation_guidance) && (
+          <div className="space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+            {r.escalation_role && <Detail label="Escalation role" value={r.escalation_role} />}
+            {r.rationale && <Detail label="Rationale" value={r.rationale} />}
+            {r.negotiation_guidance && (
+              <Detail label="Negotiation guidance" value={r.negotiation_guidance} />
+            )}
+          </div>
+        )}
+
+        {r.sample_clause && (
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Sample clause
+            </p>
+            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+              {r.sample_clause}
+            </p>
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
 function Detail({
   label,
   value,
+  tone,
 }: {
   label: string;
   value: string | null | undefined;
+  tone?: "red" | "green";
 }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">
-        {label}
-      </dt>
-      <dd className="mt-1 text-sm text-slate-700">{value || "—"}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dd
+        className={cn(
+          "mt-1 text-sm",
+          tone === "red"
+            ? "text-rose-600 dark:text-rose-300"
+            : tone === "green"
+              ? "text-emerald-700 dark:text-emerald-300"
+              : "text-slate-700 dark:text-slate-300",
+        )}
+      >
+        {value || "\u2014"}
+      </dd>
     </div>
   );
 }
 
-function AddRuleModal({
+function RuleModal({
   playbookId,
   versionId,
+  rule,
   onClose,
 }: {
   playbookId: string;
   versionId: string;
+  rule?: PlaybookRule;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [busy, setBusy] = useState(false);
+  const isEdit = !!rule;
   const [form, setForm] = useState({
-    clause_type: "",
-    rule_type: "",
-    preferred_position: "",
-    fallback_position: "",
-    prohibited_language: "",
-    required_language: "",
-    risk_level: "medium",
-    rationale: "",
-    escalation_role: "",
-    approval_required: false,
-    sample_clause: "",
-    negotiation_guidance: "",
+    clause_type: rule?.clause_type ?? "",
+    rule_type: rule?.rule_type ?? "position",
+    preferred_position: rule?.preferred_position ?? "",
+    fallback_position: rule?.fallback_position ?? "",
+    prohibited_language: rule?.prohibited_language ?? "",
+    required_language: rule?.required_language ?? "",
+    risk_level: (rule?.risk_level ?? "medium") as string,
+    rationale: rule?.rationale ?? "",
+    escalation_role: rule?.escalation_role ?? "",
+    approval_required: rule?.approval_required ?? false,
+    sample_clause: rule?.sample_clause ?? "",
+    negotiation_guidance: rule?.negotiation_guidance ?? "",
   });
 
   function set<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  const valid = form.clause_type.trim() && form.rule_type.trim();
+
   async function submit() {
-    if (!form.clause_type.trim() || !form.rule_type.trim()) return;
+    if (!valid) return;
     setBusy(true);
     try {
+      const OPTIONAL = [
+        "preferred_position", "fallback_position", "prohibited_language",
+        "required_language", "rationale", "escalation_role", "sample_clause",
+        "negotiation_guidance",
+      ] as const;
       const payload: Record<string, unknown> = {
         clause_type: form.clause_type.trim(),
         rule_type: form.rule_type.trim(),
         risk_level: form.risk_level,
         approval_required: form.approval_required,
       };
-      const optional: (keyof typeof form)[] = [
-        "preferred_position",
-        "fallback_position",
-        "prohibited_language",
-        "required_language",
-        "rationale",
-        "escalation_role",
-        "sample_clause",
-        "negotiation_guidance",
-      ];
-      for (const k of optional) {
+      for (const k of OPTIONAL) {
         const v = (form[k] as string).trim();
-        if (v) payload[k] = v;
+        // On edit, send empty string to clear a field; on add, omit blanks.
+        if (v || isEdit) payload[k] = v || null;
       }
-      await playbooksApi.createRule(playbookId, versionId, payload);
-      qc.invalidateQueries({
-        queryKey: ["playbook", playbookId, "rules", versionId],
-      });
-      notify("Rule added", "success");
+      if (isEdit && rule) {
+        await playbooksApi.updateRule(playbookId, versionId, rule.id, payload);
+      } else {
+        await playbooksApi.createRule(playbookId, versionId, payload);
+      }
+      qc.invalidateQueries({ queryKey: ["playbook", playbookId, "rules", versionId] });
+      notify(isEdit ? "Rule updated" : "Rule added", "success");
       onClose();
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed", "error");
@@ -436,122 +544,150 @@ function AddRuleModal({
     <Modal
       open
       onClose={onClose}
-      title="Add rule"
+      title={isEdit ? "Edit rule" : "Add rule"}
       size="lg"
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button
-            onClick={submit}
-            loading={busy}
-            disabled={!form.clause_type.trim() || !form.rule_type.trim()}
-          >
-            Add rule
+          <Button onClick={submit} loading={busy} disabled={!valid}>
+            {isEdit ? "Save changes" : "Add rule"}
           </Button>
         </>
       }
     >
-      <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Clause type">
-            <Input
-              placeholder="e.g. limitation_of_liability"
-              value={form.clause_type}
-              onChange={(e) => set("clause_type", e.target.value)}
+      <datalist id="pb-clause-types">
+        {CLAUSE_TYPES.map((c) => (
+          <option key={c} value={c}>
+            {titleCase(c)}
+          </option>
+        ))}
+      </datalist>
+      <datalist id="pb-rule-types">
+        {RULE_TYPES.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+
+      <div className="space-y-5">
+        <FormSection title="What this rule covers">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Clause type" hint="Pick a standard type or type your own">
+              <Input
+                list="pb-clause-types"
+                placeholder="e.g. limitation_of_liability"
+                value={form.clause_type}
+                onChange={(e) => set("clause_type", e.target.value)}
+              />
+            </Field>
+            <Field label="Rule type" hint="position, prohibition, requirement…">
+              <Input
+                list="pb-rule-types"
+                placeholder="position"
+                value={form.rule_type}
+                onChange={(e) => set("rule_type", e.target.value)}
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Risk level">
+              <Select value={form.risk_level} onChange={(e) => set("risk_level", e.target.value)}>
+                {["low", "medium", "high", "critical"].map((r) => (
+                  <option key={r} value={r}>
+                    {titleCase(r)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Escalation role" hint="Who signs off if breached">
+              <Input
+                placeholder="e.g. general_counsel"
+                value={form.escalation_role}
+                onChange={(e) => set("escalation_role", e.target.value)}
+              />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={form.approval_required}
+              onChange={(e) => set("approval_required", e.target.checked)}
             />
-          </Field>
-          <Field label="Rule type">
-            <Input
-              placeholder="e.g. position, prohibition"
-              value={form.rule_type}
-              onChange={(e) => set("rule_type", e.target.value)}
-            />
-          </Field>
-        </div>
-        <Field label="Preferred position">
-          <Textarea
-            rows={2}
-            value={form.preferred_position}
-            onChange={(e) => set("preferred_position", e.target.value)}
-          />
-        </Field>
-        <Field label="Fallback position">
-          <Textarea
-            rows={2}
-            value={form.fallback_position}
-            onChange={(e) => set("fallback_position", e.target.value)}
-          />
-        </Field>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Prohibited language">
+            Require approval when a contract deviates from this rule
+          </label>
+        </FormSection>
+
+        <FormSection title="Negotiation positions">
+          <Field label="Preferred position" hint="Your ideal outcome">
             <Textarea
               rows={2}
-              value={form.prohibited_language}
-              onChange={(e) => set("prohibited_language", e.target.value)}
+              value={form.preferred_position}
+              onChange={(e) => set("preferred_position", e.target.value)}
             />
           </Field>
-          <Field label="Required language">
+          <Field label="Fallback position" hint="Acceptable compromise">
             <Textarea
               rows={2}
-              value={form.required_language}
-              onChange={(e) => set("required_language", e.target.value)}
+              value={form.fallback_position}
+              onChange={(e) => set("fallback_position", e.target.value)}
             />
           </Field>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Risk level">
-            <Select
-              value={form.risk_level}
-              onChange={(e) => set("risk_level", e.target.value)}
-            >
-              {["low", "medium", "high", "critical"].map((r) => (
-                <option key={r} value={r}>
-                  {titleCase(r)}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Escalation role">
-            <Input
-              placeholder="e.g. general_counsel"
-              value={form.escalation_role}
-              onChange={(e) => set("escalation_role", e.target.value)}
+        </FormSection>
+
+        <FormSection title="Language guardrails">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Prohibited language" hint="Never accept these terms">
+              <Textarea
+                rows={2}
+                value={form.prohibited_language}
+                onChange={(e) => set("prohibited_language", e.target.value)}
+              />
+            </Field>
+            <Field label="Required language" hint="Must be present">
+              <Textarea
+                rows={2}
+                value={form.required_language}
+                onChange={(e) => set("required_language", e.target.value)}
+              />
+            </Field>
+          </div>
+        </FormSection>
+
+        <FormSection title="Guidance (optional)">
+          <Field label="Rationale" hint="Why this rule exists">
+            <Textarea
+              rows={2}
+              value={form.rationale}
+              onChange={(e) => set("rationale", e.target.value)}
             />
           </Field>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-slate-600">
-          <input
-            type="checkbox"
-            checked={form.approval_required}
-            onChange={(e) => set("approval_required", e.target.checked)}
-          />
-          Approval required
-        </label>
-        <Field label="Rationale">
-          <Textarea
-            rows={2}
-            value={form.rationale}
-            onChange={(e) => set("rationale", e.target.value)}
-          />
-        </Field>
-        <Field label="Negotiation guidance">
-          <Textarea
-            rows={2}
-            value={form.negotiation_guidance}
-            onChange={(e) => set("negotiation_guidance", e.target.value)}
-          />
-        </Field>
-        <Field label="Sample clause">
-          <Textarea
-            rows={3}
-            value={form.sample_clause}
-            onChange={(e) => set("sample_clause", e.target.value)}
-          />
-        </Field>
+          <Field label="Negotiation guidance" hint="How to argue it with counterparties">
+            <Textarea
+              rows={2}
+              value={form.negotiation_guidance}
+              onChange={(e) => set("negotiation_guidance", e.target.value)}
+            />
+          </Field>
+          <Field label="Sample clause" hint="Drop-in language the AI can propose">
+            <Textarea
+              rows={3}
+              value={form.sample_clause}
+              onChange={(e) => set("sample_clause", e.target.value)}
+            />
+          </Field>
+        </FormSection>
       </div>
     </Modal>
+  );
+}
+
+function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{title}</p>
+      {children}
+    </div>
   );
 }
 

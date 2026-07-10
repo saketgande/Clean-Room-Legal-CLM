@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <!--
   Aegis Legal CLM — Word task-pane add-in (XML "add-in only" manifest).
-  Dev URLs point at the local HTTPS dev server (server.mjs) on :3001.
-  For staging/production, replace every https://localhost:3001 below with your
-  deployed add-in URL.
+  URLs point at the deployed add-in on the Aegis VM (nginx serves it at
+  https://aegis.ctpsandbox.com/word-addin/). This is the file you hand to people
+  to sideload into Word. For local dev against server.mjs, swap these back to the
+  localhost:3001 dev server.
 -->
 <OfficeApp
   xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
@@ -18,9 +19,9 @@
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Aegis Legal CLM" />
   <Description DefaultValue="AI contract review and redlining from your Aegis Legal CLM, right inside Word." />
-  <IconUrl DefaultValue="https://localhost:3001/assets/icon-32.png" />
-  <HighResolutionIconUrl DefaultValue="https://localhost:3001/assets/icon-64.png" />
-  <SupportUrl DefaultValue="https://localhost:3001/taskpane.html" />
+  <IconUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-32.png" />
+  <HighResolutionIconUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-64.png" />
+  <SupportUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/taskpane.html" />
 
   <Hosts>
     <Host Name="Document" />
@@ -33,7 +34,7 @@
   </Requirements>
 
   <DefaultSettings>
-    <SourceLocation DefaultValue="https://localhost:3001/taskpane.html" />
+    <SourceLocation DefaultValue="https://aegis.ctpsandbox.com/word-addin/taskpane.html" />
   </DefaultSettings>
 
   <Permissions>ReadWriteDocument</Permissions>
@@ -82,14 +83,14 @@
 
     <Resources>
       <bt:Images>
-        <bt:Image id="Icon.16x16" DefaultValue="https://localhost:3001/assets/icon-16.png" />
-        <bt:Image id="Icon.32x32" DefaultValue="https://localhost:3001/assets/icon-32.png" />
-        <bt:Image id="Icon.80x80" DefaultValue="https://localhost:3001/assets/icon-80.png" />
+        <bt:Image id="Icon.16x16" DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-16.png" />
+        <bt:Image id="Icon.32x32" DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-32.png" />
+        <bt:Image id="Icon.80x80" DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-80.png" />
       </bt:Images>
       <bt:Urls>
-        <bt:Url id="Commands.Url" DefaultValue="https://localhost:3001/commands.html" />
-        <bt:Url id="Taskpane.Url" DefaultValue="https://localhost:3001/taskpane.html" />
-        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://localhost:3001/taskpane.html" />
+        <bt:Url id="Commands.Url" DefaultValue="https://aegis.ctpsandbox.com/word-addin/commands.html" />
+        <bt:Url id="Taskpane.Url" DefaultValue="https://aegis.ctpsandbox.com/word-addin/taskpane.html" />
+        <bt:Url id="GetStarted.LearnMoreUrl" DefaultValue="https://aegis.ctpsandbox.com/word-addin/taskpane.html" />
       </bt:Urls>
       <bt:ShortStrings>
         <bt:String id="GetStarted.Title" DefaultValue="Aegis Legal CLM is ready." />

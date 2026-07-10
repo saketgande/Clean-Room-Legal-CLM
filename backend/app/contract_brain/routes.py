@@ -1,13 +1,24 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.citations import validate_citation
+from app.ai.citations import align_citation_to_source
 from app.ai.controller import ai_controller
-from app.ai.schemas import BrainAnswerOutput, BrainQueryParseOutput, CitationInput
+from app.ai.schemas import BrainAnswerOutput
 from app.contract_brain.models import BrainQuery
-from app.contract_brain.retrieval import aggregate_answer, assemble_context, precedent_contracts
+from app.contract_brain.retrieval import (
+    aggregate_answer,
+    hybrid_sources,
+    precedent_contracts,
+    resolve_scope_contract_ids,
+    sources_to_context,
+)
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
 from app.core.database import utcnow
@@ -15,6 +26,8 @@ from app.core.deps import get_db, require_permission
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 from app.projects.access import get_project_for_user
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/contract-brain", tags=["contract-brain"])
 
@@ -84,25 +97,23 @@ async def ask_contract_brain(
         db.refresh(query)
         return query
 
-    parsed = await ai_controller.run_structured_skill(
-        db,
-        skill_name="contract_brain_query_parse",
-        org_id=current_user.org_id,
-        created_by_user_id=current_user.id,
-        input_payload={"question": payload.question, "requested_scope": payload.query_scope},
-        request_id=request_id,
-    )
-    parsed = parsed if isinstance(parsed, BrainQueryParseOutput) else BrainQueryParseOutput.model_validate(parsed)
-
-    context = assemble_context(
+    # Retrieve the SAME hybrid sources that "Find sources only" returns, so the
+    # answer is grounded in exactly what the user can see — the two can never
+    # diverge. Scope-resolved to portfolio / project / contract.
+    contract_ids = resolve_scope_contract_ids(
         db,
         user=current_user,
-        question=payload.question,
         scope=payload.query_scope,
         contract_id=payload.contract_id,
         project_id=payload.project_id,
-        parsed=parsed,
     )
+    sources = hybrid_sources(
+        db,
+        org_id=current_user.org_id,
+        contract_ids=contract_ids,
+        question=payload.question,
+    )
+    source_text = sources_to_context(sources)
 
     answer = await ai_controller.run_structured_skill(
         db,
@@ -111,7 +122,7 @@ async def ask_contract_brain(
         created_by_user_id=current_user.id,
         input_payload={
             "question": payload.question,
-            "retrieved_context": context["context_text"],
+            "retrieved_context": source_text,
             "scope": payload.query_scope,
         },
         request_id=request_id,
@@ -120,25 +131,46 @@ async def ask_contract_brain(
     )
     answer = answer if isinstance(answer, BrainAnswerOutput) else BrainAnswerOutput.model_validate(answer)
 
-    # Fuzzy-validate every answer citation against the retrieved context.
-    source_text = context["context_text"] or ""
+    # Ground every citation by ALIGNMENT, not trust: snap the model's quote to
+    # the closest real span in the retrieved sources and show that actual span.
+    # A supported claim thus always displays verbatim source text; an
+    # unsupported one fails and drags confidence down.
+    GROUNDING_THRESHOLD = 85.0
     validated_citations = []
     review = "valid"
+    valid_cites = 0
     for c in answer.citations:
-        result = validate_citation(CitationInput(quote=c.quote), source_text)
-        if result.validation_status != "valid":
+        span, score = align_citation_to_source(c.quote, source_text)
+        is_valid = score >= GROUNDING_THRESHOLD
+        if is_valid:
+            valid_cites += 1
+        else:
             review = "needs_review"
         validated_citations.append(
             {
-                "quote": c.quote,
+                "quote": span if is_valid else c.quote,
                 "label": c.label,
-                "validation_status": result.validation_status,
-                "similarity_score": result.similarity_score,
+                "validation_status": "valid" if is_valid else "invalid",
+                "similarity_score": round(score, 1),
             }
         )
     if not source_text:
         review = "no_context"
 
+    # Honest confidence: a legal answer is only as trustworthy as its grounding.
+    # If the model's own citations don't verify against the sources, cap the
+    # confidence it can claim — never show "high" over unverifiable quotes.
+    total_cites = len(answer.citations)
+    grounding = (valid_cites / total_cites) if total_cites else 0.0
+    confidence = answer.confidence
+    if total_cites == 0:
+        confidence = "low"
+    elif grounding < 0.5:
+        confidence = "low"
+    elif grounding < 0.8 and confidence == "high":
+        confidence = "medium"
+
+    n_sem, n_cl, n_tx = len(sources["semantic"]), len(sources["clauses"]), len(sources["text"])
     query = BrainQuery(
         org_id=current_user.org_id,
         query_scope=payload.query_scope,
@@ -149,14 +181,21 @@ async def ask_contract_brain(
         citations=validated_citations,
         retrieval_metadata={
             "scope": payload.query_scope,
-            "source_count": context["source_count"],
-            "graph_facts": len(context["graph_facts"]),
-            "vector_chunks": len(context["vector_chunks"]),
-            "fulltext_clauses": len(context["fulltext_clauses"]),
-            "contract_ids": context["contract_ids"][:50],
-            "confidence": answer.confidence,
+            "source_count": n_sem + n_cl + n_tx,
+            "graph_facts": 0,
+            "vector_chunks": n_sem,
+            "fulltext_clauses": n_cl + n_tx,
+            "contract_ids": contract_ids[:50],
+            "confidence": confidence,
+            "model_confidence": answer.confidence,
             "citation_review": review,
+            "grounding": round(grounding, 3),
+            "verified_citations": valid_cites,
+            "total_citations": total_cites,
             "limitations": answer.limitations,
+            # The exact sources this answer was built from — the frontend shows
+            # them beneath the answer, identical to "Find sources only".
+            "sources": sources,
         },
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
@@ -201,6 +240,35 @@ def get_precedents(
         exclude_contract_id=contract_id,
         limit=min(limit, 20),
     )
+
+
+@router.get("/search")
+def brain_search(
+    q: str,
+    limit: int = 8,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Hybrid intelligent search across the accessible portfolio.
+
+    Three retrieval modes in one call, no LLM cost:
+    - semantic: pgvector cosine over embedded chunks (finds meaning, not words)
+    - clauses:  full-text over extracted clauses (headings + text)
+    - text:     full-text over raw contract text, with excerpt highlights
+    """
+    ids = list(
+        db.scalars(
+            select(Contract.id).where(
+                Contract.org_id == current_user.org_id,
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(current_user),
+            )
+        ).all()
+    )
+    sources = hybrid_sources(
+        db, org_id=current_user.org_id, contract_ids=ids, question=q, limit=limit
+    )
+    return {"query": q, **sources}
 
 
 @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)

@@ -75,6 +75,15 @@ def ensure_default_approver_groups(
 
 
 def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
+    """Does this routing rule's criteria match the contract?
+
+    Supported criteria keys (all optional; empty criteria = match everything):
+      min_value / max_value        — numeric bounds on contract value
+      contract_type(s)             — string or list, case-insensitive
+      risk_band(s)                 — string or list vs risk_band/risk_level
+      any other key                — exact (case-insensitive) match against the
+                                     contract attribute of the same name
+    """
     criteria = rule.criteria or {}
     if not criteria:
         return True
@@ -82,13 +91,60 @@ def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
         if key == "min_value":
             if (contract.value_amount or 0) < float(expected):
                 return False
-            continue
-        actual = getattr(contract, key, None)
-        if actual is None:
-            return False
-        if str(actual).strip().lower() != str(expected).strip().lower():
-            return False
+        elif key == "max_value":
+            if (contract.value_amount or 0) > float(expected):
+                return False
+        elif key in {"contract_type", "contract_types"}:
+            allowed = expected if isinstance(expected, list) else [expected]
+            ct = (contract.contract_type or "").strip().lower()
+            if ct not in {str(a).strip().lower() for a in allowed}:
+                return False
+        elif key in {"risk_band", "risk_bands"}:
+            allowed = expected if isinstance(expected, list) else [expected]
+            band = (contract.risk_band or contract.risk_level or "").strip().lower()
+            if band not in {str(a).strip().lower() for a in allowed}:
+                return False
+        else:
+            actual = getattr(contract, key, None)
+            if actual is None:
+                return False
+            if str(actual).strip().lower() != str(expected).strip().lower():
+                return False
     return True
+
+
+_NDA_TYPES = {"nda", "non_disclosure_agreement", "non-disclosure agreement", "mutual nda"}
+
+
+def _fast_lane_reason(db: Session, *, contract: Contract) -> str | None:
+    """Low-risk NDA under the value cap with no open high-severity deviations
+    → skip Approval, straight to Signature. Returns the audit reason, or None."""
+    from sqlalchemy import func as _func
+
+    from app.playbooks.models import PlaybookDeviation
+
+    if not settings.nda_fast_lane_enabled:
+        return None
+    if (contract.contract_type or "").strip().lower() not in _NDA_TYPES:
+        return None
+    band = (getattr(contract, "risk_band", None) or contract.risk_level or "").lower()
+    if band != "low":
+        return None
+    if (contract.value_amount or 0) > settings.nda_fast_lane_max_value:
+        return None
+    open_high = db.scalar(
+        select(_func.count(PlaybookDeviation.id)).where(
+            PlaybookDeviation.contract_id == contract.id,
+            PlaybookDeviation.status.in_(["open", "needs_review"]),
+            PlaybookDeviation.severity.in_(["high", "critical"]),
+        )
+    )
+    if open_high:
+        return None
+    return (
+        "Fast-lane: low-risk NDA auto-approved to signature "
+        f"(risk {band or 'low'}, value within cap, no open high-severity deviations)"
+    )
 
 
 def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
@@ -105,7 +161,10 @@ def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]
     ).all()
     matched = sorted(
         (r for r in rules if _matches(r, contract)),
-        key=lambda r: int(r.priority) if str(r.priority).isdigit() else 100,
+        key=lambda r: (
+            int(r.priority) if str(r.priority).isdigit() else 100,
+            -len(r.criteria or {}),
+        ),
     )
     if not matched:
         return []
@@ -261,6 +320,54 @@ async def submit_contract_for_approval(
     ).all()
     if existing:
         return existing
+
+    # Routine contracts route themselves: an eligible NDA skips the approval
+    # chain entirely and lands in Signature with a full audit trail.
+    fast_lane = _fast_lane_reason(db, contract=contract)
+    if fast_lane:
+        from app.notifications.models import Notification
+
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.SIGNATURE,
+            actor_user_id=user.id,
+            reason=fast_lane,
+            override=True,
+            override_authorized=True,
+            request_id=request_id,
+        )
+        write_audit_log(
+            db,
+            action="approval.fast_laned",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            request_id=request_id,
+            metadata={"reason": fast_lane},
+        )
+        recipients = {user.id}
+        if contract.owner_user_id:
+            recipients.add(contract.owner_user_id)
+        for uid in recipients:
+            db.add(
+                Notification(
+                    org_id=user.org_id,
+                    user_id=uid,
+                    channel="in_app",
+                    event_type="approval.fast_laned",
+                    subject=f"Fast-laned to signature: {contract.title}",
+                    body=(
+                        f'"{contract.title}" qualified for the NDA fast-lane '
+                        "(low risk, within value cap, no open high-severity issues) "
+                        "and skipped approval — it is ready to send for signature."
+                    ),
+                    status="sent",
+                )
+            )
+        db.commit()
+        return []
 
     chain = resolve_chain(db, contract=contract, org_id=user.org_id)
     if not chain:

@@ -70,6 +70,14 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.run_renewal_window_check",
         "schedule": crontab(hour=7, minute=45),  # daily
     },
+    "close-expired-contracts": {
+        "task": "app.jobs.tasks.close_expired_contracts",
+        "schedule": crontab(hour=7, minute=50),  # daily, after the renewal sweep
+    },
+    "check-stage-slas": {
+        "task": "app.jobs.tasks.check_stage_slas",
+        "schedule": crontab(hour=7, minute=40),  # daily, before the other sweeps
+    },
     # Retention sweepers. audit_log is intentionally excluded — it is immutable
     # and kept forever for compliance.
     "prune-request-log": {

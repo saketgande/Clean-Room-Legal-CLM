@@ -289,6 +289,20 @@ export function AssistantWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workflowParam, allWorkflows]);
 
+  // Pre-fill the composer with a variable-filled prompt handed over from the
+  // Prompt Library ("Use in Assistant" after filling in {{variables}}).
+  useEffect(() => {
+    try {
+      const pre = sessionStorage.getItem("aegis-prompt-prefill");
+      if (pre) {
+        setInput(pre);
+        sessionStorage.removeItem("aegis-prompt-prefill");
+      }
+    } catch {
+      /* ignore storage errors */
+    }
+  }, []);
+
   const projectName = useMemo(() => {
     const m = new Map<string, string>();
     for (const p of projects ?? []) m.set(p.id, p.name);
@@ -658,7 +672,7 @@ export function AssistantWorkspace() {
     startWatch(activeSession.id);
     abortActiveStream();
     const wfBody = wf ? workflowPrompt(wf) : "";
-    const wfPrompt = wf && wfBody ? `[Workflow: ${wf.name}]\n${wfBody}\n\n` : "";
+    const wfPrompt = wf && wfBody ? `[Prompt: ${wf.name}]\n${wfBody}\n\n` : "";
     abortRef.current = await apiStream(
       `/assistant/sessions/${activeSession.id}/stream`,
       {
@@ -778,7 +792,7 @@ export function AssistantWorkspace() {
                 {workflow && (
                   <div className="mt-7 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                     <Wand2 className="h-3.5 w-3.5" />
-                    <span className="font-medium">Workflow:</span>
+                    <span className="font-medium">Prompt:</span>
                     {workflow.name}
                     <button
                       onClick={() => setWorkflow(null)}
@@ -824,7 +838,7 @@ export function AssistantWorkspace() {
               </div>
 
               <div className="sticky bottom-7 w-full max-w-[640px]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-slate-300">
+                <div className="rounded-2xl border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                   <textarea
                     rows={1}
                     placeholder="Ask Aegis, or describe what you need…"
@@ -835,7 +849,7 @@ export function AssistantWorkspace() {
                       !e.shiftKey &&
                       (e.preventDefault(), startConversation(input))
                     }
-                    className="block max-h-44 w-full resize-none bg-transparent px-3 pb-2 pt-2.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                    className="block max-h-44 w-full resize-none bg-transparent px-3 pb-2 pt-2.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-500 focus:outline-none"
                   />
                   <div className="mt-1 flex items-center gap-1">
                     <button
@@ -850,7 +864,7 @@ export function AssistantWorkspace() {
                       className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
                     >
                       <Wand2 className="h-4 w-4" />
-                      Workflows
+                      Prompts
                     </button>
                     <button
                       onClick={() => setProjPickerOpen(true)}
@@ -1025,7 +1039,7 @@ export function AssistantWorkspace() {
                   {workflow && (
                     <div className="mb-2 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                       <Wand2 className="h-3.5 w-3.5" />
-                      <span className="font-medium">Workflow:</span>
+                      <span className="font-medium">Prompt:</span>
                       {workflow.name}
                       <button
                         onClick={() => setWorkflow(null)}
@@ -1035,7 +1049,7 @@ export function AssistantWorkspace() {
                       </button>
                     </div>
                   )}
-                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 shadow-sm transition focus-within:border-slate-400">
+                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 shadow-sm transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                     <textarea
                       rows={1}
                       placeholder="Ask a question about your documents…"
@@ -1047,7 +1061,7 @@ export function AssistantWorkspace() {
                         (e.preventDefault(), send())
                       }
                       disabled={streaming || !!pending}
-                      className="block max-h-44 w-full resize-none bg-transparent py-1.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none disabled:opacity-60"
+                      className="block max-h-44 w-full resize-none bg-transparent py-1.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-500 focus:outline-none disabled:opacity-60"
                     />
                     <div className="mt-2 flex items-center gap-4">
                       <button
@@ -1064,7 +1078,7 @@ export function AssistantWorkspace() {
                         className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 disabled:opacity-40"
                       >
                         <Wand2 className="h-4 w-4" />
-                        Workflows
+                        Prompts
                       </button>
                       <button
                         onClick={() => setProjPickerOpen(true)}
@@ -1320,7 +1334,7 @@ const TOOL_LABELS: Record<string, [string, string]> = {
     "Obligations extracted",
   ],
   list_playbooks: ["Looking up playbooks", "Found playbooks"],
-  list_workflows: ["Looking up workflows", "Found workflows"],
+  list_workflows: ["Looking up prompts", "Found prompts"],
   list_project_contracts: [
     "Listing project contracts",
     "Listed project contracts",
@@ -1338,7 +1352,7 @@ const TOOL_LABELS: Record<string, [string, string]> = {
     "Duplicating the contract",
     "Contract duplicated",
   ],
-  run_workflow: ["Running the workflow", "Workflow complete"],
+  run_workflow: ["Running the prompt", "Prompt complete"],
   submit_for_approval: [
     "Submitting for approval",
     "Submitted for approval",
@@ -1376,8 +1390,8 @@ function confirmCopy(name: string): { title: string; body: string } {
       body: "I'll submit this contract into the approval workflow.",
     },
     run_workflow: {
-      title: "Run this workflow?",
-      body: "I'll run the selected workflow on this contract.",
+      title: "Run this prompt?",
+      body: "I'll run the selected prompt on this contract.",
     },
     replicate_contract_version: {
       title: "Duplicate this contract?",
@@ -2082,15 +2096,15 @@ function WorkflowModal({
   const all = workflows ?? [];
   const groups = [
     {
-      label: "Assistant workflows",
+      label: "Assistant prompts",
       items: all.filter((w) => w.workflow_type === "assistant"),
     },
     {
-      label: "Document review workflows",
+      label: "Document review prompts",
       items: all.filter((w) => w.workflow_type === "tabular_review"),
     },
     {
-      label: "Other workflows",
+      label: "Other prompts",
       items: all.filter(
         (w) =>
           w.workflow_type !== "assistant" &&
@@ -2103,7 +2117,7 @@ function WorkflowModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Apply a workflow"
+      title="Apply a prompt"
       size="lg"
       footer={
         <>
@@ -2115,7 +2129,7 @@ function WorkflowModal({
             onClick={() => selected && onPick(selected)}
           >
             <Wand2 className="h-4 w-4" />
-            Use workflow
+            Use prompt
           </Button>
         </>
       }
@@ -2130,7 +2144,7 @@ function WorkflowModal({
           >
             {all.length === 0 && (
               <p className="p-4 text-center text-sm text-slate-400">
-                No workflows available.
+                No prompts available.
               </p>
             )}
             {groups.map((g) => (
@@ -2216,7 +2230,7 @@ function WorkflowModal({
               })()
             ) : (
               <p className="text-sm text-slate-400">
-                Hover a workflow to preview its details, then click to select it.
+                Hover a prompt to preview its details, then click to select it.
               </p>
             )}
           </div>

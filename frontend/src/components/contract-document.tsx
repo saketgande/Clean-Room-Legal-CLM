@@ -1,12 +1,23 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Download, FileText, Loader2 } from "lucide-react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Check,
+  Download,
+  FileDown,
+  FileText,
+  Loader2,
+  MessageSquarePlus,
+  PenLine,
+  X,
+} from "lucide-react";
 import { contractsApi } from "@/lib/endpoints";
 import { Badge, Button, Select } from "@/components/ui";
 import { titleCase } from "@/lib/utils";
+import { useToast } from "@/components/toast";
 import type {
+  ContractComment,
   ContractEditResponse,
   ContractTextSnapshotResponse,
 } from "@/lib/types";
@@ -84,12 +95,60 @@ function buildSegments(
   return segments;
 }
 
+type CommentAnchor = { start?: number; end?: number; quote?: string };
+
+type CommentSegment =
+  | { kind: "text"; text: string }
+  | { kind: "comment"; text: string; comment: ContractComment };
+
+// Mark text ranges that carry anchored comments (unresolved only), so the
+// discussion is visible where it belongs — in the document itself.
+function buildCommentSegments(
+  text: string,
+  comments: ContractComment[],
+): CommentSegment[] {
+  const located = comments
+    .map((c) => {
+      const anchor = (c.anchor ?? {}) as CommentAnchor;
+      const quote = anchor.quote;
+      if (!quote) return null;
+      // Trust stored offsets when they still match; re-locate otherwise.
+      if (
+        typeof anchor.start === "number" &&
+        text.slice(anchor.start, anchor.start + quote.length) === quote
+      )
+        return { start: anchor.start, end: anchor.start + quote.length, comment: c };
+      const span = findSpan(text, quote);
+      return span ? { start: span[0], end: span[1], comment: c } : null;
+    })
+    .filter(
+      (x): x is { start: number; end: number; comment: ContractComment } =>
+        Boolean(x),
+    )
+    .sort((a, b) => a.start - b.start);
+
+  const segments: CommentSegment[] = [];
+  let cursor = 0;
+  for (const { start, end, comment } of located) {
+    if (start < cursor) continue;
+    if (start > cursor)
+      segments.push({ kind: "text", text: text.slice(cursor, start) });
+    segments.push({ kind: "comment", text: text.slice(start, end), comment });
+    cursor = end;
+  }
+  segments.push({ kind: "text", text: text.slice(cursor) });
+  return segments;
+}
+
+type SelectionInfo = { quote: string; start: number; x: number; y: number };
+
 /**
  * Renders the readable extracted text of a contract. Picks the best version to
  * show: the authoritative one if its snapshot has text, otherwise the most
  * recent version whose snapshot actually contains text (signed PDFs often have
- * an empty snapshot). A version switcher lets the user override. Reused by the
- * contract detail "Document" tab and the assistant workspace.
+ * an empty snapshot). A version switcher lets the user override. Selecting text
+ * opens a popover to propose a manual redline or attach an anchored comment.
+ * Reused by the contract detail "Document" tab and the assistant workspace.
  */
 export function ContractDocument({
   contractId,
@@ -97,6 +156,7 @@ export function ContractDocument({
   edits,
   activeEditId,
   onSelectEdit,
+  onSelectComment,
   highlightQuote,
 }: {
   contractId: string;
@@ -104,9 +164,12 @@ export function ContractDocument({
   edits?: ContractEditResponse[];
   activeEditId?: string | null;
   onSelectEdit?: (id: string) => void;
+  onSelectComment?: (id: string) => void;
   highlightQuote?: string | null;
 }) {
   const [override, setOverride] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const { notify } = useToast();
 
   const { data: contract } = useQuery({
     queryKey: ["contract", contractId],
@@ -116,6 +179,17 @@ export function ContractDocument({
     queryKey: ["contract", contractId, "versions"],
     queryFn: () => contractsApi.versions(contractId),
   });
+  const { data: comments } = useQuery({
+    queryKey: ["contract-comments", contractId],
+    queryFn: () => contractsApi.comments(contractId),
+  });
+  const anchoredComments = useMemo(
+    () =>
+      (comments ?? []).filter(
+        (c) => !c.resolved && (c.anchor as CommentAnchor | null)?.quote,
+      ),
+    [comments],
+  );
 
   // Candidate versions (those with a snapshot), authoritative first then newest.
   const candidates = useMemo(() => {
@@ -206,6 +280,146 @@ export function ContractDocument({
     return () => window.clearTimeout(id);
   }, [highlightQuote, docText]);
 
+  // ---- Word-style direct editing ------------------------------------------
+  // Edit turns the page into a writable surface; Save creates a NEW
+  // authoritative version (manual_edit) so history stays immutable.
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saveSummary, setSaveSummary] = useState("");
+  const [saving, setSaving] = useState(false);
+  const authoritativeText = resolved?.snap?.text ?? "";
+
+  function startEditing() {
+    setDraft(authoritativeText);
+    setSaveSummary("");
+    setSelection(null);
+    setEditing(true);
+  }
+
+  function cancelEditing() {
+    if (
+      draft !== authoritativeText &&
+      !window.confirm("Discard your unsaved changes?")
+    )
+      return;
+    setEditing(false);
+  }
+
+  async function saveEdit() {
+    if (!draft.trim() || draft === authoritativeText) return;
+    setSaving(true);
+    try {
+      await contractsApi.updateText(contractId, {
+        text: draft,
+        change_summary: saveSummary.trim() || undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      qc.invalidateQueries({ queryKey: ["review-status", contractId] });
+      notify("Saved as a new version", "success");
+      setEditing(false);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Failed to save", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ---- Text selection → propose redline / anchored comment ---------------
+  const [selection, setSelection] = useState<SelectionInfo | null>(null);
+  const [popMode, setPopMode] = useState<"menu" | "redline" | "comment">(
+    "menu",
+  );
+  const [replacement, setReplacement] = useState("");
+  const [note, setNote] = useState("");
+  const [visibility, setVisibility] = useState<"internal" | "shared">(
+    "internal",
+  );
+  const [busy, setBusy] = useState(false);
+
+  function captureSelection() {
+    if (editing || !docText) return;
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed) {
+      setSelection(null);
+      return;
+    }
+    const quote = sel.toString().trim();
+    if (quote.length < 4 || quote.length > 4000) {
+      setSelection(null);
+      return;
+    }
+    const start = docText.indexOf(quote);
+    if (start < 0) {
+      // Selection crossed redline markup or reflowed text — can't anchor it.
+      setSelection(null);
+      return;
+    }
+    const holder = scrollRef.current;
+    if (!holder) return;
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const box = holder.getBoundingClientRect();
+    const x = Math.min(
+      Math.max(rect.left - box.left + rect.width / 2, 150),
+      box.width - 150,
+    );
+    const y = rect.bottom - box.top + holder.scrollTop + 8;
+    setPopMode("menu");
+    setReplacement(quote);
+    setNote("");
+    setSelection({ quote, start, x, y });
+  }
+
+  function invalidateAfterMutation() {
+    qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
+    qc.invalidateQueries({ queryKey: ["contract", contractId, "versions"] });
+    qc.invalidateQueries({ queryKey: ["contract-comments", contractId] });
+    qc.invalidateQueries({ queryKey: ["review-status", contractId] });
+  }
+
+  async function submitRedline() {
+    if (!selection) return;
+    setBusy(true);
+    try {
+      await contractsApi.proposeEdit(contractId, {
+        original_text: selection.quote,
+        replacement_text: replacement,
+        rationale: note.trim() || undefined,
+        start_hint: selection.start,
+      });
+      invalidateAfterMutation();
+      notify("Redline proposed — review it in the Redlines panel", "success");
+      setSelection(null);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Failed to propose", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitComment() {
+    if (!selection || !note.trim()) return;
+    setBusy(true);
+    try {
+      const created = await contractsApi.addComment(contractId, {
+        body: note.trim(),
+        visibility,
+        anchor: {
+          start: selection.start,
+          end: selection.start + selection.quote.length,
+          quote: selection.quote,
+        },
+      });
+      invalidateAfterMutation();
+      notify("Comment anchored to the text", "success");
+      setSelection(null);
+      onSelectComment?.(created.id);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Failed to comment", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div
       className={
@@ -219,7 +433,9 @@ export function ContractDocument({
             {contract?.title ?? "Contract"}
           </p>
           <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
-            {redlineMode ? (
+            {editing ? (
+              <Badge tone="violet">Editing — saves as a new version</Badge>
+            ) : redlineMode ? (
               <Badge tone="amber">Redline · tracked changes</Badge>
             ) : shownVersion ? (
               <Badge tone="slate">V{shownVersion.version_number}</Badge>
@@ -236,49 +452,111 @@ export function ContractDocument({
                 proposed
               </span>
             )}
+            <span className="hidden text-slate-300 sm:inline">
+              · select text to redline or comment
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(versions ?? []).filter((v) => v.text_snapshot_id).length > 1 && (
-            <Select
-              value={resolved?.versionId ?? ""}
-              onChange={(e) => setOverride(e.target.value)}
-              className="h-8 w-36 text-xs"
-            >
-              {(versions ?? [])
-                .filter((v) => v.text_snapshot_id)
-                .sort((a, b) => b.version_number - a.version_number)
-                .map((v) => (
-                  <option key={v.id} value={v.id}>
-                    V{v.version_number} · {titleCase(v.source)}
-                  </option>
-                ))}
-            </Select>
-          )}
-          {shownVersion && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                contractsApi.downloadVersion(contractId, shownVersion.id)
-              }
-            >
-              <Download className="h-3.5 w-3.5" />
-              Original
-            </Button>
+          {editing ? (
+            <>
+              <input
+                value={saveSummary}
+                onChange={(e) => setSaveSummary(e.target.value)}
+                placeholder="Describe the change (optional)"
+                className="h-8 w-52 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              />
+              <Button
+                size="sm"
+                loading={saving}
+                disabled={!draft.trim() || draft === authoritativeText}
+                onClick={saveEdit}
+              >
+                <Check className="h-3.5 w-3.5" />
+                Save
+              </Button>
+              <Button size="sm" variant="outline" onClick={cancelEditing}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              {(versions ?? []).filter((v) => v.text_snapshot_id).length > 1 && (
+                <Select
+                  value={resolved?.versionId ?? ""}
+                  onChange={(e) => setOverride(e.target.value)}
+                  className="h-8 w-36 text-xs"
+                >
+                  {(versions ?? [])
+                    .filter((v) => v.text_snapshot_id)
+                    .sort((a, b) => b.version_number - a.version_number)
+                    .map((v) => (
+                      <option key={v.id} value={v.id}>
+                        V{v.version_number} · {titleCase(v.source)}
+                      </option>
+                    ))}
+                </Select>
+              )}
+              {authoritativeText && (
+                <Button
+                  size="sm"
+                  title="Edit the document directly — saves as a new version"
+                  onClick={startEditing}
+                >
+                  <PenLine className="h-3.5 w-3.5" />
+                  Edit
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                title="Export the current text (with accepted redlines) as .docx"
+                onClick={() =>
+                  contractsApi.exportDocx(
+                    contractId,
+                    `${contract?.title ?? "contract"}.docx`,
+                  )
+                }
+              >
+                <FileDown className="h-3.5 w-3.5" />
+                Export .docx
+              </Button>
+              {shownVersion && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    contractsApi.downloadVersion(contractId, shownVersion.id)
+                  }
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Original
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto bg-slate-100"
+        className="relative flex-1 overflow-y-auto bg-slate-100"
+        onMouseUp={captureSelection}
       >
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading document…
           </div>
+        ) : editing ? (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            autoFocus
+            spellCheck={false}
+            aria-label="Edit contract text"
+            className="block h-full w-full resize-none whitespace-pre-wrap bg-slate-100 px-12 py-10 font-serif text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500/30"
+          />
         ) : !docText ? (
           <div className="flex flex-col items-center justify-center gap-2 py-20 text-center text-slate-400">
             <FileText className="h-8 w-8" />
@@ -351,8 +629,128 @@ export function ContractDocument({
                       <span key="a">{docText.slice(span[1])}</span>,
                     ];
                   })()
-                : docText}
+                : anchoredComments.length > 0
+                  ? buildCommentSegments(docText, anchoredComments).map(
+                      (seg, i) => {
+                        if (seg.kind === "text")
+                          return <span key={i}>{seg.text}</span>;
+                        return (
+                          <mark
+                            key={i}
+                            id={`anchor-comment-${seg.comment.id}`}
+                            onClick={() => onSelectComment?.(seg.comment.id)}
+                            title={`${seg.comment.author_name}: ${seg.comment.body.slice(0, 120)}`}
+                            className="cursor-pointer rounded bg-sky-100 text-sky-900 underline decoration-sky-400 decoration-dotted underline-offset-2"
+                          >
+                            {seg.text}
+                          </mark>
+                        );
+                      },
+                    )
+                  : docText}
           </article>
+        )}
+
+        {selection && (
+          <div
+            className="absolute z-20 w-[19rem] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-100 p-2 shadow-pop"
+            style={{ left: selection.x, top: selection.y }}
+            onMouseUp={(e) => e.stopPropagation()}
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <p className="truncate text-[11px] text-slate-400">
+                “{selection.quote.slice(0, 60)}
+                {selection.quote.length > 60 ? "…" : ""}”
+              </p>
+              <button
+                onClick={() => setSelection(null)}
+                className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                aria-label="Close"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {popMode === "menu" && (
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setPopMode("redline")}
+                >
+                  <PenLine className="h-3.5 w-3.5" />
+                  Propose change
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setPopMode("comment")}
+                >
+                  <MessageSquarePlus className="h-3.5 w-3.5" />
+                  Comment
+                </Button>
+              </div>
+            )}
+
+            {popMode === "redline" && (
+              <div className="space-y-1.5">
+                <textarea
+                  value={replacement}
+                  onChange={(e) => setReplacement(e.target.value)}
+                  rows={3}
+                  placeholder="Replacement text (leave empty to delete)"
+                  className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                />
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Rationale (optional)"
+                  className="w-full rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                />
+                <Button
+                  size="sm"
+                  className="w-full"
+                  loading={busy}
+                  onClick={submitRedline}
+                >
+                  Propose redline
+                </Button>
+              </div>
+            )}
+
+            {popMode === "comment" && (
+              <div className="space-y-1.5">
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  rows={3}
+                  placeholder="Comment on this passage…"
+                  className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                />
+                <div className="flex items-center gap-1.5">
+                  <Select
+                    value={visibility}
+                    onChange={(e) =>
+                      setVisibility(e.target.value as "internal" | "shared")
+                    }
+                    className="h-8 flex-1 text-xs"
+                  >
+                    <option value="internal">Internal</option>
+                    <option value="shared">Shared with counterparty</option>
+                  </Select>
+                  <Button
+                    size="sm"
+                    loading={busy}
+                    disabled={!note.trim()}
+                    onClick={submitComment}
+                  >
+                    Comment
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

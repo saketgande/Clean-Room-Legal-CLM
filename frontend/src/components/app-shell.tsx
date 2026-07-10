@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { notificationsApi } from "@/lib/endpoints";
 import {
   Scale,
-  LayoutDashboard,
   FileText,
   FolderKanban,
   Search,
@@ -14,6 +15,7 @@ import {
   Table2,
   BookMarked,
   Workflow as WorkflowIcon,
+  Library,
   ClipboardCheck,
   Signature,
   ListChecks,
@@ -26,7 +28,7 @@ import {
   Menu,
   PanelLeftClose,
   X,
-} from "lucide-react";
+ Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { useLayout } from "@/lib/layout";
 import { cn, initials } from "@/lib/utils";
@@ -39,8 +41,8 @@ const NAV: {
   {
     section: "Workspace",
     items: [
+      { href: "/command", label: "Command", icon: Gauge },
       { href: "/", label: "Ask Aegis", icon: Bot },
-      { href: "/contract-hub", label: "Contract Hub", icon: LayoutDashboard },
       { href: "/projects", label: "Projects", icon: FolderKanban },
       { href: "/search", label: "Search", icon: Search },
     ],
@@ -51,7 +53,7 @@ const NAV: {
       { href: "/brain", label: "Contract Brain", icon: Brain },
       { href: "/tabular-reviews", label: "Tabular Review", icon: Table2 },
       { href: "/playbooks", label: "Playbooks", icon: BookMarked },
-      { href: "/workflows", label: "Workflows", icon: WorkflowIcon },
+      { href: "/workflows", label: "Prompt Library", icon: Library },
     ],
   },
   {
@@ -67,6 +69,20 @@ const NAV: {
   // in the top-right of the header — none belong in the primary nav.
 ];
 
+/** Unread in-app notifications — drives the bell badges. Polled lightly so the
+ * badge stays fresh without a websocket. */
+function useUnreadCount(): number {
+  const { user } = useAuth();
+  const { data } = useQuery({
+    queryKey: ["notifications", "unread-count"],
+    queryFn: notificationsApi.unreadCount,
+    enabled: !!user,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  });
+  return data?.count ?? 0;
+}
+
 function SidebarNav({
   collapsed,
   onNavigate,
@@ -77,8 +93,39 @@ function SidebarNav({
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const unread = useUnreadCount();
   const { setCollapsed, forceCollapsed } = useLayout();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuTriggerRef = useRef<HTMLButtonElement>(null);
+
+  // Keyboard support for the account menu (WCAG 2.1.1): focus the first item
+  // on open; Escape closes and returns focus; arrows move between items.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const items = () =>
+      Array.from(
+        menuRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ??
+          [],
+      );
+    items()[0]?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        menuTriggerRef.current?.focus();
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const els = items();
+      if (els.length === 0) return;
+      const idx = els.indexOf(document.activeElement as HTMLElement);
+      const delta = e.key === "ArrowDown" ? 1 : -1;
+      els[(idx + delta + els.length) % els.length]?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   const canToggle = !forceCollapsed;
   const toggleCollapsed = () => {
@@ -89,10 +136,9 @@ function SidebarNav({
   const isActive = (href: string) => {
     if (href === "/")
       return pathname === "/" || pathname.startsWith("/assistant");
-    if (href === "/contract-hub")
+    if (href === "/command")
       return (
-        pathname.startsWith("/contract-hub") ||
-        pathname.startsWith("/contracts")
+        pathname.startsWith("/command") || pathname.startsWith("/contracts")
       );
     return pathname.startsWith(href);
   };
@@ -119,12 +165,12 @@ function SidebarNav({
               onClick={toggleCollapsed}
               title="Expand sidebar"
               aria-label="Expand sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-serif text-base font-medium text-white transition-colors hover:bg-brand-700"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 font-serif text-base font-medium text-white transition-colors hover:bg-brand-700"
             >
               A
             </button>
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 font-serif text-base font-medium text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 font-serif text-base font-medium text-white">
               A
             </div>
           )
@@ -143,7 +189,7 @@ function SidebarNav({
                 onClick={toggleCollapsed}
                 title="Collapse sidebar"
                 aria-label="Collapse sidebar"
-                className="hidden rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:inline-flex"
+                className="hidden rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 lg:inline-flex"
               >
                 <PanelLeftClose className="h-5 w-5" />
               </button>
@@ -159,7 +205,7 @@ function SidebarNav({
           title={collapsed ? "Search" : undefined}
           aria-label="Search"
           className={cn(
-            "flex h-9 items-center rounded-lg border border-slate-200 bg-slate-100 text-sm text-slate-400 transition-colors hover:border-slate-300 hover:text-slate-600",
+            "flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 text-sm text-slate-500 transition-colors hover:border-slate-300 hover:text-slate-700",
             collapsed ? "w-full justify-center" : "w-full gap-2 px-3",
           )}
         >
@@ -195,17 +241,17 @@ function SidebarNav({
                     onClick={onNavigate}
                     title={collapsed ? item.label : undefined}
                     className={cn(
-                      "relative flex items-center rounded-lg text-sm transition-colors",
+                      "relative flex items-center rounded-md text-sm transition-colors",
                       collapsed
                         ? "justify-center px-2 py-2.5"
                         : "gap-2.5 px-2.5 py-2",
                       active
-                        ? "bg-brand-50 font-semibold text-brand-700"
+                        ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-300"
                         : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                     )}
                   >
                     {active && !collapsed && (
-                      <span className="absolute -left-1.5 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-full bg-brand-600" />
+                      <span className="absolute -left-1.5 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-full bg-brand-600 dark:bg-brand-400" />
                     )}
                     <Icon
                       className={cn(
@@ -229,19 +275,26 @@ function SidebarNav({
           onClick={onNavigate}
           title={collapsed ? "Notifications" : undefined}
           className={cn(
-            "flex items-center rounded-lg text-sm transition-colors",
+            "flex items-center rounded-md text-sm transition-colors",
             collapsed ? "justify-center px-2 py-2.5" : "gap-2.5 px-2.5 py-2",
             notifActive
-              ? "bg-brand-50 font-semibold text-brand-700"
+              ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 dark:shadow-[0_0_0_1px_rgba(71,158,245,0.12)]"
               : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
           )}
         >
-          <Bell
-            className={cn(
-              "h-[17px] w-[17px] shrink-0",
-              notifActive ? "text-brand-600" : "text-slate-400",
+          <span className="relative shrink-0">
+            <Bell
+              className={cn(
+                "h-[17px] w-[17px]",
+                notifActive ? "text-brand-600" : "text-slate-400",
+              )}
+            />
+            {unread > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
+                {unread > 99 ? "99+" : unread}
+              </span>
             )}
-          />
+          </span>
           {!collapsed && "Notifications"}
         </Link>
       </div>
@@ -257,11 +310,13 @@ function SidebarNav({
           <div className="flex flex-col items-center gap-2">
             <ThemeToggle />
             <button
+              ref={menuTriggerRef}
               onClick={() => setMenuOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               title={user?.full_name ?? "Account"}
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white"
+              aria-label={user?.full_name ?? "Account"}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1"
             >
               {initials(user?.full_name)}
             </button>
@@ -269,10 +324,11 @@ function SidebarNav({
         ) : (
           <div className="flex items-center gap-2">
             <button
+              ref={menuTriggerRef}
               onClick={() => setMenuOpen((o) => !o)}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-slate-100"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
                 {initials(user?.full_name)}
@@ -297,10 +353,14 @@ function SidebarNav({
             <div
               className="fixed inset-0 z-10"
               onClick={() => setMenuOpen(false)}
+              aria-hidden="true"
             />
             <div
+              ref={menuRef}
+              role="menu"
+              aria-label="Account"
               className={cn(
-                "absolute bottom-full z-20 mb-2 animate-fade-in rounded-xl border border-slate-200 bg-slate-100 p-1.5 shadow-pop",
+                "absolute bottom-full z-20 mb-2 animate-fade-in rounded-md border border-slate-200 bg-slate-100 p-1.5 shadow-pop",
                 collapsed ? "left-2 w-60" : "left-3 right-3",
               )}
             >
@@ -313,26 +373,29 @@ function SidebarNav({
                 </p>
               </div>
               <button
+                role="menuitem"
                 onClick={() => go("/jobs")}
-                className="mt-1 flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+                className="mt-1 flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
-                <Activity className="h-4 w-4 text-slate-400" />
+                <Activity className="h-4 w-4 text-slate-400" aria-hidden="true" />
                 My Jobs
               </button>
               <button
+                role="menuitem"
                 onClick={() => go("/admin")}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900"
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
-                <Settings className="h-4 w-4 text-slate-400" />
+                <Settings className="h-4 w-4 text-slate-400" aria-hidden="true" />
                 Admin &amp; settings
               </button>
               <div className="my-1 border-t border-slate-200" />
               <button
+                role="menuitem"
                 onClick={() => {
                   setMenuOpen(false);
                   void logout();
                 }}
-                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-500/10"
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
                 <LogOut className="h-4 w-4" />
                 Sign out
@@ -347,6 +410,7 @@ function SidebarNav({
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { collapsed, mobileOpen, setMobileOpen, forceCollapsed } = useLayout();
+  const mobileUnread = useUnreadCount();
   const pathname = usePathname();
 
   const deskCollapsed = forceCollapsed || collapsed;
@@ -362,6 +426,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
+      {/* Skip link (WCAG 2.4.1) — visually hidden until keyboard-focused. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded focus:bg-brand-600 focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-pop"
+      >
+        Skip to main content
+      </a>
       {/* Desktop sidebar */}
       <aside
         className={cn(
@@ -402,7 +473,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 sm:px-6 lg:hidden">
           <button
             onClick={() => setMobileOpen(true)}
-            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+            className="rounded-md p-2 text-slate-500 hover:bg-slate-100"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
@@ -413,17 +484,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             aria-label="Notifications"
             title="Notifications"
             className={cn(
-              "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors",
+              "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors",
               notifActive
                 ? "bg-brand-50 text-brand-700"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
             )}
           >
             <Bell className="h-5 w-5" />
+            {mobileUnread > 0 && (
+              <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-brand-600 px-1 text-[9px] font-bold text-white">
+                {mobileUnread > 99 ? "99+" : mobileUnread}
+              </span>
+            )}
           </Link>
         </header>
 
-        <main className="flex-1 overflow-y-auto">
+        <main id="main-content" className="flex-1 overflow-y-auto bg-slate-50">
           {fullBleed ? (
             children
           ) : (

@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -52,7 +53,7 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
-from app.core.enums import ContractVersionSource, ShareAccessMode
+from app.core.enums import ContractVersionSource, ShareAccessMode, StorageBackend
 from app.core.rate_limit import limiter
 from app.integrations.storage import storage_service
 
@@ -211,6 +212,425 @@ def list_contract_edits(
     if status_filter:
         query = query.where(ContractEdit.status == status_filter)
     return db.scalars(query.order_by(ContractEdit.created_at.desc())).all()
+
+
+class ManualEditProposal(BaseModel):
+    original_text: str = Field(min_length=3)
+    replacement_text: str = ""  # empty string = propose deleting the passage
+    rationale: str | None = None
+    start_hint: int | None = None  # viewer's char offset, disambiguates repeats
+
+
+def _split_paragraphs(text: str) -> list[str]:
+    return [p for p in text.split("\n") if p.strip()]
+
+
+def _build_manual_redline_docx(
+    *,
+    contract_title: str,
+    base_version_number: int,
+    author_name: str,
+    pre_text: str,
+    original_text: str,
+    replacement_text: str,
+    post_text: str,
+) -> bytes:
+    """Full-document .docx with the proposed change as a NATIVE Word tracked
+    change (w:del + w:ins), so a lawyer opening it in Word sees a real redline."""
+    from io import BytesIO
+
+    from docx import Document
+    from docx.oxml import OxmlElement
+    from docx.oxml.ns import qn
+
+    from app.ai.tool_runtime import (
+        _append_deleted_text,
+        _append_inserted_text,
+        _enable_word_track_revisions,
+    )
+
+    document = Document()
+    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
+    document.add_heading(contract_title, level=1)
+    document.add_paragraph(f"Redline proposal on V{base_version_number}")
+    for para in _split_paragraphs(pre_text):
+        document.add_paragraph(para)
+    revision_paragraph = document.add_paragraph()
+    _append_deleted_text(
+        revision_paragraph,
+        original_text,
+        author=author_name,
+        revision_id="1",
+        OxmlElement=OxmlElement,
+        qn=qn,
+    )
+    if replacement_text:
+        _append_inserted_text(
+            revision_paragraph,
+            replacement_text,
+            author=author_name,
+            revision_id="2",
+            OxmlElement=OxmlElement,
+            qn=qn,
+        )
+    for para in _split_paragraphs(post_text):
+        document.add_paragraph(para)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _build_plain_docx(*, title: str, subtitle: str, text: str) -> bytes:
+    from io import BytesIO
+
+    from docx import Document
+
+    document = Document()
+    document.add_heading(title, level=1)
+    if subtitle:
+        document.add_paragraph(subtitle)
+    for para in _split_paragraphs(text):
+        document.add_paragraph(para)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _store_generated_docx(
+    db: Session, *, org_id: str, user_id: str, filename: str, content: bytes
+) -> StorageObject:
+    stored = storage_service.save_bytes(
+        org_id=org_id,
+        filename=filename,
+        mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        content=content,
+    )
+    storage_object = StorageObject(
+        org_id=org_id,
+        storage_key=stored.storage_key,
+        filename=stored.filename,
+        mime_type=stored.mime_type,
+        size_bytes=stored.size_bytes,
+        sha256_hash=stored.sha256_hash,
+        storage_backend=StorageBackend.LOCAL_VOLUME,
+        created_by_user_id=user_id,
+        updated_by_user_id=user_id,
+    )
+    db.add(storage_object)
+    db.flush()
+    return storage_object
+
+
+@router.post(
+    "/edits/propose", response_model=ContractEditResponse, status_code=status.HTTP_201_CREATED
+)
+def propose_contract_edit(
+    contract_id: str,
+    payload: ManualEditProposal,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """User-authored redline: select text in the document, propose a change.
+    Creates the same structure as AI redlines — a non-authoritative proposal
+    version whose snapshot has the change applied, plus a proposed
+    ContractEdit — so accept/reject rides the existing pipeline."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    base_version = (
+        db.get(ContractVersion, contract.current_authoritative_version_id)
+        if contract.current_authoritative_version_id
+        else None
+    )
+    if base_version is None or not base_version.text_snapshot_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Contract has no text to redline yet"
+        )
+    snapshot = db.get(ContractTextSnapshot, base_version.text_snapshot_id)
+    if snapshot is None or not (snapshot.text or "").strip():
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "Contract has no extracted text to redline"
+        )
+    text = snapshot.text
+
+    # Locate the selection: trust the viewer's offset when it matches, else
+    # fall back to the first occurrence of the quoted passage.
+    start = -1
+    hint = payload.start_hint
+    if (
+        hint is not None
+        and 0 <= hint <= len(text) - len(payload.original_text)
+        and text[hint : hint + len(payload.original_text)] == payload.original_text
+    ):
+        start = hint
+    else:
+        start = text.find(payload.original_text)
+    if start < 0:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Selected text was not found in the current document text",
+        )
+    end = start + len(payload.original_text)
+    proposed_text = text[:start] + payload.replacement_text + text[end:]
+
+    author_name = current_user.full_name or "Reviewer"
+    docx_bytes = _build_manual_redline_docx(
+        contract_title=contract.title,
+        base_version_number=base_version.version_number,
+        author_name=author_name,
+        pre_text=text[:start],
+        original_text=payload.original_text,
+        replacement_text=payload.replacement_text,
+        post_text=text[end:],
+    )
+    contract_file = db.get(ContractFile, base_version.contract_file_id)
+    if contract_file is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Contract file record missing")
+    storage_object = _store_generated_docx(
+        db,
+        org_id=current_user.org_id,
+        user_id=current_user.id,
+        filename=f"{contract.title[:60]}-redline-v{base_version.version_number}.docx",
+        content=docx_bytes,
+    )
+    proposal_version = ContractVersion(
+        org_id=current_user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=storage_object.id,
+        source=ContractVersionSource.USER_REDLINE,
+        change_summary=(payload.rationale or f"Manual redline by {author_name}")[:240],
+        is_authoritative=False,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(proposal_version)
+    db.flush()
+    proposal_snapshot = ContractTextSnapshot(
+        org_id=current_user.org_id,
+        contract_id=contract.id,
+        contract_version_id=proposal_version.id,
+        extraction_method="manual_edit_text",
+        extraction_quality_score=1.0,
+        text=proposed_text,
+        page_map=snapshot.page_map,
+        ocr_provider=snapshot.ocr_provider,
+        validation_status="complete",
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(proposal_snapshot)
+    db.flush()
+    proposal_version.text_snapshot_id = proposal_snapshot.id
+
+    edit = ContractEdit(
+        org_id=current_user.org_id,
+        contract_id=contract.id,
+        contract_version_id=base_version.id,
+        edit_type="manual",
+        status="proposed",
+        original_text=payload.original_text,
+        replacement_text=payload.replacement_text or None,
+        rationale=payload.rationale,
+        citation=[
+            {
+                "type": "assistant_edit_version",
+                "contract_version_id": proposal_version.id,
+            },
+            {
+                "type": "anchor",
+                "start": start,
+                "end": end,
+                "matched": True,
+                "applied": True,
+                "risk_level": "medium",
+            },
+            {"type": "author", "name": author_name, "kind": "user"},
+        ],
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(edit)
+    db.flush()
+    write_audit_log(
+        db,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        action="contract.manual_edit_proposed",
+        resource_type="contract_edit",
+        resource_id=edit.id,
+        after={
+            "contract_id": contract.id,
+            "proposal_version_id": proposal_version.id,
+        },
+    )
+    write_timeline_event(
+        db,
+        org_id=current_user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.manual_edit_proposed",
+        title="Manual redline proposed",
+        actor_user_id=current_user.id,
+        details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
+    )
+    db.commit()
+    db.refresh(edit)
+    return edit
+
+
+class ManualTextUpdate(BaseModel):
+    text: str = Field(min_length=1)
+    change_summary: str | None = None
+
+
+@router.put("/text", response_model=ContractVersionResponse)
+def update_contract_text(
+    contract_id: str,
+    payload: ManualTextUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """Direct in-document editing (Word-style): replace the contract's current
+    text. Versions stay immutable — this creates a NEW authoritative version
+    (source=manual_edit) with a fresh snapshot and a regenerated .docx, so the
+    edit is auditable and reversible via version history."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    base_version = (
+        db.get(ContractVersion, contract.current_authoritative_version_id)
+        if contract.current_authoritative_version_id
+        else None
+    )
+    if base_version is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no version to edit")
+    base_snapshot = (
+        db.get(ContractTextSnapshot, base_version.text_snapshot_id)
+        if base_version.text_snapshot_id
+        else None
+    )
+    if base_snapshot is not None and base_snapshot.text == payload.text:
+        raise HTTPException(status.HTTP_409_CONFLICT, "No changes to save")
+    contract_file = db.get(ContractFile, base_version.contract_file_id)
+    if contract_file is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Contract file record missing")
+
+    author_name = current_user.full_name or "Reviewer"
+    summary = (payload.change_summary or f"Manual edit by {author_name}")[:240]
+    docx_bytes = _build_plain_docx(
+        title=contract.title,
+        subtitle=summary,
+        text=payload.text,
+    )
+    storage_object = _store_generated_docx(
+        db,
+        org_id=current_user.org_id,
+        user_id=current_user.id,
+        filename=f"{contract.title[:60]}-manual-edit.docx",
+        content=docx_bytes,
+    )
+    new_version = ContractVersion(
+        org_id=current_user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=storage_object.id,
+        source=ContractVersionSource.MANUAL_EDIT,
+        change_summary=summary,
+        is_authoritative=False,
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(new_version)
+    db.flush()
+    snapshot = ContractTextSnapshot(
+        org_id=current_user.org_id,
+        contract_id=contract.id,
+        contract_version_id=new_version.id,
+        extraction_method="manual_edit_text",
+        extraction_quality_score=1.0,
+        text=payload.text,
+        page_map=base_snapshot.page_map if base_snapshot else None,
+        ocr_provider=base_snapshot.ocr_provider if base_snapshot else None,
+        validation_status="complete",
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(snapshot)
+    db.flush()
+    new_version.text_snapshot_id = snapshot.id
+
+    # Exclusive authoritative flip — same pattern as accepting a redline.
+    versions = db.scalars(
+        select(ContractVersion).where(
+            ContractVersion.org_id == current_user.org_id,
+            ContractVersion.contract_id == contract_id,
+            ContractVersion.deleted_at.is_(None),
+        )
+    ).all()
+    for version in versions:
+        version.is_authoritative = version.id == new_version.id
+        version.updated_by_user_id = current_user.id
+    contract.current_authoritative_version_id = new_version.id
+    contract.current_contract_file_id = contract_file.id
+    contract_file.current_version_id = new_version.id
+    contract.updated_by_user_id = current_user.id
+    contract_file.updated_by_user_id = current_user.id
+
+    write_audit_log(
+        db,
+        action="contract.text_manually_edited",
+        resource_type="contract_version",
+        resource_id=new_version.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={"contract_id": contract.id, "summary": summary},
+    )
+    write_timeline_event(
+        db,
+        org_id=current_user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.text_manually_edited",
+        title="Document edited manually",
+        actor_user_id=current_user.id,
+        details={"contract_version_id": new_version.id, "summary": summary},
+    )
+    db.commit()
+    db.refresh(new_version)
+    return new_version
+
+
+@router.get("/export-docx")
+def export_contract_docx(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Export the CURRENT authoritative text as a .docx — so what you download
+    always reflects accepted redlines, not the originally uploaded binary."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    version = (
+        db.get(ContractVersion, contract.current_authoritative_version_id)
+        if contract.current_authoritative_version_id
+        else None
+    )
+    snapshot = (
+        db.get(ContractTextSnapshot, version.text_snapshot_id)
+        if version is not None and version.text_snapshot_id
+        else None
+    )
+    if snapshot is None or not (snapshot.text or "").strip():
+        raise HTTPException(status.HTTP_409_CONFLICT, "No extracted text to export")
+    content = _build_plain_docx(
+        title=contract.title,
+        subtitle=f"Current text · V{version.version_number}",
+        text=snapshot.text,
+    )
+    filename = f"{contract.title[:60]}-v{version.version_number}.docx"
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/edits/{edit_id}/accept", response_model=ContractEditResponse)
@@ -913,6 +1333,7 @@ def _proposal_version_for_edit(db: Session, *, edit: ContractEdit, org_id: str) 
                         ContractVersionSource.ASSISTANT_EDIT,
                         ContractVersionSource.PLAYBOOK_REDLINE,
                         ContractVersionSource.ASSISTANT_GENERATED,
+                        ContractVersionSource.USER_REDLINE,
                     ]
                 ),
             )

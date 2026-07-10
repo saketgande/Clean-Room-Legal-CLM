@@ -39,7 +39,7 @@ export default function SearchPage() {
     <div className="space-y-6">
       <PageHeader
         title="Search"
-        description="Search contracts, full text, extracted clauses and projects."
+        description="Look up contracts and projects by name, metadata and dates."
       />
 
       <Tabs
@@ -47,7 +47,7 @@ export default function SearchPage() {
         onChange={(id) => setTab(id as TabId)}
         tabs={[
           { id: "contracts", label: "Contracts" },
-          { id: "text", label: "Text" },
+          { id: "text", label: "Full text" },
           { id: "clauses", label: "Clauses" },
           { id: "projects", label: "Projects" },
         ]}
@@ -57,6 +57,18 @@ export default function SearchPage() {
       {tab === "text" && <TextTab />}
       {tab === "clauses" && <ClausesTab />}
       {tab === "projects" && <ProjectsTab />}
+
+      <p className="text-sm text-slate-500">
+        Looking for something <em>inside</em> your contracts — clauses, wording,
+        concepts? Use{" "}
+        <Link
+          href="/brain"
+          className="font-medium text-brand-600 hover:text-brand-700"
+        >
+          Contract Brain search
+        </Link>{" "}
+        — it understands meaning, not just keywords.
+      </p>
     </div>
   );
 }
@@ -195,13 +207,13 @@ function ContractsTab() {
   );
 }
 
-// ---- Text ----------------------------------------------------------------
+// ---- Full text -------------------------------------------------------------
 function TextTab() {
   const [q, setQ] = useState("");
   const { results, loading, error, run } = useSearch<ContractTextSearchResult>();
 
   function search() {
-    if (q.trim().length < 2) return;
+    if (!q.trim()) return;
     run(() => searchApi.text({ q: q.trim(), limit: 50 }));
   }
 
@@ -209,95 +221,16 @@ function TextTab() {
     <div className="space-y-4">
       <Card>
         <CardBody className="flex items-end gap-3">
-          <Field label="Full-text query" className="flex-1">
+          <Field
+            label="Exact words or phrases"
+            hint="Searches the latest text of every contract you can read."
+            className="flex-1"
+          >
             <Input
-              placeholder="Phrase to find inside contract text…"
+              placeholder="termination for convenience"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </Field>
-          <Button onClick={search} loading={loading} disabled={!q.trim()}>
-            <SearchIcon className="h-4 w-4" />
-            Search
-          </Button>
-        </CardBody>
-      </Card>
-
-      {loading ? (
-        <CenterLoading />
-      ) : error ? (
-        <ErrorState error={error} />
-      ) : results === null ? null : results.length === 0 ? (
-        <NoResults />
-      ) : (
-        <div className="space-y-3">
-          {results.map((r) => (
-            <Card key={r.contract_id}>
-              <CardBody className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <Link
-                    href={`/contracts/${r.contract_id}`}
-                    className="text-sm font-semibold text-slate-900 hover:text-brand-700"
-                  >
-                    {r.contract_title}
-                  </Link>
-                  <Badge tone="slate">
-                    {r.matches.length} match
-                    {r.matches.length === 1 ? "" : "es"}
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  {r.matches.map((m, i) => (
-                    <blockquote
-                      key={i}
-                      className="border-l-2 border-brand-400 pl-3 text-sm text-slate-600"
-                    >
-                      …{m.excerpt}…
-                    </blockquote>
-                  ))}
-                </div>
-              </CardBody>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---- Clauses -------------------------------------------------------------
-function ClausesTab() {
-  const [q, setQ] = useState("");
-  const [clauseType, setClauseType] = useState("");
-  const { results, loading, error, run } = useSearch<ClauseSearchResult>();
-
-  function search() {
-    run(() =>
-      searchApi.clauses({
-        q: q || undefined,
-        clause_type: clauseType || undefined,
-      }),
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <Card>
-        <CardBody className="flex flex-wrap items-end gap-3">
-          <Field label="Query" className="min-w-[200px] flex-1">
-            <Input
-              placeholder="e.g. limitation of liability"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </Field>
-          <Field label="Clause type" className="w-56">
-            <Input
-              placeholder="e.g. indemnification"
-              value={clauseType}
-              onChange={(e) => setClauseType(e.target.value)}
             />
           </Field>
           <Button onClick={search} loading={loading}>
@@ -314,30 +247,139 @@ function ClausesTab() {
       ) : results === null ? null : results.length === 0 ? (
         <NoResults />
       ) : (
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {results.map((c) => (
-            <Card key={c.clause_id}>
+        <div className="space-y-3">
+          {results.map((r) => (
+            <Card key={`${r.contract_id}-${r.text_snapshot_id}`}>
               <CardBody className="space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <Badge tone="violet">{titleCase(c.clause_type)}</Badge>
-                  {Number.isFinite(Number(c.confidence)) && (
-                    <Badge tone="slate">
-                      {Math.round(Number(c.confidence) * 100)}%
-                    </Badge>
-                  )}
+                  <Link
+                    href={`/contracts/${r.contract_id}`}
+                    className="text-sm font-semibold text-slate-900 hover:text-brand-700"
+                  >
+                    {r.contract_title}
+                  </Link>
+                  <Badge tone="slate">
+                    {r.matches.length} match{r.matches.length === 1 ? "" : "es"}
+                  </Badge>
                 </div>
-                <Link
-                  href={`/contracts/${c.contract_id}`}
-                  className="block text-sm font-semibold text-slate-900 hover:text-brand-700"
-                >
-                  {c.heading || c.contract_title}
-                </Link>
-                <p className="text-xs text-slate-400">{c.contract_title}</p>
-                <p className="text-sm text-slate-600">{c.excerpt}</p>
+                <ul className="space-y-1.5">
+                  {r.matches.slice(0, 3).map((m, i) => (
+                    <li
+                      key={i}
+                      className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] leading-relaxed text-slate-600"
+                    >
+                      …{m.excerpt}…
+                    </li>
+                  ))}
+                </ul>
               </CardBody>
             </Card>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---- Clauses ---------------------------------------------------------------
+const CLAUSE_TYPE_OPTIONS = [
+  "confidentiality", "data_protection", "governing_law", "indemnification",
+  "limitation_of_liability", "non_compete", "payment_terms", "renewal",
+  "term_and_termination", "warranty",
+];
+
+function ClausesTab() {
+  const [q, setQ] = useState("");
+  const [clauseType, setClauseType] = useState("");
+  const { results, loading, error, run } = useSearch<ClauseSearchResult>();
+
+  function search() {
+    run(() =>
+      searchApi.clauses({
+        q: q.trim() || undefined,
+        clause_type: clauseType || undefined,
+        limit: 50,
+      }),
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardBody className="flex flex-wrap items-end gap-3">
+          <Field label="Wording" className="min-w-[200px] flex-1">
+            <Input
+              placeholder="auto-renew, uncapped liability…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && search()}
+            />
+          </Field>
+          <Field label="Clause type" className="w-56">
+            <select
+              value={clauseType}
+              onChange={(e) => setClauseType(e.target.value)}
+              className="h-9 w-full rounded border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            >
+              <option value="">Any type</option>
+              {CLAUSE_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {titleCase(t)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Button onClick={search} loading={loading}>
+            <SearchIcon className="h-4 w-4" />
+            Search
+          </Button>
+        </CardBody>
+      </Card>
+
+      {loading ? (
+        <CenterLoading />
+      ) : error ? (
+        <ErrorState error={error} />
+      ) : results === null ? null : results.length === 0 ? (
+        <NoResults />
+      ) : (
+        <Card>
+          <Table>
+            <THead>
+              <tr>
+                <TH>Contract</TH>
+                <TH>Clause</TH>
+                <TH>Excerpt</TH>
+                <TH className="text-right">Confidence</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {results.map((r) => (
+                <TR key={r.clause_id}>
+                  <TD className="font-medium text-slate-900">
+                    <Link
+                      href={`/contracts/${r.contract_id}`}
+                      className="hover:text-brand-700"
+                    >
+                      {r.contract_title}
+                    </Link>
+                  </TD>
+                  <TD>
+                    <Badge tone="blue">{titleCase(r.clause_type)}</Badge>
+                  </TD>
+                  <TD className="max-w-md">
+                    <span className="line-clamp-2 text-[13px] text-slate-600">
+                      {r.excerpt}
+                    </span>
+                  </TD>
+                  <TD className="text-right tabular-nums">
+                    {Math.round(r.confidence * 100)}%
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </Card>
       )}
     </div>
   );

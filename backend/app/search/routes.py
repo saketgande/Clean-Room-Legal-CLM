@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.contract_brain.models import ClauseExtraction
@@ -11,13 +11,16 @@ from app.contracts.models import Contract
 from app.core.deps import get_db, require_permission
 from app.projects.access import get_project_for_user, project_scope_query
 from app.projects.models import Project, ProjectContract
+from app.search.fts import (
+    clause_vector,
+    fts_usable,
+    like_contains,
+    snapshot_headline,
+    snapshot_vector,
+    text_matches,
+)
 
 router = APIRouter(prefix="/search", tags=["search"])
-
-
-def _like_contains(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
 
 
 @router.get("/contracts")
@@ -50,7 +53,7 @@ def search_contracts(
             ProjectContract.project_id == project_id,
         )
     if q:
-        q_like = _like_contains(q)
+        q_like = like_contains(q)
         metadata_filter = or_(
             Contract.title.ilike(q_like, escape="\\"),
             Contract.counterparty_name.ilike(q_like, escape="\\"),
@@ -58,10 +61,15 @@ def search_contracts(
             Contract.jurisdiction.ilike(q_like, escape="\\"),
         )
         if include_text:
+            text_match = (
+                snapshot_vector().op("@@")(func.websearch_to_tsquery("english", q))
+                if fts_usable(db, q)
+                else ContractTextSnapshot.text.ilike(q_like, escape="\\")
+            )
             text_contract_ids = select(ContractTextSnapshot.contract_id).where(
                 ContractTextSnapshot.org_id == current_user.org_id,
                 ContractTextSnapshot.deleted_at.is_(None),
-                ContractTextSnapshot.text.ilike(q_like, escape="\\"),
+                text_match,
             )
             query = query.where(or_(metadata_filter, Contract.id.in_(text_contract_ids)))
         else:
@@ -73,9 +81,9 @@ def search_contracts(
     if contract_type:
         query = query.where(Contract.contract_type == contract_type)
     if counterparty:
-        query = query.where(Contract.counterparty_name.ilike(_like_contains(counterparty), escape="\\"))
+        query = query.where(Contract.counterparty_name.ilike(like_contains(counterparty), escape="\\"))
     if jurisdiction:
-        query = query.where(Contract.jurisdiction.ilike(_like_contains(jurisdiction), escape="\\"))
+        query = query.where(Contract.jurisdiction.ilike(like_contains(jurisdiction), escape="\\"))
     if effective_from:
         query = query.where(Contract.effective_date >= effective_from)
     if effective_to:
@@ -96,17 +104,30 @@ def search_contract_text(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
+    use_fts = fts_usable(db, q)
+    tsq = func.websearch_to_tsquery("english", q)
+    headline = (
+        snapshot_headline(tsq)
+        if use_fts
+        else func.substr(ContractTextSnapshot.text, 1, 0)
+    )
     query = (
-        select(ContractTextSnapshot, Contract)
+        select(ContractTextSnapshot, Contract, headline.label("headline"))
         .join(Contract, Contract.id == ContractTextSnapshot.contract_id)
         .where(
             ContractTextSnapshot.org_id == current_user.org_id,
             ContractTextSnapshot.deleted_at.is_(None),
             Contract.deleted_at.is_(None),
             accessible_contract_filter(current_user),
-            ContractTextSnapshot.text.ilike(_like_contains(q), escape="\\"),
         )
     )
+    if use_fts:
+        vec = snapshot_vector()
+        query = query.where(vec.op("@@")(tsq)).order_by(func.ts_rank(vec, tsq).desc())
+    else:
+        query = query.where(
+            ContractTextSnapshot.text.ilike(like_contains(q), escape="\\")
+        )
     if contract_id:
         query = query.where(ContractTextSnapshot.contract_id == contract_id)
     if project_id:
@@ -116,16 +137,28 @@ def search_contract_text(
             ProjectContract.project_id == project_id,
         )
     rows = db.execute(query.limit(min(limit, 100))).all()
-    return [
-        {
-            "contract_id": contract.id,
-            "contract_title": contract.title,
-            "text_snapshot_id": snapshot.id,
-            "contract_version_id": snapshot.contract_version_id,
-            "matches": _text_matches(snapshot.text, q),
-        }
-        for snapshot, contract in rows
-    ]
+    results = []
+    for snapshot, contract, headline_text in rows:
+        # Exact-substring excerpts when the literal query appears; otherwise
+        # (stemmed FTS matches like "terminations" → "termination") fall back
+        # to ts_headline fragments so the user still sees why it matched.
+        matches = text_matches(snapshot.text, q)
+        if not matches and headline_text:
+            matches = [
+                {"start_char": -1, "end_char": -1, "excerpt": frag.strip()}
+                for frag in str(headline_text).split(" ... ")
+                if frag.strip()
+            ]
+        results.append(
+            {
+                "contract_id": contract.id,
+                "contract_title": contract.title,
+                "text_snapshot_id": snapshot.id,
+                "contract_version_id": snapshot.contract_version_id,
+                "matches": matches,
+            }
+        )
+    return results
 
 
 @router.get("/clauses")
@@ -149,14 +182,26 @@ def search_clauses(
         )
     )
     if q:
-        q_like = _like_contains(q)
-        query = query.where(
-            or_(
-                ClauseExtraction.text.ilike(q_like, escape="\\"),
-                ClauseExtraction.heading.ilike(q_like, escape="\\"),
-                ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
+        q_like = like_contains(q)
+        if fts_usable(db, q):
+            tsq = func.websearch_to_tsquery("english", q)
+            vec = clause_vector()
+            # clause_type stays ILIKE — it's a short slug ("limitation_of_
+            # liability") that FTS tokenizes poorly.
+            query = query.where(
+                or_(
+                    vec.op("@@")(tsq),
+                    ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
+                )
+            ).order_by(func.ts_rank(vec, tsq).desc())
+        else:
+            query = query.where(
+                or_(
+                    ClauseExtraction.text.ilike(q_like, escape="\\"),
+                    ClauseExtraction.heading.ilike(q_like, escape="\\"),
+                    ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
+                )
             )
-        )
     if clause_type:
         query = query.where(ClauseExtraction.clause_type == clause_type)
     if contract_id:
@@ -194,7 +239,7 @@ def search_projects(
 ):
     query = project_scope_query(db, user=current_user)
     if q:
-        q_like = _like_contains(q)
+        q_like = like_contains(q)
         query = query.where(
             or_(
                 Project.name.ilike(q_like, escape="\\"),
@@ -226,7 +271,7 @@ def search_contract_versions(
         )
     )
     if q:
-        query = query.where(ContractVersion.change_summary.ilike(_like_contains(q), escape="\\"))
+        query = query.where(ContractVersion.change_summary.ilike(like_contains(q), escape="\\"))
     if source:
         query = query.where(ContractVersion.source == source)
     if contract_id:
@@ -244,23 +289,3 @@ def search_contract_versions(
         }
         for version, contract in rows
     ]
-
-
-def _text_matches(text: str, q: str) -> list[dict]:
-    matches = []
-    lowered = text.lower()
-    needle = q.lower()
-    start = lowered.find(needle)
-    while start >= 0 and len(matches) < 5:
-        end = start + len(q)
-        excerpt_start = max(0, start - 160)
-        excerpt_end = min(len(text), end + 160)
-        matches.append(
-            {
-                "start_char": start,
-                "end_char": end,
-                "excerpt": text[excerpt_start:excerpt_end],
-            }
-        )
-        start = lowered.find(needle, end)
-    return matches

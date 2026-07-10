@@ -635,6 +635,20 @@ class ToolRuntime:
         workflow_name = builtin["name"] if builtin else workflow.name
         workflow_type = builtin["workflow_type"] if builtin else workflow.workflow_type
         definition = dict((builtin or {}).get("definition") or (workflow.definition if workflow else {}) or {})
+
+        # Record usage so the Prompt Library analytics reflect assistant-driven
+        # runs too. Uses the audit log (not WorkflowRun) so built-ins — which
+        # have no WorkflowRun row — are counted like every other launch.
+        write_audit_log(
+            db,
+            action="workflow.launched",
+            resource_type="workflow",
+            resource_id=payload.workflow_id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            metadata={"mode": "ai_tool", "contract_count": len(contract_ids)},
+        )
+
         output = {
             "workflow": {
                 "id": payload.workflow_id,

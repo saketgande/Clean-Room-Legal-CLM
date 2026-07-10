@@ -19,12 +19,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply the saved theme before first paint to avoid a flash. Defaults
-            to dark when no preference is stored. */}
+        {/* Apply the saved theme before first paint to avoid a flash. Fluent 2
+            is light-first, so a fresh visitor defaults to light. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':true;document.documentElement.classList.toggle('dark',dark);}catch(e){document.documentElement.classList.add('dark');}})();",
+              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':false;document.documentElement.classList.toggle('dark',dark);}catch(e){}})();",
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -33,8 +33,10 @@ export default function RootLayout({
           href="https://fonts.gstatic.com"
           crossOrigin="anonymous"
         />
+        {/* UI chrome is Segoe UI (Fluent stack, system font — no webfont needed).
+            Newsreader remains for long-form contract reading surfaces only. */}
         <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=Newsreader:opsz,wght@6..72,380;6..72,440;6..72,500;6..72,560&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,380;6..72,440;6..72,500;6..72,560&display=swap"
           rel="stylesheet"
         />
       </head>

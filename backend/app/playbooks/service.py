@@ -475,7 +475,7 @@ def execute_playbook_run(
             base_version=contract_version,
             source_snapshot=snapshot,
             run=run,
-            deviations=deviations,
+            evaluated_pairs=list(zip(evaluated, deviations, strict=False)),
         )
     run.status = "succeeded"
     run.validation_status = run_validation
@@ -625,15 +625,60 @@ def _create_playbook_redline_version(
     base_version: ContractVersion,
     source_snapshot: ContractTextSnapshot,
     run: PlaybookRun,
-    deviations: list[PlaybookDeviation],
-) -> tuple[ContractVersion, ContractEdit]:
-    instructions = _redline_instructions(deviations)
-    proposed_text = _proposed_text(source_snapshot.text, instructions)
+    evaluated_pairs: list[tuple["EvaluatedDeviation", PlaybookDeviation]],
+) -> tuple[ContractVersion, ContractEdit | None]:
+    """Create ONE tracked-change edit per deviation — the specific clause that
+    deviates struck through and its proposed replacement inserted — instead of a
+    single whole-document diff. Located changes are applied to build the proposal
+    text; missing-language deviations (no original span) become insertions.
+    """
+    source_text = source_snapshot.text or ""
+    changes: list[dict] = []
+    for ev, row in evaluated_pairs:
+        replacement = _clean_phrase(ev.replacement_text or ev.suggested_fix) or ""
+        original = _clean_phrase(ev.original_text) or ""
+        if not original and isinstance(ev.citation, dict):
+            original = _clean_phrase(ev.citation.get("quote")) or ""
+        if not original and not replacement:
+            continue  # nothing actionable to show
+        span = _find_phrase(source_text, original) if original else None
+        risk = "high" if ev.severity == "critical" else ev.severity
+        changes.append(
+            {
+                "row": row,
+                "issue": ev.issue,
+                "original": original,
+                "replacement": replacement,
+                "span": span,
+                "risk": risk,
+            }
+        )
+
+    # Apply the located replacements left-to-right (non-overlapping) to build the
+    # proposal text; append any unlocated insertions at the end.
+    located = sorted([c for c in changes if c["span"]], key=lambda c: c["span"][0])
+    parts: list[str] = []
+    cursor = 0
+    for c in located:
+        s0, e0 = c["span"]
+        if s0 < cursor:
+            continue
+        parts.append(source_text[cursor:s0])
+        parts.append(c["replacement"])
+        cursor = e0
+    parts.append(source_text[cursor:])
+    insertions = [c for c in changes if not c["span"] and c["replacement"]]
+    if insertions:
+        parts.append("\n\n")
+        for c in insertions:
+            parts.append(c["replacement"] + "\n\n")
+    proposed_text = "".join(parts).strip() or source_text
+
     content = _build_playbook_redline_docx(
         contract_title=contract.title,
         base_version_number=base_version.version_number,
-        source_text=source_snapshot.text,
-        instructions=instructions,
+        source_text=source_text,
+        instructions=_redline_instructions([c["row"] for c in changes]),
     )
     storage_object = _store_docx(
         db,
@@ -642,27 +687,6 @@ def _create_playbook_redline_version(
         filename=f"{_safe_filename(contract.title)}-playbook-redline-v{base_version.version_number}.docx",
         content=content,
     )
-    edit = ContractEdit(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        contract_version_id=base_version.id,
-        edit_type="playbook_redline",
-        status="proposed",
-        original_text=source_snapshot.text[:4000],
-        replacement_text=proposed_text,
-        rationale=f"Playbook run {run.id} produced {len(deviations)} deviation(s).",
-        citation=[
-            {
-                "type": "playbook_run",
-                "playbook_run_id": run.id,
-                "playbook_deviation_ids": [row.id for row in deviations],
-            }
-        ],
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(edit)
-    db.flush()
     redline_version = ContractVersion(
         org_id=user.org_id,
         contract_id=contract.id,
@@ -677,10 +701,6 @@ def _create_playbook_redline_version(
     )
     db.add(redline_version)
     db.flush()
-    edit.citation = [
-        *(edit.citation or []),
-        {"type": "assistant_edit_version", "contract_version_id": redline_version.id},
-    ]
     snapshot = ContractTextSnapshot(
         org_id=user.org_id,
         contract_id=contract.id,
@@ -697,6 +717,46 @@ def _create_playbook_redline_version(
     db.add(snapshot)
     db.flush()
     redline_version.text_snapshot_id = snapshot.id
+
+    edits: list[ContractEdit] = []
+    for c in changes:
+        span = c["span"]
+        citation: list[dict] = [
+            {"type": "assistant_edit_version", "contract_version_id": redline_version.id},
+            {
+                "type": "anchor",
+                "start": span[0] if span else -1,
+                "end": span[1] if span else -1,
+                "matched": bool(span),
+                "applied": bool(span),
+                "risk_level": c["risk"],
+            },
+            {
+                "type": "playbook_run",
+                "playbook_run_id": run.id,
+                "playbook_deviation_id": c["row"].id,
+            },
+        ]
+        if c["original"]:
+            citation.append({"type": "source_quote", "quote": c["original"]})
+        edit = ContractEdit(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            contract_version_id=base_version.id,
+            edit_type="playbook_redline",
+            status="proposed",
+            original_text=c["original"] or None,
+            replacement_text=c["replacement"] or None,
+            rationale=c["issue"],
+            citation=citation,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(edit)
+        edits.append(edit)
+    db.flush()
+
+    primary = edits[0] if edits else None
     write_audit_log(
         db,
         action="playbook.redline_created",
@@ -704,7 +764,7 @@ def _create_playbook_redline_version(
         resource_id=redline_version.id,
         org_id=user.org_id,
         actor_user_id=user.id,
-        after={"playbook_run_id": run.id, "contract_edit_id": edit.id, "base_version_id": base_version.id},
+        after={"playbook_run_id": run.id, "edit_count": len(edits), "base_version_id": base_version.id},
     )
     write_timeline_event(
         db,
@@ -714,9 +774,9 @@ def _create_playbook_redline_version(
         event_type="playbook.redline_created",
         title="Playbook tracked-change redline created",
         actor_user_id=user.id,
-        details={"playbook_run_id": run.id, "contract_version_id": redline_version.id, "contract_edit_id": edit.id},
+        details={"playbook_run_id": run.id, "contract_version_id": redline_version.id, "edit_count": len(edits)},
     )
-    return redline_version, edit
+    return redline_version, primary
 
 
 def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, content: bytes) -> StorageObject:

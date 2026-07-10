@@ -392,9 +392,14 @@ def compute_review_status(db: Session, *, contract: Contract) -> dict:
         or 0
     ) > 0
 
-    # High-severity issues, pending redlines, and open comments block approval.
-    blockers = high_issues + pending_redlines + open_comments
-    ready_for_approval = stage in _PRE_APPROVAL_STAGES and blockers == 0
+    # ONE gate to approval: the document must be final, i.e. every proposed
+    # redline is accepted or rejected. Approvers sign off on settled text, so
+    # undecided changes are the only true blocker. High-severity issues and open
+    # comments are surfaced as ADVISORY signals (see checklist) but don't block —
+    # high risk is handled by routing to a senior approver, not by a wall. This
+    # matches how Ironclad / Juro gate the move into approval.
+    blockers = pending_redlines
+    ready_for_approval = stage in _PRE_APPROVAL_STAGES and pending_redlines == 0
 
     def _item(key, label, status, count=0, detail=None):
         return {"key": key, "label": label, "status": status, "count": count, "detail": detail}
@@ -414,10 +419,13 @@ def compute_review_status(db: Session, *, contract: Contract) -> dict:
             ),
         ),
         _item(
-            "issues", "Resolve flagged issues",
-            "done" if open_issues == 0 else ("blocked" if high_issues else "todo"),
+            "issues", "Review flagged issues",
+            # Advisory — never blocks approval; high risk routes to a senior
+            # approver instead. "todo" (not "blocked") keeps the one-click submit
+            # enabled while still surfacing the count.
+            "done" if open_issues == 0 else "todo",
             count=open_issues,
-            detail=f"{high_issues} high/critical" if high_issues else None,
+            detail=f"{high_issues} high/critical · advisory" if high_issues else None,
         ),
         _item(
             "redlines", "Resolve redlines",
@@ -440,24 +448,50 @@ def compute_review_status(db: Session, *, contract: Contract) -> dict:
             _item(
                 "approval", "Submit for approval",
                 "todo" if ready_for_approval else "blocked",
-                detail="Ready" if ready_for_approval else "Clear blockers first",
+                detail=(
+                    "After review"
+                    if stage != ContractLifecycleStage.REVIEW
+                    else ("Ready" if ready_for_approval else "Decide open redlines first")
+                ),
             )
         )
     else:
         checklist.append(_item("approval", "Submit for approval", "done"))
 
+    # Stage-aware guidance: intake and drafting move the contract FORWARD in
+    # the lifecycle (issues/redlines/comments are review-stage work); only the
+    # review stage may recommend submitting for approval — never skipping it.
     if stage not in _PRE_APPROVAL_STAGES:
         next_action, next_step = None, f"Contract is in '{stage}' — review complete."
     elif not ai_reviewed:
         next_action, next_step = "run_ai", "Run an AI review to surface risks and missing clauses."
-    elif high_issues:
-        next_action, next_step = "resolve_issues", f"Resolve {high_issues} high-severity issue(s)."
+    elif stage == ContractLifecycleStage.INTAKE:
+        next_action, next_step = "move_to_drafting", "Intake checks passed — move into drafting."
+    elif stage == ContractLifecycleStage.DRAFTING:
+        next_action, next_step = "move_to_review", "Draft ready? Send it for review."
     elif pending_redlines:
-        next_action, next_step = "resolve_redlines", f"Accept or reject {pending_redlines} pending redline(s)."
-    elif open_comments:
-        next_action, next_step = "resolve_comments", f"Resolve {open_comments} open comment(s)."
+        # The one true gate: finalise the text before approval.
+        next_action, next_step = (
+            "resolve_redlines",
+            f"Accept or reject {pending_redlines} pending redline(s) to finalise the text.",
+        )
     else:
-        next_action, next_step = "submit_approval", "Looks clean — submit for approval."
+        # Redlines are decided → ready to submit. Any open high issues / comments
+        # are advisory only, noted so the user can weigh them (but not blocked).
+        advisories = []
+        if high_issues:
+            advisories.append(f"{high_issues} high-severity issue(s)")
+        if open_comments:
+            advisories.append(f"{open_comments} open comment(s)")
+        note = (
+            f" Heads up: {', '.join(advisories)} still open — review advised."
+            if advisories
+            else ""
+        )
+        next_action, next_step = (
+            "submit_approval",
+            f"Redlines resolved — ready to submit for approval.{note}",
+        )
 
     return {
         "contract_id": cid,

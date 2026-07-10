@@ -429,6 +429,33 @@ async def create_contract_from_upload(
     dispatched_job_types, dispatch_errors = _dispatch_initial_jobs(
         db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
     )
+
+    # An uploaded document is a real contract in flight, not a blank "intake"
+    # request you're about to draft — so send it straight to REVIEW, where the
+    # actual work (AI analysis, redlines, comments) happens. Without this, every
+    # upload (web AND Word add-in) sits in intake until someone manually clicks
+    # through. The Review stage-entry trigger won't re-dispatch the analysis
+    # jobs we just queued above (celery_task_id guard in stage_triggers). This
+    # is best-effort: a hiccup here must never fail the upload itself.
+    try:
+        from app.contracts.lifecycle import transition_contract_stage
+        from app.core.enums import ContractLifecycleStage
+
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.REVIEW,
+            actor_user_id=user.id,
+            reason="Uploaded document — moved to review automatically",
+            request_id=request_id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning(
+            "auto-advance to review failed for contract %s", contract.id, exc_info=True
+        )
+
     db.refresh(contract)
     return {
         "contract": contract,

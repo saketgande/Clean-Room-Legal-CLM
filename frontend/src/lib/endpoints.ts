@@ -5,6 +5,7 @@ import type {
   AIPromptVersionResponse,
   AdminSetting,
   ApiKeyResponse,
+  ApprovalChainStep,
   ApprovalRequest,
   ApprovalReviewContext,
   ApprovalRoutingRule,
@@ -15,16 +16,19 @@ import type {
   AssistantSession,
   AssistantToolCall,
   BrainQuery,
+  BrainSearchResponse,
   BrainScope,
   ClauseSearchResult,
   ConfigStatus,
   ContractActivityResponse,
   ContractEditResponse,
   ContractFileResponse,
+  ConsoleResponse,
   ContractHubResponse,
   ContractComment,
   ContractParty,
   ContractResponse,
+  ContractRiskSummary,
   ExternalComment,
   SignerOption,
   ExternalShareView,
@@ -71,6 +75,8 @@ import type {
   UserInvitationResponse,
   UserResponse,
   Workflow,
+  WorkflowVersion,
+  WorkflowUsage,
 } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
@@ -258,6 +264,10 @@ export const projectsApi = {
 export const contractsApi = {
   list: () => apiFetch<ContractResponse[]>("/contracts"),
   get: (id: string) => apiFetch<ContractResponse>(`/contracts/${id}`),
+  risk: (id: string) =>
+    apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`),
+  computeRisk: (id: string) =>
+    apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`, { method: "POST" }),
   upload: (
     file: File,
     extra: { title?: string; counterparty_name?: string; project_id?: string } = {},
@@ -311,6 +321,7 @@ export const contractsApi = {
       contract_version_id?: string;
       parent_comment_id?: string;
       mentioned_user_ids?: string[];
+      anchor?: { start: number; end: number; quote: string } | null;
     },
   ) =>
     apiFetch<ContractComment>(`/contracts/${id}/comments`, {
@@ -342,6 +353,29 @@ export const contractsApi = {
     ),
   downloadVersion: (id: string, versionId: string, name?: string) =>
     apiDownload(`/contracts/${id}/versions/${versionId}/download`, name),
+  proposeEdit: (
+    id: string,
+    payload: {
+      original_text: string;
+      replacement_text: string;
+      rationale?: string;
+      start_hint?: number;
+    },
+  ) =>
+    apiFetch<ContractEditResponse>(`/contracts/${id}/edits/propose`, {
+      method: "POST",
+      body: payload,
+    }),
+  exportDocx: (id: string, name?: string) =>
+    apiDownload(`/contracts/${id}/export-docx`, name),
+  updateText: (
+    id: string,
+    payload: { text: string; change_summary?: string },
+  ) =>
+    apiFetch<ContractVersionResponse>(`/contracts/${id}/text`, {
+      method: "PUT",
+      body: payload,
+    }),
   restoreVersion: (id: string, versionId: string) =>
     apiFetch<ContractVersionResponse>(
       `/contracts/${id}/versions/${versionId}/restore`,
@@ -383,6 +417,7 @@ export const contractsApi = {
       { method: "POST" },
     ),
   hub: () => apiFetch<ContractHubResponse>("/contract-hub"),
+  console: () => apiFetch<ConsoleResponse>("/contract-hub/console"),
 };
 
 // ---- Assistant -----------------------------------------------------------
@@ -477,6 +512,27 @@ export const workflowsApi = {
     description?: string;
     definition?: Record<string, unknown>;
   }) => apiFetch<Workflow>("/workflows", { method: "POST", body: payload }),
+  update: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string | null;
+      definition?: Record<string, unknown>;
+      visibility?: string;
+      shared_user_ids?: string[];
+      note?: string;
+    },
+  ) => apiFetch<Workflow>(`/workflows/${id}`, { method: "PATCH", body: payload }),
+  versions: (id: string) =>
+    apiFetch<WorkflowVersion[]>(`/workflows/${id}/versions`),
+  revert: (id: string, versionId: string) =>
+    apiFetch<Workflow>(`/workflows/${id}/versions/${versionId}/revert`, {
+      method: "POST",
+    }),
+  launch: (id: string, payload: { mode?: string; contract_id?: string } = {}) =>
+    apiFetch<void>(`/workflows/${id}/launch`, { method: "POST", body: payload }),
+  analytics: () =>
+    apiFetch<Record<string, WorkflowUsage>>("/workflows/analytics"),
 };
 
 // ---- Playbooks -----------------------------------------------------------
@@ -556,6 +612,20 @@ export const playbooksApi = {
       `/playbooks/${id}/versions/${versionId}/rules`,
       { method: "POST", body: payload },
     ),
+  updateRule: (
+    id: string,
+    versionId: string,
+    ruleId: string,
+    payload: Record<string, unknown>,
+  ) =>
+    apiFetch<PlaybookRuleResponse>(
+      `/playbooks/${id}/versions/${versionId}/rules/${ruleId}`,
+      { method: "PATCH", body: payload },
+    ),
+  deleteRule: (id: string, versionId: string, ruleId: string) =>
+    apiFetch<void>(`/playbooks/${id}/versions/${versionId}/rules/${ruleId}`, {
+      method: "DELETE",
+    }),
   runs: (id: string) =>
     apiFetch<PlaybookRunResponse[]>(`/playbooks/${id}/runs`),
   createRun: (
@@ -587,6 +657,10 @@ export const playbooksApi = {
 
 // ---- Approvals -----------------------------------------------------------
 export const approvalsApi = {
+  chain: (contractId: string) =>
+    apiFetch<{ steps: ApprovalChainStep[] }>(
+      `/approvals/contracts/${contractId}/chain`,
+    ),
   list: () => apiFetch<ApprovalRequest[]>("/approvals"),
   routingRules: () =>
     apiFetch<ApprovalRoutingRule[]>("/approvals/routing-rules"),
@@ -709,6 +783,10 @@ export const renewalsApi = {
 
 // ---- Contract Brain ------------------------------------------------------
 export const brainApi = {
+  search: (q: string, limit = 8) =>
+    apiFetch<BrainSearchResponse>(
+      `/contract-brain/search?q=${encodeURIComponent(q)}&limit=${limit}`,
+    ),
   ask: (payload: {
     question: string;
     query_scope?: BrainScope;
@@ -790,6 +868,11 @@ export const searchApi = {
 // ---- Notifications / jobs / admin / debug --------------------------------
 export const notificationsApi = {
   list: () => apiFetch<Notification[]>("/notifications"),
+  unreadCount: () => apiFetch<{ count: number }>("/notifications/unread-count"),
+  markRead: (id: string) =>
+    apiFetch<Notification>(`/notifications/${id}/read`, { method: "POST" }),
+  markAllRead: () =>
+    apiFetch<{ marked: number }>("/notifications/read-all", { method: "POST" }),
 };
 
 export const jobsApi = {

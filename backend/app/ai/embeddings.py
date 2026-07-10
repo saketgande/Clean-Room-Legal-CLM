@@ -1,11 +1,17 @@
 import hashlib
+import logging
 import random
 
-from sqlalchemy import delete
+import httpx
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.ai.context import chunk_text
 from app.contract_files.models import ContractEmbedding, ContractTextSnapshot
+from app.contracts.models import Contract
+from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIMENSIONS = 384
@@ -25,7 +31,18 @@ def generate_embeddings_for_snapshot(
         )
     )
     chunks = chunk_text(snapshot.text, chunk_chars=3600, overlap_chars=500)
-    vectors = _embed([chunk["text"] for chunk in chunks])
+    embed_inputs = [chunk["text"] for chunk in chunks]
+    if settings.contextual_chunking:
+        # Prepend a light context marker so a chunk embeds with its parent
+        # contract's identity — helps passages disambiguate across contracts at
+        # retrieval time. Only the EMBEDDED text is prefixed; chunk_text (shown
+        # to the user) stays clean.
+        title = db.scalar(
+            select(Contract.title).where(Contract.id == snapshot.contract_id)
+        )
+        if title:
+            embed_inputs = [f"[Contract: {title}]\n{t}" for t in embed_inputs]
+    vectors = _embed(embed_inputs)
     rows: list[ContractEmbedding] = []
     for chunk, vector in zip(chunks, vectors, strict=False):
         row = ContractEmbedding(
@@ -51,8 +68,22 @@ def generate_embeddings_for_snapshot(
 
 
 def _embed(texts: list[str]) -> list[list[float]]:
+    """Embed texts with the configured provider. Default is the local
+    bge-small model (384-dim, no key). Set embedding_provider="voyage" +
+    voyage_api_key to use voyage-law-2 (1024-dim legal-domain embeddings);
+    that also requires migrating the pgvector column to 1024 and re-embedding,
+    since column dimension is fixed."""
     if not texts:
         return []
+    if settings.embedding_provider == "voyage" and settings.voyage_api_key:
+        try:
+            return _embed_voyage(texts)
+        except Exception:
+            logger.warning("voyage embeddings failed; falling back to local", exc_info=True)
+    return _embed_local(texts)
+
+
+def _embed_local(texts: list[str]) -> list[list[float]]:
     try:
         from fastembed import TextEmbedding
 
@@ -60,6 +91,21 @@ def _embed(texts: list[str]) -> list[list[float]]:
         return [list(vector) for vector in model.embed(texts)]
     except Exception:
         return [_deterministic_mock_vector(text) for text in texts]
+
+
+def _embed_voyage(texts: list[str]) -> list[list[float]]:
+    resp = httpx.post(
+        "https://api.voyageai.com/v1/embeddings",
+        headers={"Authorization": f"Bearer {settings.voyage_api_key}"},
+        json={
+            "input": texts,
+            "model": settings.voyage_embedding_model,
+            "input_type": "document",
+        },
+        timeout=60.0,
+    )
+    resp.raise_for_status()
+    return [item["embedding"] for item in resp.json()["data"]]
 
 
 def _deterministic_mock_vector(text: str) -> list[float]:

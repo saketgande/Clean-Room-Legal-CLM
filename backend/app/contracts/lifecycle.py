@@ -43,6 +43,21 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+def parse_stage_slas(raw: str) -> dict[str, int]:
+    """Parse the "stage:days,stage:days" SLA setting; malformed entries are
+    skipped so a bad env value degrades to fewer SLAs, never a crash."""
+    out: dict[str, int] = {}
+    for part in (raw or "").split(","):
+        if ":" not in part:
+            continue
+        stage, _, days = part.strip().partition(":")
+        try:
+            out[stage.strip()] = int(days)
+        except ValueError:
+            continue
+    return out
+
+
 def allowed_transitions_for(stage: str) -> list[str]:
     return sorted(ALLOWED_TRANSITIONS.get(stage, set()))
 
@@ -138,5 +153,18 @@ def transition_contract_stage(
         actor_user_id=actor_user_id,
         request_id=request_id,
         details={"from_stage": from_stage, "to_stage": to_stage, "reason": reason},
+    )
+
+    # Arriving in a stage starts the work: queue analysis on Review, prompt
+    # signature on Signature, extract obligations/renewals on Active.
+    # Best-effort — a trigger failure never blocks the transition.
+    from app.contracts.stage_triggers import fire_stage_entry_triggers
+
+    fire_stage_entry_triggers(
+        db,
+        contract=contract,
+        from_stage=from_stage,
+        to_stage=to_stage,
+        actor_user_id=actor_user_id,
     )
     return contract

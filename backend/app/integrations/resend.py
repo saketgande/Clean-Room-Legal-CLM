@@ -1,3 +1,5 @@
+import asyncio
+import weakref
 from dataclasses import dataclass
 
 import httpx
@@ -14,27 +16,29 @@ class EmailResult:
 
 
 _RESEND_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
-_shared_resend_client: httpx.AsyncClient | None = None
+_resend_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient]" = (
+    weakref.WeakKeyDictionary()
+)
 
 
 def _resend_client() -> httpx.AsyncClient:
-    """Long-lived HTTP client with connection pooling.
-
-    Mirrors the Claude/DocuSign clients — the previous per-call
-    ``httpx.AsyncClient`` forfeited connection reuse on every email.
-    """
-    global _shared_resend_client
-    if _shared_resend_client is None or _shared_resend_client.is_closed:
-        _shared_resend_client = httpx.AsyncClient(timeout=_RESEND_TIMEOUT)
-    return _shared_resend_client
+    """Shared HTTP client per event loop (see claude.py for why per-loop:
+    Celery's asyncio.run() closes its loop after every task, so a module
+    singleton dies with "Event loop is closed" on the next task)."""
+    loop = asyncio.get_running_loop()
+    client = _resend_clients.get(loop)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(timeout=_RESEND_TIMEOUT)
+        _resend_clients[loop] = client
+    return client
 
 
 async def aclose_resend_client() -> None:
-    """Close the shared HTTP client. Should be called on app shutdown."""
-    global _shared_resend_client
-    if _shared_resend_client is not None and not _shared_resend_client.is_closed:
-        await _shared_resend_client.aclose()
-    _shared_resend_client = None
+    """Close this loop's shared HTTP client. Called on app shutdown."""
+    loop = asyncio.get_running_loop()
+    client = _resend_clients.pop(loop, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
 
 
 class ResendClient:

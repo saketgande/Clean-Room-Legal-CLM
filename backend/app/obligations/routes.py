@@ -25,6 +25,47 @@ logger = logging.getLogger(__name__)
 DUE_SOON_DAYS = 7
 
 
+def _serialize(ob, *, contract_title=None, counterparty_name=None, owner_name=None):
+    """Obligation JSON enriched with the context the UI needs — which contract,
+    which counterparty, and the internal owner's name — so the page never has
+    to show a bare UUID or re-fetch the contract list to resolve titles."""
+    return {
+        "id": ob.id,
+        "org_id": ob.org_id,
+        "contract_id": ob.contract_id,
+        "contract_version_id": ob.contract_version_id,
+        "contract_title": contract_title,
+        "counterparty_name": counterparty_name,
+        "owner_user_id": ob.owner_user_id,
+        "owner_name": owner_name,
+        "responsible_party": ob.responsible_party,
+        "obligation_type": ob.obligation_type,
+        "description": ob.description,
+        "due_date": ob.due_date.isoformat() if ob.due_date else None,
+        "recurrence": ob.recurrence,
+        "status": ob.status,
+        "source_citation": ob.source_citation,
+        "metadata_json": ob.metadata_json or {},
+        "created_at": ob.created_at.isoformat() if ob.created_at else None,
+        "updated_at": ob.updated_at.isoformat() if ob.updated_at else None,
+    }
+
+
+def _serialize_one(db: Session, ob) -> dict:
+    """Single-obligation enrichment (get/update/complete) — one extra lookup."""
+    contract = db.get(Contract, ob.contract_id)
+    owner_name = None
+    if ob.owner_user_id:
+        owner = db.get(User, ob.owner_user_id)
+        owner_name = owner.full_name if owner else None
+    return _serialize(
+        ob,
+        contract_title=contract.title if contract else None,
+        counterparty_name=contract.counterparty_name if contract else None,
+        owner_name=owner_name,
+    )
+
+
 class ObligationUpdate(BaseModel):
     owner_user_id: str | None = None
     responsible_party: str | None = None
@@ -39,7 +80,7 @@ def _get_obligation(db: Session, *, obligation_id: str, current_user: User) -> O
     if ob is None or ob.org_id != current_user.org_id or ob.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
     get_contract_for_user(db, contract_id=ob.contract_id, user=current_user)
-    return ob
+    return _serialize_one(db, ob)
 
 
 @router.get("")
@@ -53,11 +94,11 @@ def list_obligations(
     offset: int = Query(default=0, ge=0),
 ):
     query = (
-        select(Obligation)
+        select(Obligation, Contract.title, Contract.counterparty_name)
         .join(Contract, Contract.id == Obligation.contract_id)
         .where(
-        Obligation.org_id == current_user.org_id,
-        Obligation.deleted_at.is_(None),
+            Obligation.org_id == current_user.org_id,
+            Obligation.deleted_at.is_(None),
             accessible_contract_filter(current_user),
         )
     )
@@ -74,9 +115,27 @@ def list_obligations(
             Obligation.due_date >= _today,
             Obligation.due_date <= _today + _timedelta(days=due_within_days),
         )
-    return db.scalars(
-        query.order_by(Obligation.due_date.asc()).offset(offset).limit(limit)
+    rows = db.execute(
+        query.order_by(Obligation.due_date.asc().nulls_last()).offset(offset).limit(limit)
     ).all()
+    owner_ids = {ob.owner_user_id for ob, _t, _cp in rows if ob.owner_user_id}
+    owner_names = (
+        {
+            u.id: u.full_name
+            for u in db.scalars(select(User).where(User.id.in_(owner_ids))).all()
+        }
+        if owner_ids
+        else {}
+    )
+    return [
+        _serialize(
+            ob,
+            contract_title=title,
+            counterparty_name=counterparty,
+            owner_name=owner_names.get(ob.owner_user_id),
+        )
+        for ob, title, counterparty in rows
+    ]
 
 
 @router.get("/{obligation_id}")
@@ -85,7 +144,8 @@ def get_obligation(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("obligation:read")),
 ):
-    return _get_obligation(db, obligation_id=obligation_id, current_user=current_user)
+    ob = _get_obligation(db, obligation_id=obligation_id, current_user=current_user)
+    return _serialize_one(db, ob)
 
 
 @router.patch("/{obligation_id}")
@@ -118,7 +178,7 @@ def update_obligation(
     )
     db.commit()
     db.refresh(ob)
-    return ob
+    return _serialize_one(db, ob)
 
 
 @router.post("/{obligation_id}/complete")
@@ -141,7 +201,7 @@ def complete_obligation(
     )
     db.commit()
     db.refresh(ob)
-    return ob
+    return _serialize_one(db, ob)
 
 
 @router.post("/extract", status_code=status.HTTP_202_ACCEPTED)

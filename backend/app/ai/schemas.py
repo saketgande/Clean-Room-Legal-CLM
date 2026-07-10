@@ -50,6 +50,18 @@ class ClauseExtractionOutput(BaseModel):
     extraction_notes: str | None = None
 
 
+class ClauseRiskOutput(BaseModel):
+    clause_type: str
+    risk: Literal["low", "medium", "high"] = "low"
+    rationale: str = Field(min_length=1)
+    quote: str | None = None
+
+
+class ContractRiskOutput(BaseModel):
+    clause_risks: list[ClauseRiskOutput] = Field(default_factory=list)
+    summary: str | None = None
+
+
 class ContractDocxSection(BaseModel):
     heading: str
     body: str

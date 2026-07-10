@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowLeft,
   Plus,
   Upload,
   Trash2,
@@ -37,6 +36,7 @@ import {
   Input,
   Modal,
   Select,
+  Breadcrumbs,
   Tabs,
   Table,
   TD,
@@ -98,13 +98,12 @@ export default function ProjectDetailPage({
   return (
     <div className="space-y-6">
       <div>
-        <Link
-          href="/projects"
-          className="mb-3 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Projects
-        </Link>
+        <Breadcrumbs
+          items={[
+            { label: "Projects", href: "/projects" },
+            { label: project.name },
+          ]}
+        />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold tracking-tight text-slate-900">
@@ -522,7 +521,7 @@ function ProjectReviewsTab({
         <EmptyState
           icon={<Table2 className="h-6 w-6" />}
           title="No reviews in this project"
-          description="Create a tabular review seeded from a workflow template and this project's contracts."
+          description="Create a tabular review seeded from a prompt template and this project's contracts."
           action={
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />

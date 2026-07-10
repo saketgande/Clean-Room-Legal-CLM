@@ -4,7 +4,7 @@
 /* global Office, Word */
 
 const API_BASE = "/api/v1";
-const APP_BASE = "http://10.1.128.137:3000";
+const APP_BASE = "https://aegis.ctpsandbox.com";
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 const TOKEN_KEY = "aegis_token";
 const USER_KEY = "aegis_user";

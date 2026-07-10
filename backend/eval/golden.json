@@ -1,0 +1,65 @@
+{
+  "_about": "Golden evaluation set for Aegis AI quality. Grounded in the seeded NDA/consulting contracts. Retrieval checks are free (no LLM); faithfulness checks generate an answer and cost tokens (run with --faithfulness).",
+  "brain_queries": [
+    {
+      "id": "conf-survival",
+      "question": "What is the confidentiality survival period after termination?",
+      "expect_keywords": ["surviv", "termination", "year"],
+      "min_sources": 1
+    },
+    {
+      "id": "governing-law",
+      "question": "What governing law applies to these agreements?",
+      "expect_keywords": ["governed", "laws of", "Delaware", "jurisdiction"],
+      "min_sources": 1
+    },
+    {
+      "id": "breach-remedies",
+      "question": "What remedies are available for breach of confidentiality?",
+      "expect_keywords": ["injunctive", "equitable", "irreparable", "relief", "damages"],
+      "min_sources": 1
+    },
+    {
+      "id": "data-protection",
+      "question": "What data protection obligations exist?",
+      "expect_keywords": ["data", "protection", "personal", "process"],
+      "min_sources": 1
+    },
+    {
+      "id": "conf-definition",
+      "question": "How is confidential information defined?",
+      "expect_keywords": ["confidential information", "means", "includes", "disclos"],
+      "min_sources": 1
+    },
+    {
+      "id": "assignment",
+      "question": "Can the agreement be assigned to a third party?",
+      "expect_keywords": ["assign", "transfer", "consent"],
+      "min_sources": 1
+    },
+    {
+      "id": "return-destroy",
+      "question": "What must happen to confidential information on termination?",
+      "expect_keywords": ["return", "destroy", "destruction", "retain"],
+      "min_sources": 1
+    },
+    {
+      "id": "permitted-disclosure",
+      "question": "When may confidential information be disclosed to third parties?",
+      "expect_keywords": ["permitted", "representatives", "need to know", "required by law"],
+      "min_sources": 1
+    }
+  ],
+  "extraction_taxonomy": {
+    "_about": "Canonical clause types (CUAD-aligned) expected somewhere in the portfolio of NDAs/consulting agreements.",
+    "expected_canonical": [
+      "confidentiality",
+      "term_and_termination",
+      "governing_law",
+      "remedies",
+      "data_protection",
+      "limitation_of_liability",
+      "assignment"
+    ]
+  }
+}

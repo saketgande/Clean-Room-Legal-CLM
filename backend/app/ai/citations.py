@@ -30,6 +30,33 @@ def citation_similarity(needle: str, haystack: str) -> float:
     return SequenceMatcher(None, normalized_needle, normalized_haystack).ratio() * 100
 
 
+def align_citation_to_source(quote: str, source_text: str) -> tuple[str, float]:
+    """Snap a model-produced quote to the closest REAL span in the source.
+
+    LLMs paraphrase when they "quote" — dropping a word, expanding a
+    contraction, tweaking punctuation — so their quote often isn't a verbatim
+    substring even when the claim is genuinely supported. Rather than trust the
+    model's text, we align it to the best-matching window in the source and
+    return that actual span. This is the practical form of "verify, then
+    attribute": the citation shown to the user is always real source text, and
+    the score reflects how well the claim is grounded.
+
+    Returns (best_source_span, score 0-100). Lowercasing preserves length, so
+    rapidfuzz's alignment indices map back into the original source_text.
+    """
+    if not quote or not source_text:
+        return quote, 0.0
+    if fuzz is not None:
+        try:
+            alignment = fuzz.partial_ratio_alignment(quote.lower(), source_text.lower())
+            if alignment is not None:
+                span = source_text[alignment.dest_start : alignment.dest_end].strip()
+                return (span or quote), float(alignment.score)
+        except Exception:  # pragma: no cover - defensive
+            pass
+    return quote, citation_similarity(quote, source_text)
+
+
 def validate_citation(citation: CitationInput, source_text: str, *, is_ocr: bool = False) -> CitationValidationResult:
     score = citation_similarity(citation.quote, source_text)
     word_count = len(citation.quote.split())

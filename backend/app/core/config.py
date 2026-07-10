@@ -113,6 +113,38 @@ class Settings(BaseSettings):
     ai_max_tool_iterations: int = 8
     ai_default_temperature: float = 0.0
 
+    # Retrieval quality (Contract Brain / Search). All default to the current
+    # local, no-key behavior; set the provider + key to activate.
+    #   embedding_provider: "local" (bge-small, 384-dim) | "voyage" (voyage-law-2,
+    #     1024-dim — legal-domain embeddings). Switching to voyage requires the
+    #     1024-dim migration + a full re-embed (see docs) since pgvector columns
+    #     are fixed-dimension.
+    embedding_provider: str = "local"
+    voyage_api_key: str | None = None
+    voyage_embedding_model: str = "voyage-law-2"
+    #   rerank_provider: "none" | "cohere" | "voyage". When set, hybrid_sources
+    #     over-fetches candidates then reranks with a cross-encoder to the top N.
+    rerank_provider: str = "none"
+    cohere_api_key: str | None = None
+    cohere_rerank_model: str = "rerank-english-v3.0"
+    voyage_rerank_model: str = "rerank-2"
+    #   contextual_chunking: prepend a short "[Contract: title]" context marker to
+    #     each embedded chunk so passages disambiguate across contracts (free).
+    contextual_chunking: bool = False
+
+    # Per-stage lifecycle SLAs (days). The daily sweep notifies the contract
+    # owner when a stage SLA is breached and escalates to org admins after
+    # sla_escalation_after_days more days. Format: "stage:days,stage:days".
+    # NDA fast-lane: a low-risk NDA under the value cap with no open
+    # high-severity deviations skips Approval entirely (straight to Signature),
+    # with a full audit trail. The Ironclad-style "routine contracts route
+    # themselves" behavior.
+    nda_fast_lane_enabled: bool = True
+    nda_fast_lane_max_value: float = 50_000.0
+
+    stage_sla_days: str = "intake:3,drafting:7,review:7,approval:3,signature:5"
+    sla_escalation_after_days: int = 3
+
     reducto_api_key: str | None = None
     mock_reducto: bool = False
 

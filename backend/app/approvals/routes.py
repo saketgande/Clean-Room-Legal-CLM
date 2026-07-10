@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.rate_limit import limiter
 
 from app.approvals.models import (
+    ApprovalDecision,
     ApprovalRequest,
     ApprovalRoutingRule,
     ApprovalRoutingStep,
@@ -219,11 +220,102 @@ def _serialize_approval(req: ApprovalRequest, *, can_decide: bool) -> dict:
         "routing_rule_id": req.routing_rule_id,
         "step_order": req.step_order,
         "due_at": req.due_at,
+        "overdue": bool(
+            req.status == "pending"
+            and req.due_at is not None
+            and req.due_at < datetime.now(UTC)
+        ),
         "metadata_json": req.metadata_json,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
         "can_decide": can_decide,
     }
+
+
+@router.get("/contracts/{contract_id}/chain")
+def approval_chain(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Ordered progress of the contract's LATEST approval submission — which
+    step is decided, which is active (and overdue), which is still waiting —
+    so a submitter can see exactly where the chain is stuck."""
+    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    anchor = db.scalar(
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.org_id == current_user.org_id,
+            ApprovalRequest.contract_id == contract_id,
+            ApprovalRequest.step_order == 1,
+        )
+        .order_by(ApprovalRequest.created_at.desc())
+    )
+    if anchor is None:
+        return {"steps": []}
+    # All steps created by that same submission (they're inserted together).
+    requests = db.scalars(
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.org_id == current_user.org_id,
+            ApprovalRequest.contract_id == contract_id,
+            ApprovalRequest.created_at >= anchor.created_at - timedelta(seconds=10),
+        )
+        .order_by(ApprovalRequest.step_order.asc())
+    ).all()
+
+    group_ids = {r.approver_group_id for r in requests if r.approver_group_id}
+    user_ids = {r.approver_user_id for r in requests if r.approver_user_id}
+    groups = {
+        g.id: g.name
+        for g in db.scalars(
+            select(ApproverGroup).where(ApproverGroup.id.in_(group_ids))
+        ).all()
+    } if group_ids else {}
+    users = {
+        u.id: u.full_name
+        for u in db.scalars(select(User).where(User.id.in_(user_ids))).all()
+    } if user_ids else {}
+
+    now = datetime.now(UTC)
+    steps = []
+    for req in requests:
+        decision = db.scalar(
+            select(ApprovalDecision)
+            .where(ApprovalDecision.approval_request_id == req.id)
+            .order_by(ApprovalDecision.decided_at.desc())
+        )
+        decided_by = (
+            users.get(decision.approver_user_id)
+            if decision and decision.approver_user_id
+            else None
+        )
+        if decision and decision.approver_user_id and decided_by is None:
+            decider = db.get(User, decision.approver_user_id)
+            decided_by = decider.full_name if decider else None
+        steps.append(
+            {
+                "approval_request_id": req.id,
+                "step_order": req.step_order,
+                "status": req.status,
+                "approver_label": (
+                    groups.get(req.approver_group_id)
+                    or users.get(req.approver_user_id)
+                    or req.approver_role
+                    or "Approver"
+                ),
+                "due_at": req.due_at,
+                "overdue": bool(
+                    req.status == "pending"
+                    and req.due_at is not None
+                    and req.due_at < now
+                ),
+                "decided_at": decision.decided_at if decision else None,
+                "decided_by": decided_by,
+                "comment": decision.comment if decision else None,
+            }
+        )
+    return {"steps": steps}
 
 
 # --- Approver groups ------------------------------------------------------

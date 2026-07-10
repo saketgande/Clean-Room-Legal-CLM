@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, JSON, String, Text
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, JSON, String, Text
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -36,6 +36,10 @@ class Contract(
     counterparty_name = Column(String(255), index=True, nullable=True)
     jurisdiction = Column(String(160), index=True, nullable=True)
     risk_level = Column(String(80), index=True, nullable=True)
+    # Weighted, explainable risk. risk_summary holds the drivers behind the score.
+    risk_score = Column(Integer, nullable=True)
+    risk_band = Column(String(40), nullable=True)
+    risk_summary = Column(JSON, nullable=True)
     value_amount = Column(Float, nullable=True)
     currency = Column(String(3), nullable=True)
     effective_date = Column(Date, nullable=True)
