@@ -47,6 +47,7 @@ class UserResponse(BaseModel):
     roles: list[str] = Field(default_factory=list)
     active_role_id: str | None = None
     active_role_name: str | None = None
+    clearance: str = "confidential"
 
 
 class RegistrationResponse(BaseModel):

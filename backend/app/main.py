@@ -14,6 +14,10 @@ from app.approvals.routes import router as approvals_router
 from app.assistant.routes import router as assistant_router
 from app.auth.routes import router as auth_router
 from app.auth.routes import users_router
+from app.roles.routes import router as roles_router
+from app.grants.routes import router as grants_router
+from app.walls.routes import router as walls_router
+from app.authority.routes import router as authority_router
 from app.contract_brain.routes import router as contract_brain_router
 from app.contract_files.routes import external_share_router, router as contract_files_router
 from app.contracts.routes import hub_router, router as contracts_router
@@ -127,6 +131,10 @@ def create_app() -> FastAPI:
     prefix = settings.api_v1_prefix
     app.include_router(auth_router, prefix=prefix)
     app.include_router(users_router, prefix=prefix)
+    app.include_router(roles_router, prefix=prefix)
+    app.include_router(grants_router, prefix=prefix)
+    app.include_router(walls_router, prefix=prefix)
+    app.include_router(authority_router, prefix=prefix)
     app.include_router(organizations_router, prefix=prefix)
     app.include_router(projects_router, prefix=prefix)
     app.include_router(contracts_router, prefix=prefix)

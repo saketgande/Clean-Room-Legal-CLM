@@ -24,6 +24,76 @@ export interface UserResponse {
   roles: string[];
   active_role_id: ID | null;
   active_role_name: string | null;
+  clearance: string;
+}
+
+export interface RoleResponse {
+  id: ID;
+  name: string;
+  description: string | null;
+  is_builtin: boolean;
+  permissions: string[];
+  user_count: number;
+}
+
+export interface PermissionInfo {
+  value: string;
+  group: string;
+  description: string | null;
+}
+
+export interface GrantResponse {
+  id: ID;
+  principal_type: string;
+  principal_id: string;
+  principal_label: string;
+  resource_type: string;
+  resource_id: string;
+  access_level: string;
+  note: string | null;
+  valid_until: string | null;
+  revoked_at: string | null;
+  active: boolean;
+  created_at: string | null;
+}
+
+export interface WallPrincipal {
+  id?: ID;
+  principal_type: "user" | "role";
+  principal_id: string;
+  principal_label?: string;
+}
+
+export interface WallResponse {
+  id: ID;
+  name: string;
+  reason: string | null;
+  scope_type: "contract" | "project";
+  scope_id: string;
+  scope_label: string | null;
+  active: boolean;
+  principals: WallPrincipal[];
+  created_at: string | null;
+}
+
+export interface AuthorityGrantResponse {
+  id: ID;
+  principal_type: "user" | "role";
+  principal_id: string;
+  principal_label: string;
+  action: "contract:approve" | "contract:sign";
+  max_value: number | null;
+  currency: string | null;
+  allowed_contract_types: string[];
+  allowed_jurisdictions: string[];
+  max_risk_band: string | null;
+  delegated_by_user_id: string | null;
+  delegated_by_label: string | null;
+  note: string | null;
+  valid_until: string | null;
+  revoked_at: string | null;
+  active: boolean;
+  created_at: string | null;
 }
 
 export interface TokenResponse {
@@ -330,6 +400,7 @@ export interface ContractResponse {
   owner_user_id: ID;
   counterparty_name: string | null;
   jurisdiction: string | null;
+  confidentiality: string;
   risk_level: string | null;
   risk_score?: number | null;
   risk_band?: string | null;

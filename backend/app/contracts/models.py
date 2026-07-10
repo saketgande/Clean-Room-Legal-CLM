@@ -35,6 +35,12 @@ class Contract(
     owner_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
     counterparty_name = Column(String(255), index=True, nullable=True)
     jurisdiction = Column(String(160), index=True, nullable=True)
+    # Phase 3 (MAC): confidentiality classification. Ordered ladder
+    #   public < internal < confidential < restricted
+    # A user may only read a contract whose classification is <= their clearance
+    # (see app/contracts/access.py). Defaults to 'internal' so nothing is locked
+    # down harder than before until it's deliberately reclassified.
+    confidentiality = Column(String(40), index=True, nullable=False, default="internal")
     risk_level = Column(String(80), index=True, nullable=True)
     # Weighted, explainable risk. risk_summary holds the drivers behind the score.
     risk_score = Column(Integer, nullable=True)

@@ -86,20 +86,9 @@ SessionLocal = sessionmaker(
 )
 
 
-def set_session_org(session: Session, org_id: str | None) -> None:
-    """Bind the current org onto the session for Postgres row-level security.
-
-    Issues ``SET LOCAL app.current_org_id`` so RLS policies can scope rows to
-    the active tenant. ``SET LOCAL`` is transaction-scoped, so this takes
-    effect for the remainder of the current transaction on ``session``.
-
-    No-op unless ``ENABLE_RLS`` is on AND an org id is supplied — when RLS is
-    disabled (the default) there are no policies to satisfy and existing
-    session usage is completely unaffected.
-    """
-    if not settings.enable_rls or not org_id:
-        return
-    # Parameter-bound to avoid any chance of injection via the org id.
-    session.execute(
-        text("SET LOCAL app.current_org_id = :org_id"), {"org_id": org_id}
-    )
+# Row-Level Security (Postgres tenant isolation) was removed: this is a
+# single-tenant deployment — one company per install — so there is no second
+# tenant to isolate from. The org_id columns remain as harmless dormant
+# scaffolding (they are folded into the immutable audit hash chain and are the
+# constant every existing query filters on), but nothing binds a per-request
+# tenant GUC any more. See migration 0018 which drops the old RLS policies.

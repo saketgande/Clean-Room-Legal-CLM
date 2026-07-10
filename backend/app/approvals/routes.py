@@ -551,6 +551,24 @@ async def decide_approval(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
     if not _can_decide_approval(db, approval=approval, user=current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
+    # Phase 4 ABAC gate: approving commits the company — verify the decider's
+    # delegated authority covers this contract's value/type/jurisdiction/risk.
+    # Rejections are never gated. Dormant until a policy for the action exists.
+    if payload.decision == "approve":
+        from app.authority.service import enforce_authority
+        from app.contracts.models import Contract
+
+        contract = db.get(Contract, approval.contract_id)
+        if contract is not None:
+            enforce_authority(
+                db,
+                user=current_user,
+                action="contract:approve",
+                contract=contract,
+                resource_type="approval_request",
+                resource_id=approval.id,
+                request_id=getattr(request.state, "request_id", None),
+            )
     await decide_in_app(
         db,
         user=current_user,

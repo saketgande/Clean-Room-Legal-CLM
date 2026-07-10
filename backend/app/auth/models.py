@@ -46,6 +46,12 @@ class User(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Timestamp
     hashed_password = Column(String(500), nullable=False)
     status = Column(String(40), index=True, nullable=False, default=UserStatus.PENDING_APPROVAL)
     active_role_id = Column(String(36), ForeignKey("role.id"), nullable=True)
+    # Phase 3 (MAC): the highest confidentiality level this user may read.
+    #   public < internal < confidential < restricted
+    # Defaults to 'confidential' so existing users keep access to every
+    # public/internal/confidential contract; only 'restricted' matters require a
+    # deliberate clearance bump. Admins bypass clearance (they administer it).
+    clearance = Column(String(40), nullable=False, default="confidential")
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     preferences = Column(JSON, nullable=False, default=dict)
     roles = relationship("Role", secondary=user_role_table, lazy="selectin")

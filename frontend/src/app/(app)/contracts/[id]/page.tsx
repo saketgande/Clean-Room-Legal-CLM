@@ -38,6 +38,8 @@ import {
   Copy,
   GitCompare,
   MoreHorizontal,
+  Users,
+  UserPlus,
 } from "lucide-react";
 import {
   aiApi,
@@ -45,10 +47,13 @@ import {
   assistantApi,
   brainApi,
   contractsApi,
+  grantsApi,
   obligationsApi,
   playbooksApi,
   renewalsApi,
+  rolesApi,
   signaturesApi,
+  usersApi,
 } from "@/lib/endpoints";
 import {
   Badge,
@@ -87,6 +92,7 @@ import type {
   Citation,
   ContractComment,
   ContractEditResponse,
+  ContractResponse,
   ContractLifecycleStage,
   ContractShareResponse,
   ContractVersionResponse,
@@ -1339,8 +1345,10 @@ export default function ContractDetailPage({
   const { notify } = useToast();
   const { setForceCollapsed } = useLayout();
   const router = useRouter();
+  const { user } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activityOpen, setActivityOpen] = useState(false);
+  const [accessOpen, setAccessOpen] = useState(false);
 
   // The workspace needs the room — collapse the main nav to an icon rail while
   // the contract document pane is open.
@@ -1464,6 +1472,7 @@ export default function ContractDetailPage({
       { key: "playbook", label: "Run playbook", icon: BookMarked, onClick: () => setRunPbOpen(true), show: stage !== "active" && stage !== "closed" },
       { key: "analyze", label: "Re-run AI analysis", icon: ScanSearch, onClick: reAnalyze, loading: busy === "analyze", show: true },
       { key: "oblig", label: "Extract obligations", icon: ListChecks, onClick: extractObligations, loading: busy === "oblig", show: stage === "active" },
+      { key: "access", label: "Manage access", icon: Users, onClick: () => setAccessOpen(true), show: !!user && (!!user.roles?.includes("admin") || contract?.owner_user_id === user.id) },
       { key: "activity", label: "Activity & audit trail", icon: History, onClick: () => setActivityOpen(true), show: true },
     ] as {
       key: string;
@@ -1736,6 +1745,256 @@ export default function ContractDetailPage({
           <ActivityTab contractId={id} />
         </Modal>
       )}
+      {accessOpen && (
+        <Modal
+          open
+          onClose={() => setAccessOpen(false)}
+          title="Manage access"
+          size="lg"
+        >
+          <AccessManager contractId={id} contract={contract} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ---- Access / sharing (Phase 2 resource grants) --------------------------
+const ACCESS_LEVELS = [
+  { value: "read", label: "Read" },
+  { value: "comment", label: "Comment" },
+  { value: "update", label: "Edit" },
+  { value: "share", label: "Share" },
+  { value: "owner", label: "Owner" },
+];
+
+const CONFIDENTIALITY_LEVELS = [
+  { value: "public", label: "Public", tone: "slate" as const },
+  { value: "internal", label: "Internal", tone: "blue" as const },
+  { value: "confidential", label: "Confidential", tone: "amber" as const },
+  { value: "restricted", label: "Restricted", tone: "red" as const },
+];
+
+function AccessManager({
+  contractId,
+  contract,
+}: {
+  contractId: string;
+  contract?: ContractResponse;
+}) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const grantsKey = ["grants", "contract", contractId];
+  const [classifying, setClassifying] = useState(false);
+
+  async function reclassify(next: string) {
+    if (!contract || next === contract.confidentiality) return;
+    setClassifying(true);
+    try {
+      await contractsApi.update(contractId, { confidentiality: next });
+      qc.invalidateQueries({ queryKey: ["contract", contractId] });
+      notify("Classification updated", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", "error");
+    } finally {
+      setClassifying(false);
+    }
+  }
+  const { data: grants, isLoading, error } = useQuery({
+    queryKey: grantsKey,
+    queryFn: () => grantsApi.list("contract", contractId),
+  });
+  const { data: users } = useQuery({
+    queryKey: ["org-users-all"],
+    queryFn: () => usersApi.list(),
+  });
+  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
+
+  const [principalType, setPrincipalType] = useState<"user" | "role">("user");
+  const [principalId, setPrincipalId] = useState("");
+  const [level, setLevel] = useState("read");
+  const [expiry, setExpiry] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  async function add() {
+    if (!principalId) return;
+    setBusy(true);
+    try {
+      await grantsApi.create({
+        principal_type: principalType,
+        principal_id: principalId,
+        resource_type: "contract",
+        resource_id: contractId,
+        access_level: level,
+        valid_until: expiry ? new Date(expiry).toISOString() : null,
+      });
+      qc.invalidateQueries({ queryKey: grantsKey });
+      setPrincipalId("");
+      setExpiry("");
+      notify("Access granted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Grant failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revoke(id: string) {
+    setRevoking(id);
+    try {
+      await grantsApi.revoke(id);
+      qc.invalidateQueries({ queryKey: grantsKey });
+      notify("Access revoked", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Revoke failed", "error");
+    } finally {
+      setRevoking(null);
+    }
+  }
+
+  const principals =
+    principalType === "user"
+      ? (users ?? []).map((u) => ({ id: u.id, label: `${u.full_name} · ${u.email}` }))
+      : (roles ?? []).map((r) => ({ id: r.id, label: titleCase(r.name) }));
+
+  return (
+    <div className="space-y-5">
+      {/* confidentiality classification (MAC) */}
+      {contract && (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Confidentiality
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Users below this clearance can’t open it — or reach it via search
+                or the assistant.
+              </p>
+            </div>
+            <Select
+              value={contract.confidentiality}
+              disabled={classifying}
+              onChange={(e) => reclassify(e.target.value)}
+              className="w-40"
+            >
+              {CONFIDENTIALITY_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
+      )}
+
+      {/* current access */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Who has access
+        </p>
+        {isLoading ? (
+          <CenterSpinner />
+        ) : error ? (
+          <ErrorState error={error} />
+        ) : (grants ?? []).length === 0 ? (
+          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+            No explicit grants yet — access follows ownership, matter/project
+            membership and admin.
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {(grants ?? []).map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-slate-200 px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-slate-800">
+                    {g.principal_label}
+                    <Badge tone="slate" className="ml-2">
+                      {g.principal_type}
+                    </Badge>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {ACCESS_LEVELS.find((l) => l.value === g.access_level)?.label ??
+                      g.access_level}
+                    {g.valid_until
+                      ? ` · until ${new Date(g.valid_until).toLocaleDateString()}`
+                      : ""}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => revoke(g.id)}
+                  loading={revoking === g.id}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Revoke
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* add access */}
+      <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+          <UserPlus className="h-3.5 w-3.5" /> Grant access
+        </p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <Field label="To">
+            <div className="flex gap-2">
+              <Select
+                value={principalType}
+                onChange={(e) => {
+                  setPrincipalType(e.target.value as "user" | "role");
+                  setPrincipalId("");
+                }}
+                className="w-28 shrink-0"
+              >
+                <option value="user">Person</option>
+                <option value="role">Role</option>
+              </Select>
+              <Select
+                value={principalId}
+                onChange={(e) => setPrincipalId(e.target.value)}
+              >
+                <option value="">Select…</option>
+                {principals.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </Field>
+          <Field label="Access level">
+            <Select value={level} onChange={(e) => setLevel(e.target.value)}>
+              {ACCESS_LEVELS.map((l) => (
+                <option key={l.value} value={l.value}>
+                  {l.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Expires" hint="Optional — leave blank for no expiry">
+            <Input
+              type="date"
+              value={expiry}
+              onChange={(e) => setExpiry(e.target.value)}
+            />
+          </Field>
+          <div className="flex items-end justify-end">
+            <Button onClick={add} loading={busy} disabled={!principalId}>
+              Grant access
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

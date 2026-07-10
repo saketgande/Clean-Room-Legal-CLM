@@ -18,6 +18,7 @@ class ContractResponse(BaseModel):
     owner_user_id: str
     counterparty_name: str | None
     jurisdiction: str | None
+    confidentiality: str = "internal"
     risk_level: str | None
     risk_score: int | None = None
     risk_band: str | None = None
@@ -49,6 +50,9 @@ class ContractUpdate(BaseModel):
     contract_type: str | None = None
     counterparty_name: str | None = None
     jurisdiction: str | None = None
+    confidentiality: str | None = Field(
+        default=None, pattern="^(public|internal|confidential|restricted)$"
+    )
     risk_level: str | None = None
     value_amount: float | None = None
     currency: str | None = Field(default=None, max_length=3)

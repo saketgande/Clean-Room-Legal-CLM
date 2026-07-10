@@ -95,6 +95,7 @@ def update_contract_metadata(
         "contract_type": contract.contract_type,
         "counterparty_name": contract.counterparty_name,
         "jurisdiction": contract.jurisdiction,
+        "confidentiality": contract.confidentiality,
         "risk_level": contract.risk_level,
         "value_amount": contract.value_amount,
         "currency": contract.currency,

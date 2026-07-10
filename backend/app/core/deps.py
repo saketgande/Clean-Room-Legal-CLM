@@ -82,6 +82,16 @@ def get_current_user(
 def require_permission(permission: str):
     def dependency(current_user: User = Depends(get_current_user)) -> User:
         if not has_permission(current_user.permission_values, permission):
+            # Method 8: record the denial on the immutable audit chain (isolated
+            # session, so it survives the 403's rolled-back request transaction).
+            from app.core.authz import record_decision
+
+            record_decision(
+                user=current_user,
+                action=permission,
+                outcome="denied",
+                reason="missing_permission",
+            )
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {permission}")
         return current_user
 

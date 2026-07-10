@@ -75,6 +75,7 @@ def _user_response(user: User) -> dict:
         "roles": [role.name for role in user.roles],
         "active_role_id": user.active_role_id,
         "active_role_name": active_role.name if active_role else None,
+        "clearance": getattr(user, "clearance", None) or "confidential",
     }
 
 
@@ -251,8 +252,6 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
     if org is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "Organization setup is required first")
 
-    domain = _normalize_domain(str(payload.email))
-    allowed_domains = [item.lower() for item in (org.allowed_domains or [])]
     existing_user = db.scalar(select(User).where(User.email == str(payload.email).lower()))
     # Email-enumeration defense: do not differentiate "address already
     # registered" from "address newly registered". An unauthenticated caller
@@ -269,20 +268,9 @@ def register_user(db: Session, payload: RegisterRequest) -> tuple[str, User | No
         )
         return "pending_approval", None
 
-    if allowed_domains and domain not in allowed_domains:
-        join_request = OrgJoinRequest(
-            org_id=org.id,
-            email=str(payload.email).lower(),
-            full_name=payload.full_name,
-            requested_domain=domain,
-            message=payload.message,
-        )
-        db.add(join_request)
-        db.commit()
-        # Same generic response shape as the in-domain path so the caller
-        # cannot distinguish a domain rejection from an accepted registration.
-        return "pending_approval", None
-
+    # Single-tenant: no email-domain gating. Anyone who self-registers becomes a
+    # PENDING_APPROVAL user the admin vets on the "Users & Access" queue. (The
+    # old cross-org join-request fork is gone — there is only one company.)
     user = User(
         org_id=org.id,
         email=str(payload.email).lower(),

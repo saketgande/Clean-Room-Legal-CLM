@@ -82,6 +82,19 @@ async def send_for_signature(
             status.HTTP_409_CONFLICT,
             "Contract must reach the signature stage (approval complete) before sending for signature",
         )
+    # Phase 4 ABAC gate: sending for signature binds the company — verify the
+    # sender's delegated signing authority covers this contract. Blocks before
+    # the irreversible external envelope dispatch. Dormant until a policy exists.
+    from app.authority.service import enforce_authority
+
+    enforce_authority(
+        db,
+        user=current_user,
+        action="contract:sign",
+        contract=contract,
+        resource_type="contract",
+        resource_id=contract.id,
+    )
     version_id = payload.contract_version_id or contract.current_authoritative_version_id
     version = db.get(ContractVersion, version_id)
     if version is None or version.org_id != current_user.org_id:

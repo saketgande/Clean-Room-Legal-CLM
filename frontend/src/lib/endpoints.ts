@@ -74,6 +74,11 @@ import type {
   ToolInfo,
   UserInvitationResponse,
   UserResponse,
+  RoleResponse,
+  PermissionInfo,
+  GrantResponse,
+  WallResponse,
+  AuthorityGrantResponse,
   Workflow,
   WorkflowVersion,
   WorkflowUsage,
@@ -139,6 +144,115 @@ export const authApi = {
 };
 
 // ---- Users / org ---------------------------------------------------------
+// ---- Resource grants (object-level access) -------------------------------
+export const grantsApi = {
+  list: (resourceType: string, resourceId: string) =>
+    apiFetch<GrantResponse[]>(
+      `/grants?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}`,
+    ),
+  create: (payload: {
+    principal_type: string;
+    principal_id: string;
+    resource_type: string;
+    resource_id: string;
+    access_level: string;
+    valid_until?: string | null;
+    note?: string | null;
+  }) => apiFetch<GrantResponse>("/grants", { method: "POST", body: payload }),
+  revoke: (id: string) =>
+    apiFetch<void>(`/grants/${id}`, { method: "DELETE" }),
+};
+
+// ---- Roles (custom RBAC role management) ---------------------------------
+export const rolesApi = {
+  list: () => apiFetch<RoleResponse[]>("/roles"),
+  permissions: () => apiFetch<PermissionInfo[]>("/roles/permissions"),
+  create: (payload: {
+    name: string;
+    description?: string | null;
+    permissions: string[];
+  }) => apiFetch<RoleResponse>("/roles", { method: "POST", body: payload }),
+  update: (
+    id: string,
+    payload: {
+      name?: string;
+      description?: string | null;
+      permissions?: string[];
+    },
+  ) => apiFetch<RoleResponse>(`/roles/${id}`, { method: "PATCH", body: payload }),
+  remove: (id: string) =>
+    apiFetch<void>(`/roles/${id}`, { method: "DELETE" }),
+  setUserRoles: (
+    userId: string,
+    payload: { role_ids: string[]; active_role_id?: string | null },
+  ) =>
+    apiFetch<UserResponse>(`/roles/user/${userId}`, {
+      method: "PUT",
+      body: payload,
+    }),
+  setUserClearance: (userId: string, clearance: string) =>
+    apiFetch<UserResponse>(`/roles/user/${userId}/clearance`, {
+      method: "PUT",
+      body: { clearance },
+    }),
+};
+
+// ---- Authority (Delegation of Authority / ABAC action gate) ---------------
+export const authorityApi = {
+  list: () => apiFetch<AuthorityGrantResponse[]>("/authority-grants"),
+  self: () =>
+    apiFetch<Record<string, { gated: boolean; grants: AuthorityGrantResponse[] }>>(
+      "/authority-grants/self",
+    ),
+  create: (payload: {
+    principal_type: "user" | "role";
+    principal_id: string;
+    action: "contract:approve" | "contract:sign";
+    max_value?: number | null;
+    currency?: string | null;
+    allowed_contract_types?: string[];
+    allowed_jurisdictions?: string[];
+    max_risk_band?: string | null;
+    delegated_by_user_id?: string | null;
+    note?: string | null;
+    valid_until?: string | null;
+  }) =>
+    apiFetch<AuthorityGrantResponse>("/authority-grants", {
+      method: "POST",
+      body: payload,
+    }),
+  update: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<AuthorityGrantResponse>(`/authority-grants/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  revoke: (id: string) =>
+    apiFetch<void>(`/authority-grants/${id}`, { method: "DELETE" }),
+};
+
+// ---- Ethical walls (conflict-of-interest screens / deny-override) ---------
+export const wallsApi = {
+  list: () => apiFetch<WallResponse[]>("/ethical-walls"),
+  create: (payload: {
+    name: string;
+    reason?: string | null;
+    scope_type: "contract" | "project";
+    scope_id: string;
+    principals: { principal_type: "user" | "role"; principal_id: string }[];
+  }) => apiFetch<WallResponse>("/ethical-walls", { method: "POST", body: payload }),
+  update: (
+    id: string,
+    payload: {
+      name?: string;
+      reason?: string | null;
+      active?: boolean;
+      principals?: { principal_type: "user" | "role"; principal_id: string }[];
+    },
+  ) => apiFetch<WallResponse>(`/ethical-walls/${id}`, { method: "PATCH", body: payload }),
+  remove: (id: string) =>
+    apiFetch<void>(`/ethical-walls/${id}`, { method: "DELETE" }),
+};
+
 export const usersApi = {
   // List org users, optionally filtered by status (e.g. "pending_approval"
   // surfaces the in-domain self-registration queue for the admin UI).

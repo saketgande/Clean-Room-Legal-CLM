@@ -7,14 +7,30 @@ import {
   Check,
   Copy,
   KeyRound,
+  Lock,
   Mail,
+  Pencil,
   Plug,
   Plus,
+  Scale,
   Settings as SettingsIcon,
+  ShieldAlert,
+  ShieldCheck,
+  Trash2,
   UserPlus,
   X,
 } from "lucide-react";
-import { adminApi, debugApi, orgApi, usersApi } from "@/lib/endpoints";
+import {
+  adminApi,
+  authorityApi,
+  contractsApi,
+  debugApi,
+  orgApi,
+  projectsApi,
+  rolesApi,
+  usersApi,
+  wallsApi,
+} from "@/lib/endpoints";
 import {
   Badge,
   Button,
@@ -29,6 +45,7 @@ import {
   Input,
   Modal,
   PageHeader,
+  Select,
   Table,
   TD,
   TH,
@@ -37,14 +54,27 @@ import {
   Tabs,
   Textarea,
 } from "@/components/ui";
-import { fmtDateTime, statusTone, titleCase } from "@/lib/utils";
+import { cn, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type {
   ConfigStatus,
   OrgJoinRequestResponse,
+  PermissionInfo,
+  RoleResponse,
   UserInvitationResponse,
   UserResponse,
+  WallResponse,
+  AuthorityGrantResponse,
 } from "@/lib/types";
+
+// Phase 3 (MAC): confidentiality ladder, low → high.
+const CLEARANCE_LEVELS = ["public", "internal", "confidential", "restricted"];
+// Phase 4 (DoA/ABAC): gated actions + risk ceiling ladder.
+const AUTHORITY_ACTIONS = [
+  { value: "contract:approve", label: "Approve" },
+  { value: "contract:sign", label: "Sign / send for signature" },
+];
+const RISK_BANDS = ["low", "medium", "high", "critical"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState("organization");
@@ -59,6 +89,9 @@ export default function AdminPage() {
         tabs={[
           { id: "organization", label: "Organization" },
           { id: "users", label: "Users & Access" },
+          { id: "roles", label: "Roles & Permissions" },
+          { id: "walls", label: "Ethical Walls" },
+          { id: "authority", label: "Authority" },
           { id: "settings", label: "Settings" },
           { id: "integrations", label: "Integrations" },
         ]}
@@ -67,6 +100,9 @@ export default function AdminPage() {
       />
       {tab === "organization" && <OrganizationTab />}
       {tab === "users" && <UsersTab />}
+      {tab === "roles" && <RolesTab />}
+      {tab === "walls" && <EthicalWallsTab />}
+      {tab === "authority" && <AuthorityTab />}
       {tab === "settings" && <SettingsTab />}
       {tab === "integrations" && <IntegrationsTab />}
     </div>
@@ -83,14 +119,12 @@ function OrganizationTab() {
   });
 
   const [name, setName] = useState("");
-  const [domains, setDomains] = useState("");
   const [defaultRole, setDefaultRole] = useState("");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!data) return;
     setName(data.name);
-    setDomains(data.allowed_domains.join(", "));
     setDefaultRole(data.default_role_name);
   }, [data]);
 
@@ -99,10 +133,6 @@ function OrganizationTab() {
     try {
       await orgApi.update({
         name: name.trim(),
-        allowed_domains: domains
-          .split(",")
-          .map((d) => d.trim())
-          .filter(Boolean),
         default_role_name: defaultRole.trim(),
       });
       qc.invalidateQueries({ queryKey: ["organization"] });
@@ -127,16 +157,6 @@ function OrganizationTab() {
         <Field label="Name">
           <Input value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <Field
-          label="Allowed domains"
-          hint="Comma-separated — users with these email domains can request to join."
-        >
-          <Input
-            placeholder="acme.com, acme.co.uk"
-            value={domains}
-            onChange={(e) => setDomains(e.target.value)}
-          />
-        </Field>
         <Field label="Default role" hint="Role assigned to newly approved members.">
           <Input
             placeholder="member"
@@ -144,11 +164,6 @@ function OrganizationTab() {
             onChange={(e) => setDefaultRole(e.target.value)}
           />
         </Field>
-        {data && (
-          <p className="text-xs text-slate-400">
-            Slug: <span className="font-mono">{data.slug}</span>
-          </p>
-        )}
         <div className="flex justify-end">
           <Button onClick={save} loading={busy} disabled={!name.trim()}>
             Save changes
@@ -869,5 +884,1112 @@ function IntegrationsTab() {
         </CardBody>
       </Card>
     </div>
+  );
+}
+
+// ---- Roles & Permissions -------------------------------------------------
+
+const ADMIN_ROLE = "admin";
+
+function RolesTab() {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const {
+    data: roles,
+    isLoading,
+    error,
+  } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
+  const { data: catalog } = useQuery({
+    queryKey: ["role-permissions"],
+    queryFn: rolesApi.permissions,
+  });
+  const [editor, setEditor] = useState<{
+    mode: "create" | "edit";
+    role?: RoleResponse;
+  } | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function remove(role: RoleResponse) {
+    if (!window.confirm(`Delete the "${titleCase(role.name)}" role?`)) return;
+    setBusyId(role.id);
+    try {
+      await rolesApi.remove(role.id);
+      qc.invalidateQueries({ queryKey: ["roles"] });
+      notify("Role deleted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+  if (error) return <ErrorState error={error} />;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Roles</CardTitle>
+          <Button onClick={() => setEditor({ mode: "create" })}>
+            <Plus className="h-4 w-4" />
+            New role
+          </Button>
+        </CardHeader>
+        <CardBody className="p-0">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Role</TH>
+                <TH>Permissions</TH>
+                <TH>Members</TH>
+                <TH className="text-right">Actions</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {(roles ?? []).map((r) => (
+                <TR key={r.id}>
+                  <TD>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-900">
+                        {titleCase(r.name)}
+                      </span>
+                      {r.is_builtin && (
+                        <Badge tone="slate">
+                          <Lock className="h-3 w-3" />
+                          Built-in
+                        </Badge>
+                      )}
+                    </div>
+                    {r.description && (
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {r.description}
+                      </p>
+                    )}
+                  </TD>
+                  <TD className="tabular-nums text-slate-600">
+                    {r.permissions.length}
+                  </TD>
+                  <TD className="tabular-nums text-slate-600">{r.user_count}</TD>
+                  <TD className="text-right">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setEditor({ mode: "edit", role: r })}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {r.name === ADMIN_ROLE
+                          ? "View"
+                          : r.is_builtin
+                            ? "Edit permissions"
+                            : "Edit"}
+                      </Button>
+                      {!r.is_builtin && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => remove(r)}
+                          loading={busyId === r.id}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      )}
+                    </div>
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </CardBody>
+      </Card>
+
+      <AssignRolesPanel roles={roles ?? []} />
+
+      {editor && (
+        <RoleEditorModal
+          mode={editor.mode}
+          role={editor.role}
+          catalog={catalog ?? []}
+          onClose={() => setEditor(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["roles"] });
+            setEditor(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RoleEditorModal({
+  mode,
+  role,
+  catalog,
+  onClose,
+  onSaved,
+}: {
+  mode: "create" | "edit";
+  role?: RoleResponse;
+  catalog: PermissionInfo[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { notify } = useToast();
+  const [name, setName] = useState(role?.name ?? "");
+  const [description, setDescription] = useState(role?.description ?? "");
+  const [selected, setSelected] = useState<Set<string>>(
+    new Set(role?.permissions ?? []),
+  );
+  const [busy, setBusy] = useState(false);
+
+  const readOnly = role?.name === ADMIN_ROLE; // admin is fully locked
+  const nameLocked = !!role?.is_builtin; // built-ins can't be renamed
+
+  const groups = Array.from(
+    catalog.reduce((m, p) => {
+      (m.get(p.group) ?? m.set(p.group, []).get(p.group)!).push(p);
+      return m;
+    }, new Map<string, PermissionInfo[]>()),
+  );
+
+  function toggle(value: string) {
+    if (readOnly) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(value) ? next.delete(value) : next.add(value);
+      return next;
+    });
+  }
+  function toggleGroup(perms: PermissionInfo[], on: boolean) {
+    if (readOnly) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const p of perms) on ? next.add(p.value) : next.delete(p.value);
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!name.trim() || readOnly) return;
+    setBusy(true);
+    try {
+      const permissions = [...selected];
+      if (mode === "create") {
+        await rolesApi.create({
+          name: name.trim(),
+          description: description.trim() || null,
+          permissions,
+        });
+        notify("Role created", "success");
+      } else if (role) {
+        await rolesApi.update(role.id, {
+          name: nameLocked ? undefined : name.trim(),
+          description: description.trim() || null,
+          permissions,
+        });
+        notify("Role updated", "success");
+      }
+      onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={
+        mode === "create"
+          ? "New role"
+          : readOnly
+            ? `${titleCase(role!.name)} (built-in)`
+            : `Edit ${titleCase(role!.name)}`
+      }
+      size="lg"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            {readOnly ? "Close" : "Cancel"}
+          </Button>
+          {!readOnly && (
+            <Button onClick={save} loading={busy} disabled={!name.trim()}>
+              {mode === "create" ? "Create role" : "Save changes"}
+            </Button>
+          )}
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {readOnly && (
+          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500">
+            The built-in <strong>admin</strong> role always has every permission
+            and can’t be changed — it’s your break-glass access.
+          </p>
+        )}
+        <Field label="Name">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={nameLocked || readOnly}
+            placeholder="e.g. Paralegal, Outside Counsel"
+          />
+        </Field>
+        <Field label="Description" hint="Optional">
+          <Textarea
+            rows={2}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={readOnly}
+          />
+        </Field>
+        <div>
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Permissions ({selected.size})
+          </p>
+          <div className="max-h-[46vh] space-y-4 overflow-y-auto rounded-md border border-slate-200 p-3">
+            {groups.map(([group, perms]) => {
+              const all = perms.every((p) => selected.has(p.value));
+              return (
+                <div key={group}>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-sm font-semibold capitalize text-slate-800">
+                      {group.replace(/_/g, " ")}
+                    </span>
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(perms, !all)}
+                        className="text-xs font-medium text-brand-600 hover:text-brand-700"
+                      >
+                        {all ? "Clear" : "Select all"}
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {perms.map((p) => (
+                      <label
+                        key={p.value}
+                        className={cn(
+                          "flex items-start gap-2 rounded-md px-2 py-1.5 text-sm",
+                          !readOnly && "cursor-pointer hover:bg-slate-50",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5 h-4 w-4 accent-brand-600"
+                          checked={selected.has(p.value)}
+                          onChange={() => toggle(p.value)}
+                          disabled={readOnly}
+                        />
+                        <span>
+                          <span className="font-mono text-xs text-slate-700">
+                            {p.value}
+                          </span>
+                          {p.description && (
+                            <span className="block text-xs text-slate-400">
+                              {p.description}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AssignRolesPanel({ roles }: { roles: RoleResponse[] }) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const { data: users } = useQuery({
+    queryKey: ["org-users-all"],
+    queryFn: () => usersApi.list(),
+  });
+  const [userId, setUserId] = useState("");
+  const [roleIds, setRoleIds] = useState<Set<string>>(new Set());
+  const [activeRoleId, setActiveRoleId] = useState<string>("");
+  const [clearance, setClearance] = useState("confidential");
+  const [busy, setBusy] = useState(false);
+
+  const roleByName = new Map(roles.map((r) => [r.name, r]));
+  const selectedUser = (users ?? []).find((u) => u.id === userId);
+
+  function pickUser(id: string) {
+    setUserId(id);
+    const u = (users ?? []).find((x) => x.id === id);
+    const ids = new Set(
+      (u?.roles ?? []).map((n) => roleByName.get(n)?.id).filter(Boolean) as string[],
+    );
+    setRoleIds(ids);
+    setActiveRoleId(u?.active_role_id ?? "");
+    setClearance(u?.clearance ?? "confidential");
+  }
+  function toggleRole(id: string) {
+    setRoleIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      if (!next.has(activeRoleId)) setActiveRoleId([...next][0] ?? "");
+      return next;
+    });
+  }
+
+  async function save() {
+    if (!userId || roleIds.size === 0) return;
+    setBusy(true);
+    try {
+      await rolesApi.setUserRoles(userId, {
+        role_ids: [...roleIds],
+        active_role_id: activeRoleId || null,
+      });
+      if (selectedUser && clearance !== selectedUser.clearance) {
+        await rolesApi.setUserClearance(userId, clearance);
+      }
+      qc.invalidateQueries({ queryKey: ["roles"] });
+      qc.invalidateQueries({ queryKey: ["org-users-all"] });
+      notify("Roles updated", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Assign roles to a user</CardTitle>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        <Field label="User">
+          <Select value={userId} onChange={(e) => pickUser(e.target.value)}>
+            <option value="">Select a user…</option>
+            {(users ?? []).map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.full_name} · {u.email}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {selectedUser && (
+          <>
+            <div>
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Roles
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {roles.map((r) => (
+                  <label
+                    key={r.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-brand-600"
+                      checked={roleIds.has(r.id)}
+                      onChange={() => toggleRole(r.id)}
+                    />
+                    <span className="text-slate-700">{titleCase(r.name)}</span>
+                    {r.is_builtin && (
+                      <ShieldCheck className="h-3.5 w-3.5 text-slate-300" />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
+            {roleIds.size > 1 && (
+              <Field label="Primary (active) role">
+                <Select
+                  value={activeRoleId}
+                  onChange={(e) => setActiveRoleId(e.target.value)}
+                >
+                  {[...roleIds].map((id) => {
+                    const r = roles.find((x) => x.id === id);
+                    return (
+                      <option key={id} value={id}>
+                        {r ? titleCase(r.name) : id}
+                      </option>
+                    );
+                  })}
+                </Select>
+              </Field>
+            )}
+            <Field
+              label="Confidentiality clearance"
+              hint="Highest classification this user may read. Contracts above it are hidden — including from the assistant."
+            >
+              <Select
+                value={clearance}
+                onChange={(e) => setClearance(e.target.value)}
+              >
+                {CLEARANCE_LEVELS.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {titleCase(lvl)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div className="flex justify-end">
+              <Button onClick={save} loading={busy} disabled={roleIds.size === 0}>
+                Save roles
+              </Button>
+            </div>
+          </>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ---- Ethical walls -------------------------------------------------------
+function EthicalWallsTab() {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const {
+    data: walls,
+    isLoading,
+    error,
+  } = useQuery({ queryKey: ["ethical-walls"], queryFn: wallsApi.list });
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  function refresh() {
+    qc.invalidateQueries({ queryKey: ["ethical-walls"] });
+  }
+
+  async function toggleActive(w: WallResponse) {
+    setBusyId(w.id);
+    try {
+      await wallsApi.update(w.id, { active: !w.active });
+      refresh();
+      notify(w.active ? "Wall lifted" : "Wall re-activated", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function remove(w: WallResponse) {
+    if (!window.confirm(`Delete the "${w.name}" ethical wall? This cannot be undone.`))
+      return;
+    setBusyId(w.id);
+    try {
+      await wallsApi.remove(w.id);
+      refresh();
+      notify("Wall deleted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+  if (error) return <ErrorState error={error} />;
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Ethical walls</CardTitle>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Conflict-of-interest screens. A wall hard-blocks the named people
+              from a contract or matter — overriding ownership, sharing and admin
+              alike, including in search and the assistant.
+            </p>
+          </div>
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            New wall
+          </Button>
+        </CardHeader>
+        <CardBody className="p-0">
+          {(walls ?? []).length === 0 ? (
+            <div className="p-6">
+              <EmptyState
+                icon={<ShieldAlert className="h-5 w-5" />}
+                title="No ethical walls"
+                description="Screens you create to seal conflicted people off from a matter will appear here."
+              />
+            </div>
+          ) : (
+            <Table>
+              <THead>
+                <tr>
+                  <TH>Wall</TH>
+                  <TH>Scope</TH>
+                  <TH>Barred</TH>
+                  <TH>Status</TH>
+                  <TH className="text-right">Actions</TH>
+                </tr>
+              </THead>
+              <tbody>
+                {(walls ?? []).map((w) => (
+                  <TR key={w.id}>
+                    <TD>
+                      <div className="flex items-center gap-2">
+                        <ShieldAlert className="h-4 w-4 text-rose-500" />
+                        <span className="font-medium text-slate-900">{w.name}</span>
+                      </div>
+                      {w.reason && (
+                        <p className="mt-0.5 text-xs text-slate-500">{w.reason}</p>
+                      )}
+                    </TD>
+                    <TD>
+                      <Badge tone="slate">{titleCase(w.scope_type)}</Badge>
+                      <span className="ml-2 text-slate-600">
+                        {w.scope_label ?? w.scope_id}
+                      </span>
+                    </TD>
+                    <TD>
+                      <div className="flex flex-wrap gap-1">
+                        {w.principals.map((p) => (
+                          <Badge key={p.id ?? p.principal_id} tone="red">
+                            {p.principal_type === "role" ? "Role: " : ""}
+                            {p.principal_label ?? p.principal_id}
+                          </Badge>
+                        ))}
+                      </div>
+                    </TD>
+                    <TD>
+                      <Badge tone={w.active ? "green" : "slate"}>
+                        {w.active ? "Active" : "Lifted"}
+                      </Badge>
+                    </TD>
+                    <TD className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => toggleActive(w)}
+                          loading={busyId === w.id}
+                        >
+                          {w.active ? "Lift" : "Re-activate"}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => remove(w)}
+                          loading={busyId === w.id}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      </div>
+                    </TD>
+                  </TR>
+                ))}
+              </tbody>
+            </Table>
+          )}
+        </CardBody>
+      </Card>
+
+      {creating && (
+        <WallEditorModal
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            refresh();
+            setCreating(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function WallEditorModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { notify } = useToast();
+  const { data: users } = useQuery({
+    queryKey: ["org-users-all"],
+    queryFn: () => usersApi.list(),
+  });
+  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
+  const { data: contracts } = useQuery({
+    queryKey: ["contracts-all"],
+    queryFn: contractsApi.list,
+  });
+  const { data: projects } = useQuery({
+    queryKey: ["projects-all"],
+    queryFn: projectsApi.list,
+  });
+
+  const [name, setName] = useState("");
+  const [reason, setReason] = useState("");
+  const [scopeType, setScopeType] = useState<"contract" | "project">("contract");
+  const [scopeId, setScopeId] = useState("");
+  const [barred, setBarred] = useState<Set<string>>(new Set()); // "user:<id>" | "role:<id>"
+  const [busy, setBusy] = useState(false);
+
+  const scopeOptions =
+    scopeType === "contract"
+      ? (contracts ?? []).map((c) => ({ id: c.id, label: c.title }))
+      : (projects ?? []).map((p) => ({ id: p.id, label: p.name }));
+
+  function toggle(key: string) {
+    setBarred((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
+
+  const canSave = Boolean(name.trim() && scopeId && barred.size > 0);
+
+  async function save() {
+    if (!canSave) return;
+    setBusy(true);
+    try {
+      await wallsApi.create({
+        name: name.trim(),
+        reason: reason.trim() || null,
+        scope_type: scopeType,
+        scope_id: scopeId,
+        principals: [...barred].map((k) => {
+          const [t, id] = k.split(":");
+          return { principal_type: t as "user" | "role", principal_id: id };
+        }),
+      });
+      notify("Ethical wall created", "success");
+      onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Create failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="New ethical wall" size="lg">
+      <div className="space-y-4">
+        <Field label="Name">
+          <Input
+            placeholder="e.g. Acme v. Globex conflict screen"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </Field>
+        <Field label="Reason" hint="Optional — recorded on the audit trail.">
+          <Textarea
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Scope">
+            <Select
+              value={scopeType}
+              onChange={(e) => {
+                setScopeType(e.target.value as "contract" | "project");
+                setScopeId("");
+              }}
+            >
+              <option value="contract">A single contract</option>
+              <option value="project">An entire matter / project</option>
+            </Select>
+          </Field>
+          <Field label={scopeType === "contract" ? "Contract" : "Project"}>
+            <Select value={scopeId} onChange={(e) => setScopeId(e.target.value)}>
+              <option value="">Select…</option>
+              {scopeOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <div>
+          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            Bar these people
+          </p>
+          <div className="max-h-52 overflow-y-auto rounded-md border border-slate-200 p-2">
+            <div className="grid gap-1 sm:grid-cols-2">
+              {(users ?? []).map((u) => {
+                const key = `user:${u.id}`;
+                return (
+                  <label
+                    key={key}
+                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-rose-600"
+                      checked={barred.has(key)}
+                      onChange={() => toggle(key)}
+                    />
+                    <span className="text-slate-700">{u.full_name}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {(roles ?? []).length > 0 && (
+              <>
+                <p className="mb-1 mt-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                  Or whole roles
+                </p>
+                <div className="grid gap-1 sm:grid-cols-2">
+                  {(roles ?? []).map((r) => {
+                    const key = `role:${r.id}`;
+                    return (
+                      <label
+                        key={key}
+                        className="flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-slate-50"
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-rose-600"
+                          checked={barred.has(key)}
+                          onChange={() => toggle(key)}
+                        />
+                        <span className="text-slate-700">{titleCase(r.name)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} loading={busy} disabled={!canSave}>
+            Create wall
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---- Authority (Delegation of Authority / ABAC) --------------------------
+function fmtLimit(g: AuthorityGrantResponse): string {
+  if (g.max_value == null) return "Unlimited value";
+  const cur = g.currency ? `${g.currency} ` : "";
+  return `≤ ${cur}${g.max_value.toLocaleString()}`;
+}
+
+function AuthorityTab() {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const {
+    data: grants,
+    isLoading,
+    error,
+  } = useQuery({ queryKey: ["authority-grants"], queryFn: authorityApi.list });
+  const [creating, setCreating] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  function refresh() {
+    qc.invalidateQueries({ queryKey: ["authority-grants"] });
+  }
+
+  async function revoke(g: AuthorityGrantResponse) {
+    if (!window.confirm(`Revoke this authority for ${g.principal_label}?`)) return;
+    setBusyId(g.id);
+    try {
+      await authorityApi.revoke(g.id);
+      refresh();
+      notify("Authority revoked", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Revoke failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  if (isLoading) return <CenterSpinner />;
+  if (error) return <ErrorState error={error} />;
+
+  const byAction = AUTHORITY_ACTIONS.map((a) => ({
+    ...a,
+    rows: (grants ?? []).filter((g) => g.action === a.value),
+  }));
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div>
+            <CardTitle>Delegation of authority</CardTitle>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Who may commit the company, and up to what limit. Approving or
+              sending for signature is blocked when a contract’s value, type,
+              jurisdiction or risk exceeds the actor’s authority. An action is
+              only enforced once you define a policy for it.
+            </p>
+          </div>
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" />
+            New authority
+          </Button>
+        </CardHeader>
+        <CardBody className="space-y-5">
+          {byAction.map((a) => (
+            <div key={a.value}>
+              <div className="mb-2 flex items-center gap-2">
+                <Scale className="h-4 w-4 text-slate-400" />
+                <span className="text-sm font-semibold text-slate-800">
+                  {a.label}
+                </span>
+                <Badge tone={a.rows.length ? "blue" : "slate"}>
+                  {a.rows.length ? "Gated" : "Not gated"}
+                </Badge>
+              </div>
+              {a.rows.length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-500">
+                  No policy — this action is governed by role permissions alone.
+                </p>
+              ) : (
+                <Table>
+                  <THead>
+                    <tr>
+                      <TH>Who</TH>
+                      <TH>Limit</TH>
+                      <TH>Scope</TH>
+                      <TH className="text-right">Actions</TH>
+                    </tr>
+                  </THead>
+                  <tbody>
+                    {a.rows.map((g) => (
+                      <TR key={g.id}>
+                        <TD>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-900">
+                              {g.principal_label}
+                            </span>
+                            <Badge tone="slate">
+                              {g.principal_type === "role" ? "Role" : "Person"}
+                            </Badge>
+                            {g.delegated_by_label && (
+                              <Badge tone="violet">
+                                Delegated by {g.delegated_by_label}
+                              </Badge>
+                            )}
+                          </div>
+                        </TD>
+                        <TD className="text-slate-700">{fmtLimit(g)}</TD>
+                        <TD className="text-xs text-slate-600">
+                          {[
+                            g.allowed_contract_types.length
+                              ? `Types: ${g.allowed_contract_types.join(", ")}`
+                              : null,
+                            g.allowed_jurisdictions.length
+                              ? `Juris: ${g.allowed_jurisdictions.join(", ")}`
+                              : null,
+                            g.max_risk_band ? `Risk ≤ ${g.max_risk_band}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "Any type / jurisdiction / risk"}
+                        </TD>
+                        <TD className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => revoke(g)}
+                            loading={busyId === g.id}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Revoke
+                          </Button>
+                        </TD>
+                      </TR>
+                    ))}
+                  </tbody>
+                </Table>
+              )}
+            </div>
+          ))}
+        </CardBody>
+      </Card>
+
+      {creating && (
+        <AuthorityEditorModal
+          onClose={() => setCreating(false)}
+          onSaved={() => {
+            refresh();
+            setCreating(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AuthorityEditorModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { notify } = useToast();
+  const { data: users } = useQuery({
+    queryKey: ["org-users-all"],
+    queryFn: () => usersApi.list(),
+  });
+  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
+
+  const [action, setAction] = useState("contract:approve");
+  const [principalType, setPrincipalType] = useState<"user" | "role">("role");
+  const [principalId, setPrincipalId] = useState("");
+  const [maxValue, setMaxValue] = useState("");
+  const [currency, setCurrency] = useState("USD");
+  const [types, setTypes] = useState("");
+  const [jurisdictions, setJurisdictions] = useState("");
+  const [maxRisk, setMaxRisk] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const principals =
+    principalType === "user"
+      ? (users ?? []).map((u) => ({ id: u.id, label: `${u.full_name} · ${u.email}` }))
+      : (roles ?? []).map((r) => ({ id: r.id, label: titleCase(r.name) }));
+
+  const canSave = Boolean(principalId);
+
+  function splitList(s: string): string[] {
+    return s
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  async function save() {
+    if (!canSave) return;
+    setBusy(true);
+    try {
+      await authorityApi.create({
+        principal_type: principalType,
+        principal_id: principalId,
+        action: action as "contract:approve" | "contract:sign",
+        max_value: maxValue.trim() ? Number(maxValue) : null,
+        currency: currency.trim() || null,
+        allowed_contract_types: splitList(types),
+        allowed_jurisdictions: splitList(jurisdictions),
+        max_risk_band: maxRisk || null,
+      });
+      notify("Authority granted", "success");
+      onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Create failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open onClose={onClose} title="New delegation of authority" size="lg">
+      <div className="space-y-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Action">
+            <Select value={action} onChange={(e) => setAction(e.target.value)}>
+              {AUTHORITY_ACTIONS.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Grant to">
+            <Select
+              value={principalType}
+              onChange={(e) => {
+                setPrincipalType(e.target.value as "user" | "role");
+                setPrincipalId("");
+              }}
+            >
+              <option value="role">A role</option>
+              <option value="user">A person</option>
+            </Select>
+          </Field>
+        </div>
+        <Field label={principalType === "role" ? "Role" : "Person"}>
+          <Select value={principalId} onChange={(e) => setPrincipalId(e.target.value)}>
+            <option value="">Select…</option>
+            {principals.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Field
+            label="Max value"
+            hint="Blank = unlimited"
+            className="sm:col-span-2"
+          >
+            <Input
+              type="number"
+              placeholder="e.g. 100000"
+              value={maxValue}
+              onChange={(e) => setMaxValue(e.target.value)}
+            />
+          </Field>
+          <Field label="Currency">
+            <Input
+              maxLength={3}
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            />
+          </Field>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Contract types" hint="Comma-separated. Blank = any.">
+            <Input
+              placeholder="NDA, MSA"
+              value={types}
+              onChange={(e) => setTypes(e.target.value)}
+            />
+          </Field>
+          <Field label="Jurisdictions" hint="Comma-separated. Blank = any.">
+            <Input
+              placeholder="US, UK"
+              value={jurisdictions}
+              onChange={(e) => setJurisdictions(e.target.value)}
+            />
+          </Field>
+        </div>
+        <Field label="Max risk band" hint="Blank = any risk.">
+          <Select value={maxRisk} onChange={(e) => setMaxRisk(e.target.value)}>
+            <option value="">Any</option>
+            {RISK_BANDS.map((r) => (
+              <option key={r} value={r}>
+                {titleCase(r)}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} loading={busy} disabled={!canSave}>
+            Grant authority
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

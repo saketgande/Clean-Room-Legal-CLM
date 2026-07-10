@@ -198,10 +198,6 @@ class Settings(BaseSettings):
     clamav_host: str = "clamav"
     clamav_port: int = 3310
 
-    # Postgres row-level security. When on, sessions set app.current_org_id so
-    # RLS policies can scope rows. No-op (and policies absent) by default.
-    enable_rls: bool = False
-
     # Sentry error reporting. Unset DSN disables it entirely; PII is never sent.
     sentry_dsn: str | None = None
     sentry_traces_sample_rate: float = 0.05
