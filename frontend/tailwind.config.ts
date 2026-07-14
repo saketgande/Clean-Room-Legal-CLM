@@ -23,21 +23,22 @@ const config: Config = {
           900: "rgb(var(--color-slate-900) / <alpha-value>)",
           950: "rgb(var(--color-slate-950) / <alpha-value>)",
         },
-        // Fluent 2 "communication blue" brand ramp (Microsoft Fluent design
-        // language). 600 = #0F6CBD (Fluent brand-80, primary): 4.8:1 on white,
-        // so it passes WCAG AA for both link text and white-on-brand buttons.
+        // "Mission Control" brand ramp — warm orange accent, now driven by CSS
+        // variables (like `slate`) so each theme tunes it: bright #EE8034 on the
+        // dark navy ground, a contrast-safe burnt orange on light. Values live
+        // in globals.css (:root = light, .dark = navy).
         brand: {
-          50: "#EBF3FC",
-          100: "#CFE4FA",
-          200: "#B4D6FA",
-          300: "#96C6FA",
-          400: "#479EF5", // dark-mode accent (links, active nav)
-          500: "#2886DE",
-          600: "#0F6CBD", // primary action button background + light-mode links
-          700: "#115EA3", // button hover
-          800: "#0F548C",
-          900: "#0C3B5E",
-          950: "#082338",
+          50: "rgb(var(--color-brand-50) / <alpha-value>)",
+          100: "rgb(var(--color-brand-100) / <alpha-value>)",
+          200: "rgb(var(--color-brand-200) / <alpha-value>)",
+          300: "rgb(var(--color-brand-300) / <alpha-value>)",
+          400: "rgb(var(--color-brand-400) / <alpha-value>)", // accent (links, active nav)
+          500: "rgb(var(--color-brand-500) / <alpha-value>)",
+          600: "rgb(var(--color-brand-600) / <alpha-value>)", // primary button bg + links
+          700: "rgb(var(--color-brand-700) / <alpha-value>)", // button hover
+          800: "rgb(var(--color-brand-800) / <alpha-value>)",
+          900: "rgb(var(--color-brand-900) / <alpha-value>)",
+          950: "rgb(var(--color-brand-950) / <alpha-value>)",
         },
       },
       fontFamily: {

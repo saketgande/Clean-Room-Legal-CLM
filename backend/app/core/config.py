@@ -165,6 +165,19 @@ class Settings(BaseSettings):
     docusign_connect_hmac_key: str | None = None
     mock_docusign: bool = False
 
+    # Legal Intake channel ingestion + screening (all optional; features are
+    # inert until configured). Webhook auth fails CLOSED in production.
+    intake_webhook_secret: str | None = None
+    intake_teams_secret: str | None = None
+    intake_graph_tenant_id: str | None = None
+    intake_graph_client_id: str | None = None
+    intake_graph_client_secret: str | None = None
+    intake_graph_mailbox: str | None = None  # e.g. legal@company.com
+    intake_mailbox_auto_ack: bool = False
+    # Non-production-ready agents stay hidden unless demo agents are enabled,
+    # so users never see fabricated analysis in production.
+    intake_demo_agents: bool = True
+
     verbose_debug_logging: bool = False
     allow_dev_reset: bool = False
     dev_seed_admin_email: str = "admin@example.com"

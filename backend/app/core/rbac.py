@@ -52,6 +52,20 @@ OBLIGATION_PERMISSIONS = {"obligation:read", "obligation:update"}
 ADMIN_PERMISSIONS = {"admin_panel:access"}
 USER_PERMISSIONS = {"user:read", "user:update_role", "user:approve"}
 
+# Legal Intake (the front door). Deliberately split so employees can file and
+# track their OWN requests without being able to enumerate everyone's (which
+# would leak HR/litigation content):
+#   create — file + read own requests (all employees)
+#   read   — staff-wide list/detail/timeline/SLA-legs (legal roles only)
+#   triage — verdicts, cockpit, bulk, sla-ops, read routing rules
+#   update — stage/handoff/tasks/work-status
+INTAKE_PERMISSIONS = {
+    "intake:create",
+    "intake:read",
+    "intake:triage",
+    "intake:update",
+}
+
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
@@ -61,6 +75,7 @@ ALL_PERMISSIONS = (
     | PLAYBOOK_PERMISSIONS
     | APPROVAL_PERMISSIONS
     | OBLIGATION_PERMISSIONS
+    | INTAKE_PERMISSIONS
     | ADMIN_PERMISSIONS
     | USER_PERMISSIONS
 )
@@ -82,6 +97,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "assistant:use",
         "workflow:read",
         "obligation:read",
+        "intake:create",  # any employee can file + track their own requests
     },
     LEGAL_REVIEWER_ROLE_NAME: {
         "contract:read",
@@ -96,6 +112,10 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "playbook:read",
         "playbook:run",
         "obligation:read",
+        "intake:create",
+        "intake:read",
+        "intake:triage",
+        "intake:update",
     },
     APPROVER_ROLE_NAME: {
         "contract:read",
@@ -103,6 +123,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "approval:read",
         "approval:decide",
         "contract_file:read",
+        "intake:create",
+        "intake:read",
+        "intake:triage",
     },
 }
 

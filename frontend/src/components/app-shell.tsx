@@ -30,6 +30,7 @@ import {
   X,
  Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { can } from "@/lib/intake";
 import { useLayout } from "@/lib/layout";
 import { cn, initials } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -41,7 +42,7 @@ const NAV: {
   {
     section: "Workspace",
     items: [
-      { href: "/command", label: "Command", icon: Gauge },
+      { href: "/intake", label: "Legal Intake", icon: Gauge },
       { href: "/", label: "Ask Aegis", icon: Bot },
       { href: "/projects", label: "Projects", icon: FolderKanban },
       { href: "/search", label: "Search", icon: Search },
@@ -136,9 +137,12 @@ function SidebarNav({
   const isActive = (href: string) => {
     if (href === "/")
       return pathname === "/" || pathname.startsWith("/assistant");
-    if (href === "/command")
+    // Legal Intake is the hub — it owns contracts and the retired /command route.
+    if (href === "/intake")
       return (
-        pathname.startsWith("/command") || pathname.startsWith("/contracts")
+        pathname.startsWith("/intake") ||
+        pathname.startsWith("/contracts") ||
+        pathname.startsWith("/command")
       );
     return pathname.startsWith(href);
   };
@@ -180,7 +184,7 @@ function SidebarNav({
               <span className="font-serif text-[21px] font-medium tracking-tight text-slate-900">
                 Aegis
               </span>
-              <span className="text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">
                 Legal
               </span>
             </div>
@@ -226,7 +230,7 @@ function SidebarNav({
         {NAV.map((group) => (
           <div key={group.section} className="mb-5">
             {!collapsed && (
-              <p className="px-2.5 pb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              <p className="px-2.5 pb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                 {group.section}
               </p>
             )}
@@ -380,14 +384,16 @@ function SidebarNav({
                 <Activity className="h-4 w-4 text-slate-400" aria-hidden="true" />
                 My Jobs
               </button>
-              <button
-                role="menuitem"
-                onClick={() => go("/admin")}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
-              >
-                <Settings className="h-4 w-4 text-slate-400" aria-hidden="true" />
-                Admin &amp; settings
-              </button>
+              {can(user, "admin_panel:access") && (
+                <button
+                  role="menuitem"
+                  onClick={() => go("/admin")}
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                >
+                  <Settings className="h-4 w-4 text-slate-400" aria-hidden="true" />
+                  Admin &amp; settings
+                </button>
+              )}
               <div className="my-1 border-t border-slate-200" />
               <button
                 role="menuitem"
@@ -403,6 +409,60 @@ function SidebarNav({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Desktop-only top strip carrying the console's "liveness": a mono-caps route
+ * eyebrow on the left, a pulsing LIVE dot + ticking clock on the right — the
+ * reference's signature chrome, felt on every page. The clock renders only
+ * after mount to avoid an SSR/client hydration mismatch.
+ */
+function LiveStrip() {
+  const pathname = usePathname();
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    setNow(new Date());
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  let eyebrow = "Aegis · Legal";
+  for (const group of NAV) {
+    const item = group.items.find((i) =>
+      i.href === "/"
+        ? pathname === "/" || pathname.startsWith("/assistant")
+        : pathname.startsWith(i.href),
+    );
+    if (item) {
+      eyebrow = `${group.section} · ${item.label}`;
+      break;
+    }
+  }
+  if (pathname.startsWith("/contracts")) eyebrow = "Workspace · Legal Intake";
+
+  const clock = now
+    ? `${now.toLocaleTimeString("en-US", { hour12: false })} · ${now.toLocaleDateString(
+        "en-US",
+        { month: "short", day: "numeric", year: "numeric" },
+      )}`
+    : "—";
+
+  return (
+    <div className="hidden h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-6 lg:flex">
+      <p className="truncate font-mono text-[10.5px] uppercase tracking-[0.18em] text-slate-400">
+        {eyebrow}
+      </p>
+      <div className="flex items-center gap-4">
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-600">
+            Live
+          </span>
+        </span>
+        <span className="font-mono text-[11px] tabular-nums text-slate-500">{clock}</span>
       </div>
     </div>
   );
@@ -468,6 +528,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
+        {/* Desktop LIVE strip — route eyebrow + ticking clock, so the console's
+            liveness is felt on every page (the reference's signature chrome). */}
+        <LiveStrip />
         {/* Mobile top bar only — on desktop these controls live in the sidebar,
             so the main area runs full-height with no top chrome. */}
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 sm:px-6 lg:hidden">

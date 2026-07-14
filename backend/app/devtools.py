@@ -103,6 +103,26 @@ def seed() -> None:
                     print("Seeded dev users: " + ", ".join(e for e, _ in dev_users))
                 else:
                     print("Dev users already present.")
+
+                # Legal intake demo data (request types, KB, sample requests).
+                from app.auth.models import Role as _Role
+                from app.auth.models import User as _User
+                from app.intake.seed import seed_intake
+
+                # Any user holding the admin role (the dev_seed_admin_email is a
+                # placeholder in this env; the real admin comes from dev users).
+                admin_user = db.scalar(
+                    select(_User)
+                    .join(_User.roles)
+                    .where(_User.org_id == org.id, _Role.name == "admin")
+                    .limit(1)
+                )
+                if admin_user is not None:
+                    if seed_intake(db, org, admin_user):
+                        db.commit()
+                        print("Seeded legal intake demo data.")
+                    else:
+                        print("Intake demo data already present.")
     finally:
         db.close()
 

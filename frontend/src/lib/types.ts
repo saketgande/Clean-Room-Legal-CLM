@@ -25,6 +25,126 @@ export interface UserResponse {
   active_role_id: ID | null;
   active_role_name: string | null;
   clearance: string;
+  permissions: string[];
+}
+
+// ---- Legal Intake ---------------------------------------------------------
+export type IntakeStatus =
+  | "awaiting_triage" | "in_review" | "escalated" | "approved" | "closed";
+export type IntakeSlaPosture = "on_track" | "at_risk" | "overdue";
+
+export interface IntakeWorkflowStep {
+  label: string; stage: string; done: boolean; active: boolean;
+}
+export interface IntakeFieldSpec {
+  key: string; label: string;
+  kind: "text" | "textarea" | "select" | "date" | "number" | "boolean";
+  required: boolean; sort_order: number; options?: { value: string; label: string }[] | null;
+}
+export interface IntakeRequestType {
+  id: ID; key: string; name: string; workstream: string | null;
+  description: string | null; active: boolean; stages: string[] | null;
+  sort_order: number; fields: IntakeFieldSpec[];
+}
+export interface IntakeRequest {
+  id: ID; ref: string; source: string;
+  requester_user_id: ID; requester_name: string | null; department: string | null;
+  request_type_id: ID | null; type_label: string; description: string;
+  field_values: Record<string, unknown> | null;
+  priority: "Critical" | "High" | "Medium" | "Low";
+  status: IntakeStatus; stage: string; work_status: string | null;
+  assigned_to_user_id: ID | null; assigned_to_label: string | null;
+  approval_gate_user_id: ID | null;
+  sla_hours: number; sla_status: IntakeSlaPosture; sla_pct: number;
+  submitted_at: string | null; closed_at: string | null;
+  triaged_by_user_id: ID | null; triage_action: string | null;
+  agent_outcome: string | null;
+  ai_triage: Record<string, unknown> | null;
+  screening?: Record<string, unknown> | null;
+  parties?: IntakeParty[];
+  fired_rules: Record<string, unknown> | null;
+  handoff_holder: string | null; handoff_user_id: ID | null;
+  project_id: ID | null; contract_id: ID | null; contract_title?: string | null;
+  workflow: IntakeWorkflowStep[]; created_at: string | null;
+}
+export interface IntakeTask {
+  id: ID; request_id: ID; title: string; description: string | null;
+  assignee_user_id: ID | null; assignee_label: string | null;
+  status: "open" | "in_progress" | "blocked" | "done"; sort_order: number; effort_minutes: number;
+}
+export interface IntakeHandoff {
+  id: ID; from_holder: string | null; to_holder: string; to_user_id: ID | null;
+  to_label: string | null; reason: string | null; actor_type: string; created_at: string | null;
+}
+export interface IntakeAssignee { id: ID; name: string; email: string; }
+export interface IntakeMyWork {
+  awaiting_review: (IntakeRequest & { recommendation_id: string; agent_id: string; confidence: number })[];
+  my_tickets: IntakeRequest[];
+  my_tasks: IntakeTask[];
+}
+export interface IntakeRecommendation {
+  id: ID; request_id: ID; agent_id: string; confidence: number;
+  suggested_action: "approve_and_send" | "flag_for_review" | "escalate";
+  drafted_response: string; reasoning: string; concerns: string[];
+  citations: { id: string; title: string }[]; degraded: boolean;
+  status: "pending" | "approved" | "edited" | "rejected";
+  reviewed_by_user_id: ID | null; can_auto_send: boolean;
+}
+export interface IntakeSlaLeg {
+  holder: string; holder_user_id: ID | null; holder_label: string;
+  start_ts: number; end_ts: number; elapsed_ms: number; pct_of_sla: number;
+  breached_during_leg: boolean; active?: boolean;
+}
+export interface IntakeSlaLegs {
+  legs: IntakeSlaLeg[]; sla_ms: number; breach_ts: number; total_elapsed_ms: number;
+  breached: boolean; closed: boolean; paused: boolean;
+}
+export interface IntakeSlaOps {
+  generated_at: string; open_total: number; awaiting_triage: number; escalated: number;
+  on_track: number; at_risk: number; overdue: number; paused: number;
+  avg_elapsed_pct: number; breaches_7d: number;
+  by_holder: { agent: number; human: number; queue: number };
+  oldest_open: string | null;
+  workload: { user_id: ID; name: string | null; open: number; overdue: number }[];
+  rule_effectiveness: { id: ID; name: string; times_fired: number; last_fired_at: string | null }[];
+}
+export interface IntakeTeamMember {
+  id?: ID; user_id: ID; name?: string; capacity: number; active: boolean; open_count?: number;
+}
+export interface IntakeTeam {
+  id: ID; key: string; name: string; description: string | null; active: boolean;
+  strategy: "least_loaded" | "round_robin"; overflow_team_id: ID | null;
+  overflow_team_name: string | null; sort_order: number; members: IntakeTeamMember[];
+}
+export interface IntakeKbArticle {
+  id: ID; source_ref: string; title: string; body: string; tags: string[]; active: boolean;
+}
+export interface IntakePoolMember {
+  user_id: ID; name: string | null; capacity: number; utilization: number | null;
+  open: number; overdue: number; at_risk: number; closed_7d: number; closed_30d: number; effort: number;
+}
+export interface IntakePoolTier {
+  id: ID; name: string; strategy: string; overflow_team_name: string | null;
+  members: IntakePoolMember[]; open: number; overdue: number; closed_30d: number; effort: number;
+}
+export interface IntakePoolOps {
+  generated_at: string; days: number; tiers: IntakePoolTier[];
+  totals: { open: number; overdue: number; closed_30d: number; effort_minutes: number; overflow_events: number };
+  complexity_mix: { simple: number; standard: number; complex: number };
+}
+export interface CopilotTurn {
+  reply: string; extracted: Record<string, string>; ready: boolean; suggested_type_label: string | null;
+}
+export interface IntakeRule {
+  id: ID; name: string; description: string | null; enabled: boolean; eval_order: number;
+  match_type: string | null; match_priority: string | null; match_department: string | null;
+  match_keyword: string | null; match_complexity: string | null;
+  set_assignee_user_id: ID | null; set_assignee_name: string | null;
+  set_priority: string | null; set_sla_hours: number | null;
+  set_team_id: ID | null; set_team_name: string | null;
+  escalate_to_user_id: ID | null; escalate_to_name: string | null;
+  require_approval_from_user_id: ID | null; require_approval_from_name: string | null;
+  times_fired: number; last_fired_at: string | null;
 }
 
 export interface RoleResponse {
@@ -842,6 +962,7 @@ export interface ApprovalRequest {
   approver_user_id: ID | null;
   approver_role: string | null;
   approver_group_id?: ID | null;
+  approver_group_name?: string | null;
   routing_rule_id?: ID | null;
   step_order?: number;
   due_at: ISODateTime | null;
@@ -1311,3 +1432,24 @@ export interface ConsoleResponse {
   recent_activity: { ts: string; title: string; contract_id: ID; contract_title: string }[];
   value_by_stage: { stage: string; value: number }[];
 }
+
+export interface IntakeDocument {
+  id: string; filename: string; mime_type: string; size_bytes: number;
+  extracted_chars: number; extracted_text?: string | null;
+  extraction_quality: number | null; created_at: string | null;
+}
+
+export interface IntakeAgentMetric {
+  agent_id: string; name: string; short_name: string; icon: string; description: string;
+  production_ready: boolean; active: boolean; produced: number;
+  accepted: number; rejected: number; pending: number;
+  accept_rate: number | null; avg_confidence: number | null; degraded_rate: number;
+  avg_review_minutes: number | null;
+}
+
+export interface IntakeAgentMetrics {
+  agents: IntakeAgentMetric[];
+  summary: { recommendations: number; pending_review: number; accept_rate: number | null; degraded: number };
+}
+
+export interface IntakeParty { name: string; role: string; is_person?: boolean; }

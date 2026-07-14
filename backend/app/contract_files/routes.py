@@ -149,6 +149,74 @@ async def upload_contract_version(
     )
 
 
+@router.post(
+    "/counterparty-revision",
+    response_model=ContractVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit(settings.rate_limit_contract_upload)
+async def log_counterparty_revision(
+    contract_id: str,
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    change_summary: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:update")),
+):
+    """Log a counterparty's returned redlined document as a COUNTERPARTY_REVISION
+    version. Re-opens REVIEW if the contract had moved past it and flags the
+    contract for an auto playbook deviation review, which fires once the new
+    version's clause extraction completes."""
+    _ = response
+    from app.contracts.lifecycle import transition_contract_stage
+    from app.core.enums import ContractLifecycleStage
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    req_id = getattr(request.state, "request_id", None)
+    version = await add_version_from_upload(
+        db,
+        contract=contract,
+        upload=file,
+        user=current_user,
+        change_summary=change_summary or "Counterparty revision received",
+        source=ContractVersionSource.COUNTERPARTY_REVISION,
+        request_id=req_id,
+    )
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    if contract.lifecycle_stage in (ContractLifecycleStage.APPROVAL, ContractLifecycleStage.SIGNATURE):
+        try:
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.REVIEW,
+                actor_user_id=current_user.id,
+                reason="Counterparty revision received — re-opening review",
+                override=True,
+                override_authorized=True,
+                request_id=req_id,
+            )
+        except Exception:  # noqa: BLE001 - re-open is best-effort
+            pass
+    meta = dict(contract.metadata_json or {})
+    meta["auto_review_pending"] = True
+    contract.metadata_json = meta
+    write_timeline_event(
+        db,
+        org_id=contract.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.counterparty_revision",
+        title="Counterparty revision received",
+        actor_user_id=current_user.id,
+        request_id=req_id,
+        details={"contract_version_id": version.id},
+    )
+    db.commit()
+    db.refresh(version)
+    return version
+
+
 @router.get("/versions/{version_id}/text", response_model=ContractTextSnapshotResponse)
 def get_version_text_snapshot(
     contract_id: str,

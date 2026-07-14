@@ -3,7 +3,7 @@ import html
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -53,8 +53,21 @@ def list_renewals(
         )
     )
     if contract_id:
+        # By-contract lookup (contract detail panel) keeps dateless events — it
+        # renders them as "Renewal tracked" with the extracted metadata.
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
         query = query.where(RenewalEvent.contract_id == contract_id)
+    else:
+        # Portfolio index: a renewal event with no dates has nothing to monitor,
+        # so skip the empty shells — show real renewals or a clean empty state,
+        # never a table of dashes.
+        query = query.where(
+            or_(
+                RenewalEvent.expiration_date.is_not(None),
+                RenewalEvent.notice_date.is_not(None),
+                RenewalEvent.renewal_window_starts_at.is_not(None),
+            )
+        )
     return db.scalars(
         query.order_by(RenewalEvent.notice_date.asc()).offset(offset).limit(limit)
     ).all()

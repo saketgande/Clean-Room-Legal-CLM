@@ -84,6 +84,48 @@ def run_ai_job(self, job_id: str) -> dict:
         raise
 
 
+async def _maybe_auto_review(db, *, job) -> None:
+    """After clause extraction, if the contract was flagged for auto AI review
+    (freshly drafted from intake, or a counterparty revision just landed), run the
+    weighted risk score + the matching playbook's deviation analysis so the REVIEW
+    stage is ready without a manual click. Best-effort — never fails the job."""
+    contract = db.get(Contract, job.resource_id)
+    if contract is None or not (contract.metadata_json or {}).get("auto_review_pending"):
+        return
+
+    from app.auth.models import User
+    from app.contracts.risk import compute_contract_risk
+    from app.core.audit import write_timeline_event
+    from app.playbooks.service import auto_review_contract
+
+    user = db.get(User, job.created_by_user_id) if job.created_by_user_id else None
+    try:
+        if user is not None:
+            await compute_contract_risk(db, contract=contract, user=user, request_id=None)
+    except Exception as exc:  # noqa: BLE001 - best-effort
+        logger.warning("auto risk failed for %s: %s", contract.id, exc)
+    try:
+        res = await auto_review_contract(
+            db, contract=contract, actor_user_id=job.created_by_user_id, create_redline=True
+        )
+        logger.info("auto playbook review for %s: %s", contract.id, res)
+    except Exception as exc:  # noqa: BLE001 - best-effort
+        logger.warning("auto playbook review failed for %s: %s", contract.id, exc)
+
+    contract = db.get(Contract, job.resource_id)
+    if contract is not None:
+        meta = dict(contract.metadata_json or {})
+        meta.pop("auto_review_pending", None)
+        contract.metadata_json = meta
+        db.commit()
+        write_timeline_event(
+            db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+            event_type="contract.auto_review", title="AI review complete — risk + playbook deviations",
+            actor_user_id=job.created_by_user_id,
+        )
+        db.commit()
+
+
 async def _run_ai_job(job_id: str) -> dict:
     db = SessionLocal()
     try:
@@ -123,6 +165,7 @@ async def _run_ai_job(job_id: str) -> dict:
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
             _queue_contract_brain_ingestion(db, job=job, reason="after_clause_extraction")
+            await _maybe_auto_review(db, job=job)
         elif job.job_type == "obligation_extraction":
             await ai_controller.run_job_skill(
                 db,

@@ -113,7 +113,7 @@ def create_comment(
                 event_type="contract.comment.mention",
                 subject=f"{user.full_name or user.email} mentioned you",
                 body=f"on “{contract.title}”: {comment.body[:140]}",
-                status="queued",
+                status="sent",  # in-app is delivered on write; nothing drains a queue
                 metadata_json={"contract_id": contract.id, "comment_id": comment.id},
                 created_by_user_id=user.id,
                 updated_by_user_id=user.id,
@@ -186,7 +186,7 @@ def add_counterparty_comment(
                 event_type="contract.comment.counterparty",
                 subject=f"Counterparty commented on “{contract.title}”",
                 body=comment.body[:140],
-                status="queued",
+                status="sent",  # in-app is delivered on write; nothing drains a queue
                 metadata_json={"contract_id": contract.id, "comment_id": comment.id},
             )
         )

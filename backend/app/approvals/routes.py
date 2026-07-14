@@ -195,16 +195,27 @@ def list_approvals(
     # Batch-load the contracts referenced by this page in a single IN query so the
     # per-row visibility check below doesn't fire one db.get() per approval (N+1).
     contracts = _load_contracts_for_approvals(db, approvals=rows, user=current_user)
+    group_ids = {r.approver_group_id for r in rows if r.approver_group_id}
+    group_names = {
+        g.id: g.name
+        for g in db.scalars(
+            select(ApproverGroup).where(ApproverGroup.id.in_(group_ids))
+        ).all()
+    } if group_ids else {}
     return [
         _serialize_approval(
-            row, can_decide=_can_decide_approval(db, approval=row, user=current_user)
+            row,
+            can_decide=_can_decide_approval(db, approval=row, user=current_user),
+            group_names=group_names,
         )
         for row in rows
         if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
     ]
 
 
-def _serialize_approval(req: ApprovalRequest, *, can_decide: bool) -> dict:
+def _serialize_approval(
+    req: ApprovalRequest, *, can_decide: bool, group_names: dict[str, str] | None = None
+) -> dict:
     """Approval row + a server-computed can_decide (so the UI shows the
     Approve/Reject buttons for group members, not just role/user matches)."""
     return {
@@ -217,6 +228,7 @@ def _serialize_approval(req: ApprovalRequest, *, can_decide: bool) -> dict:
         "approver_user_id": req.approver_user_id,
         "approver_role": req.approver_role,
         "approver_group_id": req.approver_group_id,
+        "approver_group_name": (group_names or {}).get(req.approver_group_id or ""),
         "routing_rule_id": req.routing_rule_id,
         "step_order": req.step_order,
         "due_at": req.due_at,

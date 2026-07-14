@@ -1148,7 +1148,7 @@ export function AssistantWorkspace() {
                           closeTab(t.id);
                         }}
                         title="Close tab"
-                        className="-mr-1 rounded p-0.5 opacity-60 hover:bg-white/10 hover:opacity-100"
+                        className="-mr-1 rounded p-0.5 opacity-60 hover:bg-slate-900/10 hover:opacity-100"
                       >
                         <X className="h-3 w-3" />
                       </button>

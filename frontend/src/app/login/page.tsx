@@ -90,7 +90,7 @@ export default function LoginPage() {
           </p>
           <div className="flex flex-wrap gap-2 pt-2 text-xs text-slate-400">
             {[
-              "Contract Hub",
+              "Legal Intake",
               "Ask Aegis",
               "Playbooks",
               "Tabular Review",

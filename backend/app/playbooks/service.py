@@ -297,6 +297,101 @@ def select_run_version(
     return version
 
 
+def pick_playbook_for_contract(
+    db: Session, *, org_id: str, contract_type: str | None = None
+) -> Playbook | None:
+    """Pick a playbook (with a published version) to review a contract against.
+    Playbooks aren't typed by contract_type, so prefer one whose name mentions the
+    contract type, else fall back to any published playbook."""
+    pub_ids = db.scalars(
+        select(PlaybookVersion.playbook_id)
+        .where(PlaybookVersion.org_id == org_id, PlaybookVersion.status == PlaybookStatus.PUBLISHED)
+        .distinct()
+    ).all()
+    playbooks = [
+        p for p in (db.get(Playbook, pid) for pid in pub_ids)
+        if p is not None and getattr(p, "deleted_at", None) is None
+    ]
+    if not playbooks:
+        return None
+    ct = (contract_type or "").strip().lower()
+    if ct:
+        toks = [t for t in ct.replace("_", " ").split() if len(t) > 2]
+        for p in playbooks:
+            name = (p.name or "").lower()
+            if ct in name or any(t in name for t in toks):
+                return p
+    return playbooks[0]
+
+
+def _auto_rule_payloads(db: Session, *, org_id: str, playbook_version_id: str) -> list[dict]:
+    rules = db.scalars(
+        select(PlaybookRule)
+        .where(PlaybookRule.org_id == org_id, PlaybookRule.playbook_version_id == playbook_version_id)
+        .order_by(PlaybookRule.created_at.asc())
+    ).all()
+    return [
+        {
+            "rule_index": i, "clause_type": r.clause_type, "rule_type": r.rule_type,
+            "preferred_position": r.preferred_position, "fallback_position": r.fallback_position,
+            "prohibited_language": r.prohibited_language, "required_language": r.required_language,
+            "risk_level": r.risk_level, "rationale": r.rationale, "approval_required": r.approval_required,
+            "escalation_role": r.escalation_role, "sample_clause": r.sample_clause,
+            "negotiation_guidance": r.negotiation_guidance,
+        }
+        for i, r in enumerate(rules, start=1)
+    ]
+
+
+async def auto_review_contract(
+    db: Session, *, contract: Contract, actor_user_id: str | None, create_redline: bool = True
+) -> dict:
+    """Best-effort playbook deviation review — used after drafting and after a
+    counterparty revision lands. Picks the matching playbook, runs the AI review,
+    and records deviations (+ optional redline). Never raises out."""
+    from app.ai.controller import ai_controller
+
+    out_result = {"ran": False, "playbook_id": None, "error": None}
+    user = db.get(User, actor_user_id) if actor_user_id else None
+    if user is None:
+        user = db.scalar(select(User).where(User.org_id == contract.org_id).order_by(User.created_at.asc()))
+    if user is None:
+        out_result["error"] = "no user in org"
+        return out_result
+    playbook = pick_playbook_for_contract(db, org_id=contract.org_id, contract_type=contract.contract_type)
+    if playbook is None:
+        out_result["error"] = "no published playbook"
+        return out_result
+    try:
+        version = select_run_version(db, playbook=playbook, org_id=contract.org_id, version_id=None, test_mode=False)
+        rules = _auto_rule_payloads(db, org_id=contract.org_id, playbook_version_id=version.id)
+        ai_output = None
+        ai_error = None
+        try:
+            raw = await ai_controller.run_structured_skill(
+                db, skill_name="playbook_review", org_id=contract.org_id, created_by_user_id=user.id,
+                input_payload={
+                    "contract_id": contract.id,
+                    "contract_version_id": contract.current_authoritative_version_id,
+                    "playbook_id": playbook.id, "playbook_version_id": version.id, "rules": rules,
+                },
+                resource_type="contract", resource_id=contract.id,
+            )
+            ai_output = PlaybookReviewOutput.model_validate(raw)
+        except Exception as exc:
+            ai_error = f"{exc.__class__.__name__}: {exc}"
+        execute_playbook_run(
+            db, user=user, playbook=playbook, version=version, contract=contract,
+            create_redline=create_redline, ai_output=ai_output, ai_error=ai_error,
+        )
+        db.commit()
+        out_result.update(ran=True, playbook_id=playbook.id, error=ai_error)
+    except Exception as exc:
+        db.rollback()
+        out_result["error"] = f"{exc.__class__.__name__}: {exc}"
+    return out_result
+
+
 def evaluate_rules_against_text(*, rules: list[PlaybookRule], text: str) -> list[EvaluatedDeviation]:
     deviations: list[EvaluatedDeviation] = []
     for rule in rules:

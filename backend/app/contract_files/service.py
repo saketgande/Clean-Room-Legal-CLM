@@ -195,6 +195,19 @@ async def _resolve_extracted_text(
     )
 
 
+def _dedupe_extension(filename: str) -> str:
+    """Collapse a doubled trailing extension so titles read cleanly.
+
+    Some upload clients append an extension to a name that already has one
+    (the Word add-in did this), producing 'MSA.docx.docx'. Choke point for
+    every upload path, so a single guard here covers all of them.
+    """
+    stem, dot, ext = filename.strip().rpartition(".")
+    if dot and stem.lower().endswith(f".{ext.lower()}"):
+        return stem  # 'foo.docx.docx' -> 'foo.docx'
+    return filename.strip()
+
+
 def _persist_intake_records(
     db: Session,
     *,
@@ -203,6 +216,7 @@ def _persist_intake_records(
     mime_type: str,
     title: str | None,
     counterparty_name: str | None,
+    contract_type: str | None,
     extracted: _ExtractedText,
 ) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot]:
     """Create the storage object → contract → file → version → text snapshot
@@ -224,8 +238,9 @@ def _persist_intake_records(
 
     contract = Contract(
         org_id=user.org_id,
-        title=title or stored.filename,
+        title=title or _dedupe_extension(stored.filename),
         counterparty_name=counterparty_name,
+        contract_type=contract_type,
         lifecycle_stage=ContractLifecycleStage.INTAKE,
         owner_user_id=user.id,
         created_by_user_id=user.id,
@@ -328,6 +343,7 @@ async def create_contract_from_upload(
     project_id: str | None = None,
     title: str | None = None,
     counterparty_name: str | None = None,
+    contract_type: str | None = None,
     request_id: str | None = None,
 ) -> dict:
     """Orchestrate a contract intake: validate, store, extract text, persist
@@ -369,6 +385,7 @@ async def create_contract_from_upload(
             mime_type=mime_type,
             title=title,
             counterparty_name=counterparty_name,
+            contract_type=contract_type,
             extracted=extracted,
         )
         if project_id:
@@ -633,6 +650,7 @@ async def add_version_from_upload(
     upload: UploadFile,
     user: User,
     change_summary: str | None = None,
+    source: str = ContractVersionSource.MANUAL_UPLOAD,
     request_id: str | None = None,
 ) -> ContractVersion:
     """Create a new authoritative version of an EXISTING contract from an
@@ -687,7 +705,7 @@ async def add_version_from_upload(
             contract_file_id=contract_file.id,
             version_number=next_version_number(db, contract_file.id),
             storage_object_id=storage_object.id,
-            source=ContractVersionSource.MANUAL_UPLOAD,
+            source=source,
             change_summary=change_summary or "New version uploaded from Word",
             is_authoritative=True,
             created_by_user_id=user.id,

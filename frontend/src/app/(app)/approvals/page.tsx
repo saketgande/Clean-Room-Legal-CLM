@@ -14,6 +14,8 @@ import {
   Users,
 } from "lucide-react";
 import { approvalsApi, contractsApi } from "@/lib/endpoints";
+import { can } from "@/lib/intake";
+import { RoutingTab as IntakeRoutingTab } from "../intake/_phase1";
 import {
   Badge,
   Button,
@@ -41,18 +43,21 @@ import type { ApprovalRequest } from "@/lib/types";
 
 export default function ApprovalsPage() {
   const [tab, setTab] = useState("requests");
+  const { user } = useAuth();
+  const isAdmin = can(user, "admin_panel:access");
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Approvals"
-        description="Route contracts through a multi-step sign-off chain and manage approver groups."
+        title="Approvals & routing"
+        description="Route contracts through a multi-step sign-off chain, and route incoming legal requests to the right team."
       />
       <Tabs
         tabs={[
           { id: "requests", label: "Requests" },
-          { id: "rules", label: "Routing rules" },
+          { id: "rules", label: "Approval routing" },
           { id: "groups", label: "Approver groups" },
+          { id: "intake", label: "Intake routing" },
         ]}
         active={tab}
         onChange={setTab}
@@ -61,8 +66,10 @@ export default function ApprovalsPage() {
         <RequestsTab />
       ) : tab === "rules" ? (
         <RulesTab />
-      ) : (
+      ) : tab === "groups" ? (
         <GroupsTab />
+      ) : (
+        <IntakeRoutingTab isAdmin={isAdmin} />
       )}
     </div>
   );
@@ -184,9 +191,7 @@ function RequestsTab() {
                   <TD>
                     {req.approver_role
                       ? titleCase(req.approver_role)
-                      : req.approver_group_id
-                        ? "Group"
-                        : req.approver_user_id ?? "—"}
+                      : req.approver_group_name ?? (req.approver_group_id ? "Group" : req.approver_user_id ?? "—")}
                   </TD>
                   <TD className={req.overdue ? "font-semibold text-rose-600" : undefined}>
                     {fmtDate(req.due_at)}

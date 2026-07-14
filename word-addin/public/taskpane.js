@@ -344,7 +344,7 @@ function getDocxBytes() {
     });
   });
 }
-async function docxForm(filename) { const bytes = await getDocxBytes(); const form = new FormData(); form.append("file", new Blob([bytes], { type: DOCX_MIME }), (filename || "contract") + ".docx"); return form; }
+async function docxForm(filename) { const bytes = await getDocxBytes(); const name = filename || "contract"; const fname = name.toLowerCase().endsWith(".docx") ? name : name + ".docx"; const form = new FormData(); form.append("file", new Blob([bytes], { type: DOCX_MIME }), fname); return form; }
 
 /* ---- document <-> contract link ---- */
 function getLinkedContractId() { try { return Office.context.document.settings.get(LINK_KEY) || null; } catch (e) { return null; } }

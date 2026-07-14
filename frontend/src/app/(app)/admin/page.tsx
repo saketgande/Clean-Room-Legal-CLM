@@ -55,6 +55,8 @@ import {
   Textarea,
 } from "@/components/ui";
 import { cn, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
+import { useAuth } from "@/lib/auth";
+import { can } from "@/lib/intake";
 import { useToast } from "@/components/toast";
 import type {
   ConfigStatus,
@@ -78,6 +80,20 @@ const RISK_BANDS = ["low", "medium", "high", "critical"];
 
 export default function AdminPage() {
   const [tab, setTab] = useState("organization");
+  const { user } = useAuth();
+
+  if (!can(user, "admin_panel:access")) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Admin" description="Organization settings and administration." />
+        <EmptyState
+          icon={<Lock className="h-6 w-6" />}
+          title="Access restricted"
+          description="You don't have permission to view organization administration. Contact an admin if you need access."
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -1505,11 +1505,11 @@ export default function ContractDetailPage({
             className="flex shrink-0 items-center gap-1 text-sm"
           >
             <Link
-              href="/command"
+              href="/intake"
               className="flex items-center gap-1.5 rounded px-1 py-0.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              Command
+              Legal Intake
             </Link>
             <ChevronRight
               aria-hidden="true"

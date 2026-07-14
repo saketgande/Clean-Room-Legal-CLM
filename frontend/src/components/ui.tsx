@@ -161,7 +161,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-xs font-semibold ring-1 ring-inset",
+        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] ring-1 ring-inset",
         badgeTones[tone],
         className,
       )}
@@ -343,7 +343,7 @@ export function TH({
   return (
     <th
       className={cn(
-        "border-b border-slate-200 px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500",
+        "border-b border-slate-200 px-4 py-2.5 text-left font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500",
         className,
       )}
       {...props}
@@ -529,16 +529,23 @@ export function Breadcrumbs({
 export function PageHeader({
   title,
   description,
+  eyebrow,
   actions,
 }: {
   title: string;
   description?: string;
+  eyebrow?: string;
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
-        <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
+        {eyebrow && (
+          <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600">
+            {eyebrow}
+          </p>
+        )}
+        <h1 className="font-serif text-[27px] font-normal leading-tight tracking-[-0.01em] text-slate-900">
           {title}
         </h1>
         {description && (
@@ -683,7 +690,7 @@ export function StatCard({
     <Card className="p-5">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500">
             {label}
           </p>
           <p className="mt-2 text-[28px] font-semibold tracking-tight text-slate-900">
@@ -749,7 +756,7 @@ export function Tabs({
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           className={cn(
-            "relative -mb-px px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+            "relative -mb-px px-3 py-2 font-mono text-[11px] font-medium uppercase tracking-[0.09em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
             active === t.id
               ? "border-b-2 border-brand-600 text-slate-900"
               : "border-b-2 border-transparent text-slate-500 hover:text-slate-900",

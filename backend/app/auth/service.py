@@ -76,6 +76,7 @@ def _user_response(user: User) -> dict:
         "active_role_id": user.active_role_id,
         "active_role_name": active_role.name if active_role else None,
         "clearance": getattr(user, "clearance", None) or "confidential",
+        "permissions": sorted(user.permission_values),
     }
 
 

@@ -136,9 +136,19 @@ def search_contract_text(
             ProjectContract.org_id == current_user.org_id,
             ProjectContract.project_id == project_id,
         )
-    rows = db.execute(query.limit(min(limit, 100))).all()
+    cap = min(limit, 100)
+    # A contract has one text snapshot per version; the query returns a row per
+    # snapshot, so collapse to the best-ranked snapshot per contract (rows are
+    # already ordered by ts_rank desc). Over-fetch so dedup can't starve the cap.
+    rows = db.execute(query.limit(cap * 5)).all()
     results = []
+    seen: set[str] = set()
     for snapshot, contract, headline_text in rows:
+        if contract.id in seen:
+            continue
+        seen.add(contract.id)
+        if len(results) >= cap:
+            break
         # Exact-substring excerpts when the literal query appears; otherwise
         # (stemmed FTS matches like "terminations" → "termination") fall back
         # to ts_headline fragments so the user still sees why it matched.

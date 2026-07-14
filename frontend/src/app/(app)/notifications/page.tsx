@@ -122,7 +122,7 @@ export default function NotificationsPage() {
                         {isUnread && (
                           <span className="h-2 w-2 shrink-0 rounded-full bg-brand-600" />
                         )}
-                        {titleCase(n.event_type)}
+                        {titleCase(n.event_type.replace(/\./g, " "))}
                       </span>
                     </TD>
                     <TD className={cn(isUnread && "font-medium")}>

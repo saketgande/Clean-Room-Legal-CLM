@@ -3,23 +3,22 @@
 @tailwind utilities;
 
 /* ===========================================================================
-   Theme tokens. The whole app's neutrals flow through the Tailwind `slate`
-   scale, which is wired (in tailwind.config.ts) to these CSS variables as
-   `rgb(var(--color-slate-N) / <alpha>)`. Light values live on :root; the .dark
-   class on <html> swaps in the dark ladder. The `brand` (violet) scale is a
-   fixed accent that reads on both themes, so it is NOT themed here.
-   Values are space-separated RGB triplets so Tailwind opacity modifiers work.
+   "Mission Control" theme tokens. The whole app's neutrals flow through the
+   Tailwind `slate` scale and the accent through `brand`, both wired (in
+   tailwind.config.ts) to these CSS variables as `rgb(var(--color-N) / <alpha>)`.
+   The DEFAULT (.dark, applied pre-paint) is the navy Mission Control ground with
+   a bright orange accent — the app's flagship look. :root is a contrast-tuned
+   LIGHT variant of the same language (same orange, darker for AA on white),
+   available via the theme toggle. Values are space-separated RGB triplets so
+   Tailwind opacity modifiers keep working.
    =========================================================================== */
 :root {
   color-scheme: light;
-  /* LIGHT — Fluent 2 neutral ramp (the default theme). 50 = #FAFAFA canvas,
-     100 = #FFFFFF card/surface (brighter than canvas for elevation), 200/300 =
-     neutral strokes, 400-500 = secondary/tertiary text, 900 = #242424 primary
-     text. Pure Fluent greys — matches fluent2.microsoft.design/color. */
+  /* LIGHT Mission Control — clean neutral ground (Fluent light ramp). */
   --color-slate-50: 250 250 250;   /* #FAFAFA  canvas            */
   --color-slate-100: 255 255 255;  /* #FFFFFF  surface / cards   */
-  --color-slate-200: 224 224 224;  /* #E0E0E0  neutralStroke1    */
-  --color-slate-300: 209 209 209;  /* #D1D1D1  neutralStroke2    */
+  --color-slate-200: 224 224 224;  /* #E0E0E0  stroke1           */
+  --color-slate-300: 209 209 209;  /* #D1D1D1  stroke2           */
   --color-slate-400: 138 138 138;  /* #8A8A8A  tertiary / hint   */
   --color-slate-500: 97 97 97;     /* #616161  secondary text    */
   --color-slate-600: 66 66 66;     /* #424242                    */
@@ -28,40 +27,70 @@
   --color-slate-900: 36 36 36;     /* #242424  primary text      */
   --color-slate-950: 20 20 20;     /* #141414                    */
 
-  /* Fluent 2 elevation — shadow2 for resting cards, shadow16 for popups. */
-  --shadow-card: 0 0 2px rgb(0 0 0 / 0.12), 0 1px 2px rgb(0 0 0 / 0.14);
-  --shadow-pop: 0 0 2px rgb(0 0 0 / 0.12), 0 8px 16px rgb(0 0 0 / 0.14);
+  /* Burnt orange — 600 = #C2410C reads ~5:1 on white, so link text AND
+     white-on-orange buttons both pass WCAG AA in light mode. */
+  --color-brand-50: 255 244 237;   /* #FFF4ED  soft tint         */
+  --color-brand-100: 255 230 213;  /* #FFE6D5                    */
+  --color-brand-200: 254 208 174;  /* #FED0AE  rings             */
+  --color-brand-300: 253 176 122;  /* #FDB07A                    */
+  --color-brand-400: 251 138 60;   /* #FB8A3C                    */
+  --color-brand-500: 234 110 26;   /* #EA6E1A                    */
+  --color-brand-600: 194 65 12;    /* #C2410C  primary           */
+  --color-brand-700: 154 52 18;    /* #9A3412  hover             */
+  --color-brand-800: 124 45 18;    /* #7C2D12                    */
+  --color-brand-900: 108 46 18;    /* #6C2E12                    */
+  --color-brand-950: 67 20 7;      /* #431407                    */
 
-  /* Fluent 2 type — Segoe UI everywhere (Segoe UI Variable on Win11; the
-     system face on macOS, per Fluent's native-font approach). Fluent has no
-     serif, so `serif` resolves to the same stack — every heading is Segoe. */
+  --shadow-card: 0 0 2px rgb(0 0 0 / 0.10), 0 1px 2px rgb(0 0 0 / 0.12);
+  --shadow-pop: 0 0 2px rgb(0 0 0 / 0.10), 0 8px 16px rgb(0 0 0 / 0.14);
+
+  /* Type voices: sans body (system), serif DISPLAY (real serifs for heroes),
+     mono handled by Tailwind's font-mono. */
   --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system,
     BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-serif: "Segoe UI Variable Display", "Segoe UI", -apple-system,
-    BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-serif: Charter, "Iowan Old Style", "Palatino Linotype", Georgia,
+    Cambria, "Times New Roman", serif;
 }
 
 .dark {
   color-scheme: dark;
-  /* DARK — pure Fluent 2 dark neutral ramp (matches
-     fluent2.microsoft.design/color). 50 = #141414 canvas, 100 = #1F1F1F
-     card/surface, 200/300 = neutral strokes, 400-500 = tertiary/secondary
-     text, 900 = #FFFFFF primary text. Flat greys, no tint. */
-  --color-slate-50: 20 20 20;     /* #141414  canvas            */
-  --color-slate-100: 31 31 31;    /* #1F1F1F  surface / cards   */
-  --color-slate-200: 56 56 56;    /* #383838  neutralStroke1    */
-  --color-slate-300: 68 68 68;    /* #444444  neutralStroke2    */
-  --color-slate-400: 148 148 148; /* #949494  tertiary / hint   */
-  --color-slate-500: 173 173 173; /* #ADADAD  secondary text    */
-  --color-slate-600: 199 199 199; /* #C7C7C7                    */
-  --color-slate-700: 214 214 214; /* #D6D6D6                    */
-  --color-slate-800: 230 230 230; /* #E6E6E6                    */
-  --color-slate-900: 255 255 255; /* #FFFFFF  primary text      */
-  --color-slate-950: 255 255 255; /* #FFFFFF                    */
+  /* NAVY Mission Control — deep navy ground, barely-lifted cards, cool strokes,
+     near-white primary text. The flagship look. */
+  --color-slate-50: 10 16 26;      /* #0A101A  canvas            */
+  --color-slate-100: 17 26 41;     /* #111A29  surface / cards   */
+  --color-slate-200: 27 39 64;     /* #1B2740  stroke1           */
+  --color-slate-300: 39 55 80;     /* #273750  stroke2           */
+  --color-slate-400: 118 132 154;  /* #76849A  tertiary / hint   */
+  --color-slate-500: 148 162 184;  /* #94A2B8  secondary text    */
+  --color-slate-600: 176 188 206;  /* #B0BCCE                    */
+  --color-slate-700: 202 212 226;  /* #CAD4E2                    */
+  --color-slate-800: 224 230 240;  /* #E0E6F0                    */
+  --color-slate-900: 233 238 246;  /* #E9EEF6  primary text      */
+  --color-slate-950: 233 238 246;
 
-  /* Fluent 2 dark elevation — same shadow shapes, deeper opacity. */
-  --shadow-card: 0 0 2px rgb(0 0 0 / 0.24), 0 1px 2px rgb(0 0 0 / 0.28);
-  --shadow-pop: 0 0 2px rgb(0 0 0 / 0.24), 0 8px 16px rgb(0 0 0 / 0.28);
+  /* Bright orange accent that reads on navy. -50/-100 are DARK tints (subtle
+     backgrounds on the navy ground), -400 the accent text, -600 the button. */
+  --color-brand-50: 36 26 18;      /* #241A12  dark tint bg      */
+  --color-brand-100: 51 36 18;     /* #332412                    */
+  --color-brand-200: 74 51 22;     /* #4A3316  rings             */
+  --color-brand-300: 120 74 33;    /* #784A21                    */
+  --color-brand-400: 245 155 87;   /* #F59B57  accent (links)    */
+  --color-brand-500: 240 135 62;   /* #F0873E                    */
+  --color-brand-600: 238 128 52;   /* #EE8034  primary button    */
+  --color-brand-700: 245 155 87;   /* #F59B57  hover (lighten)   */
+  --color-brand-800: 194 65 12;    /* #C2410C                    */
+  --color-brand-900: 253 176 122;  /* #FDB07A                    */
+  --color-brand-950: 255 230 213;  /* #FFE6D5                    */
+
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.02), 0 1px 3px rgb(0 0 0 / 0.5);
+  --shadow-pop: 0 0 0 1px rgb(255 255 255 / 0.04), 0 12px 28px rgb(0 0 0 / 0.6);
+}
+
+/* Orange primary buttons carry dark ink on the navy theme — white-on-orange
+   never clears AA, and the reference deliberately uses dark-on-orange. */
+.dark .bg-brand-600,
+.dark .hover\:bg-brand-700:hover {
+  color: #0a101a;
 }
 
 * {

@@ -46,6 +46,20 @@ from app.playbooks.models import (
 from app.grants.models import ResourceGrant
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 from app.authority.models import AuthorityGrant
+from app.intake.models import (
+    IntakeAgentRecommendation,
+    IntakeDocument,
+    IntakeHandoff,
+    IntakeKbArticle,
+    IntakeRequest,
+    IntakeRequestField,
+    IntakeRequestType,
+    IntakeRoutingRule,
+    IntakeTask,
+    IntakeTeam,
+    IntakeTeamMember,
+    SanctionsListEntry,
+)
 from app.projects.models import Project, ProjectActivity, ProjectContract, ProjectFolder, ProjectMember, ProjectShare
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureEvent, SignatureRecipient, SignatureRequest
@@ -62,6 +76,18 @@ __all__ = [
     "AuthorityGrant",
     "EthicalWall",
     "EthicalWallPrincipal",
+    "IntakeAgentRecommendation",
+    "IntakeDocument",
+    "IntakeHandoff",
+    "IntakeKbArticle",
+    "IntakeRequest",
+    "IntakeRequestField",
+    "IntakeRequestType",
+    "IntakeRoutingRule",
+    "IntakeTask",
+    "IntakeTeam",
+    "IntakeTeamMember",
+    "SanctionsListEntry",
     "ResourceGrant",
     "AIConfirmation",
     "AICitation",

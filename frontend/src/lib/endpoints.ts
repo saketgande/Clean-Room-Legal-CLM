@@ -82,6 +82,22 @@ import type {
   Workflow,
   WorkflowVersion,
   WorkflowUsage,
+  IntakeRequest,
+  IntakeRequestType,
+  IntakeTask,
+  IntakeHandoff,
+  IntakeAssignee,
+  IntakeMyWork,
+  IntakeRecommendation,
+  IntakeSlaLegs,
+  IntakeSlaOps,
+  IntakeTeam,
+  IntakeRule,
+  IntakeKbArticle,
+  IntakePoolOps,
+  IntakeDocument,
+  IntakeAgentMetrics,
+  CopilotTurn,
 } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
@@ -417,6 +433,15 @@ export const contractsApi = {
     apiFetch<ContractStageHistoryResponse[]>(`/contracts/${id}/stage-history`),
   reviewStatus: (id: string) =>
     apiFetch<ReviewStatusResponse>(`/contracts/${id}/review-status`),
+  logCounterpartyRevision: (id: string, file: File, change_summary?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (change_summary) form.append("change_summary", change_summary);
+    return apiFetch<ContractVersionResponse>(`/contracts/${id}/counterparty-revision`, {
+      method: "POST",
+      form,
+    });
+  },
   parties: (id: string) => apiFetch<ContractParty[]>(`/contracts/${id}/parties`),
   addParty: (
     id: string,
@@ -1036,4 +1061,111 @@ export const externalShareApi = {
       body: payload,
       noRetry: true,
     }),
+};
+
+// ---- Legal Intake ---------------------------------------------------------
+const intakeQs = (o: Record<string, string | undefined>) => {
+  const p = Object.entries(o).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v!)}`);
+  return p.length ? `?${p.join("&")}` : "";
+};
+
+export const intakeApi = {
+  // request types
+  listTypes: (includeInactive = false) =>
+    apiFetch<IntakeRequestType[]>(`/intake/request-types${includeInactive ? "?include_inactive=true" : ""}`),
+  createType: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequestType>("/intake/request-types", { method: "POST", body: payload }),
+  updateType: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequestType>(`/intake/request-types/${id}`, { method: "PATCH", body: payload }),
+  deleteType: (id: string) => apiFetch<void>(`/intake/request-types/${id}`, { method: "DELETE" }),
+
+  // requests
+  list: (statusFilter?: string) =>
+    apiFetch<IntakeRequest[]>(`/intake/requests${intakeQs({ status_filter: statusFilter })}`),
+  mine: () => apiFetch<IntakeRequest[]>("/intake/requests/mine"),
+  get: (id: string) => apiFetch<IntakeRequest>(`/intake/requests/${id}`),
+  create: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequest>("/intake/requests", { method: "POST", body: payload }),
+  update: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}`, { method: "PATCH", body: payload }),
+  triage: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/triage`, { method: "POST", body: payload }),
+
+  // handoff / custody
+  handoff: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/handoff`, { method: "POST", body: payload }),
+  handoffs: (id: string) => apiFetch<IntakeHandoff[]>(`/intake/requests/${id}/handoffs`),
+
+  // tasks
+  tasks: (id: string) => apiFetch<IntakeTask[]>(`/intake/requests/${id}/tasks`),
+  createTask: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeTask>(`/intake/requests/${id}/tasks`, { method: "POST", body: payload }),
+  updateTask: (taskId: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeTask>(`/intake/tasks/${taskId}`, { method: "PATCH", body: payload }),
+  deleteTask: (taskId: string) => apiFetch<void>(`/intake/tasks/${taskId}`, { method: "DELETE" }),
+  logEffort: (taskId: string, minutes: number) =>
+    apiFetch<IntakeTask>(`/intake/tasks/${taskId}/effort?minutes=${minutes}`, { method: "POST" }),
+
+  // work + people
+  myWork: () => apiFetch<IntakeMyWork>("/intake/my-work"),
+  assignees: () => apiFetch<IntakeAssignee[]>("/intake/assignees"),
+
+  // recommendation / verdicts / promote
+  recommendation: (id: string) =>
+    apiFetch<IntakeRecommendation | null>(`/intake/requests/${id}/recommendation`),
+  bulkTriage: (ids: string[], action: string) =>
+    apiFetch<{ results: { id: string; ok: boolean; error?: string }[] }>(
+      "/intake/requests/bulk-triage", { method: "POST", body: { ids, action } }),
+  promote: (id: string, target: "project" | "contract", targetId: string) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/promote`, {
+      method: "POST", body: { target, target_id: targetId } }),
+  draftContract: (id: string) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/draft-contract`, { method: "POST" }),
+
+  // SLA
+  slaLegs: (id: string) => apiFetch<IntakeSlaLegs>(`/intake/requests/${id}/sla`),
+  pause: (id: string, paused: boolean) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/pause?paused=${paused}`, { method: "POST" }),
+  slaOps: () => apiFetch<IntakeSlaOps>("/intake/sla-ops"),
+  slaScan: () => apiFetch<{ escalated: number; breached: number; downgraded: number }>(
+    "/intake/sla-scan", { method: "POST" }),
+
+  // teams + rules
+  teams: () => apiFetch<IntakeTeam[]>("/intake/teams"),
+  createTeam: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeTeam>("/intake/teams", { method: "POST", body: payload }),
+  updateTeam: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeTeam>(`/intake/teams/${id}`, { method: "PATCH", body: payload }),
+  deleteTeam: (id: string) => apiFetch<void>(`/intake/teams/${id}`, { method: "DELETE" }),
+  rules: () => apiFetch<IntakeRule[]>("/intake/routing-rules"),
+  createRule: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeRule>("/intake/routing-rules", { method: "POST", body: payload }),
+  updateRule: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeRule>(`/intake/routing-rules/${id}`, { method: "PATCH", body: payload }),
+  deleteRule: (id: string) => apiFetch<void>(`/intake/routing-rules/${id}`, { method: "DELETE" }),
+
+  // knowledge base + pool ops + copilot (Phase 2)
+  kb: () => apiFetch<IntakeKbArticle[]>("/intake/kb"),
+  kbAll: () => apiFetch<IntakeKbArticle[]>("/intake/kb/all"),
+  createKb: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeKbArticle>("/intake/kb", { method: "POST", body: payload }),
+  updateKb: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeKbArticle>(`/intake/kb/${id}`, { method: "PATCH", body: payload }),
+  deleteKb: (id: string) => apiFetch<void>(`/intake/kb/${id}`, { method: "DELETE" }),
+  poolOps: (days = 30) => apiFetch<IntakePoolOps>(`/intake/pool-ops?days=${days}`),
+  screen: (id: string) =>
+    apiFetch<Record<string, unknown>>(`/intake/requests/${id}/screen`, { method: "POST" }),
+  documents: (id: string) =>
+    apiFetch<IntakeDocument[]>(`/intake/requests/${id}/documents`),
+  uploadDocument: (id: string, payload: { filename: string; mime_type: string; content_b64: string }) =>
+    apiFetch<IntakeDocument>(`/intake/requests/${id}/documents`, { method: "POST", body: payload }),
+  agentMetrics: () => apiFetch<IntakeAgentMetrics>("/intake/agent-metrics"),
+  setParties: (id: string, parties: { name: string; role: string; is_person?: boolean }[]) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/parties`, { method: "PUT", body: { parties } }),
+  sanctionsRefresh: () =>
+    apiFetch<Record<string, unknown>>("/intake/sanctions/refresh", { method: "POST" }),
+  copilotTurn: (messages: { role: string; content: string }[], userMessage: string) =>
+    apiFetch<CopilotTurn>("/intake/copilot/turn", { method: "POST", body: { messages, user_message: userMessage } }),
+  copilotFile: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeRequest>("/intake/copilot/file", { method: "POST", body: payload }),
 };

@@ -19,12 +19,12 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply the saved theme before first paint to avoid a flash. Fluent 2
-            is light-first, so a fresh visitor defaults to light. */}
+        {/* Apply the saved theme before first paint to avoid a flash. Mission
+            Control is dark-first — a fresh visitor defaults to the navy ground. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':false;document.documentElement.classList.toggle('dark',dark);}catch(e){}})();",
+              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':true;document.documentElement.classList.toggle('dark',dark);}catch(e){document.documentElement.classList.add('dark');}})();",
           }}
         />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
