@@ -74,10 +74,71 @@ def ensure_default_approver_groups(
     return created
 
 
+# Contract attributes a WHEN→THEN condition may test. Fail-closed: a condition
+# naming a field outside this allow-list never matches, so a typo can't silently
+# widen a rule. ``risk_band`` transparently falls back to ``risk_level``.
+_CONDITION_FIELDS = frozenset(
+    {
+        "value_amount",
+        "contract_type",
+        "risk_band",
+        "risk_level",
+        "risk_score",
+        "counterparty_name",
+        "jurisdiction",
+        "currency",
+        "title",
+    }
+)
+_NUMERIC_OPS = {"gte", "lte", "gt", "lt"}
+
+
+def _contract_field(contract: Contract, field: str):
+    if field == "risk_band":
+        return getattr(contract, "risk_band", None) or getattr(contract, "risk_level", None)
+    return getattr(contract, field, None)
+
+
+def _eval_condition(cond: dict, contract: Contract) -> bool:
+    """Evaluate one ``{field, op, value}`` condition against the contract.
+
+    Operators: eq / ne / in / gte / lte / gt / lt / contains / exists. String
+    comparisons are case-insensitive; numeric comparisons coerce both sides to
+    float and fail-closed on non-numeric input."""
+    field = (cond.get("field") or "").strip()
+    op = (cond.get("op") or "eq").strip().lower()
+    expected = cond.get("value")
+    if field not in _CONDITION_FIELDS:
+        return False
+    actual = _contract_field(contract, field)
+    if op == "exists":
+        return actual is not None and str(actual).strip() != ""
+    if actual is None:
+        return False
+    if op in _NUMERIC_OPS:
+        try:
+            a, b = float(actual), float(expected)
+        except (TypeError, ValueError):
+            return False
+        return {"gte": a >= b, "lte": a <= b, "gt": a > b, "lt": a < b}[op]
+    a = str(actual).strip().lower()
+    if op == "in":
+        vals = expected if isinstance(expected, list) else [expected]
+        return a in {str(v).strip().lower() for v in vals}
+    if op == "contains":
+        return str(expected).strip().lower() in a
+    if op == "ne":
+        return a != str(expected).strip().lower()
+    return a == str(expected).strip().lower()
+
+
 def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
     """Does this routing rule's criteria match the contract?
 
     Supported criteria keys (all optional; empty criteria = match everything):
+      conditions                   — list of ``{field, op, value}`` WHEN→THEN
+                                     conditions, ALL of which must hold (see
+                                     ``_eval_condition``)
       min_value / max_value        — numeric bounds on contract value
       contract_type(s)             — string or list, case-insensitive
       risk_band(s)                 — string or list vs risk_band/risk_level
@@ -88,11 +149,21 @@ def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
     if not criteria:
         return True
     for key, expected in criteria.items():
-        if key == "min_value":
-            if (contract.value_amount or 0) < float(expected):
+        if key == "conditions":
+            conds = expected if isinstance(expected, list) else []
+            if not all(_eval_condition(c, contract) for c in conds):
+                return False
+        elif key == "min_value":
+            try:
+                if (contract.value_amount or 0) < float(expected):
+                    return False
+            except (TypeError, ValueError):
                 return False
         elif key == "max_value":
-            if (contract.value_amount or 0) > float(expected):
+            try:
+                if (contract.value_amount or 0) > float(expected):
+                    return False
+            except (TypeError, ValueError):
                 return False
         elif key in {"contract_type", "contract_types"}:
             allowed = expected if isinstance(expected, list) else [expected]
@@ -111,6 +182,38 @@ def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
             if str(actual).strip().lower() != str(expected).strip().lower():
                 return False
     return True
+
+
+def _rule_specificity(rule: ApprovalRoutingRule) -> int:
+    """How many independent predicates a rule declares — used as the tie-break so
+    a more-specific rule fires before a catch-all at the same priority."""
+    cr = rule.criteria or {}
+    n = 0
+    for key, val in cr.items():
+        if key == "conditions":
+            n += len(val) if isinstance(val, list) else 0
+        else:
+            n += 1
+    return n
+
+
+def _rule_sort_key(rule: ApprovalRoutingRule):
+    return (
+        int(rule.priority) if str(rule.priority).isdigit() else 100,
+        -_rule_specificity(rule),
+    )
+
+
+def _target_key(target: dict) -> str | None:
+    """Stable identity of a step's approver target, for de-duplication when
+    composing chains across rules. Returns None for an empty target."""
+    if target.get("approver_group_id"):
+        return f"g:{target['approver_group_id']}"
+    if target.get("approver_user_id"):
+        return f"u:{target['approver_user_id']}"
+    if target.get("approver_role"):
+        return f"r:{str(target['approver_role']).strip().lower()}"
+    return None
 
 
 _NDA_TYPES = {"nda", "non_disclosure_agreement", "non-disclosure agreement", "mutual nda"}
@@ -147,52 +250,125 @@ def _fast_lane_reason(db: Session, *, contract: Contract) -> str | None:
     )
 
 
-def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
-    """Pick the single best-matching active rule (lowest priority number) and
-    return its ordered approval chain as a list of step targets:
-    ``{routing_rule_id, step_order, approver_user_id, approver_group_id,
-    approver_role, mode}``. Empty list means no rule matched (caller falls back
-    to the manually-specified approver)."""
+def _matched_rules(db: Session, *, contract: Contract, org_id: str) -> list[ApprovalRoutingRule]:
+    """Active rules whose criteria match the contract, ordered by priority then
+    specificity (the order their steps enter a composed chain)."""
     rules = db.scalars(
         select(ApprovalRoutingRule).where(
             ApprovalRoutingRule.org_id == org_id,
             ApprovalRoutingRule.is_active.is_(True),
         )
     ).all()
-    matched = sorted(
-        (r for r in rules if _matches(r, contract)),
-        key=lambda r: (
-            int(r.priority) if str(r.priority).isdigit() else 100,
-            -len(r.criteria or {}),
-        ),
-    )
-    if not matched:
-        return []
-    rule = matched[0]
+    return sorted((r for r in rules if _matches(r, contract)), key=_rule_sort_key)
+
+
+def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
+    """The approver targets a single rule contributes, in step order. A rule with
+    no steps falls back to its legacy single-approver columns."""
     steps = sorted(rule.steps, key=lambda s: s.step_order)
     if steps:
         return [
             {
                 "routing_rule_id": rule.id,
-                "step_order": idx + 1,
-                "approver_user_id": step.approver_user_id,
-                "approver_group_id": step.approver_group_id,
-                "approver_role": step.approver_role,
-                "mode": step.mode or "any",
+                "approver_user_id": s.approver_user_id,
+                "approver_group_id": s.approver_group_id,
+                "approver_role": s.approver_role,
+                "mode": s.mode or "any",
             }
-            for idx, step in enumerate(steps)
+            for s in steps
         ]
-    # Legacy single-approver rule (no steps) → a one-step chain.
     return [
         {
             "routing_rule_id": rule.id,
-            "step_order": 1,
             "approver_user_id": rule.approver_user_id,
             "approver_group_id": None,
             "approver_role": rule.approver_role,
             "mode": "any",
         }
     ]
+
+
+def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
+    """Resolve the approval chain for a contract as an ordered list of step
+    targets: ``{routing_rule_id, step_order, approver_user_id, approver_group_id,
+    approver_role, mode}``. Empty list means no rule matched (caller falls back
+    to the manually-specified approver).
+
+    Composable (default, ``settings.routing_compose_matched_rules``): the steps
+    of every matching rule are merged in (priority, step) order and de-duplicated
+    by approver target — so no reviewer a matching rule asked for is ever dropped.
+    A duplicate target upgrades to ``mode="all"`` if any contributor demands it.
+
+    Legacy (flag off): only the single best-matching rule's steps are used."""
+    matched = _matched_rules(db, contract=contract, org_id=org_id)
+    if not matched:
+        return []
+    if not settings.routing_compose_matched_rules:
+        matched = matched[:1]
+
+    merged: list[dict] = []
+    seen: dict[str, dict] = {}
+    for rule in matched:
+        for target in _rule_targets(rule):
+            key = _target_key(target)
+            if key is None:
+                continue
+            if key in seen:
+                if target["mode"] == "all":
+                    seen[key]["mode"] = "all"  # stricter wins
+                continue
+            seen[key] = target
+            merged.append(target)
+
+    for idx, target in enumerate(merged):
+        target["step_order"] = idx + 1
+    return merged
+
+
+def preview_routing(db: Session, *, contract: Contract, org_id: str) -> dict:
+    """Read-only dry-run: what would happen if this contract were submitted for
+    approval right now — without creating a single row. Powers the "Preview
+    chain" affordance so admins can trust routing before it fires."""
+    fast_lane = _fast_lane_reason(db, contract=contract)
+    matched = _matched_rules(db, contract=contract, org_id=org_id)
+    chain = [] if fast_lane else resolve_chain(db, contract=contract, org_id=org_id)
+    used_rule_ids = {t.get("routing_rule_id") for t in chain}
+    return {
+        "fast_lane_reason": fast_lane,
+        "compose": settings.routing_compose_matched_rules,
+        "matched_rules": [
+            {
+                "id": r.id,
+                "name": r.name,
+                "priority": r.priority,
+                # A matched rule is "shadowed" when composition deduped away every
+                # step it would have contributed (all its targets already present).
+                "used": r.id in used_rule_ids,
+            }
+            for r in matched
+        ],
+        "chain": chain,
+    }
+
+
+def preview_criteria(*, criteria: dict, sample: dict) -> bool:
+    """Does a draft rule's ``criteria`` match a hypothetical contract described by
+    ``sample``? No DB, no rows — drives the live match badge in the rule builder."""
+    from types import SimpleNamespace
+
+    contract = SimpleNamespace(
+        value_amount=sample.get("value_amount"),
+        contract_type=sample.get("contract_type"),
+        risk_band=sample.get("risk_band"),
+        risk_level=sample.get("risk_level") or sample.get("risk_band"),
+        risk_score=sample.get("risk_score"),
+        counterparty_name=sample.get("counterparty_name"),
+        jurisdiction=sample.get("jurisdiction"),
+        currency=sample.get("currency"),
+        title=sample.get("title"),
+    )
+    rule = SimpleNamespace(criteria=criteria or {})
+    return _matches(rule, contract)  # type: ignore[arg-type]
 
 
 def _step_recipients(db: Session, *, approval: ApprovalRequest) -> list[User]:

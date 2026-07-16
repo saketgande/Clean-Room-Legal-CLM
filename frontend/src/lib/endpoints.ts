@@ -10,6 +10,7 @@ import type {
   ApprovalReviewContext,
   ApprovalRoutingRule,
   ApproverGroup,
+  RoutingPreview,
   ApproverBrief,
   AssistantMessage,
   AssistantRun,
@@ -668,6 +669,15 @@ export const approvalsApi = {
     apiFetch<ApprovalRoutingRule>("/approvals/routing-rules", {
       method: "POST",
       body: payload,
+    }),
+  // Dry-run: the chain a contract would get if submitted now (creates nothing).
+  routingPreview: (contractId: string) =>
+    apiFetch<RoutingPreview>(`/approvals/contracts/${contractId}/routing-preview`),
+  // Does a draft rule's criteria match a hypothetical contract? Live match badge.
+  previewCriteria: (criteria: Record<string, unknown>, sample: Record<string, unknown>) =>
+    apiFetch<{ matches: boolean }>("/approvals/routing-rules/preview", {
+      method: "POST",
+      body: { criteria, sample },
     }),
   submit: (payload: {
     contract_id: string;

@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     # so overdue-approval sweeps are meaningful.
     approval_default_due_days: int = 7
 
+    # Composable routing. When True (default), an approval submission merges the
+    # steps of EVERY matching routing rule into one ordered, de-duplicated chain
+    # — so a high-value DPA gets Finance + Executive (value rule) AND Compliance
+    # (type rule) AND Legal (risk rule), instead of only the single best-matching
+    # rule's steps. Flip off to restore the legacy single-best-rule behavior.
+    routing_compose_matched_rules: bool = True
+
     # When True, password reset tokens are echoed back in the API response —
     # convenient for local dev when MOCK_RESEND is on, dangerous anywhere else.
     # Default false; legacy local environments can override via env.

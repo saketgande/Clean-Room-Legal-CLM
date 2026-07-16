@@ -242,6 +242,76 @@ function RequestsTab() {
   );
 }
 
+// Dry-run visualization: the chain a contract would get before it's submitted.
+function ChainPreview({ contractId }: { contractId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["routing-preview", contractId],
+    queryFn: () => approvalsApi.routingPreview(contractId),
+    enabled: !!contractId,
+  });
+
+  if (!contractId) return null;
+  if (isLoading)
+    return <p className="text-xs text-slate-400">Resolving the chain…</p>;
+  if (error) return <ErrorState error={error} />;
+  if (!data) return null;
+
+  if (data.fast_lane_reason) {
+    return (
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800">
+        <span className="font-semibold">⚡ Fast-lane</span> — skips approval,
+        straight to signature. {data.fast_lane_reason}.
+      </div>
+    );
+  }
+  if (data.chain.length === 0) {
+    return (
+      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+        No routing rule matches — this falls back to a manually-chosen approver.
+      </div>
+    );
+  }
+
+  const shadowed = data.matched_rules.filter((r) => !r.used);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500">
+        <GitBranch className="h-3.5 w-3.5" />
+        Chain preview
+        <span className="text-slate-400">
+          · {data.compose ? "composed from" : "best of"}{" "}
+          {data.matched_rules.length} matched rule
+          {data.matched_rules.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {data.chain.map((step, i) => (
+          <div key={step.step_order} className="flex items-center gap-1.5">
+            {i > 0 && <span className="text-slate-300">→</span>}
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white tabular-nums">
+                {step.step_order}
+              </span>
+              <span className="text-xs font-semibold text-slate-800">
+                {step.approver_label}
+              </span>
+              {step.mode === "all" && (
+                <Badge tone="slate">all</Badge>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
+      {shadowed.length > 0 && (
+        <p className="text-[11px] text-slate-400">
+          Already covered by an earlier step:{" "}
+          {shadowed.map((r) => r.name).join(", ")}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SubmitModal({
   open,
   onClose,
@@ -298,9 +368,11 @@ function SubmitModal({
             ))}
           </Select>
         </Field>
+        <ChainPreview contractId={contractId} />
         <p className="text-xs text-slate-500">
-          The matching routing rule decides the approval chain. The first step is
-          notified now; later steps activate automatically as each one approves.
+          Every matching routing rule contributes to the chain above. The first
+          step is notified now; later steps activate automatically as each one
+          approves.
         </p>
       </div>
     </Modal>
@@ -457,6 +529,206 @@ function RulesTab() {
   );
 }
 
+// ---- WHEN→THEN condition builder ----------------------------------------
+type Condition = { field: string; op: string; value: string };
+
+const COND_FIELDS: { v: string; label: string; numeric?: boolean }[] = [
+  { v: "value_amount", label: "Contract value", numeric: true },
+  { v: "contract_type", label: "Contract type" },
+  { v: "risk_band", label: "Risk band" },
+  { v: "risk_score", label: "Risk score", numeric: true },
+  { v: "counterparty_name", label: "Counterparty" },
+  { v: "jurisdiction", label: "Jurisdiction" },
+  { v: "currency", label: "Currency" },
+];
+const NUMERIC_OPS = [
+  { v: "gte", label: "≥" },
+  { v: "lte", label: "≤" },
+  { v: "gt", label: ">" },
+  { v: "lt", label: "<" },
+  { v: "eq", label: "=" },
+  { v: "ne", label: "≠" },
+];
+const STRING_OPS = [
+  { v: "eq", label: "is" },
+  { v: "ne", label: "is not" },
+  { v: "in", label: "is any of" },
+  { v: "contains", label: "contains" },
+  { v: "exists", label: "is set" },
+];
+const isNumericField = (f: string) =>
+  COND_FIELDS.find((c) => c.v === f)?.numeric ?? false;
+const opsFor = (f: string) => (isNumericField(f) ? NUMERIC_OPS : STRING_OPS);
+
+function buildCriteria(conditions: Condition[]): Record<string, unknown> {
+  const conds = conditions
+    .filter((c) => c.field && (c.op === "exists" || c.value.trim() !== ""))
+    .map((c) => {
+      let value: unknown = c.value.trim();
+      if (c.op === "exists") value = null;
+      else if (c.op === "in")
+        value = c.value.split(",").map((s) => s.trim()).filter(Boolean);
+      else if (isNumericField(c.field)) value = Number(c.value);
+      return { field: c.field, op: c.op, value };
+    });
+  return conds.length ? { conditions: conds } : {};
+}
+
+// Live "does this match?" tester against a hypothetical contract — Design 2's
+// trust affordance, so an admin sees a rule fire before saving it.
+function RuleTester({ criteria }: { criteria: Record<string, unknown> }) {
+  const [value, setValue] = useState("500000");
+  const [type, setType] = useState("dpa");
+  const [risk, setRisk] = useState("high");
+  const sample = {
+    value_amount: Number(value) || 0,
+    contract_type: type,
+    risk_band: risk,
+    risk_score: risk === "high" ? 80 : risk === "critical" ? 95 : 40,
+  };
+  const { data } = useQuery({
+    queryKey: ["rule-preview", JSON.stringify(criteria), JSON.stringify(sample)],
+    queryFn: () => approvalsApi.previewCriteria(criteria, sample),
+  });
+  const hasConds = Array.isArray(
+    (criteria as { conditions?: unknown[] }).conditions,
+  );
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">
+          Test against a sample
+        </span>
+        {hasConds &&
+          (data?.matches ? (
+            <Badge tone="green">✓ matches</Badge>
+          ) : (
+            <Badge tone="red">✗ no match</Badge>
+          ))}
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        <Input
+          type="number"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label="Sample value"
+        />
+        <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Sample type">
+          <option value="nda">NDA</option>
+          <option value="dpa">DPA</option>
+          <option value="msa">MSA</option>
+          <option value="saas">SaaS</option>
+        </Select>
+        <Select value={risk} onChange={(e) => setRisk(e.target.value)} aria-label="Sample risk">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </Select>
+      </div>
+      {!hasConds && (
+        <p className="mt-2 text-[11px] text-slate-400">
+          No conditions yet — this rule matches every contract.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ConditionBuilder({
+  conditions,
+  setConditions,
+}: {
+  conditions: Condition[];
+  setConditions: (fn: (prev: Condition[]) => Condition[]) => void;
+}) {
+  function setCond(i: number, patch: Partial<Condition>) {
+    setConditions((prev) =>
+      prev.map((c, idx) => {
+        if (idx !== i) return c;
+        const next = { ...c, ...patch };
+        // Keep op valid when the field's type changes.
+        if (patch.field && !opsFor(patch.field).some((o) => o.v === next.op)) {
+          next.op = opsFor(patch.field)[0].v;
+        }
+        return next;
+      }),
+    );
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium text-slate-700">
+          Applies when{" "}
+          <span className="font-normal text-slate-400">(all conditions match)</span>
+        </span>
+        <button
+          type="button"
+          className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+          onClick={() =>
+            setConditions((prev) => [
+              ...prev,
+              { field: "value_amount", op: "gte", value: "" },
+            ])
+          }
+        >
+          + Condition
+        </button>
+      </div>
+      {conditions.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-slate-200 px-3 py-2 text-xs text-slate-400">
+          No conditions — this rule matches every contract (a catch-all).
+        </p>
+      ) : (
+        conditions.map((c, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Select
+              className="min-w-0 flex-1"
+              value={c.field}
+              onChange={(e) => setCond(i, { field: e.target.value })}
+              aria-label="Field"
+            >
+              {COND_FIELDS.map((f) => (
+                <option key={f.v} value={f.v}>
+                  {f.label}
+                </option>
+              ))}
+            </Select>
+            <Select
+              className="w-20 shrink-0"
+              value={c.op}
+              onChange={(e) => setCond(i, { op: e.target.value })}
+              aria-label="Operator"
+            >
+              {opsFor(c.field).map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <Input
+              className="min-w-0 flex-1"
+              placeholder={c.op === "exists" ? "—" : c.op === "in" ? "a, b, c" : "value"}
+              value={c.value}
+              disabled={c.op === "exists"}
+              onChange={(e) => setCond(i, { value: e.target.value })}
+              aria-label="Value"
+            />
+            <button
+              type="button"
+              className="rounded p-1 text-slate-400 hover:text-rose-600"
+              onClick={() => setConditions((prev) => prev.filter((_, idx) => idx !== i))}
+              aria-label="Remove condition"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))
+      )}
+    </div>
+  );
+}
+
 function NewRuleModal({
   open,
   onClose,
@@ -469,7 +741,8 @@ function NewRuleModal({
   const { notify } = useToast();
   const [name, setName] = useState("");
   const [priority, setPriority] = useState("100");
-  const [minValue, setMinValue] = useState("");
+  // WHEN→THEN conditions. Empty = the rule matches every contract.
+  const [conditions, setConditions] = useState<Condition[]>([]);
   const [isActive, setIsActive] = useState(true);
   // Each step holds an encoded target: "group:<id>" or "user:<id>" (or "").
   const [steps, setSteps] = useState<string[]>([""]);
@@ -489,10 +762,12 @@ function NewRuleModal({
   function reset() {
     setName("");
     setPriority("100");
-    setMinValue("");
+    setConditions([]);
     setIsActive(true);
     setSteps([""]);
   }
+
+  const criteria = buildCriteria(conditions);
 
   function setStep(i: number, value: string) {
     setSteps((prev) => prev.map((s, idx) => (idx === i ? value : s)));
@@ -522,7 +797,7 @@ function NewRuleModal({
         name: name.trim(),
         priority: String(Number(priority) || 0),
         is_active: isActive,
-        criteria: minValue ? { min_value: Number(minValue) } : {},
+        criteria,
         steps: chosen.map((s) => {
           const [kind, id] = s.split(":");
           return kind === "group"
@@ -565,23 +840,17 @@ function NewRuleModal({
             onChange={(e) => setName(e.target.value)}
           />
         </Field>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Priority" hint="Lower wins when rules overlap.">
-            <Input
-              type="number"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            />
-          </Field>
-          <Field label="Applies when value ≥" hint="Optional threshold.">
-            <Input
-              type="number"
-              placeholder="Any value"
-              value={minValue}
-              onChange={(e) => setMinValue(e.target.value)}
-            />
-          </Field>
-        </div>
+        <Field label="Priority" hint="Lower wins when rules overlap.">
+          <Input
+            type="number"
+            className="sm:max-w-[140px]"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value)}
+          />
+        </Field>
+
+        <ConditionBuilder conditions={conditions} setConditions={setConditions} />
+        <RuleTester criteria={criteria} />
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">

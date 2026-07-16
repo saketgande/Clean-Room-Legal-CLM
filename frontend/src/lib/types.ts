@@ -795,6 +795,29 @@ export interface ApprovalChainStep {
   comment: string | null;
 }
 
+// Dry-run: the approval chain a contract would get if submitted now.
+export interface RoutingPreviewStep {
+  step_order: number;
+  approver_group_id: ID | null;
+  approver_user_id: ID | null;
+  approver_role: string | null;
+  mode: string;
+  routing_rule_id: ID | null;
+  approver_label: string;
+}
+export interface RoutingPreviewMatchedRule {
+  id: ID;
+  name: string;
+  priority: string;
+  used: boolean;
+}
+export interface RoutingPreview {
+  fast_lane_reason: string | null;
+  compose: boolean;
+  matched_rules: RoutingPreviewMatchedRule[];
+  chain: RoutingPreviewStep[];
+}
+
 // Public token-authenticated review context for the emailed approver.
 export interface ApprovalReviewContext {
   contract_title: string;

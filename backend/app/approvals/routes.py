@@ -18,6 +18,8 @@ from app.approvals.models import (
 from app.approvals.service import (
     decide_in_app,
     get_review_context_for_token,
+    preview_criteria,
+    preview_routing,
     redeem_token_decision,
     submit_contract_for_approval,
 )
@@ -508,6 +510,67 @@ def create_routing_rule(
     db.refresh(rule)
     group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
     return _serialize_rule(rule, group_names=group_names, user_names=user_names)
+
+
+# --- Dry-run preview ------------------------------------------------------
+class CriteriaPreviewPayload(BaseModel):
+    criteria: dict = Field(default_factory=dict)
+    sample: dict = Field(default_factory=dict)
+
+
+def _label_chain(
+    chain: list[dict], *, group_names: dict[str, str], user_names: dict[str, str]
+) -> list[dict]:
+    """Attach a human label to each resolved step target for the preview UI."""
+    labelled = []
+    for t in chain:
+        label = (
+            group_names.get(t.get("approver_group_id") or "")
+            or user_names.get(t.get("approver_user_id") or "")
+            or t.get("approver_role")
+            or "Approver"
+        )
+        labelled.append(
+            {
+                "step_order": t.get("step_order"),
+                "approver_group_id": t.get("approver_group_id"),
+                "approver_user_id": t.get("approver_user_id"),
+                "approver_role": t.get("approver_role"),
+                "mode": t.get("mode", "any"),
+                "routing_rule_id": t.get("routing_rule_id"),
+                "approver_label": label,
+            }
+        )
+    return labelled
+
+
+@router.get("/contracts/{contract_id}/routing-preview")
+def routing_preview(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Dry-run the approval chain this contract would get if submitted now —
+    fast-lane verdict, every matched rule (with which ones the composed chain
+    actually used), and the ordered, labelled chain. Creates nothing."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    result = preview_routing(db, contract=contract, org_id=current_user.org_id)
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    result["chain"] = _label_chain(
+        result["chain"], group_names=group_names, user_names=user_names
+    )
+    return result
+
+
+@router.post("/routing-rules/preview")
+def routing_rule_preview(
+    payload: CriteriaPreviewPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Does a draft rule's criteria match a hypothetical contract? Powers the
+    live WHEN→THEN match badge in the rule builder — no rows written."""
+    return {"matches": preview_criteria(criteria=payload.criteria, sample=payload.sample)}
 
 
 # --- Submit & decide ------------------------------------------------------
