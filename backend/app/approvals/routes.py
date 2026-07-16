@@ -72,6 +72,12 @@ class RoutingStepPayload(BaseModel):
     approver_user_id: str | None = None
     approver_role: str | None = None
     mode: str = Field(default="any", pattern="^(any|all)$")
+    # Steps sharing a stage run in parallel (all must clear). Defaults to the
+    # step's 1-based position when omitted.
+    stage: int | None = None
+    # Optional list of {field, op, value} conditions — the step joins the chain
+    # only when they all match the contract.
+    condition: list | None = None
 
 
 class RoutingRulePayload(BaseModel):
@@ -134,6 +140,8 @@ def _serialize_step(
     return {
         "id": step.id,
         "step_order": step.step_order,
+        "stage": step.stage if step.stage else step.step_order,
+        "condition": step.condition,
         "approver_group_id": step.approver_group_id,
         "approver_group_name": group_names.get(step.approver_group_id or ""),
         "approver_user_id": step.approver_user_id,
@@ -485,6 +493,8 @@ def _rebuild_steps(
                 org_id=org_id,
                 rule_id=rule.id,
                 step_order=idx + 1,
+                stage=step.stage if step.stage else idx + 1,
+                condition=step.condition or None,
                 approver_group_id=step.approver_group_id,
                 approver_user_id=step.approver_user_id,
                 approver_role=step.approver_role,
@@ -505,6 +515,8 @@ def _rule_snapshot(rule: ApprovalRoutingRule) -> dict:
         "steps": [
             {
                 "step_order": s.step_order,
+                "stage": s.stage if s.stage else s.step_order,
+                "condition": s.condition,
                 "approver_group_id": s.approver_group_id,
                 "approver_user_id": s.approver_user_id,
                 "approver_role": s.approver_role,
@@ -743,6 +755,9 @@ def _label_chain(
         labelled.append(
             {
                 "step_order": t.get("step_order"),
+                "stage": t.get("stage"),
+                "skipped": t.get("skipped", False),
+                "condition": t.get("condition"),
                 "approver_group_id": t.get("approver_group_id"),
                 "approver_user_id": t.get("approver_user_id"),
                 "approver_role": t.get("approver_role"),

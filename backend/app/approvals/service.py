@@ -263,10 +263,20 @@ def _matched_rules(db: Session, *, contract: Contract, org_id: str) -> list[Appr
     return sorted((r for r in rules if _matches(r, contract)), key=_rule_sort_key)
 
 
+def _condition_met(condition, contract: Contract) -> bool:
+    """A step's ``condition`` (list of {field, op, value}) all-match, or no
+    condition at all → the step is included in the chain."""
+    if not condition:
+        return True
+    conds = condition if isinstance(condition, list) else []
+    return all(_eval_condition(c, contract) for c in conds)
+
+
 def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
-    """The approver targets a single rule contributes, in step order. A rule with
-    no steps falls back to its legacy single-approver columns."""
-    steps = sorted(rule.steps, key=lambda s: s.step_order)
+    """The approver targets a single rule contributes, ordered by (stage, step).
+    Steps sharing a stage are parallel. A rule with no steps falls back to its
+    legacy single-approver columns as one sequential step."""
+    steps = sorted(rule.steps, key=lambda s: (s.stage or s.step_order, s.step_order))
     if steps:
         return [
             {
@@ -275,6 +285,8 @@ def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
                 "approver_group_id": s.approver_group_id,
                 "approver_role": s.approver_role,
                 "mode": s.mode or "any",
+                "stage": s.stage or s.step_order,
+                "condition": s.condition,
             }
             for s in steps
         ]
@@ -285,6 +297,8 @@ def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
             "approver_group_id": None,
             "approver_role": rule.approver_role,
             "mode": "any",
+            "stage": 1,
+            "condition": None,
         }
     ]
 
@@ -309,6 +323,10 @@ def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]
 
     merged: list[dict] = []
     seen: dict[str, dict] = {}
+    # Map each contributing (rule, source-stage) to a global stage so parallel
+    # steps stay parallel while rules sequence one after another.
+    stage_map: dict[tuple, int] = {}
+    next_stage = 0
     for rule in matched:
         for target in _rule_targets(rule):
             key = _target_key(target)
@@ -318,6 +336,11 @@ def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]
                 if target["mode"] == "all":
                     seen[key]["mode"] = "all"  # stricter wins
                 continue
+            source = (target["routing_rule_id"], target["stage"])
+            if source not in stage_map:
+                next_stage += 1
+                stage_map[source] = next_stage
+            target["stage"] = stage_map[source]
             seen[key] = target
             merged.append(target)
 
@@ -333,7 +356,11 @@ def preview_routing(db: Session, *, contract: Contract, org_id: str) -> dict:
     fast_lane = _fast_lane_reason(db, contract=contract)
     matched = _matched_rules(db, contract=contract, org_id=org_id)
     chain = [] if fast_lane else resolve_chain(db, contract=contract, org_id=org_id)
-    used_rule_ids = {t.get("routing_rule_id") for t in chain}
+    # Flag conditional steps that this contract wouldn't actually trigger, so the
+    # preview can show them as skipped.
+    for t in chain:
+        t["skipped"] = not _condition_met(t.get("condition"), contract)
+    used_rule_ids = {t.get("routing_rule_id") for t in chain if not t["skipped"]}
     return {
         "fast_lane_reason": fast_lane,
         "compose": settings.routing_compose_matched_rules,
@@ -554,12 +581,22 @@ async def submit_contract_for_approval(
             {
                 "routing_rule_id": None,
                 "step_order": 1,
+                "stage": 1,
+                "condition": None,
                 "approver_user_id": approver_user_id,
                 "approver_group_id": None,
                 "approver_role": approver_role,
                 "mode": "any",
             }
         ]
+
+    # Evaluate each step's condition. A step whose condition fails is recorded
+    # SKIPPED (never activated). The first stage that still has a live step
+    # starts PENDING; the rest WAITING.
+    for target in chain:
+        target["_skipped"] = not _condition_met(target.get("condition"), contract)
+    active_targets = [t for t in chain if not t["_skipped"]]
+    active_stage = min((t["stage"] for t in active_targets), default=None)
 
     due_at = datetime.now(UTC) + timedelta(days=max(1, settings.approval_default_due_days))
     requests: list[ApprovalRequest] = []
@@ -580,7 +617,12 @@ async def submit_contract_for_approval(
                     "Approver group must belong to this organization",
                 )
 
-        is_first = target["step_order"] == 1
+        if target["_skipped"]:
+            step_status = ApprovalStatus.SKIPPED
+        elif target["stage"] == active_stage:
+            step_status = ApprovalStatus.PENDING
+        else:
+            step_status = ApprovalStatus.WAITING
         approval = ApprovalRequest(
             org_id=user.org_id,
             contract_id=contract.id,
@@ -591,7 +633,8 @@ async def submit_contract_for_approval(
             approver_group_id=target["approver_group_id"],
             routing_rule_id=target["routing_rule_id"],
             step_order=target["step_order"],
-            status=ApprovalStatus.PENDING if is_first else ApprovalStatus.WAITING,
+            stage=target["stage"],
+            status=step_status,
             due_at=due_at,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
@@ -599,8 +642,9 @@ async def submit_contract_for_approval(
         db.add(approval)
         db.flush()
 
+        # Every step of the first live stage is activated together (parallel).
         email_sent: bool | None = None
-        if is_first:
+        if step_status == ApprovalStatus.PENDING:
             email_sent = await _activate_step(
                 db, approval=approval, contract=contract, requester=user
             )
@@ -615,6 +659,7 @@ async def submit_contract_for_approval(
             after={
                 "contract_id": contract.id,
                 "step_order": approval.step_order,
+                "stage": approval.stage,
                 "status": approval.status,
                 "approver_user_id": approval.approver_user_id,
                 "approver_group_id": approval.approver_group_id,
@@ -624,7 +669,20 @@ async def submit_contract_for_approval(
         )
         requests.append(approval)
 
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
+    if not active_targets:
+        # Pathological config — every step was conditional-skipped. There is
+        # nothing to approve, so the contract advances straight to signature.
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.SIGNATURE,
+            actor_user_id=user.id,
+            reason="All approval steps were conditional-skipped",
+            override=True,
+            override_authorized=True,
+            request_id=request_id,
+        )
+    elif contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
         transition_contract_stage(
             db,
             contract=contract,
@@ -691,7 +749,7 @@ async def _apply_decision(
     ).all()
 
     if decision == "reject":
-        # Reject short-circuits the whole chain and sends the contract back.
+        # Reject short-circuits the whole chain (every stage) and sends it back.
         for sibling in siblings:
             if sibling.status in (ApprovalStatus.PENDING, ApprovalStatus.WAITING):
                 sibling.status = ApprovalStatus.CANCELLED
@@ -707,45 +765,66 @@ async def _apply_decision(
             request_id=request_id,
         )
     else:
-        # Approve → activate the next waiting step, or finish the chain.
-        waiting_ahead = sorted(
-            (
+        # Approve. A parallel stage only advances once every live step in it is
+        # approved, so check the current stage before moving on.
+        this_stage = approval.stage if approval.stage is not None else approval.step_order
+        stage_peers = [
+            s
+            for s in siblings
+            if (s.stage if s.stage is not None else s.step_order) == this_stage
+            and s.status not in (ApprovalStatus.SKIPPED, ApprovalStatus.CANCELLED)
+        ]
+        stage_complete = all(s.status == ApprovalStatus.APPROVED for s in stage_peers)
+
+        if not stage_complete:
+            # Other parallel approvers in this stage haven't decided yet — wait.
+            pass
+        else:
+            waiting_ahead = [
                 s
                 for s in siblings
-                if s.status == ApprovalStatus.WAITING and s.step_order > approval.step_order
-            ),
-            key=lambda s: s.step_order,
-        )
-        if waiting_ahead:
-            next_step = waiting_ahead[0]
-            next_step.status = ApprovalStatus.PENDING
-            next_step.updated_by_user_id = actor_user_id
-            requester = db.get(User, next_step.requested_by_user_id)
-            email_sent = await _activate_step(
-                db, approval=next_step, contract=contract, requester=requester
-            )
-            write_audit_log(
-                db,
-                action="approval.step_activated",
-                resource_type="approval_request",
-                resource_id=next_step.id,
-                org_id=approval.org_id,
-                actor_user_id=actor_user_id,
-                request_id=request_id,
-                after={"step_order": next_step.step_order, "email_sent": email_sent},
-            )
-        else:
-            # Last step approved → the whole chain is done, so the contract
-            # auto-advances into the signature (execution) stage.
-            transition_contract_stage(
-                db,
-                contract=contract,
-                to_stage=ContractLifecycleStage.SIGNATURE,
-                actor_user_id=actor_user_id,
-                reason="Approval chain completed",
-                override=True,
-                override_authorized=True,
-                request_id=request_id,
+                if s.status == ApprovalStatus.WAITING
+                and (s.stage if s.stage is not None else s.step_order) > this_stage
+            ]
+            if waiting_ahead:
+                next_stage = min(
+                    (s.stage if s.stage is not None else s.step_order) for s in waiting_ahead
+                )
+                for next_step in waiting_ahead:
+                    if (next_step.stage if next_step.stage is not None else next_step.step_order) != next_stage:
+                        continue
+                    next_step.status = ApprovalStatus.PENDING
+                    next_step.updated_by_user_id = actor_user_id
+                    requester = db.get(User, next_step.requested_by_user_id)
+                    email_sent = await _activate_step(
+                        db, approval=next_step, contract=contract, requester=requester
+                    )
+                    write_audit_log(
+                        db,
+                        action="approval.step_activated",
+                        resource_type="approval_request",
+                        resource_id=next_step.id,
+                        org_id=approval.org_id,
+                        actor_user_id=actor_user_id,
+                        request_id=request_id,
+                        after={
+                            "step_order": next_step.step_order,
+                            "stage": next_step.stage,
+                            "email_sent": email_sent,
+                        },
+                    )
+            else:
+                # Final stage cleared → the whole chain is done, so the contract
+                # auto-advances into the signature (execution) stage.
+                transition_contract_stage(
+                    db,
+                    contract=contract,
+                    to_stage=ContractLifecycleStage.SIGNATURE,
+                    actor_user_id=actor_user_id,
+                    reason="Approval chain completed",
+                    override=True,
+                    override_authorized=True,
+                    request_id=request_id,
             )
 
     write_audit_log(

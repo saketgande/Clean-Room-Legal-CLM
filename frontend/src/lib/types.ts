@@ -798,6 +798,9 @@ export interface ApprovalChainStep {
 // Dry-run: the approval chain a contract would get if submitted now.
 export interface RoutingPreviewStep {
   step_order: number;
+  stage: number | null;
+  skipped: boolean;
+  condition: Array<Record<string, unknown>> | null;
   approver_group_id: ID | null;
   approver_user_id: ID | null;
   approver_role: string | null;
@@ -865,6 +868,10 @@ export interface ApproverGroup {
 export interface ApprovalRoutingStep {
   id?: ID;
   step_order: number;
+  // Steps sharing a stage run in parallel (all must clear). Defaults to step_order.
+  stage?: number | null;
+  // Optional [{field, op, value}] conditions — the step only fires when they match.
+  condition?: Array<Record<string, unknown>> | null;
   approver_group_id: ID | null;
   approver_group_name?: string | null;
   approver_user_id: ID | null;

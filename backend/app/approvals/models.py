@@ -86,6 +86,12 @@ class ApprovalRoutingStep(
         index=True, nullable=False,
     )
     step_order = Column(Integer, nullable=False, default=1)
+    # Steps sharing a stage run in parallel — every one must clear before the
+    # chain advances. Defaults to step_order (each step its own sequential stage).
+    stage = Column(Integer, nullable=True)
+    # Optional list of {field, op, value} conditions; the step only joins the
+    # chain when they all match the contract. Null / empty = always included.
+    condition = Column(JSON, nullable=True)
     approver_group_id = Column(String(36), ForeignKey("approver_group.id"), nullable=True)
     approver_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     approver_role = Column(String(120), nullable=True)
@@ -107,6 +113,9 @@ class ApprovalRequest(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin
     approver_group_id = Column(String(36), ForeignKey("approver_group.id"), index=True, nullable=True)
     routing_rule_id = Column(String(36), ForeignKey("approval_routing_rule.id"), nullable=True)
     step_order = Column(Integer, nullable=False, default=1)
+    # Parallel-stage grouping (mirrors the resolved step's stage). All non-skipped
+    # requests in a stage must be APPROVED before the next stage activates.
+    stage = Column(Integer, nullable=True)
     due_at = Column(DateTime(timezone=True), nullable=True)
     metadata_json = Column(JSON, nullable=False, default=dict)
 

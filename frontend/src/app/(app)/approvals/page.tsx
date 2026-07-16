@@ -39,7 +39,11 @@ import {
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
-import type { ApprovalRequest, ApprovalRoutingRule } from "@/lib/types";
+import type {
+  ApprovalRequest,
+  ApprovalRoutingRule,
+  RoutingPreviewStep,
+} from "@/lib/types";
 
 export default function ApprovalsPage() {
   const [tab, setTab] = useState("requests");
@@ -244,6 +248,56 @@ function RequestsTab() {
   );
 }
 
+// Collapse a resolved chain into ordered stage groups (steps sharing a stage
+// run in parallel).
+function groupByStage(
+  chain: RoutingPreviewStep[],
+): { stage: number; steps: RoutingPreviewStep[] }[] {
+  const groups: { stage: number; steps: RoutingPreviewStep[] }[] = [];
+  for (const step of chain) {
+    const stage = step.stage ?? step.step_order;
+    const last = groups[groups.length - 1];
+    if (last && last.stage === stage) last.steps.push(step);
+    else groups.push({ stage, steps: [step] });
+  }
+  return groups;
+}
+
+function StepPill({ step }: { step: RoutingPreviewStep }) {
+  const conditional = !!step.condition && step.condition.length > 0;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 ${
+        step.skipped ? "border-dashed border-slate-300" : "border-slate-200 bg-slate-50"
+      }`}
+    >
+      <span
+        className={`flex h-5 w-5 items-center justify-center rounded text-[10px] font-bold tabular-nums ${
+          step.skipped ? "bg-slate-200 text-slate-500" : "bg-indigo-600 text-white"
+        }`}
+      >
+        {step.stage ?? step.step_order}
+      </span>
+      <span
+        className={`text-xs font-semibold ${
+          step.skipped ? "text-slate-400 line-through" : "text-slate-800"
+        }`}
+      >
+        {step.approver_label}
+      </span>
+      {step.mode === "all" && !step.skipped && <Badge tone="slate">all</Badge>}
+      {conditional && !step.skipped && (
+        <span className="text-[9px] font-semibold uppercase text-amber-600" title="Conditional step">
+          if
+        </span>
+      )}
+      {step.skipped && (
+        <span className="text-[9px] font-medium uppercase text-slate-400">skipped</span>
+      )}
+    </span>
+  );
+}
+
 // Dry-run visualization: the chain a contract would get before it's submitted.
 function ChainPreview({ contractId }: { contractId: string }) {
   const { data, isLoading, error } = useQuery({
@@ -287,20 +341,21 @@ function ChainPreview({ contractId }: { contractId: string }) {
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
-        {data.chain.map((step, i) => (
-          <div key={step.step_order} className="flex items-center gap-1.5">
-            {i > 0 && <span className="text-slate-300">→</span>}
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded bg-indigo-600 text-[10px] font-bold text-white tabular-nums">
-                {step.step_order}
-              </span>
-              <span className="text-xs font-semibold text-slate-800">
-                {step.approver_label}
-              </span>
-              {step.mode === "all" && (
-                <Badge tone="slate">all</Badge>
-              )}
-            </span>
+        {groupByStage(data.chain).map((grp, gi) => (
+          <div key={grp.stage} className="flex items-center gap-1.5">
+            {gi > 0 && <span className="text-slate-300">→</span>}
+            {grp.steps.length > 1 ? (
+              <div className="flex flex-col gap-1 rounded-lg border border-dashed border-slate-300 p-1">
+                <span className="px-1 text-[9px] font-medium uppercase tracking-wide text-slate-400">
+                  parallel · all clear
+                </span>
+                {grp.steps.map((step) => (
+                  <StepPill key={step.step_order} step={step} />
+                ))}
+              </div>
+            ) : (
+              <StepPill step={grp.steps[0]} />
+            )}
           </div>
         ))}
       </div>
@@ -434,21 +489,35 @@ function RejectModal({
 
 // ---- Routing rules -------------------------------------------------------
 function chainSummary(rule: {
-  steps: { step_order: number; approver_group_name?: string | null; approver_user_name?: string | null; approver_role: string | null }[];
+  steps: {
+    step_order: number;
+    stage?: number | null;
+    condition?: Array<Record<string, unknown>> | null;
+    approver_group_name?: string | null;
+    approver_user_name?: string | null;
+    approver_role: string | null;
+  }[];
   approver_role: string | null;
   approver_user_id: string | null;
 }): string {
   if (rule.steps && rule.steps.length) {
-    return rule.steps
-      .slice()
-      .sort((a, b) => a.step_order - b.step_order)
-      .map(
-        (s) =>
-          s.approver_group_name ||
-          s.approver_user_name ||
-          (s.approver_role ? titleCase(s.approver_role) : "?"),
-      )
-      .join("  →  ");
+    const label = (s: (typeof rule.steps)[number]) =>
+      (s.approver_group_name ||
+        s.approver_user_name ||
+        (s.approver_role ? titleCase(s.approver_role) : "?")) +
+      (s.condition && s.condition.length ? "?" : "");
+    // Group by stage; steps in the same stage are parallel (joined with ∥).
+    const sorted = [...rule.steps].sort(
+      (a, b) => (a.stage ?? a.step_order) - (b.stage ?? b.step_order) || a.step_order - b.step_order,
+    );
+    const stages: { stage: number; labels: string[] }[] = [];
+    for (const s of sorted) {
+      const st = s.stage ?? s.step_order;
+      const last = stages[stages.length - 1];
+      if (last && last.stage === st) last.labels.push(label(s));
+      else stages.push({ stage: st, labels: [label(s)] });
+    }
+    return stages.map((g) => g.labels.join("  ∥  ")).join("  →  ");
   }
   if (rule.approver_role) return titleCase(rule.approver_role);
   return rule.approver_user_id ?? "—";
@@ -999,15 +1068,49 @@ function criteriaToConditions(criteria: Record<string, unknown> | null): Conditi
   return out;
 }
 
-function stepsToEncoded(steps: ApprovalRoutingRule["steps"]): string[] {
-  const enc = steps.map((s) =>
-    s.approver_group_id
+// A step being authored: an approver target, whether it runs in parallel with
+// the step above it, and an optional "only if" condition.
+type StepDraft = { target: string; parallel: boolean; cond: Condition | null };
+
+function condToPayload(c: Condition): Record<string, unknown> {
+  let value: unknown = c.value.trim();
+  if (c.op === "exists") value = null;
+  else if (c.op === "in") value = c.value.split(",").map((s) => s.trim()).filter(Boolean);
+  else if (isNumericField(c.field)) value = Number(c.value);
+  return { field: c.field, op: c.op, value };
+}
+
+function stepsToDrafts(steps: ApprovalRoutingRule["steps"]): StepDraft[] {
+  if (!steps.length) return [{ target: "", parallel: false, cond: null }];
+  const sorted = [...steps].sort(
+    (a, b) =>
+      (a.stage ?? a.step_order) - (b.stage ?? b.step_order) ||
+      a.step_order - b.step_order,
+  );
+  return sorted.map((s, i) => {
+    const target = s.approver_group_id
       ? `group:${s.approver_group_id}`
       : s.approver_user_id
         ? `user:${s.approver_user_id}`
-        : "",
-  );
-  return enc.length ? enc : [""];
+        : "";
+    const prev = sorted[i - 1];
+    const parallel =
+      i > 0 && (s.stage ?? s.step_order) === (prev.stage ?? prev.step_order);
+    const first = Array.isArray(s.condition) && s.condition.length ? s.condition[0] : null;
+    const cond: Condition | null = first
+      ? {
+          field: String((first as { field?: string }).field ?? "value_amount"),
+          op: String((first as { op?: string }).op ?? "eq"),
+          value:
+            (first as { value?: unknown }).value == null
+              ? ""
+              : Array.isArray((first as { value?: unknown }).value)
+                ? ((first as { value?: unknown[] }).value ?? []).join(", ")
+                : String((first as { value?: unknown }).value),
+        }
+      : null;
+    return { target, parallel, cond };
+  });
 }
 
 function RuleModal({
@@ -1027,8 +1130,9 @@ function RuleModal({
   // WHEN→THEN conditions. Empty = the rule matches every contract.
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [isActive, setIsActive] = useState(true);
-  // Each step holds an encoded target: "group:<id>" or "user:<id>" (or "").
-  const [steps, setSteps] = useState<string[]>([""]);
+  const [steps, setSteps] = useState<StepDraft[]>([
+    { target: "", parallel: false, cond: null },
+  ]);
   const [busy, setBusy] = useState(false);
 
   const { data: groups } = useQuery({
@@ -1047,7 +1151,7 @@ function RuleModal({
     setPriority("100");
     setConditions([]);
     setIsActive(true);
-    setSteps([""]);
+    setSteps([{ target: "", parallel: false, cond: null }]);
   }
 
   // Load the rule's values when editing; clear for a fresh create.
@@ -1058,7 +1162,7 @@ function RuleModal({
       setPriority(rule.priority);
       setConditions(criteriaToConditions(rule.criteria));
       setIsActive(rule.is_active);
-      setSteps(stepsToEncoded(rule.steps));
+      setSteps(stepsToDrafts(rule.steps));
     } else {
       reset();
     }
@@ -1067,14 +1171,21 @@ function RuleModal({
 
   const criteria = buildCriteria(conditions);
 
-  function setStep(i: number, value: string) {
-    setSteps((prev) => prev.map((s, idx) => (idx === i ? value : s)));
+  function patchStep(i: number, patch: Partial<StepDraft>) {
+    setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
   function addStep() {
-    setSteps((prev) => [...prev, ""]);
+    setSteps((prev) => [...prev, { target: "", parallel: false, cond: null }]);
   }
   function removeStep(i: number) {
-    setSteps((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i)));
+    setSteps((prev) =>
+      prev.length === 1
+        ? prev
+        : prev
+            .filter((_, idx) => idx !== i)
+            // the first step can never be "parallel with previous"
+            .map((s, idx) => (idx === 0 ? { ...s, parallel: false } : s)),
+    );
   }
   function move(i: number, dir: -1 | 1) {
     setSteps((prev) => {
@@ -1082,25 +1193,35 @@ function RuleModal({
       const j = i + dir;
       if (j < 0 || j >= next.length) return prev;
       [next[i], next[j]] = [next[j], next[i]];
+      if (next[0]) next[0] = { ...next[0], parallel: false };
       return next;
     });
   }
 
   async function submit() {
-    const chosen = steps.filter(Boolean);
+    const chosen = steps.filter((s) => s.target);
     if (!name.trim() || chosen.length === 0) return;
     setBusy(true);
+    // Turn the parallel flags into stage numbers: a step that isn't parallel
+    // with the one above it starts a new stage.
+    let stage = 0;
+    const payloadSteps = chosen.map((s, i) => {
+      if (i === 0 || !s.parallel) stage += 1;
+      const [kind, id] = s.target.split(":");
+      const base =
+        kind === "group" ? { approver_group_id: id } : { approver_user_id: id };
+      const cond =
+        s.cond && (s.cond.op === "exists" || s.cond.value.trim() !== "")
+          ? [condToPayload(s.cond)]
+          : null;
+      return { ...base, stage, condition: cond };
+    });
     const body = {
       name: name.trim(),
       priority: String(Number(priority) || 0),
       is_active: isActive,
       criteria,
-      steps: chosen.map((s) => {
-        const [kind, id] = s.split(":");
-        return kind === "group"
-          ? { approver_group_id: id }
-          : { approver_user_id: id };
-      }),
+      steps: payloadSteps,
     };
     try {
       if (rule) {
@@ -1118,7 +1239,7 @@ function RuleModal({
     }
   }
 
-  const canSave = !!name.trim() && steps.some(Boolean);
+  const canSave = !!name.trim() && steps.some((s) => s.target);
 
   return (
     <Modal
@@ -1159,62 +1280,137 @@ function RuleModal({
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-slate-700">Approval steps</span>
-            <span className="text-xs text-slate-400">Approved in order, top to bottom</span>
+            <span className="text-xs text-slate-400">
+              Sequential top-to-bottom; mark ∥ to run in parallel
+            </span>
           </div>
-          {steps.map((value, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="w-12 shrink-0 text-xs font-medium text-slate-500">
-                Step {i + 1}
-              </span>
-              <Select
-                className="flex-1"
-                value={value}
-                onChange={(e) => setStep(i, e.target.value)}
-              >
-                <option value="">Select approver…</option>
-                <optgroup label="Groups">
-                  {(groups ?? []).map((g) => (
-                    <option key={g.id} value={`group:${g.id}`}>
-                      {g.name}
-                      {g.members.length ? ` (${g.members.length})` : " (no members)"}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="People">
-                  {(people ?? []).map((u) => (
-                    <option key={u.id} value={`user:${u.id}`}>
-                      {u.full_name} — {u.email}
-                    </option>
-                  ))}
-                </optgroup>
-              </Select>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-                disabled={i === 0}
-                onClick={() => move(i, -1)}
-                aria-label="Move step up"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-                disabled={i === steps.length - 1}
-                onClick={() => move(i, 1)}
-                aria-label="Move step down"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30"
-                disabled={steps.length === 1}
-                onClick={() => removeStep(i)}
-                aria-label="Remove step"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+          {steps.map((s, i) => (
+            <div key={i} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+              <div className="flex items-center gap-2">
+                <span className="w-12 shrink-0 text-xs font-medium text-slate-500">
+                  {i > 0 && s.parallel ? "∥ with" : `Step ${i + 1}`}
+                </span>
+                <Select
+                  className="min-w-0 flex-1"
+                  value={s.target}
+                  onChange={(e) => patchStep(i, { target: e.target.value })}
+                >
+                  <option value="">Select approver…</option>
+                  <optgroup label="Groups">
+                    {(groups ?? []).map((g) => (
+                      <option key={g.id} value={`group:${g.id}`}>
+                        {g.name}
+                        {g.members.length ? ` (${g.members.length})` : " (no members)"}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="People">
+                    {(people ?? []).map((u) => (
+                      <option key={u.id} value={`user:${u.id}`}>
+                        {u.full_name} — {u.email}
+                      </option>
+                    ))}
+                  </optgroup>
+                </Select>
+                <button
+                  type="button"
+                  className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                  disabled={i === 0}
+                  onClick={() => move(i, -1)}
+                  aria-label="Move step up"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                  disabled={i === steps.length - 1}
+                  onClick={() => move(i, 1)}
+                  aria-label="Move step down"
+                >
+                  <ArrowDown className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  className="rounded p-1 text-slate-400 hover:text-red-600 disabled:opacity-30"
+                  disabled={steps.length === 1}
+                  onClick={() => removeStep(i)}
+                  aria-label="Remove step"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 pl-14 text-xs">
+                {i > 0 && (
+                  <label className="flex items-center gap-1.5 text-slate-600">
+                    <input
+                      type="checkbox"
+                      className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                      checked={s.parallel}
+                      onChange={(e) => patchStep(i, { parallel: e.target.checked })}
+                    />
+                    Run in parallel with step above
+                  </label>
+                )}
+                <label className="flex items-center gap-1.5 text-slate-600">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    checked={!!s.cond}
+                    onChange={(e) =>
+                      patchStep(i, {
+                        cond: e.target.checked
+                          ? { field: "value_amount", op: "gt", value: "" }
+                          : null,
+                      })
+                    }
+                  />
+                  Only if…
+                </label>
+                {s.cond && (
+                  <div className="flex items-center gap-1.5">
+                    <Select
+                      className="w-36"
+                      value={s.cond.field}
+                      onChange={(e) =>
+                        patchStep(i, {
+                          cond: {
+                            ...s.cond!,
+                            field: e.target.value,
+                            op: opsFor(e.target.value).some((o) => o.v === s.cond!.op)
+                              ? s.cond!.op
+                              : opsFor(e.target.value)[0].v,
+                          },
+                        })
+                      }
+                    >
+                      {COND_FIELDS.map((f) => (
+                        <option key={f.v} value={f.v}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Select
+                      className="w-16"
+                      value={s.cond.op}
+                      onChange={(e) => patchStep(i, { cond: { ...s.cond!, op: e.target.value } })}
+                    >
+                      {opsFor(s.cond.field).map((o) => (
+                        <option key={o.v} value={o.v}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </Select>
+                    <Input
+                      className="w-28"
+                      placeholder="value"
+                      value={s.cond.value}
+                      disabled={s.cond.op === "exists"}
+                      onChange={(e) => patchStep(i, { cond: { ...s.cond!, value: e.target.value } })}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           ))}
           <Button variant="outline" size="sm" onClick={addStep}>

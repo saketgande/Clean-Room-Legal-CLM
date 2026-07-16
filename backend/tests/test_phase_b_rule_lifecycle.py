@@ -31,12 +31,12 @@ def test_rule_snapshot_shape():
         is_active=True,
         steps=[
             SimpleNamespace(
-                step_order=2, approver_group_id="g2", approver_user_id=None,
-                approver_role=None, mode="any",
+                step_order=2, stage=2, condition=None, approver_group_id="g2",
+                approver_user_id=None, approver_role=None, mode="any",
             ),
             SimpleNamespace(
-                step_order=1, approver_group_id="g1", approver_user_id=None,
-                approver_role=None, mode="all",
+                step_order=1, stage=1, condition=None, approver_group_id="g1",
+                approver_user_id=None, approver_role=None, mode="all",
             ),
         ],
     )

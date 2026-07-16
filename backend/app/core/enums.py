@@ -113,6 +113,9 @@ class ApprovalStatus(StrEnum):
     # A step in a multi-step routing chain that is not yet active: it only
     # becomes PENDING once the preceding step is approved.
     WAITING = "waiting"
+    # A conditional step whose condition did not match the contract at submit
+    # time: it is recorded for defensibility but never activated.
+    SKIPPED = "skipped"
 
 
 class JobStatus(StrEnum):

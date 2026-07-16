@@ -29,10 +29,10 @@ def contract(**kw):
     return SimpleNamespace(**base)
 
 
-def step(group=None, user=None, role=None, mode="any", order=1):
+def step(group=None, user=None, role=None, mode="any", order=1, stage=None, condition=None):
     return SimpleNamespace(
-        step_order=order, approver_group_id=group, approver_user_id=user,
-        approver_role=role, mode=mode,
+        step_order=order, stage=stage, condition=condition, approver_group_id=group,
+        approver_user_id=user, approver_role=role, mode=mode,
     )
 
 
