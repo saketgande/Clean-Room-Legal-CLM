@@ -23,6 +23,7 @@ def step(group=None, order=1, stage=None, condition=None, mode="any"):
     return SimpleNamespace(
         step_order=order, stage=stage, condition=condition, approver_group_id=group,
         approver_user_id=None, approver_role=None, mode=mode,
+        sla_hours=None, escalation_group_id=None, escalation_user_id=None,
     )
 
 

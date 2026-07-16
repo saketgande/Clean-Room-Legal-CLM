@@ -129,9 +129,30 @@ function RequestsTab() {
     }
   }
 
+  async function runSweep() {
+    try {
+      const r = await approvalsApi.runEscalations();
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      notify(
+        r.escalated > 0
+          ? `Escalated ${r.escalated} overdue approval${r.escalated === 1 ? "" : "s"}`
+          : "No overdue approvals to escalate",
+        "success",
+      );
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Sweep failed", "error");
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        {userRoles.has("admin") && (
+          <Button variant="outline" onClick={runSweep}>
+            <History className="h-4 w-4" />
+            Run SLA sweep
+          </Button>
+        )}
         <Button onClick={() => setSubmitOpen(true)}>
           <Send className="h-4 w-4" />
           Submit for approval
@@ -185,6 +206,7 @@ function RequestsTab() {
                     <span className="flex items-center gap-1.5">
                       <Badge tone={statusTone(req.status)}>{titleCase(req.status)}</Badge>
                       {req.overdue && <Badge tone="red">Overdue</Badge>}
+                      {req.escalated_at && <Badge tone="amber">Escalated</Badge>}
                     </span>
                   </TD>
                   <TD>
@@ -1069,8 +1091,15 @@ function criteriaToConditions(criteria: Record<string, unknown> | null): Conditi
 }
 
 // A step being authored: an approver target, whether it runs in parallel with
-// the step above it, and an optional "only if" condition.
-type StepDraft = { target: string; parallel: boolean; cond: Condition | null };
+// the step above it, an optional "only if" condition, an optional SLA (hours),
+// and an optional escalation target (encoded "group:id" / "user:id").
+type StepDraft = {
+  target: string;
+  parallel: boolean;
+  cond: Condition | null;
+  slaHours: string;
+  escalation: string;
+};
 
 function condToPayload(c: Condition): Record<string, unknown> {
   let value: unknown = c.value.trim();
@@ -1081,7 +1110,8 @@ function condToPayload(c: Condition): Record<string, unknown> {
 }
 
 function stepsToDrafts(steps: ApprovalRoutingRule["steps"]): StepDraft[] {
-  if (!steps.length) return [{ target: "", parallel: false, cond: null }];
+  if (!steps.length)
+    return [{ target: "", parallel: false, cond: null, slaHours: "", escalation: "" }];
   const sorted = [...steps].sort(
     (a, b) =>
       (a.stage ?? a.step_order) - (b.stage ?? b.step_order) ||
@@ -1109,7 +1139,18 @@ function stepsToDrafts(steps: ApprovalRoutingRule["steps"]): StepDraft[] {
                 : String((first as { value?: unknown }).value),
         }
       : null;
-    return { target, parallel, cond };
+    const escalation = s.escalation_group_id
+      ? `group:${s.escalation_group_id}`
+      : s.escalation_user_id
+        ? `user:${s.escalation_user_id}`
+        : "";
+    return {
+      target,
+      parallel,
+      cond,
+      slaHours: s.sla_hours != null ? String(s.sla_hours) : "",
+      escalation,
+    };
   });
 }
 
@@ -1131,7 +1172,7 @@ function RuleModal({
   const [conditions, setConditions] = useState<Condition[]>([]);
   const [isActive, setIsActive] = useState(true);
   const [steps, setSteps] = useState<StepDraft[]>([
-    { target: "", parallel: false, cond: null },
+    { target: "", parallel: false, cond: null, slaHours: "", escalation: "" },
   ]);
   const [busy, setBusy] = useState(false);
 
@@ -1151,7 +1192,7 @@ function RuleModal({
     setPriority("100");
     setConditions([]);
     setIsActive(true);
-    setSteps([{ target: "", parallel: false, cond: null }]);
+    setSteps([{ target: "", parallel: false, cond: null, slaHours: "", escalation: "" }]);
   }
 
   // Load the rule's values when editing; clear for a fresh create.
@@ -1175,7 +1216,7 @@ function RuleModal({
     setSteps((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
   }
   function addStep() {
-    setSteps((prev) => [...prev, { target: "", parallel: false, cond: null }]);
+    setSteps((prev) => [...prev, { target: "", parallel: false, cond: null, slaHours: "", escalation: "" }]);
   }
   function removeStep(i: number) {
     setSteps((prev) =>
@@ -1214,7 +1255,15 @@ function RuleModal({
         s.cond && (s.cond.op === "exists" || s.cond.value.trim() !== "")
           ? [condToPayload(s.cond)]
           : null;
-      return { ...base, stage, condition: cond };
+      const [ekind, eid] = s.escalation ? s.escalation.split(":") : ["", ""];
+      return {
+        ...base,
+        stage,
+        condition: cond,
+        sla_hours: s.slaHours.trim() ? Number(s.slaHours) : null,
+        escalation_group_id: ekind === "group" ? eid : null,
+        escalation_user_id: ekind === "user" ? eid : null,
+      };
     });
     const body = {
       name: name.trim(),
@@ -1410,6 +1459,40 @@ function RuleModal({
                     />
                   </div>
                 )}
+                <span className="flex items-center gap-1.5 text-slate-600">
+                  SLA
+                  <Input
+                    className="w-16"
+                    type="number"
+                    placeholder="hrs"
+                    value={s.slaHours}
+                    onChange={(e) => patchStep(i, { slaHours: e.target.value })}
+                    aria-label="SLA hours"
+                  />
+                  <span className="text-slate-400">hrs, escalate to</span>
+                  <Select
+                    className="w-40"
+                    value={s.escalation}
+                    onChange={(e) => patchStep(i, { escalation: e.target.value })}
+                    aria-label="Escalation target"
+                  >
+                    <option value="">no escalation</option>
+                    <optgroup label="Groups">
+                      {(groups ?? []).map((g) => (
+                        <option key={g.id} value={`group:${g.id}`}>
+                          {g.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="People">
+                      {(people ?? []).map((u) => (
+                        <option key={u.id} value={`user:${u.id}`}>
+                          {u.full_name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </Select>
+                </span>
               </div>
             </div>
           ))}

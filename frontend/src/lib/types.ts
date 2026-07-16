@@ -766,15 +766,17 @@ export interface ApprovalRequest {
   org_id: ID;
   contract_id: ID;
   contract_version_id: ID | null;
-  status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
+  status: "pending" | "approved" | "rejected" | "cancelled" | "waiting" | "skipped";
   requested_by_user_id: ID;
   approver_user_id: ID | null;
   approver_role: string | null;
   approver_group_id?: ID | null;
   routing_rule_id?: ID | null;
   step_order?: number;
+  stage?: number | null;
   due_at: ISODateTime | null;
   overdue?: boolean;
+  escalated_at?: ISODateTime | null;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -872,6 +874,12 @@ export interface ApprovalRoutingStep {
   stage?: number | null;
   // Optional [{field, op, value}] conditions — the step only fires when they match.
   condition?: Array<Record<string, unknown>> | null;
+  // Per-step SLA (hours) + where it escalates when overdue.
+  sla_hours?: number | null;
+  escalation_group_id?: ID | null;
+  escalation_group_name?: string | null;
+  escalation_user_id?: ID | null;
+  escalation_user_name?: string | null;
   approver_group_id: ID | null;
   approver_group_name?: string | null;
   approver_user_id: ID | null;

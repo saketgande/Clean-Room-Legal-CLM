@@ -92,6 +92,11 @@ class ApprovalRoutingStep(
     # Optional list of {field, op, value} conditions; the step only joins the
     # chain when they all match the contract. Null / empty = always included.
     condition = Column(JSON, nullable=True)
+    # Per-step SLA (hours) and where it escalates when overdue. Null sla_hours
+    # falls back to the org-wide approval_default_due_days.
+    sla_hours = Column(Integer, nullable=True)
+    escalation_group_id = Column(String(36), ForeignKey("approver_group.id"), nullable=True)
+    escalation_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     approver_group_id = Column(String(36), ForeignKey("approver_group.id"), nullable=True)
     approver_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     approver_role = Column(String(120), nullable=True)
@@ -116,6 +121,11 @@ class ApprovalRequest(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin
     # Parallel-stage grouping (mirrors the resolved step's stage). All non-skipped
     # requests in a stage must be APPROVED before the next stage activates.
     stage = Column(Integer, nullable=True)
+    # Escalation target (denormalized from the step at submit) + when the overdue
+    # sweep escalated this request (set once, so it fires a single time).
+    escalated_at = Column(DateTime(timezone=True), nullable=True)
+    escalation_group_id = Column(String(36), ForeignKey("approver_group.id"), nullable=True)
+    escalation_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     due_at = Column(DateTime(timezone=True), nullable=True)
     metadata_json = Column(JSON, nullable=False, default=dict)
 

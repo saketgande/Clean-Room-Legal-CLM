@@ -17,6 +17,7 @@ from app.approvals.models import (
 )
 from app.approvals.service import (
     decide_in_app,
+    escalate_overdue_approvals,
     get_review_context_for_token,
     preview_criteria,
     preview_routing,
@@ -78,6 +79,10 @@ class RoutingStepPayload(BaseModel):
     # Optional list of {field, op, value} conditions — the step joins the chain
     # only when they all match the contract.
     condition: list | None = None
+    # SLA window (hours) and where the step escalates when overdue.
+    sla_hours: int | None = None
+    escalation_group_id: str | None = None
+    escalation_user_id: str | None = None
 
 
 class RoutingRulePayload(BaseModel):
@@ -142,6 +147,11 @@ def _serialize_step(
         "step_order": step.step_order,
         "stage": step.stage if step.stage else step.step_order,
         "condition": step.condition,
+        "sla_hours": step.sla_hours,
+        "escalation_group_id": step.escalation_group_id,
+        "escalation_group_name": group_names.get(step.escalation_group_id or ""),
+        "escalation_user_id": step.escalation_user_id,
+        "escalation_user_name": user_names.get(step.escalation_user_id or ""),
         "approver_group_id": step.approver_group_id,
         "approver_group_name": group_names.get(step.approver_group_id or ""),
         "approver_user_id": step.approver_user_id,
@@ -237,6 +247,8 @@ def _serialize_approval(req: ApprovalRequest, *, can_decide: bool) -> dict:
             and req.due_at is not None
             and req.due_at < datetime.now(UTC)
         ),
+        "stage": req.stage,
+        "escalated_at": req.escalated_at,
         "metadata_json": req.metadata_json,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
@@ -488,6 +500,8 @@ def _rebuild_steps(
             )
         _validate_org_group(db, org_id=org_id, group_id=step.approver_group_id)
         _validate_org_user(db, org_id=org_id, user_id=step.approver_user_id)
+        _validate_org_group(db, org_id=org_id, group_id=step.escalation_group_id)
+        _validate_org_user(db, org_id=org_id, user_id=step.escalation_user_id)
         db.add(
             ApprovalRoutingStep(
                 org_id=org_id,
@@ -495,6 +509,9 @@ def _rebuild_steps(
                 step_order=idx + 1,
                 stage=step.stage if step.stage else idx + 1,
                 condition=step.condition or None,
+                sla_hours=step.sla_hours,
+                escalation_group_id=step.escalation_group_id,
+                escalation_user_id=step.escalation_user_id,
                 approver_group_id=step.approver_group_id,
                 approver_user_id=step.approver_user_id,
                 approver_role=step.approver_role,
@@ -732,6 +749,19 @@ def routing_rules_audit(
         }
         for r in rows
     ]
+
+
+@router.post("/escalations/run")
+async def run_escalations(
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Admin/cron trigger: escalate every overdue approval in this org to its
+    backup approver now. Mirrors the daily Celery sweep, on demand."""
+    result = await escalate_overdue_approvals(db, org_id=current_user.org_id)
+    db.commit()
+    return result
 
 
 # --- Dry-run preview ------------------------------------------------------

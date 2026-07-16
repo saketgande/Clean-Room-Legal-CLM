@@ -287,6 +287,9 @@ def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
                 "mode": s.mode or "any",
                 "stage": s.stage or s.step_order,
                 "condition": s.condition,
+                "sla_hours": s.sla_hours,
+                "escalation_group_id": s.escalation_group_id,
+                "escalation_user_id": s.escalation_user_id,
             }
             for s in steps
         ]
@@ -299,6 +302,9 @@ def _rule_targets(rule: ApprovalRoutingRule) -> list[dict]:
             "mode": "any",
             "stage": 1,
             "condition": None,
+            "sla_hours": None,
+            "escalation_group_id": None,
+            "escalation_user_id": None,
         }
     ]
 
@@ -598,7 +604,8 @@ async def submit_contract_for_approval(
     active_targets = [t for t in chain if not t["_skipped"]]
     active_stage = min((t["stage"] for t in active_targets), default=None)
 
-    due_at = datetime.now(UTC) + timedelta(days=max(1, settings.approval_default_due_days))
+    now = datetime.now(UTC)
+    default_due = now + timedelta(days=max(1, settings.approval_default_due_days))
     requests: list[ApprovalRequest] = []
     for target in chain:
         # Validate referenced approver/group belong to this org.
@@ -623,6 +630,8 @@ async def submit_contract_for_approval(
             step_status = ApprovalStatus.PENDING
         else:
             step_status = ApprovalStatus.WAITING
+        sla_hours = target.get("sla_hours")
+        step_due = now + timedelta(hours=sla_hours) if sla_hours else default_due
         approval = ApprovalRequest(
             org_id=user.org_id,
             contract_id=contract.id,
@@ -635,7 +644,9 @@ async def submit_contract_for_approval(
             step_order=target["step_order"],
             stage=target["stage"],
             status=step_status,
-            due_at=due_at,
+            due_at=step_due,
+            escalation_group_id=target.get("escalation_group_id"),
+            escalation_user_id=target.get("escalation_user_id"),
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -930,6 +941,116 @@ async def redeem_token_decision(
         actor_label=f"token:{row.intended_approver_email}",
         request_id=request_id,
     )
+
+
+def _escalation_recipients(db: Session, *, approval: ApprovalRequest) -> list[User]:
+    """The backup approver(s) an overdue request escalates to: the named user, or
+    every active member of the escalation group."""
+    if approval.escalation_user_id:
+        user = db.get(User, approval.escalation_user_id)
+        return [user] if user and user.org_id == approval.org_id else []
+    if approval.escalation_group_id:
+        group = db.get(ApproverGroup, approval.escalation_group_id)
+        if group is None or group.org_id != approval.org_id:
+            return []
+        return [m for m in group.members if m.org_id == approval.org_id]
+    return []
+
+
+async def escalate_overdue_approvals(db: Session, *, org_id: str | None = None) -> dict:
+    """Re-route PENDING approvals that blew past their due date to their backup
+    approver. Idempotent via ``escalated_at`` (fires once per request). Issues a
+    fresh single-use review link, notifies in-app, and seals an
+    ``approval.escalated`` audit row. Returns ``{"escalated": n}``."""
+    from app.notifications.models import Notification
+
+    now = datetime.now(UTC)
+    query = select(ApprovalRequest).where(
+        ApprovalRequest.status == ApprovalStatus.PENDING,
+        ApprovalRequest.due_at.is_not(None),
+        ApprovalRequest.due_at < now,
+        ApprovalRequest.escalated_at.is_(None),
+    )
+    if org_id:
+        query = query.where(ApprovalRequest.org_id == org_id)
+    overdue = db.scalars(query).all()
+
+    base = settings.app_base_url.rstrip("/")
+    escalated = 0
+    for approval in overdue:
+        recipients = _escalation_recipients(db, approval=approval)
+        if not recipients:
+            continue
+        contract = db.get(Contract, approval.contract_id)
+        if contract is None or contract.org_id != approval.org_id:
+            continue
+        safe_title = html.escape(contract.title or "Untitled contract")
+        for approver in recipients:
+            token_secret = create_token_secret("apvl_")
+            db.add(
+                ApprovalToken(
+                    org_id=approval.org_id,
+                    approval_request_id=approval.id,
+                    intended_approver_email=approver.email.lower(),
+                    token_hash=hash_token(token_secret),
+                    expires_at=now + timedelta(hours=APPROVAL_TOKEN_TTL_HOURS),
+                )
+            )
+            review_url = f"{base}/approve/{token_secret}"
+            try:
+                await resend_client.send_email(
+                    to=approver.email,
+                    subject=f"Escalation: approval overdue — {contract.title}",
+                    html=(
+                        f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px\">"
+                        f"<p style=\"font-size:15px;color:#0f172a\">An approval on "
+                        f"<b>{safe_title}</b> passed its deadline and has been "
+                        f"<b>escalated to you</b>.</p>"
+                        f"<p style=\"margin:24px 0\"><a href=\"{review_url}\" "
+                        f"style=\"display:inline-block;background:#b91c1c;color:#fff;"
+                        f"padding:11px 22px;border-radius:8px;text-decoration:none;"
+                        f"font-weight:600\">Review document &amp; decide</a></p>"
+                        f"<p style=\"font-size:12px;color:#64748b\">This secure link "
+                        f"can be used once.</p></div>"
+                    ),
+                )
+            except Exception:
+                logger.exception(
+                    "escalation email failed", extra={"approval_request_id": approval.id}
+                )
+            db.add(
+                Notification(
+                    org_id=approval.org_id,
+                    user_id=approver.id,
+                    channel="in_app",
+                    event_type="approval.escalated",
+                    subject=f"Escalated to you: {contract.title}",
+                    body=(
+                        f'Approval for "{contract.title}" passed its deadline and was '
+                        "escalated to you as the backup approver."
+                    ),
+                    status="sent",
+                )
+            )
+        approval.escalated_at = now
+        approval.updated_by_user_id = None
+        write_audit_log(
+            db,
+            action="approval.escalated",
+            resource_type="approval_request",
+            resource_id=approval.id,
+            org_id=approval.org_id,
+            actor_user_id=None,
+            after={
+                "step_order": approval.step_order,
+                "stage": approval.stage,
+                "escalation_group_id": approval.escalation_group_id,
+                "escalation_user_id": approval.escalation_user_id,
+                "recipients": [a.email for a in recipients],
+            },
+        )
+        escalated += 1
+    return {"escalated": escalated}
 
 
 def get_review_context_for_token(db: Session, *, token: str) -> dict:

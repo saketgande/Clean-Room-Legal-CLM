@@ -685,6 +685,9 @@ export const approvalsApi = {
     }),
   routingRuleAudit: () =>
     apiFetch<RoutingRuleAuditEntry[]>("/approvals/routing-rules/audit"),
+  // Escalate every overdue approval in this org to its backup approver now.
+  runEscalations: () =>
+    apiFetch<{ escalated: number }>("/approvals/escalations/run", { method: "POST" }),
   // Dry-run: the chain a contract would get if submitted now (creates nothing).
   routingPreview: (contractId: string) =>
     apiFetch<RoutingPreview>(`/approvals/contracts/${contractId}/routing-preview`),

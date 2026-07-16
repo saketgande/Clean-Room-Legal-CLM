@@ -66,6 +66,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.mark_overdue_approvals",
         "schedule": crontab(hour=7, minute=30),  # daily
     },
+    "escalate-overdue-approvals": {
+        "task": "app.jobs.tasks.escalate_overdue_approvals_task",
+        "schedule": crontab(minute=15),  # hourly — SLA breaches escalate promptly
+    },
     "run-renewal-window-check": {
         "task": "app.jobs.tasks.run_renewal_window_check",
         "schedule": crontab(hour=7, minute=45),  # daily

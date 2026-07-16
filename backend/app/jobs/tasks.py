@@ -776,6 +776,27 @@ def mark_overdue_approvals() -> dict:
         db.close()
 
 
+@celery_app.task
+def escalate_overdue_approvals_task() -> dict:
+    """Hourly: escalate PENDING approvals past their SLA to their backup approver.
+
+    Idempotent via ApprovalRequest.escalated_at (fires once per request). The
+    async service issues review links + notifications; we run it in a fresh
+    event loop since Celery tasks are synchronous.
+    """
+    import asyncio
+
+    from app.approvals.service import escalate_overdue_approvals
+
+    db = SessionLocal()
+    try:
+        result = asyncio.run(escalate_overdue_approvals(db))
+        db.commit()
+        return result
+    finally:
+        db.close()
+
+
 def _prune_older_than(model, *, days: int) -> int:
     """Delete rows of ``model`` whose ``created_at`` is older than ``days``.
 
