@@ -257,6 +257,7 @@ def _matched_rules(db: Session, *, contract: Contract, org_id: str) -> list[Appr
         select(ApprovalRoutingRule).where(
             ApprovalRoutingRule.org_id == org_id,
             ApprovalRoutingRule.is_active.is_(True),
+            ApprovalRoutingRule.deleted_at.is_(None),
         )
     ).all()
     return sorted((r for r in rules if _matches(r, contract)), key=_rule_sort_key)

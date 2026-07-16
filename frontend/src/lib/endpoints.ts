@@ -11,6 +11,7 @@ import type {
   ApprovalRoutingRule,
   ApproverGroup,
   RoutingPreview,
+  RoutingRuleAuditEntry,
   ApproverBrief,
   AssistantMessage,
   AssistantRun,
@@ -670,6 +671,20 @@ export const approvalsApi = {
       method: "POST",
       body: payload,
     }),
+  updateRoutingRule: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<ApprovalRoutingRule>(`/approvals/routing-rules/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  deleteRoutingRule: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/approvals/routing-rules/${id}`, { method: "DELETE" }),
+  reorderRoutingRules: (orderedIds: string[]) =>
+    apiFetch<ApprovalRoutingRule[]>("/approvals/routing-rules/order", {
+      method: "PUT",
+      body: { ordered_ids: orderedIds },
+    }),
+  routingRuleAudit: () =>
+    apiFetch<RoutingRuleAuditEntry[]>("/approvals/routing-rules/audit"),
   // Dry-run: the chain a contract would get if submitted now (creates nothing).
   routingPreview: (contractId: string) =>
     apiFetch<RoutingPreview>(`/approvals/contracts/${contractId}/routing-preview`),

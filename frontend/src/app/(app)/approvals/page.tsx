@@ -8,6 +8,8 @@ import {
   ArrowUp,
   CheckCircle2,
   GitBranch,
+  History,
+  Pencil,
   Plus,
   Send,
   Trash2,
@@ -37,7 +39,7 @@ import {
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
-import type { ApprovalRequest } from "@/lib/types";
+import type { ApprovalRequest, ApprovalRoutingRule } from "@/lib/types";
 
 export default function ApprovalsPage() {
   const [tab, setTab] = useState("requests");
@@ -452,20 +454,160 @@ function chainSummary(rule: {
   return rule.approver_user_id ?? "—";
 }
 
+// One-line summary of a rule's WHEN conditions for the rules table.
+function criteriaSummary(criteria: Record<string, unknown> | null): string {
+  const conds = criteriaToConditions(criteria);
+  if (!conds.length) return "Any contract";
+  const fieldLabel = (f: string) => COND_FIELDS.find((x) => x.v === f)?.label ?? f;
+  const opLabel = (f: string, op: string) =>
+    opsFor(f).find((o) => o.v === op)?.label ?? op;
+  return conds
+    .map((c) =>
+      `${fieldLabel(c.field)} ${opLabel(c.field, c.op)} ${c.op === "exists" ? "" : c.value}`.trim(),
+    )
+    .join(" · ");
+}
+
+function RoutingAuditPanel() {
+  const { data } = useQuery({
+    queryKey: ["routing-rule-audit"],
+    queryFn: approvalsApi.routingRuleAudit,
+  });
+  const entries = data ?? [];
+  if (!entries.length) return null;
+  const verb: Record<string, string> = {
+    "routing_rule.created": "created",
+    "routing_rule.updated": "edited",
+    "routing_rule.reordered": "reordered the rules",
+    "routing_rule.deleted": "deleted",
+  };
+  return (
+    <Card>
+      <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-3">
+        <History className="h-4 w-4 text-slate-400" />
+        <span className="text-sm font-semibold text-slate-800">Routing audit trail</span>
+      </div>
+      <ul className="divide-y divide-slate-100">
+        {entries.slice(0, 8).map((e) => {
+          const ruleName =
+            (e.after as { name?: string } | null)?.name ??
+            (e.before as { name?: string } | null)?.name;
+          return (
+            <li
+              key={e.id}
+              className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm"
+            >
+              <span className="text-slate-700">
+                <b className="font-semibold">{e.actor_name}</b> {verb[e.action] ?? e.action}
+                {ruleName && e.action !== "routing_rule.reordered" ? (
+                  <span className="text-slate-500"> “{ruleName}”</span>
+                ) : null}
+              </span>
+              <span className="shrink-0 text-xs text-slate-400">{fmtDate(e.created_at)}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
+  );
+}
+
 function RulesTab() {
   const qc = useQueryClient();
   const { notify } = useToast();
-  const [newOpen, setNewOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editRule, setEditRule] = useState<ApprovalRoutingRule | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApprovalRoutingRule | null>(null);
+  const [reordering, setReordering] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["approval-routing-rules"],
     queryFn: approvalsApi.routingRules,
   });
+  const rules = useMemo(
+    () =>
+      [...(data ?? [])].sort(
+        (a, b) => (Number(a.priority) || 0) - (Number(b.priority) || 0),
+      ),
+    [data],
+  );
+
+  function invalidate() {
+    qc.invalidateQueries({ queryKey: ["approval-routing-rules"] });
+    qc.invalidateQueries({ queryKey: ["routing-rule-audit"] });
+  }
+
+  function payloadFrom(
+    rule: ApprovalRoutingRule,
+    overrides: { is_active?: boolean } = {},
+  ) {
+    return {
+      name: rule.name,
+      priority: rule.priority,
+      is_active: overrides.is_active ?? rule.is_active,
+      criteria: rule.criteria,
+      steps: rule.steps.map((s) => ({
+        approver_group_id: s.approver_group_id ?? undefined,
+        approver_user_id: s.approver_user_id ?? undefined,
+        approver_role: s.approver_role ?? undefined,
+        mode: s.mode,
+      })),
+      approver_role: rule.approver_role ?? undefined,
+      approver_user_id: rule.approver_user_id ?? undefined,
+    };
+  }
+
+  async function toggleActive(rule: ApprovalRoutingRule) {
+    try {
+      await approvalsApi.updateRoutingRule(
+        rule.id,
+        payloadFrom(rule, { is_active: !rule.is_active }),
+      );
+      invalidate();
+      notify(rule.is_active ? "Rule deactivated" : "Rule activated", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", "error");
+    }
+  }
+
+  async function moveRule(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= rules.length || reordering) return;
+    const next = [...rules];
+    [next[i], next[j]] = [next[j], next[i]];
+    setReordering(true);
+    try {
+      await approvalsApi.reorderRoutingRules(next.map((r) => r.id));
+      invalidate();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Reorder failed", "error");
+    } finally {
+      setReordering(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    try {
+      await approvalsApi.deleteRoutingRule(deleteTarget.id);
+      invalidate();
+      notify("Rule deleted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setDeleteTarget(null);
+    }
+  }
+
+  const openCreate = () => {
+    setEditRule(null);
+    setModalOpen(true);
+  };
 
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Button onClick={() => setNewOpen(true)}>
+        <Button onClick={openCreate}>
           <Plus className="h-4 w-4" />
           New rule
         </Button>
@@ -475,13 +617,13 @@ function RulesTab() {
         <SkeletonRows rows={4} />
       ) : error ? (
         <ErrorState error={error} />
-      ) : (data ?? []).length === 0 ? (
+      ) : rules.length === 0 ? (
         <EmptyState
           icon={<GitBranch className="h-6 w-6" />}
           title="No routing rules"
           description="Create a rule to route approvals through an ordered chain of approvers."
           action={
-            <Button onClick={() => setNewOpen(true)}>
+            <Button onClick={openCreate}>
               <Plus className="h-4 w-4" />
               New rule
             </Button>
@@ -492,22 +634,83 @@ function RulesTab() {
           <Table>
             <THead>
               <tr>
+                <TH>Order</TH>
                 <TH>Name</TH>
-                <TH>Priority</TH>
+                <TH>Applies when</TH>
                 <TH>Approval chain</TH>
                 <TH>Active</TH>
+                <TH>Actions</TH>
               </tr>
             </THead>
             <tbody>
-              {(data ?? []).map((rule) => (
+              {rules.map((rule, i) => (
                 <TR key={rule.id}>
-                  <TD className="font-medium text-slate-900">{rule.name}</TD>
-                  <TD>{rule.priority}</TD>
+                  <TD>
+                    <div className="flex flex-col">
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        disabled={i === 0 || reordering}
+                        onClick={() => moveRule(i, -1)}
+                        aria-label="Higher priority"
+                      >
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-0.5 text-slate-400 hover:text-slate-700 disabled:opacity-30"
+                        disabled={i === rules.length - 1 || reordering}
+                        onClick={() => moveRule(i, 1)}
+                        aria-label="Lower priority"
+                      >
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </TD>
+                  <TD className="font-medium text-slate-900">
+                    {rule.name}
+                    <div className="text-xs font-normal text-slate-400">
+                      priority {rule.priority}
+                    </div>
+                  </TD>
+                  <TD className="max-w-[220px] text-xs text-slate-600">
+                    {criteriaSummary(rule.criteria)}
+                  </TD>
                   <TD className="text-slate-700">{chainSummary(rule)}</TD>
                   <TD>
-                    <Badge tone={rule.is_active ? "green" : "slate"}>
-                      {rule.is_active ? "Active" : "Inactive"}
-                    </Badge>
+                    <button
+                      type="button"
+                      onClick={() => toggleActive(rule)}
+                      title="Toggle active"
+                      className="cursor-pointer"
+                    >
+                      <Badge tone={rule.is_active ? "green" : "slate"}>
+                        {rule.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                    </button>
+                  </TD>
+                  <TD>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                        onClick={() => {
+                          setEditRule(rule);
+                          setModalOpen(true);
+                        }}
+                        aria-label="Edit rule"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        onClick={() => setDeleteTarget(rule)}
+                        aria-label="Delete rule"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </TD>
                 </TR>
               ))}
@@ -516,15 +719,41 @@ function RulesTab() {
         </Card>
       )}
 
-      <NewRuleModal
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
-        onCreated={() => {
-          qc.invalidateQueries({ queryKey: ["approval-routing-rules"] });
-          notify("Routing rule created", "success");
-          setNewOpen(false);
+      <RoutingAuditPanel />
+
+      <RuleModal
+        open={modalOpen}
+        rule={editRule}
+        onClose={() => setModalOpen(false)}
+        onSaved={(verb) => {
+          invalidate();
+          notify(`Routing rule ${verb}`, "success");
+          setModalOpen(false);
         }}
       />
+
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete routing rule"
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button variant="danger" onClick={confirmDelete}>
+              Delete rule
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Delete <b className="text-slate-900">{deleteTarget?.name}</b>? It stops routing new
+          contracts immediately. Approvals already in flight are unaffected, and the change is
+          recorded in the audit trail.
+        </p>
+      </Modal>
     </div>
   );
 }
@@ -729,14 +958,68 @@ function ConditionBuilder({
   );
 }
 
-function NewRuleModal({
+// Parse a stored rule's criteria back into editable WHEN→THEN rows — including
+// legacy dict criteria (min_value / contract_type / risk_band) so editing an
+// old rule doesn't silently drop its conditions.
+function criteriaToConditions(criteria: Record<string, unknown> | null): Condition[] {
+  if (!criteria) return [];
+  const conds = (criteria as { conditions?: unknown }).conditions;
+  if (Array.isArray(conds)) {
+    return conds.map((c) => {
+      const cc = c as { field?: string; op?: string; value?: unknown };
+      return {
+        field: String(cc.field ?? "value_amount"),
+        op: String(cc.op ?? "eq"),
+        value: Array.isArray(cc.value)
+          ? cc.value.join(", ")
+          : cc.value == null
+            ? ""
+            : String(cc.value),
+      };
+    });
+  }
+  const out: Condition[] = [];
+  const c = criteria as Record<string, unknown>;
+  if ("min_value" in c) out.push({ field: "value_amount", op: "gte", value: String(c.min_value) });
+  if ("max_value" in c) out.push({ field: "value_amount", op: "lte", value: String(c.max_value) });
+  const ct = c.contract_type ?? c.contract_types;
+  if (ct != null)
+    out.push({
+      field: "contract_type",
+      op: Array.isArray(ct) ? "in" : "eq",
+      value: Array.isArray(ct) ? ct.join(", ") : String(ct),
+    });
+  const rb = c.risk_band ?? c.risk_bands;
+  if (rb != null)
+    out.push({
+      field: "risk_band",
+      op: Array.isArray(rb) ? "in" : "eq",
+      value: Array.isArray(rb) ? rb.join(", ") : String(rb),
+    });
+  return out;
+}
+
+function stepsToEncoded(steps: ApprovalRoutingRule["steps"]): string[] {
+  const enc = steps.map((s) =>
+    s.approver_group_id
+      ? `group:${s.approver_group_id}`
+      : s.approver_user_id
+        ? `user:${s.approver_user_id}`
+        : "",
+  );
+  return enc.length ? enc : [""];
+}
+
+function RuleModal({
   open,
   onClose,
-  onCreated,
+  onSaved,
+  rule,
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: (verb: string) => void;
+  rule?: ApprovalRoutingRule | null;
 }) {
   const { notify } = useToast();
   const [name, setName] = useState("");
@@ -767,6 +1050,21 @@ function NewRuleModal({
     setSteps([""]);
   }
 
+  // Load the rule's values when editing; clear for a fresh create.
+  useEffect(() => {
+    if (!open) return;
+    if (rule) {
+      setName(rule.name);
+      setPriority(rule.priority);
+      setConditions(criteriaToConditions(rule.criteria));
+      setIsActive(rule.is_active);
+      setSteps(stepsToEncoded(rule.steps));
+    } else {
+      reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, rule?.id]);
+
   const criteria = buildCriteria(conditions);
 
   function setStep(i: number, value: string) {
@@ -792,23 +1090,29 @@ function NewRuleModal({
     const chosen = steps.filter(Boolean);
     if (!name.trim() || chosen.length === 0) return;
     setBusy(true);
+    const body = {
+      name: name.trim(),
+      priority: String(Number(priority) || 0),
+      is_active: isActive,
+      criteria,
+      steps: chosen.map((s) => {
+        const [kind, id] = s.split(":");
+        return kind === "group"
+          ? { approver_group_id: id }
+          : { approver_user_id: id };
+      }),
+    };
     try {
-      await approvalsApi.createRoutingRule({
-        name: name.trim(),
-        priority: String(Number(priority) || 0),
-        is_active: isActive,
-        criteria,
-        steps: chosen.map((s) => {
-          const [kind, id] = s.split(":");
-          return kind === "group"
-            ? { approver_group_id: id }
-            : { approver_user_id: id };
-        }),
-      });
-      reset();
-      onCreated();
+      if (rule) {
+        await approvalsApi.updateRoutingRule(rule.id, body);
+        onSaved("updated");
+      } else {
+        await approvalsApi.createRoutingRule(body);
+        reset();
+        onSaved("created");
+      }
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Create failed", "error");
+      notify(e instanceof Error ? e.message : "Save failed", "error");
     } finally {
       setBusy(false);
     }
@@ -820,14 +1124,14 @@ function NewRuleModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="New routing rule"
+      title={rule ? "Edit routing rule" : "New routing rule"}
       footer={
         <>
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={submit} loading={busy} disabled={!canSave}>
-            Create rule
+            {rule ? "Save changes" : "Create rule"}
           </Button>
         </>
       }

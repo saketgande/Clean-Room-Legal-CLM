@@ -818,6 +818,18 @@ export interface RoutingPreview {
   chain: RoutingPreviewStep[];
 }
 
+// One entry in the routing-rule change history.
+export interface RoutingRuleAuditEntry {
+  id: ID;
+  action: string;
+  resource_id: ID | null;
+  actor_name: string;
+  created_at: ISODateTime;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
+}
+
 // Public token-authenticated review context for the emailed approver.
 export interface ApprovalReviewContext {
   contract_title: string;

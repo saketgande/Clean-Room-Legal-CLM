@@ -60,6 +60,10 @@ class ApprovalRoutingRule(
     approver_role = Column(String(120), nullable=True)
     approver_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    # Soft-delete: a retired rule is skipped by the resolver but its row survives
+    # so historical ApprovalRequest.routing_rule_id references still resolve.
+    deleted_at = Column(DateTime(timezone=True), nullable=True)
+    deleted_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
 
     # Ordered approval chain. When present, this is authoritative over the legacy
     # single-approver columns above.

@@ -27,8 +27,10 @@ from app.auth.models import User
 from app.contracts.models import Contract
 from app.contracts.access import user_can_access_contract
 from app.contracts.service import get_contract_for_user
+from app.core.audit import write_audit_log
 from app.core.deps import get_db, require_permission
 from app.core.enums import UserStatus
+from app.core.models import AuditLog
 from app.core.rbac import has_permission
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -433,12 +435,95 @@ def list_routing_rules(
     current_user=Depends(require_permission("approval:admin")),
 ):
     rules = db.scalars(
-        select(ApprovalRoutingRule).where(ApprovalRoutingRule.org_id == current_user.org_id)
+        select(ApprovalRoutingRule).where(
+            ApprovalRoutingRule.org_id == current_user.org_id,
+            ApprovalRoutingRule.deleted_at.is_(None),
+        )
     ).all()
     group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
     return [
         _serialize_rule(r, group_names=group_names, user_names=user_names) for r in rules
     ]
+
+
+def _validate_org_user(db: Session, *, org_id: str, user_id: str | None) -> None:
+    if not user_id:
+        return
+    approver = db.get(User, user_id)
+    if approver is None or approver.org_id != org_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Approver user must belong to this organization",
+        )
+
+
+def _validate_org_group(db: Session, *, org_id: str, group_id: str | None) -> None:
+    if not group_id:
+        return
+    group = db.get(ApproverGroup, group_id)
+    if group is None or group.org_id != org_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Approver group must belong to this organization",
+        )
+
+
+def _rebuild_steps(
+    db: Session, *, rule: ApprovalRoutingRule, steps, org_id: str, actor_id: str
+) -> None:
+    """Validate and (re)create a rule's ordered steps. Used by create + update."""
+    for idx, step in enumerate(steps):
+        if not (step.approver_group_id or step.approver_user_id or step.approver_role):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Step {idx + 1} needs an approver group, user, or role",
+            )
+        _validate_org_group(db, org_id=org_id, group_id=step.approver_group_id)
+        _validate_org_user(db, org_id=org_id, user_id=step.approver_user_id)
+        db.add(
+            ApprovalRoutingStep(
+                org_id=org_id,
+                rule_id=rule.id,
+                step_order=idx + 1,
+                approver_group_id=step.approver_group_id,
+                approver_user_id=step.approver_user_id,
+                approver_role=step.approver_role,
+                mode=step.mode,
+                created_by_user_id=actor_id,
+                updated_by_user_id=actor_id,
+            )
+        )
+
+
+def _rule_snapshot(rule: ApprovalRoutingRule) -> dict:
+    """Before/after payload for the routing audit trail."""
+    return {
+        "name": rule.name,
+        "priority": rule.priority,
+        "criteria": rule.criteria,
+        "is_active": rule.is_active,
+        "steps": [
+            {
+                "step_order": s.step_order,
+                "approver_group_id": s.approver_group_id,
+                "approver_user_id": s.approver_user_id,
+                "approver_role": s.approver_role,
+                "mode": s.mode,
+            }
+            for s in sorted(rule.steps, key=lambda s: s.step_order)
+        ],
+    }
+
+
+def _get_owned_rule(db: Session, *, rule_id: str, org_id: str) -> ApprovalRoutingRule:
+    rule = db.get(ApprovalRoutingRule, rule_id)
+    if rule is None or rule.org_id != org_id or rule.deleted_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Routing rule not found")
+    return rule
+
+
+class RoutingReorderPayload(BaseModel):
+    ordered_ids: list[str] = Field(default_factory=list)
 
 
 @router.post("/routing-rules", status_code=status.HTTP_201_CREATED)
@@ -447,28 +532,8 @@ def create_routing_rule(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("approval:admin")),
 ):
-    def _validate_user(user_id: str | None) -> None:
-        if not user_id:
-            return
-        approver = db.get(User, user_id)
-        if approver is None or approver.org_id != current_user.org_id:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Approver user must belong to this organization",
-            )
-
-    def _validate_group(group_id: str | None) -> None:
-        if not group_id:
-            return
-        group = db.get(ApproverGroup, group_id)
-        if group is None or group.org_id != current_user.org_id:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Approver group must belong to this organization",
-            )
-
     # Validate the legacy single-approver fields (used only when no steps given).
-    _validate_user(payload.approver_user_id)
+    _validate_org_user(db, org_id=current_user.org_id, user_id=payload.approver_user_id)
 
     rule = ApprovalRoutingRule(
         org_id=current_user.org_id,
@@ -483,33 +548,178 @@ def create_routing_rule(
     )
     db.add(rule)
     db.flush()
-
-    for idx, step in enumerate(payload.steps):
-        if not (step.approver_group_id or step.approver_user_id or step.approver_role):
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
-                f"Step {idx + 1} needs an approver group, user, or role",
-            )
-        _validate_group(step.approver_group_id)
-        _validate_user(step.approver_user_id)
-        db.add(
-            ApprovalRoutingStep(
-                org_id=current_user.org_id,
-                rule_id=rule.id,
-                step_order=idx + 1,
-                approver_group_id=step.approver_group_id,
-                approver_user_id=step.approver_user_id,
-                approver_role=step.approver_role,
-                mode=step.mode,
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-            )
-        )
-
+    _rebuild_steps(
+        db, rule=rule, steps=payload.steps, org_id=current_user.org_id, actor_id=current_user.id
+    )
+    db.flush()
+    db.refresh(rule)
+    write_audit_log(
+        db,
+        action="routing_rule.created",
+        resource_type="approval_routing_rule",
+        resource_id=rule.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        after=_rule_snapshot(rule),
+    )
     db.commit()
     db.refresh(rule)
     group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
     return _serialize_rule(rule, group_names=group_names, user_names=user_names)
+
+
+@router.patch("/routing-rules/{rule_id}")
+def update_routing_rule(
+    rule_id: str,
+    payload: RoutingRulePayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    rule = _get_owned_rule(db, rule_id=rule_id, org_id=current_user.org_id)
+    before = _rule_snapshot(rule)
+    _validate_org_user(db, org_id=current_user.org_id, user_id=payload.approver_user_id)
+
+    rule.name = payload.name
+    rule.priority = payload.priority
+    rule.criteria = payload.criteria
+    rule.is_active = payload.is_active
+    rule.approver_role = payload.approver_role if not payload.steps else None
+    rule.approver_user_id = payload.approver_user_id if not payload.steps else None
+    rule.updated_by_user_id = current_user.id
+    # Full-replace the chain: drop the old steps, rebuild from the payload.
+    for old in list(rule.steps):
+        db.delete(old)
+    db.flush()
+    _rebuild_steps(
+        db, rule=rule, steps=payload.steps, org_id=current_user.org_id, actor_id=current_user.id
+    )
+    db.flush()
+    db.refresh(rule)
+    write_audit_log(
+        db,
+        action="routing_rule.updated",
+        resource_type="approval_routing_rule",
+        resource_id=rule.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        before=before,
+        after=_rule_snapshot(rule),
+    )
+    db.commit()
+    db.refresh(rule)
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    return _serialize_rule(rule, group_names=group_names, user_names=user_names)
+
+
+@router.put("/routing-rules/order")
+def reorder_routing_rules(
+    payload: RoutingReorderPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Set rule priorities from the given order (10, 20, 30, …). Lower fires
+    first, so the list order the admin sees becomes the resolution order."""
+    rules = {
+        r.id: r
+        for r in db.scalars(
+            select(ApprovalRoutingRule).where(
+                ApprovalRoutingRule.org_id == current_user.org_id,
+                ApprovalRoutingRule.deleted_at.is_(None),
+            )
+        ).all()
+    }
+    order_log = []
+    for idx, rid in enumerate(payload.ordered_ids):
+        rule = rules.get(rid)
+        if rule is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown routing rule {rid}"
+            )
+        rule.priority = str((idx + 1) * 10)
+        rule.updated_by_user_id = current_user.id
+        order_log.append({"id": rule.id, "name": rule.name, "priority": rule.priority})
+    write_audit_log(
+        db,
+        action="routing_rule.reordered",
+        resource_type="approval_routing_rule",
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        metadata={"order": order_log},
+    )
+    db.commit()
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    ordered = sorted(
+        rules.values(),
+        key=lambda r: int(r.priority) if str(r.priority).isdigit() else 100,
+    )
+    return [_serialize_rule(r, group_names=group_names, user_names=user_names) for r in ordered]
+
+
+@router.delete("/routing-rules/{rule_id}")
+def delete_routing_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Soft-delete: the rule stops matching but its row survives so historical
+    approval requests keep resolving their originating rule."""
+    rule = _get_owned_rule(db, rule_id=rule_id, org_id=current_user.org_id)
+    before = _rule_snapshot(rule)
+    rule.deleted_at = datetime.now(UTC)
+    rule.deleted_by_user_id = current_user.id
+    rule.is_active = False
+    rule.updated_by_user_id = current_user.id
+    write_audit_log(
+        db,
+        action="routing_rule.deleted",
+        resource_type="approval_routing_rule",
+        resource_id=rule.id,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        before=before,
+    )
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/routing-rules/audit")
+def routing_rules_audit(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Chain-sealed history of routing-rule changes (create / update / reorder /
+    delete), newest first, with the acting user resolved to a name."""
+    rows = db.scalars(
+        select(AuditLog)
+        .where(
+            AuditLog.org_id == current_user.org_id,
+            AuditLog.resource_type == "approval_routing_rule",
+        )
+        .order_by(AuditLog.created_at.desc())
+        .limit(50)
+    ).all()
+    actor_ids = {r.actor_user_id for r in rows if r.actor_user_id}
+    names = (
+        {
+            u.id: (u.full_name or u.email)
+            for u in db.scalars(select(User).where(User.id.in_(actor_ids))).all()
+        }
+        if actor_ids
+        else {}
+    )
+    return [
+        {
+            "id": r.id,
+            "action": r.action,
+            "resource_id": r.resource_id,
+            "actor_name": names.get(r.actor_user_id) or "System",
+            "created_at": r.created_at,
+            "before": r.before,
+            "after": r.after,
+            "metadata": r.metadata_json,
+        }
+        for r in rows
+    ]
 
 
 # --- Dry-run preview ------------------------------------------------------
