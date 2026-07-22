@@ -30,7 +30,7 @@ export interface UserResponse {
 
 // ---- Legal Intake ---------------------------------------------------------
 export type IntakeStatus =
-  | "awaiting_triage" | "in_review" | "escalated" | "approved" | "closed";
+  | "open" | "escalated" | "approved" | "closed";
 export type IntakeSlaPosture = "on_track" | "at_risk" | "overdue";
 
 export interface IntakeWorkflowStep {
@@ -58,7 +58,6 @@ export interface IntakeRequest {
   sla_hours: number; sla_status: IntakeSlaPosture; sla_pct: number;
   submitted_at: string | null; closed_at: string | null;
   triaged_by_user_id: ID | null; triage_action: string | null;
-  agent_outcome: string | null;
   ai_triage: Record<string, unknown> | null;
   gates?: IntakeGates | null;
   screening?: Record<string, unknown> | null;
@@ -116,17 +115,9 @@ export interface IntakeHandoff {
 }
 export interface IntakeAssignee { id: ID; name: string; email: string; }
 export interface IntakeMyWork {
-  awaiting_review: (IntakeRequest & { recommendation_id: string; agent_id: string; confidence: number })[];
+  awaiting_review: IntakeRequest[];
   my_tickets: IntakeRequest[];
   my_tasks: IntakeTask[];
-}
-export interface IntakeRecommendation {
-  id: ID; request_id: ID; agent_id: string; confidence: number;
-  suggested_action: "approve_and_send" | "flag_for_review" | "escalate";
-  drafted_response: string; reasoning: string; concerns: string[];
-  citations: { id: string; title: string }[]; degraded: boolean;
-  status: "pending" | "approved" | "edited" | "rejected";
-  reviewed_by_user_id: ID | null; can_auto_send: boolean;
 }
 export interface IntakeSlaLeg {
   holder: string; holder_user_id: ID | null; holder_label: string;
@@ -138,7 +129,7 @@ export interface IntakeSlaLegs {
   breached: boolean; closed: boolean; paused: boolean;
 }
 export interface IntakeSlaOps {
-  generated_at: string; open_total: number; awaiting_triage: number; escalated: number;
+  generated_at: string; open_total: number; open: number; escalated: number;
   on_track: number; at_risk: number; overdue: number; paused: number;
   avg_elapsed_pct: number; breaches_7d: number;
   by_holder: { agent: number; human: number; queue: number };
@@ -1354,19 +1345,6 @@ export interface IntakeDocument {
   id: string; filename: string; mime_type: string; size_bytes: number;
   extracted_chars: number; extracted_text?: string | null;
   extraction_quality: number | null; created_at: string | null;
-}
-
-export interface IntakeAgentMetric {
-  agent_id: string; name: string; short_name: string; icon: string; description: string;
-  production_ready: boolean; active: boolean; produced: number;
-  accepted: number; rejected: number; pending: number;
-  accept_rate: number | null; avg_confidence: number | null; degraded_rate: number;
-  avg_review_minutes: number | null;
-}
-
-export interface IntakeAgentMetrics {
-  agents: IntakeAgentMetric[];
-  summary: { recommendations: number; pending_review: number; accept_rate: number | null; degraded: number };
 }
 
 export interface IntakeParty { name: string; role: string; is_person?: boolean; }

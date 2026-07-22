@@ -95,13 +95,11 @@ class HandoffResponse(BaseModel):
 
 
 class TriageActionRequest(BaseModel):
-    action: str = Field(
-        pattern="^(approved|edited_approved|rejected|reassigned|manual_close|snoozed|escalate)$"
-    )
+    # Request-management actions (triage verdicts removed).
+    action: str = Field(pattern="^(reassigned|manual_close|snoozed|escalate)$")
     assignee_user_id: str | None = None  # reassigned
     snoozed_until: str | None = None      # snoozed (ISO)
     comment: str | None = None
-    edited_response: str | None = None    # edited_approved
 
 
 class TaskCreateReq(BaseModel):
@@ -250,28 +248,7 @@ class RuleResponse(BaseModel):
     last_fired_at: str | None = None
 
 
-# ---- recommendation / verdicts / promote ----------------------------------
-
-class RecommendationResponse(BaseModel):
-    id: str
-    request_id: str
-    agent_id: str
-    confidence: float
-    suggested_action: str
-    drafted_response: str
-    reasoning: str
-    concerns: list[str] = Field(default_factory=list)
-    citations: list[dict] = Field(default_factory=list)
-    degraded: bool
-    status: str
-    reviewed_by_user_id: str | None = None
-    can_auto_send: bool
-
-
-class BulkTriageRequest(BaseModel):
-    ids: list[str]
-    action: str = Field(pattern="^(approved|manual_close)$")
-
+# ---- promote --------------------------------------------------------------
 
 class PromoteRequest(BaseModel):
     target: str = Field(pattern="^(project|contract)$")
@@ -364,7 +341,6 @@ class RequestResponse(BaseModel):
     closed_at: str | None = None
     triaged_by_user_id: str | None = None
     triage_action: str | None = None
-    agent_outcome: str | None = None
     ai_triage: dict | None = None
     gates: dict | None = None
     fired_rules: dict | None = None

@@ -189,6 +189,13 @@ async def advance_run(db: Session, *, run: FlowRun, actor) -> FlowRun:
         elif outcome == "wait":
             run.status = "waiting"
             break
+        elif outcome == "yield":
+            # The step is mid-beat (e.g. an ai_task showing a "running" state so
+            # the UI can animate it instead of flashing straight to done). Leave
+            # run.status == "running" and stop; a refresh tick resumes and runs it.
+            # ponytail: the flow pauses here until the ticket is next viewed (the
+            # UI pumps it); add a periodic sweep resume if headless progress matters.
+            break
     db.commit()
     db.refresh(run)
     return run
@@ -238,6 +245,15 @@ async def _execute_step(db: Session, *, run: FlowRun, step: dict, sr: FlowStepRu
         return "wait"
 
     if t == "ai_task":
+        # Two-phase so the agent's work is *observable*: on first encounter mark
+        # the step running and yield, so the UI shows a live "Agent is working…"
+        # beat rather than the step flashing straight to done. The agent actually
+        # runs on the next tick (refresh/advance), when the step is already
+        # "running". The classifier is near-instant, so the beat only reads as
+        # real because the work is genuinely still pending during it.
+        if sr is not None and sr.status != "running":
+            sr.status = "running"
+            return "yield"
         # Run the configured agent best-effort. If it's a registered intake
         # agent (incl. the ported library's agent keys), run the deterministic
         # classifier for a real confidence; otherwise try it as an AI skill.
@@ -385,7 +401,12 @@ def complete_human_step(db: Session, *, run: FlowRun, actor, note: str | None = 
 
 async def refresh_run(db: Session, *, run: FlowRun, actor) -> FlowRun:
     """Re-check a waiting approval/signature step against the contract's current
-    stage (the subsystems auto-cascade), and advance if the phase completed."""
+    stage (the subsystems auto-cascade), and advance if the phase completed.
+    Also pumps a mid-beat 'running' step (an ai_task showing its working state)
+    by resuming the executor — this is how the UI's animation gives way to the
+    real agent run."""
+    if run.status == "running":
+        return await advance_run(db, run=run, actor=actor)
     if run.status != "waiting":
         return run
     steps = list(run.steps or [])

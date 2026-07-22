@@ -77,7 +77,6 @@ function AskAurora({ articles, onFileTopic }: { articles: IntakeKbArticle[]; onF
 
 export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) => void }) {
   const { data, isLoading, error } = useQuery({ queryKey: ["intake-kb"], queryFn: intakeApi.kb });
-  const { data: metrics } = useQuery({ queryKey: ["intake-agent-metrics"], queryFn: intakeApi.agentMetrics });
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
   const [sel, setSel] = useState<IntakeKbArticle | null>(null);
@@ -97,18 +96,12 @@ export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) =
     if (q && !`${a.title} ${a.body} ${a.tags.join(" ")} ${a.source_ref}`.toLowerCase().includes(q.toLowerCase())) return false;
     return true;
   });
-  const faq = metrics?.agents.find((a) => a.agent_id === "faq-agent") ?? null;
-  const faqAnswers = faq ? String(faq.produced) : "—";
-  const faqConf = faq?.avg_confidence != null ? `${Math.round(faq.avg_confidence * 100)}%` : "—";
-
   return (
     <div className="space-y-4">
       {/* KPI strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3">
         <StatCard label="KB articles" value={String(articles.length)} hint="from the legal playbook" tone="blue" />
         <StatCard label="Categories" value={String(cats.length)} hint="coverage areas" tone="violet" />
-        <StatCard label="FAQ answers · 7d" value={faqAnswers} hint="drafted by the FAQ agent" tone="green" />
-        <StatCard label="FAQ confidence" value={faqConf} hint="avg · last 7 days" tone="cyan" />
       </div>
 
       {/* Ask Aurora — quick FAQ, no ticket */}
@@ -335,70 +328,3 @@ export function CopilotChat({ onFiled }: { onFiled: (id: string) => void }) {
   );
 }
 
-// ======================= AGENTS DIRECTORY =======================
-
-export function AiOpsTab() {
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-agent-metrics"], queryFn: intakeApi.agentMetrics });
-  const { notify } = useToast();
-  const [refreshing, setRefreshing] = useState(false);
-  if (isLoading) return <CenterSpinner />;
-  if (error) return <ErrorState error={error} />;
-  const m = data!;
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-[13px] text-slate-500">The specialist agents that triage and draft every request — each an AI first-pass a named lawyer approves.</p>
-        <Button variant="outline" size="sm" loading={refreshing} onClick={async () => {
-          setRefreshing(true);
-          try { const r = await intakeApi.sanctionsRefresh(); notify(`OFAC list refreshed — ${(r as { added?: number }).added ?? 0} added`, "success"); }
-          catch (e) { notify(e instanceof Error ? e.message : "Refresh failed", "error"); }
-          finally { setRefreshing(false); }
-        }}>Refresh OFAC list</Button>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Agents" value={String(m.agents.length)} tone="blue" />
-        <StatCard label="Recommendations" value={String(m.summary.recommendations)} tone="slate" />
-        <StatCard label="Pending review" value={String(m.summary.pending_review)} tone="amber" />
-        <StatCard label="Accept rate" value={m.summary.accept_rate === null ? "—" : `${Math.round(m.summary.accept_rate * 100)}%`} tone="green" />
-      </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {m.agents.map((a) => (
-          <Card key={a.agent_id} className="flex flex-col">
-            <CardBody className="flex flex-1 flex-col gap-3">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-brand-50 text-lg text-brand-600">
-                  {a.icon}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <h4 className="truncate text-sm font-semibold text-slate-900">{a.name}</h4>
-                    {a.active
-                      ? <Badge tone="green">Live</Badge>
-                      : <Badge tone="amber">Demo</Badge>}
-                  </div>
-                  <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{a.description}</p>
-                </div>
-              </div>
-              <div className="mt-auto grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-center">
-                <Stat label="Handled" value={String(a.produced)} />
-                <Stat label="Accept" value={a.accept_rate === null ? "—" : `${Math.round(a.accept_rate * 100)}%`} />
-                <Stat label="Avg conf" value={a.avg_confidence === null ? "—" : a.avg_confidence.toFixed(2)}
-                  tone={a.degraded_rate > 0 ? "amber" : undefined}
-                  hint={a.degraded_rate > 0 ? `${Math.round(a.degraded_rate * 100)}% degraded` : undefined} />
-              </div>
-            </CardBody>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: "amber"; hint?: string }) {
-  return (
-    <div title={hint}>
-      <p className={cn("text-sm font-semibold tabular-nums", tone === "amber" ? "text-warning" : "text-slate-900")}>{value}</p>
-      <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">{label}</p>
-    </div>
-  );
-}

@@ -147,7 +147,7 @@ class IntakeApprovalSubject:
             db,
             actor_user_id=actor_user_id,
             request_id=request_id,
-            to_status="in_review",
+            to_status="open",
             to_stage="triage",
             audit_action="intake.approval_rejected",
             after={"comment": comment},

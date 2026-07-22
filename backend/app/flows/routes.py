@@ -84,7 +84,7 @@ def update_flow(flow_id: str, payload: FlowPayload, db: Session = Depends(get_db
 
 @router.post("/start")
 async def start(payload: StartPayload, db: Session = Depends(get_db),
-                current_user=Depends(require_permission("intake:triage"))):
+                current_user=Depends(require_permission("intake:read"))):
     request = db.get(IntakeRequest, payload.request_id)
     if request is None or request.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
@@ -102,7 +102,7 @@ def run_for_request(request_id: str, db: Session = Depends(get_db),
 
 @router.post("/runs/{run_id}/complete-step")
 async def complete_step(run_id: str, payload: CompleteStepPayload, db: Session = Depends(get_db),
-                        current_user=Depends(require_permission("intake:triage"))):
+                        current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user.org_id, run_id)
     service.complete_human_step(db, run=run, actor=current_user, note=payload.note)
     run = await service.advance_run(db, run=run, actor=current_user)

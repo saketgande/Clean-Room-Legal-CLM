@@ -1,8 +1,8 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, Search, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
@@ -19,10 +19,10 @@ import {
   sortBySla, STATUS_LABEL, STATUS_TONE,
 } from "@/lib/intake";
 import type {
-  ContractResponse, FlowRunStep, FlowSuggestion, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
+  ContractResponse, FlowRun, FlowRunStep, FlowSuggestion, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
 } from "@/lib/types";
 import { SlaDashboardTab, SlaLegsBar, TeamsTab } from "./_phase1";
-import { AiOpsTab, CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
+import { CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
 import { RulesTab } from "../approvals/_rules-builder";
 import { WorkflowPanel } from "./_workflow-panel";
 
@@ -80,7 +80,7 @@ function LivePulse({ updatedAt }: { updatedAt: number }) {
 
 export default function IntakePage() {
   const { user } = useAuth();
-  const isStaff = can(user, "intake:triage");
+  const isStaff = can(user, "intake:read");
   const isAdmin = can(user, "admin_panel:access");
 
   // Reference-style tab set — Work · File · Insights, divider-grouped. Inbox and
@@ -103,7 +103,6 @@ export default function IntakePage() {
       [
         { id: "workflows", label: "Workflows" },
         { id: "sla", label: "SLA" },
-        { id: "agents", label: "Agents" },
         { id: "ops", label: "Operations" },
       ],
     ];
@@ -118,8 +117,6 @@ export default function IntakePage() {
   const { data: myWork } = useQuery({
     queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, enabled: isStaff, ...LIVE_POLL,
   });
-  const awaiting = (listData ?? []).filter((r) => r.status === "awaiting_triage").length;
-
   // Count-pills on the tabs — the reference's at-a-glance queue signal.
   const openCount = (listData ?? []).filter((r) => r.status !== "closed" && r.status !== "approved").length;
   const onMe = myWork
@@ -136,9 +133,9 @@ export default function IntakePage() {
           <p className="mt-0.5 text-[13px] text-slate-500">Triage, draft, and resolve every legal request from one queue.</p>
         </div>
         <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5">
-          {isStaff && awaiting > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-warning-subtle px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-warning">
-              ◆ {awaiting} awaiting triage
+          {isStaff && openCount > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700">
+              ◆ {openCount} open
             </span>
           )}
           {isStaff && <LivePulse updatedAt={dataUpdatedAt} />}
@@ -187,7 +184,6 @@ export default function IntakePage() {
           {section === "new" && <NewRequestTab onFiled={setDetailId} />}
           {section === "sla" && isStaff && <SlaDashboardTab isAdmin={isAdmin} />}
           {section === "workflows" && isStaff && <WorkflowsBuilderTab />}
-          {section === "agents" && isStaff && <AiOpsTab />}
           {section === "ops" && isStaff && <OperationsView isAdmin={isAdmin} />}
         </>
       )}
@@ -487,7 +483,7 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
 
         <div className="rounded-md border-l-2 border-l-brand-600 bg-slate-100/50 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-500">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-600">Flow</span>
-          <p className="mt-0.5">On submit: triage runs → ticket saved → the agent router picks the best fit → a recommendation is generated → the ticket lands in the queue for attorney review. <span className="text-warning">Agents never auto-close.</span></p>
+          <p className="mt-0.5">On submit: the request is saved, screened, and routed → it lands in the intake queue open for a reviewer to pick up and start a workflow.</p>
         </div>
       </CardBody>
     </Card>
@@ -551,145 +547,10 @@ function buildFilters(myId: string | null): { id: string; label: string; match: 
     { id: "mine", label: "My Queue", match: (r) => !!myId && r.assigned_to_user_id === myId },
     { id: "overdue", label: "SLA Breached", match: (r) => r.sla_status === "overdue" },
     { id: "at_risk", label: "At risk", match: (r) => r.sla_status === "at_risk" },
-    { id: "in_review", label: "In review", match: (r) => r.status === "in_review" },
-    { id: "auto", label: "Auto-completed", match: (r) => r.status === "approved" },
-    { id: "awaiting", label: "New", match: (r) => r.status === "awaiting_triage" },
+    { id: "open", label: "Open", match: (r) => r.status === "open" },
+    { id: "escalated", label: "Escalated", match: (r) => r.status === "escalated" },
+    { id: "approved", label: "Approved", match: (r) => r.status === "approved" },
   ];
-}
-
-function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const { user } = useAuth();
-  const canTriage = can(user, "intake:triage");
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), ...LIVE_POLL });
-  const [filter, setFilter] = useState("all");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-  if (isLoading) return <CenterSpinner label="Loading the queue…" />;
-  if (error) return <ErrorState error={error} />;
-  const rows = data ?? [];
-  const FILTERS = buildFilters(user?.id ?? null);
-  const total = rows.length;
-  const autoResolved = rows.filter((r) => r.status === "approved").length;
-  const inFlight = rows.filter((r) => r.status === "in_review" || r.status === "escalated").length;
-  const q = search.trim().toLowerCase();
-  const activeMatch = (FILTERS.find((f) => f.id === filter) ?? FILTERS[0]).match;
-  const shown = rows.filter(activeMatch).filter((r) =>
-    !q || `${r.ref} ${r.requester_name ?? ""} ${r.type_label} ${r.description ?? ""}`.toLowerCase().includes(q));
-  const overdue = rows.filter((r) => r.sla_status === "overdue" && r.status !== "closed").length;
-
-  const toggle = (id: string) =>
-    setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const selectedShown = shown.filter((r) => selected.has(r.id)).map((r) => r.id);
-  const allShownSelected = shown.length > 0 && selectedShown.length === shown.length;
-  const toggleAll = () =>
-    setSelected((s) => {
-      const n = new Set(s);
-      if (allShownSelected) shown.forEach((r) => n.delete(r.id));
-      else shown.forEach((r) => n.add(r.id));
-      return n;
-    });
-  async function bulk(action: "approved" | "manual_close") {
-    if (!selectedShown.length) return;
-    setBusy(true);
-    try {
-      const res = await intakeApi.bulkTriage(selectedShown, action);
-      const ok = res.results.filter((x) => x.ok).length;
-      const failed = res.results.length - ok;
-      qc.invalidateQueries({ queryKey: ["intake-list"] });
-      qc.invalidateQueries({ queryKey: ["intake-mywork"] });
-      setSelected(new Set());
-      notify(`${action === "approved" ? "Approved" : "Closed"} ${ok}${failed ? ` · ${failed} failed` : ""}`,
-        failed ? "error" : "success");
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Bulk action failed", "error");
-    } finally { setBusy(false); }
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">
-          <span className="text-brand-600">◎</span> Intake queue
-          <span className="ml-2 inline-flex items-center gap-1 text-success">
-            <span className="h-1.5 w-1.5 rounded-full bg-success" />live
-          </span>
-        </p>
-        <span className="text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums text-slate-400">
-          {total} open · {overdue} breached
-        </span>
-      </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Today's requests" value={String(total)} tone="blue" />
-        <StatCard label="Auto-resolved"
-          value={String(autoResolved)}
-          hint={total ? `${Math.round((autoResolved / total) * 100)}% deflection` : undefined}
-          tone="green" />
-        <StatCard label="In flight" value={String(inFlight)} tone="slate" />
-        <StatCard label="SLA breached" value={String(overdue)} hint="Auto-escalated" tone="red" />
-      </div>
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-        <div className="flex flex-1 flex-wrap gap-1.5">
-          {FILTERS.map((f) => {
-            const n = rows.filter(f.match).length;
-            const active = filter === f.id;
-            return (
-              <button key={f.id} onClick={() => setFilter(f.id)}
-                className={cn("inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] transition-colors",
-                  active ? "border-brand-600 bg-brand-50 text-brand-700"
-                    : "border-slate-200 bg-slate-100/50 text-slate-500 hover:border-slate-300 hover:text-slate-700")}>
-                {f.label}
-                <span className={cn("rounded px-1 text-[10px] tabular-nums",
-                  active ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500")}>{n}</span>
-              </button>
-            );
-          })}
-        </div>
-        <div className="relative sm:w-64">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search ref, requester, type…" className="h-9 pl-9" />
-        </div>
-      </div>
-      {canTriage && selectedShown.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
-          <span className="font-medium text-brand-700">{selectedShown.length} selected</span>
-          <Button size="sm" loading={busy} onClick={() => bulk("approved")}>Approve</Button>
-          <Button size="sm" variant="outline" loading={busy} onClick={() => bulk("manual_close")}>Close</Button>
-          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
-        </div>
-      )}
-      <Card className="overflow-hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            {(FILTERS.find((f) => f.id === filter) ?? FILTERS[0]).label}
-            <span className="ml-1.5 tabular-nums text-slate-400">{shown.length}{shown.length !== total ? ` of ${total}` : ""}</span>
-          </p>
-          <span className="hidden text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400 sm:inline">
-            Status and SLA are independent signals
-          </span>
-        </div>
-        {shown.length === 0 ? (
-          <CardBody><EmptyState title="Nothing here"
-            description={q ? `No requests match “${search.trim()}”.` : "No requests match this filter."} /></CardBody>
-        ) : (
-          <Table>
-            <THead><TR>
-              {canTriage && <TH><input type="checkbox" className="accent-brand-600" aria-label="Select all"
-                checked={allShownSelected} onChange={toggleAll} /></TH>}
-              <TH>Ref</TH><TH>Requester</TH><TH>Type</TH><TH>Description</TH><TH>Priority</TH><TH>SLA</TH><TH>Status</TH><TH>Assignee</TH>
-            </TR></THead>
-            <tbody>{shown.map((r) => (
-              <RequestRow key={r.id} r={r} onOpen={onOpen} showRequester showDescription
-                selectable={canTriage} checked={selected.has(r.id)} onToggle={toggle} />
-            ))}</tbody>
-          </Table>
-        )}
-      </Card>
-    </div>
-  );
 }
 
 // ---- Operations Cockpit (Inbox landing) -----------------------------------
@@ -711,31 +572,31 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
   const rows = useMemo(() => data ?? [], [data]);
   const open = rows.filter((r) => r.status !== "closed" && r.status !== "approved");
   const kpi = {
-    triage: rows.filter((r) => r.status === "awaiting_triage").length,
+    open: rows.filter((r) => r.status === "open").length,
     unassigned: rows.filter((r) => r.status !== "closed" && !r.assigned_to_user_id).length,
-    inFlight: rows.filter((r) => r.status === "in_review" || r.status === "escalated").length,
+    escalated: rows.filter((r) => r.status === "escalated").length,
     breached: rows.filter((r) => r.sla_status === "overdue" && r.status !== "closed").length,
     atRisk: rows.filter((r) => r.sla_status === "at_risk" && r.status !== "closed").length,
-    deflected: rows.length ? Math.round((rows.filter((r) => r.status === "approved").length / rows.length) * 100) : 0,
+    approved: rows.length ? Math.round((rows.filter((r) => r.status === "approved").length / rows.length) * 100) : 0,
   };
 
   const FILTERS = buildFilters(user?.id ?? null);
   const q = search.trim().toLowerCase();
   const activeMatch = (FILTERS.find((f) => f.id === filter) ?? FILTERS[0]).match;
   // Three-tier queue order so the list reads top-to-bottom as work moves through
-  // it: (0) new / awaiting triage on top — a just-filed ticket lands where it's
-  // seen; (1) active work in the middle, most SLA pressure first; (2) finished
-  // tickets sink to the bottom, most-recently-closed first.
+  // it: (0) open on top — a just-filed ticket lands where it's seen; (1) active
+  // work in the middle (escalated), most SLA pressure first; (2) finished tickets
+  // sink to the bottom, most-recently-closed first.
   const created = (r: IntakeRequest) => r.created_at ?? r.submitted_at ?? "";
   const doneAt = (r: IntakeRequest) => r.closed_at ?? created(r);
   const tier = (r: IntakeRequest) =>
-    r.status === "awaiting_triage" ? 0 : r.status === "approved" || r.status === "closed" ? 2 : 1;
+    r.status === "open" ? 0 : r.status === "approved" || r.status === "closed" ? 2 : 1;
   const shown = [...rows.filter(activeMatch).filter((r) =>
     !q || `${r.ref} ${r.requester_name ?? ""} ${r.type_label} ${r.description ?? ""}`.toLowerCase().includes(q))]
     .sort((a, b) => {
       const ta = tier(a), tb = tier(b);
       if (ta !== tb) return ta - tb;
-      if (ta === 0) return created(b).localeCompare(created(a)); // new: newest first
+      if (ta === 0) return created(b).localeCompare(created(a)); // open: newest first
       if (ta === 2) return doneAt(b).localeCompare(doneAt(a));   // done: most recently closed first
       return sortBySla(a, b);                                     // active: SLA pressure
     });
@@ -748,11 +609,11 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
     <div className="space-y-4">
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <StatCard label="Awaiting triage" value={String(kpi.triage)} hint={`${kpi.unassigned} unassigned`} tone="blue" />
-        <StatCard label="In flight" value={String(kpi.inFlight)} hint="in review / escalated" tone="slate" />
+        <StatCard label="Open" value={String(kpi.open)} hint={`${kpi.unassigned} unassigned`} tone="blue" />
+        <StatCard label="Escalated" value={String(kpi.escalated)} hint="needs senior review" tone="slate" />
         <StatCard label="SLA breached" value={String(kpi.breached)} hint={`${kpi.atRisk} at risk`} tone="red" />
-        <StatCard label="Deflected" value={`${kpi.deflected}%`} hint="self-service" tone="green" />
-        <StatCard label="Open" value={String(open.length)} hint="total in queue" tone="slate" />
+        <StatCard label="Approved" value={`${kpi.approved}%`} hint="of total" tone="green" />
+        <StatCard label="In queue" value={String(open.length)} hint="active total" tone="slate" />
       </div>
 
       {/* filter chips + search */}
@@ -785,16 +646,15 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
                 <TH>ID</TH><TH>Requester</TH><TH>Type</TH><TH>Description</TH><TH>Priority</TH><TH>SLA</TH><TH>Status</TH><TH>Assignee</TH>
               </TR></THead>
               <tbody>{page.map((r) => {
-                const isNew = r.status === "awaiting_triage";
                 const dotCls = r.sla_status === "overdue" ? "bg-danger" : r.sla_status === "at_risk" ? "bg-warning" : "bg-success";
                 const desc = (r.description ?? "").split("\n")[0].trim() || r.type_label;
-                const tint = r.sla_status === "overdue" ? "bg-danger-subtle/40" : r.sla_status === "at_risk" ? "bg-warning-subtle/40" : isNew ? "bg-brand-50/50" : "";
+                const tint = r.sla_status === "overdue" ? "bg-danger-subtle/40" : r.sla_status === "at_risk" ? "bg-warning-subtle/40" : "";
                 return (
                   <TR key={r.id} className={cn("cursor-pointer", tint)} onClick={() => onOpen(r.id)}>
                     <TD className="whitespace-nowrap">
                       <span className="inline-flex items-center gap-2">
                         <span className={cn("h-1.5 w-1.5 rounded-full", dotCls)} />
-                        <span className={cn("font-mono text-xs font-semibold", isNew ? "text-brand-700" : "text-slate-500")}>{r.ref}</span>
+                        <span className="font-mono text-xs font-semibold text-slate-500">{r.ref}</span>
                       </span>
                     </TD>
                     <TD className="whitespace-nowrap">
@@ -803,7 +663,6 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
                     </TD>
                     <TD className="whitespace-nowrap"><Badge tone="violet">{r.type_label}</Badge></TD>
                     <TD className="max-w-[13rem] truncate text-slate-600" title={desc}>
-                      {isNew && <span className="mr-2 rounded bg-brand-600 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wide text-white">New</span>}
                       {desc}
                     </TD>
                     <TD><Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge></TD>
@@ -865,7 +724,7 @@ function MyWorkTab({ onOpen }: { onOpen: (id: string) => void }) {
             <Badge tone="blue">{String(mw.awaiting_review.length)}</Badge></CardHeader>
           <CardBody className="p-0">
             {mw.awaiting_review.length === 0
-              ? <p className="px-4 py-3 text-xs text-slate-400">No agent recommendations waiting on you.</p>
+              ? <p className="px-4 py-3 text-xs text-slate-400">Nothing waiting on your review.</p>
               : <Table><tbody>{mw.awaiting_review.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} showStatus={false} />)}</tbody></Table>}
           </CardBody>
         </Card>
@@ -1599,47 +1458,6 @@ function AiAnalysisCard({ contractId }: { contractId: string }) {
   );
 }
 
-// ── Triage cockpit primitives (aegis-style, theme-adapted) ──
-function confidenceTier(c: number): { color: "emerald" | "amber" | "red"; label: string } {
-  if (c >= 0.9) return { color: "emerald", label: "High confidence" };
-  if (c >= 0.7) return { color: "amber", label: "Medium confidence" };
-  return { color: "red", label: "⚠ Review carefully" };
-}
-const TIER_CLS: Record<string, string> = {
-  emerald: "border-success/50 bg-success-subtle text-success",
-  amber: "border-warning/50 bg-warning-subtle text-warning",
-  red: "border-danger/50 bg-danger-subtle text-danger",
-};
-const TIER_DOT: Record<string, string> = { emerald: "bg-success", amber: "bg-warning", red: "bg-danger" };
-
-function ConfidenceBadge({ conf }: { conf: number }) {
-  const t = confidenceTier(conf);
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 rounded border px-2 py-0.5", TIER_CLS[t.color])}>
-      <span className={cn("h-1.5 w-1.5 rounded-full", TIER_DOT[t.color])} />
-      <span className="text-[9px] font-semibold uppercase tracking-[0.06em]">{t.label}</span>
-      <span className="font-mono text-[11px] font-bold">{Math.round(conf * 100)}%</span>
-    </span>
-  );
-}
-
-function AgentBadge({ agentId }: { agentId: string }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded border border-brand-600/40 bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-brand-700">
-      <span className="text-[11px] leading-none">◉</span>
-      {titleCase(agentId.replace(/_agent$/, "").replace(/_/g, " "))}
-    </span>
-  );
-}
-
-function Kbd({ k }: { k: string }) {
-  return (
-    <kbd className="inline-flex min-w-[16px] items-center justify-center rounded-[3px] border border-slate-300 bg-slate-100 px-1 py-px font-mono text-[9px] font-semibold leading-[14px] text-slate-500">
-      {k}
-    </kbd>
-  );
-}
-
 // Per-step type metadata for the governance ladder — the icon + plain-English
 // status so a reviewer can tell an AI step from a human task from an approval,
 // and whether a step is done, running, or waiting on them.
@@ -1821,10 +1639,21 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canTriage });
   const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list, enabled: canTriage });
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list, enabled: canTriage });
-  const { data: rec } = useQuery({ queryKey: ["intake-rec", id], queryFn: () => intakeApi.recommendation(id), enabled: canTriage });
   const { data: legs } = useQuery({ queryKey: ["intake-sla", id], queryFn: () => intakeApi.slaLegs(id) });
   const { data: ticketDocs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
-  const { data: flowRun } = useQuery({ queryKey: ["flow-run", id], queryFn: () => flowsApi.runForRequest(id) });
+  const { data: flowRun } = useQuery({
+    queryKey: ["flow-run", id],
+    queryFn: () => flowsApi.runForRequest(id),
+    // Poll while something is actively working so the ladder animates live — a
+    // mid-beat step (running) or a subsystem in progress (waiting_job). Idle
+    // runs (waiting on a human / complete) don't poll.
+    refetchInterval: (q) => {
+      const run = q.state.data as FlowRun | null | undefined;
+      if (!run) return false;
+      const working = (run.steps ?? []).some((s) => s.status === "running" || s.status === "waiting_job");
+      return run.status === "running" || working ? 1500 : false;
+    },
+  });
   const hasRun = !!flowRun && ["running", "waiting", "complete"].includes(flowRun.status);
   const hasAttachment = (ticketDocs ?? []).some((d) => d.extracted_chars > 0);
   const [busy, setBusy] = useState(false);
@@ -1832,8 +1661,6 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const [snoozeUntil, setSnoozeUntil] = useState("");
   const [promoteKind, setPromoteKind] = useState<"project" | "contract">("project");
   const [promoteTarget, setPromoteTarget] = useState("");
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
   const [showLegs, setShowLegs] = useState(false);
   const [tab, setTab] = useState("overview");
   const promoteOptions =
@@ -1845,7 +1672,6 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
     ["intake-list", "intake-mywork", "intake-mine"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     qc.invalidateQueries({ queryKey: ["intake-req", id] });
     qc.invalidateQueries({ queryKey: ["intake-handoffs", id] });
-    qc.invalidateQueries({ queryKey: ["intake-rec", id] });
     qc.invalidateQueries({ queryKey: ["intake-sla", id] });
     qc.invalidateQueries({ queryKey: ["flow-run", id] });
   }
@@ -1856,27 +1682,27 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
     finally { setBusy(false); }
   }
 
-  // Cockpit shortcuts: A approve · E edit · R reject, while a rec is pending.
-  useEffect(() => {
-    if (!canTriage || !rec || rec.status !== "pending" || editing || hasRun) return;
-    function onKey(e: KeyboardEvent) {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      const k = e.key.toLowerCase();
-      if (k === "a") { e.preventDefault(); act(() => intakeApi.triage(id, { action: "approved" }), "Approved"); }
-      else if (k === "e") { e.preventDefault(); setDraft(rec!.drafted_response); setEditing(true); }
-      else if (k === "r") { e.preventDefault(); act(() => intakeApi.triage(id, { action: "rejected" }), "Rejected"); }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canTriage, rec, editing, id]);
-
   // Which ladder step the detail box shows — defaults to and follows the current
   // step; a click on any step overrides it. (Hook must precede the early return.)
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   useEffect(() => { setSelectedIdx(null); }, [flowRun?.current_index]);
+
+  // Pump a mid-beat step: a run parked in "running" is an ai_task showing its
+  // "Agent is working…" animation with the agent not yet run. Hold ~1s so the
+  // beat is visible, then resume the executor (refresh) so the agent runs for
+  // real and the flow advances. Guarded to fire once per step; deliberately not
+  // cancelled on unmount, so navigating away mid-beat still completes it.
+  const pumpedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!flowRun || flowRun.status !== "running") return;
+    const key = `${flowRun.id}:${flowRun.current_index}`;
+    if (pumpedRef.current === key) return;
+    pumpedRef.current = key;
+    const runId = flowRun.id;
+    setTimeout(() => {
+      flowsApi.refreshRun(runId).finally(() => qc.invalidateQueries({ queryKey: ["flow-run", id] }));
+    }, 1000);
+  }, [flowRun, id, qc]);
 
   if (isLoading || !r) return <CenterSpinner label="Loading the request…" />;
 
@@ -1900,7 +1726,7 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const youCreated = !!user && r.requester_user_id === user.id;
   // A running governance ladder IS direction — count it as dispatched even if no
   // owner is assigned yet, so the banner doesn't contradict the ladder below it.
-  const dispatched = hasRun || !!r.assigned_to_user_id || r.status !== "awaiting_triage";
+  const dispatched = hasRun || !!r.assigned_to_user_id || r.status !== "open";
   const owner = r.assigned_to_label;
   const flowSteps = flowRun?.steps ?? [];
   const current = flowRun ? flowSteps[flowRun.current_index] : undefined;
@@ -1992,10 +1818,14 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
             <div className="flex items-start overflow-x-auto pb-1">
               {flowSteps.map((s, i) => {
                 const m = stepMeta(s.type);
-                const Icon = m.icon;
                 const done = s.status === "done" || s.status === "complete";
                 const active = s.idx === flowRun.current_index && flowRun.status !== "complete";
-                const waiting = s.status.startsWith("waiting");
+                // Two distinct live states: "working" = a subsystem is actively
+                // running (ai_task mid-beat, approval/signature in flight) → spin;
+                // "needsYou" = the step is parked waiting on the user → attention pulse.
+                const working = s.status === "running" || s.status === "waiting_job";
+                const needsYou = s.status === "waiting_human";
+                const StepIcon = working ? RotateCw : m.icon;
                 const isSel = s.idx === selIdx;
                 return (
                   <Fragment key={s.idx}>
@@ -2003,14 +1833,14 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
                       className={cn("flex min-w-[86px] max-w-[116px] shrink-0 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-center transition hover:bg-slate-50", isSel && "bg-slate-100 ring-1 ring-slate-200")}>
                       <span className={cn("grid h-9 w-9 place-items-center rounded-full ring-2 transition",
                         done ? "bg-success-subtle text-success ring-success/40"
-                          : active ? cn("bg-brand-50 text-brand-700 ring-brand-300", waiting && "animate-pulse")
+                          : active ? cn("bg-brand-50 text-brand-700 ring-brand-300", (working || needsYou) && "animate-pulse")
                             : "bg-slate-100 text-slate-400 ring-slate-200")}>
-                        {done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                        {done ? <Check className="h-4 w-4" /> : <StepIcon className={cn("h-4 w-4", working && "animate-spin")} />}
                       </span>
                       <span className={cn("text-[11px] leading-tight", active ? "font-semibold text-slate-900" : done ? "text-slate-600" : "text-slate-400")}>{s.name}</span>
                       <span className={cn("font-mono text-[8.5px] uppercase tracking-wide",
-                        done ? "text-success" : active ? (waiting ? "text-warning" : "text-brand-600") : "text-slate-400")}>
-                        {done ? "Done" : active ? (waiting ? m.wait : m.running) : m.label}
+                        done ? "text-success" : active ? (needsYou ? "text-warning" : "text-brand-600") : "text-slate-400")}>
+                        {done ? "Done" : active ? (needsYou ? m.wait : m.running) : m.label}
                       </span>
                     </button>
                     {i < flowSteps.length - 1 && <span className={cn("mt-4 h-0.5 min-w-[12px] flex-1 rounded", done ? "bg-success/40" : "bg-slate-200")} />}
@@ -2110,40 +1940,8 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         ) : null}
       </Card>
 
-      {/* ===== AI analysis + triage recommendation ===== */}
+      {/* ===== AI analysis ===== */}
       {r.contract_id && <Card className="p-5">{head("Playbook Deviations · Risk")}<AiAnalysisCard contractId={r.contract_id} /></Card>}
-      {/* The standalone triage recommendation is the disposition path only when NO
-          governance ladder is running — once a flow drives the ticket, the ladder
-          (and its per-step AI output) supersedes it, and triage-approve would wrongly
-          short-circuit a mid-flight ladder. */}
-      {rec && !hasRun && (
-        <Card className="p-5">
-          {head("AI Triage Recommendation", <span className="inline-flex items-center gap-2"><AgentBadge agentId={rec.agent_id} /><ConfidenceBadge conf={rec.confidence} /></span>)}
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{rec.suggested_action === "approve_and_send" ? "Suggested · approve & send" : "Flagged for human review"}</p>
-          {editing ? <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} />
-            : <div className="whitespace-pre-wrap rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">{rec.drafted_response}</div>}
-          <p className="mt-3 mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Reasoning</p>
-          <p className="text-xs text-slate-600">{rec.reasoning}</p>
-          {rec.concerns.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-slate-600">{rec.concerns.map((c, i) => <li key={i}>⚠ {c}</li>)}</ul>}
-          {canTriage && rec.status === "pending" && (
-            <div className="mt-3 flex flex-wrap gap-2">
-              {editing ? (
-                <>
-                  <Button size="sm" loading={busy} onClick={() => act(async () => { await intakeApi.triage(id, { action: "edited_approved", edited_response: draft }); setEditing(false); }, "Approved")}>Save &amp; approve</Button>
-                  <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-                </>
-              ) : (
-                <>
-                  <Button size="sm" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "approved" }), "Approved")}>Approve</Button>
-                  <Button size="sm" variant="outline" onClick={() => { setDraft(rec.drafted_response); setEditing(true); }}>Edit</Button>
-                  <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "rejected" }), "Rejected")}>Reject</Button>
-                  <span className="ml-auto flex items-center gap-2.5 self-center text-[10px] text-slate-400"><span className="inline-flex items-center gap-1"><Kbd k="A" /> approve</span><span className="inline-flex items-center gap-1"><Kbd k="E" /> edit</span><span className="inline-flex items-center gap-1"><Kbd k="R" /> reject</span></span>
-                </>
-              )}
-            </div>
-          )}
-        </Card>
-      )}
 
       {/* ===== counterparty & screening + documents ===== */}
       <Card className="p-5">{head("Counterparty & Screening")}

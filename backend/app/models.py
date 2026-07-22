@@ -47,7 +47,6 @@ from app.grants.models import ResourceGrant
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 from app.authority.models import AuthorityGrant
 from app.intake.models import (
-    IntakeAgentRecommendation,
     IntakeDocument,
     IntakeHandoff,
     IntakeKbArticle,
@@ -80,7 +79,6 @@ __all__ = [
     "AuthorityGrant",
     "EthicalWall",
     "EthicalWallPrincipal",
-    "IntakeAgentRecommendation",
     "IntakeDocument",
     "IntakeHandoff",
     "IntakeKbArticle",

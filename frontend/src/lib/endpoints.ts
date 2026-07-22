@@ -83,7 +83,6 @@ import type {
   IntakeHandoff,
   IntakeAssignee,
   IntakeMyWork,
-  IntakeRecommendation,
   IntakeSlaLegs,
   IntakeSlaOps,
   IntakeTeam,
@@ -91,7 +90,6 @@ import type {
   IntakeKbArticle,
   IntakePoolOps,
   IntakeDocument,
-  IntakeAgentMetrics,
   CopilotTurn,
 } from "./types";
 
@@ -1069,12 +1067,7 @@ export const intakeApi = {
   overrideGate: (id: string, body: { gate_key: string; action: "add" | "remove"; reason?: string }) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
 
-  // recommendation / verdicts / promote
-  recommendation: (id: string) =>
-    apiFetch<IntakeRecommendation | null>(`/intake/requests/${id}/recommendation`),
-  bulkTriage: (ids: string[], action: string) =>
-    apiFetch<{ results: { id: string; ok: boolean; error?: string }[] }>(
-      "/intake/requests/bulk-triage", { method: "POST", body: { ids, action } }),
+  // promote
   promote: (id: string, target: "project" | "contract", targetId: string) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/promote`, {
       method: "POST", body: { target, target_id: targetId } }),
@@ -1120,7 +1113,6 @@ export const intakeApi = {
     apiFetch<IntakeDocument[]>(`/intake/requests/${id}/documents`),
   uploadDocument: (id: string, payload: { filename: string; mime_type: string; content_b64: string }) =>
     apiFetch<IntakeDocument>(`/intake/requests/${id}/documents`, { method: "POST", body: payload }),
-  agentMetrics: () => apiFetch<IntakeAgentMetrics>("/intake/agent-metrics"),
   setParties: (id: string, parties: { name: string; role: string; is_person?: boolean }[]) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/parties`, { method: "PUT", body: { parties } }),
   sanctionsRefresh: () =>

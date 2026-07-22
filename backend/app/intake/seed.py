@@ -272,7 +272,7 @@ def seed_intake(db, org, admin) -> bool:
             request_type_id=(rtype.id if rtype else None), type_label=spec["type_label"],
             description=spec["description"],
             field_values={**spec["fields"], "_seed": spec["ref_key"]},
-            priority=spec["priority"], status="awaiting_triage", stage="new",
+            priority=spec["priority"], status="open", stage="new",
             sla_hours=2 if spec.get("overdue") else 24, submitted_at=submitted,
             handoff_holder="queue",
             stage_timestamps=[{"stage": "new", "at": submitted.isoformat()}],
@@ -282,7 +282,6 @@ def seed_intake(db, org, admin) -> bool:
         db.add(r)
         db.flush()
         routing_mod.apply_routing(db, r)
-        svc.run_triage(db, r, counterparty=spec["fields"].get("counterparty"))
         # Let the Flow Router / Litigation agent suggest a workflow so the seeded
         # inbox demonstrates them. Best-effort — a model hiccup never fails seed.
         try:
