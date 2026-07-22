@@ -1630,6 +1630,81 @@ function LitigationCard({ a }: { a: LitigationAssessment }) {
   );
 }
 
+// Right-rail summary for the ticket: an at-a-glance progress ring (from the
+// governance ladder, falling back to the intake spine), the next step, and the
+// owner. Derived — no new data; it re-presents the flow + assignment state.
+function StatusRailCard({
+  r, flowRun, owner, canReassign,
+}: { r: IntakeRequest; flowRun: FlowRun | null; owner: string | null | undefined; canReassign: boolean }) {
+  const steps = flowRun?.steps ?? [];
+  const total = steps.length || (r.workflow?.length ?? 0);
+  const done = steps.length
+    ? steps.filter((s) => s.status === "done" || s.status === "complete").length
+    : (r.workflow ?? []).filter((w) => w.done).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const stepLabel = flowRun
+    ? `Step ${Math.min(flowRun.current_index + 1, steps.length)} of ${steps.length}`
+    : total ? `${done} of ${total} done` : "Not started";
+  const next = flowRun
+    ? steps.find((s) => s.idx > flowRun.current_index && s.status !== "done" && s.status !== "complete")
+    : undefined;
+
+  // SVG progress ring — sweep the arc on mount (reduced-motion lands at target).
+  const R = 52, C = 2 * Math.PI * R;
+  const [offset, setOffset] = useState(C);
+  useEffect(() => {
+    const target = C * (1 - pct / 100);
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setOffset(target); return;
+    }
+    const t = setTimeout(() => setOffset(target), 60);
+    return () => clearTimeout(t);
+  }, [pct, C]);
+
+  const initials = (owner ?? "").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+  const NextIcon = next ? stepMeta(next.type).icon : null;
+
+  return (
+    <Card className="p-5">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Status</span>
+        {r.handoff_holder && <Badge tone="violet">{titleCase(r.handoff_holder)} holds</Badge>}
+      </div>
+      <div className="relative mx-auto grid h-[132px] w-[132px] place-items-center">
+        <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r={R} fill="none" strokeWidth="11" style={{ stroke: "rgb(var(--color-slate-200))" }} />
+          <circle cx="60" cy="60" r={R} fill="none" strokeWidth="11" strokeLinecap="round"
+            style={{ stroke: "rgb(var(--color-brand-600))", strokeDasharray: C, strokeDashoffset: offset, transition: "stroke-dashoffset 1.2s cubic-bezier(0.2,0.7,0.2,1)" }} />
+        </svg>
+        <div className="text-center">
+          <div className="text-2xl font-bold tabular-nums text-slate-900">{pct}%</div>
+          <div className="mt-0.5 font-mono text-[8.5px] uppercase tracking-[0.08em] text-slate-400">{stepLabel}</div>
+        </div>
+      </div>
+      {next && NextIcon && (
+        <div className="mt-4 border-t border-slate-100 pt-4">
+          <p className="mb-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Next up</p>
+          <div className="flex items-center gap-3">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-700"><NextIcon className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              <div className="truncate text-[13px] font-medium text-slate-900">{next.name}</div>
+              <div className="text-[11px] text-slate-400">{stepMeta(next.type).label}</div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 border-t border-slate-100 pt-4">
+        <p className="mb-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Owner</p>
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-brand-600 text-[12px] font-semibold text-white">{initials || "—"}</span>
+          <div className="min-w-0 flex-1"><div className="truncate text-[13px] font-medium text-slate-900">{owner ?? "Unassigned"}</div></div>
+          {canReassign && <a href="#assignment" className="shrink-0 text-xs font-semibold text-brand-700 hover:underline">Reassign</a>}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: string; onBack: () => void; canTriage: boolean; inPane?: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
@@ -1815,7 +1890,7 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
             <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-slate-200">
               <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${flowSteps.length ? Math.round((doneCount / flowSteps.length) * 100) : 0}%` }} />
             </div>
-            <div className="flex items-start overflow-x-auto pb-1">
+            <div className="flex items-start overflow-x-auto pb-1 pt-5">
               {flowSteps.map((s, i) => {
                 const m = stepMeta(s.type);
                 const done = s.status === "done" || s.status === "complete";
@@ -1830,20 +1905,23 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
                 return (
                   <Fragment key={s.idx}>
                     <button type="button" onClick={() => setSelectedIdx(s.idx)}
-                      className={cn("flex min-w-[86px] max-w-[116px] shrink-0 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-center transition hover:bg-slate-50", isSel && "bg-slate-100 ring-1 ring-slate-200")}>
-                      <span className={cn("grid h-9 w-9 place-items-center rounded-full ring-2 transition",
-                        done ? "bg-success-subtle text-success ring-success/40"
-                          : active ? cn("bg-brand-50 text-brand-700 ring-brand-300", (working || needsYou) && "animate-pulse")
-                            : "bg-slate-100 text-slate-400 ring-slate-200")}>
+                      className={cn("relative flex min-w-[96px] max-w-[132px] shrink-0 flex-col items-center gap-2 rounded-xl px-1 py-1 text-center transition hover:bg-slate-50", isSel && "bg-brand-50")}>
+                      {active && (
+                        <span className="ig-bob absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-brand-600 px-2 py-0.5 font-mono text-[8px] font-semibold uppercase tracking-[0.12em] text-white">Now</span>
+                      )}
+                      <span className={cn("grid h-10 w-10 place-items-center rounded-full border-2 transition",
+                        done ? "border-success bg-success-subtle text-success"
+                          : active ? cn("border-brand-500 bg-brand-50 text-brand-700", (working || needsYou) && "animate-pulse")
+                            : "border-slate-300 bg-slate-100 text-slate-400")}>
                         {done ? <Check className="h-4 w-4" /> : <StepIcon className={cn("h-4 w-4", working && "animate-spin")} />}
                       </span>
-                      <span className={cn("text-[11px] leading-tight", active ? "font-semibold text-slate-900" : done ? "text-slate-600" : "text-slate-400")}>{s.name}</span>
-                      <span className={cn("font-mono text-[8.5px] uppercase tracking-wide",
+                      <span className={cn("text-[11px] font-medium leading-tight", active ? "text-slate-900" : done ? "text-slate-600" : "text-slate-400")}>{s.name}</span>
+                      <span className={cn("font-mono text-[8px] uppercase tracking-wide",
                         done ? "text-success" : active ? (needsYou ? "text-warning" : "text-brand-600") : "text-slate-400")}>
                         {done ? "Done" : active ? (needsYou ? m.wait : m.running) : m.label}
                       </span>
                     </button>
-                    {i < flowSteps.length - 1 && <span className={cn("mt-4 h-0.5 min-w-[12px] flex-1 rounded", done ? "bg-success/40" : "bg-slate-200")} />}
+                    {i < flowSteps.length - 1 && <span className={cn("mt-5 h-0.5 min-w-[14px] flex-1 rounded", done ? "bg-success" : "ig-conn-ahead")} />}
                   </Fragment>
                 );
               })}
@@ -1895,7 +1973,10 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         )}
       </Card>
 
-      {la && <LitigationCard a={la} />}
+      {/* ===== detail grid: substance (left) · status & actions (right) ===== */}
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+        <div className="grid gap-3">
+          {la && <LitigationCard a={la} />}
 
       {/* ===== request brief ===== */}
       <Card className="p-5">
@@ -1948,10 +2029,14 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         <div className="space-y-4"><PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} /><ScreeningPanel r={r} canTriage={canTriage} onRefreshed={refresh} /></div>
       </Card>
       <Card className="p-5">{head("Documents")}<DocumentsPanel requestId={r.id} /></Card>
+        </div>
+
+        <div className="grid gap-3">
+          <StatusRailCard r={r} flowRun={flowRun ?? null} owner={owner} canReassign={!!(canTriage && open)} />
 
       {/* ===== assignment & dispatch ===== */}
       {canTriage && open && (
-        <Card className="p-5">
+        <Card id="assignment" className="p-5">
           {head("Assignment · Direction & Ownership", owner ? <>Owned by <span className="text-slate-600">{owner}</span></> : "Unassigned")}
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex items-end gap-2">
@@ -2017,6 +2102,8 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
           </ol>
         )}
       </Card>
+        </div>
+      </div>
     </div>
   );
 }

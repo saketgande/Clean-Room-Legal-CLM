@@ -148,6 +148,31 @@ body {
   border-radius: 9999px;
 }
 
+/* Intake · governance-ladder ticket detail (full-scroll layout).
+   Path already travelled = solid (Tailwind bg-success); path ahead = dashed. */
+.ig-conn-ahead {
+  background: repeating-linear-gradient(
+    90deg,
+    rgb(var(--color-slate-300)) 0 5px,
+    transparent 5px 10px
+  );
+}
+/* The floating "Now" marker above the active ladder step. Its keyframe carries
+   the -50% centering so the transform doesn't fight Tailwind; reduced-motion is
+   handled by the global rule below (freezes centered). */
+@keyframes ig-bob {
+  0%,
+  100% {
+    transform: translateX(-50%);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-2px);
+  }
+}
+.ig-bob {
+  animation: ig-bob 2.4s ease-in-out infinite;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
