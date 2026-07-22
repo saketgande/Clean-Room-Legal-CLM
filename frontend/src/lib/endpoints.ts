@@ -1110,6 +1110,11 @@ export const intakeApi = {
   myWork: () => apiFetch<IntakeMyWork>("/intake/my-work"),
   assignees: () => apiFetch<IntakeAssignee[]>("/intake/assignees"),
 
+  // channel sync
+  gmailSync: () =>
+    apiFetch<{ status: string; fetched?: number; filed?: unknown[]; skipped?: unknown[]; note?: string }>(
+      "/intake/gmail-sync", { method: "POST" }),
+
   // recommendation / verdicts / promote
   recommendation: (id: string) =>
     apiFetch<IntakeRecommendation | null>(`/intake/requests/${id}/recommendation`),
