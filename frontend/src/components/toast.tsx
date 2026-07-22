@@ -66,8 +66,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   };
 
   const icons = {
-    success: <CheckCircle2 className="h-4 w-4 text-emerald-600" aria-hidden="true" />,
-    error: <AlertCircle className="h-4 w-4 text-red-600" aria-hidden="true" />,
+    success: <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />,
+    error: <AlertCircle className="h-4 w-4 text-danger" aria-hidden="true" />,
     info: <Info className="h-4 w-4 text-brand-600" aria-hidden="true" />,
   };
 
@@ -90,20 +90,20 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             onFocus={() => pause(t.id)}
             onBlur={() => resume(t.id)}
             className={cn(
-              "flex w-80 animate-fade-in items-start gap-3 rounded-lg border bg-slate-100 px-4 py-3 shadow-pop",
+              "flex w-80 animate-fade-in items-start gap-3 rounded-md border bg-slate-100 px-4 py-3 shadow-pop",
               t.kind === "error"
-                ? "border-red-200"
+                ? "border-danger/30"
                 : t.kind === "success"
-                  ? "border-emerald-200"
+                  ? "border-success/30"
                   : "border-slate-200",
             )}
           >
             <div className="mt-0.5">{icons[t.kind]}</div>
-            <p className="flex-1 text-sm text-slate-700">{t.message}</p>
+            <p className="flex-1 text-[13px] text-slate-700">{t.message}</p>
             <button
               onClick={() => remove(t.id)}
               aria-label="Dismiss notification"
-              className="-m-2 rounded p-2 text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+              className="-m-2 rounded p-2 text-slate-500 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-200"
             >
               <X className="h-3.5 w-3.5" aria-hidden="true" />
             </button>

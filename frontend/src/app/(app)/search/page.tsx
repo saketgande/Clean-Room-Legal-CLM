@@ -36,7 +36,7 @@ export default function SearchPage() {
   const [tab, setTab] = useState<TabId>("contracts");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Search"
         description="Look up contracts and projects by name, metadata and dates."

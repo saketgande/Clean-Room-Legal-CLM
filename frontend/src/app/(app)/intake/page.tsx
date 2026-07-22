@@ -1,54 +1,107 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { DoorOpen, FileText, MessageSquare, Plus, Search, Trash2, Users } from "lucide-react";
+import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, Search, ShieldCheck, Trash2, Users } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
   ErrorState, Field, Input, Modal, Select, StatCard, Table, TD, TH, THead,
   TR, Textarea,
 } from "@/components/ui";
-import { intakeApi, projectsApi, contractsApi, approvalsApi, aiApi, playbooksApi } from "@/lib/endpoints";
+import { intakeApi, projectsApi, contractsApi, approvalsApi, aiApi, playbooksApi, flowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
+import { Markdown } from "@/components/markdown";
 import { cn, titleCase } from "@/lib/utils";
 import {
-  can, humanizeEvent, POSTURE_LABEL, POSTURE_TONE, PRIORITY_TONE, slaBarColor,
+  can, POSTURE_LABEL, POSTURE_TONE, PRIORITY_TONE, slaBarColor,
   sortBySla, STATUS_LABEL, STATUS_TONE,
 } from "@/lib/intake";
 import type {
-  ContractResponse, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus,
+  ContractResponse, FlowRunStep, FlowSuggestion, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
 } from "@/lib/types";
-import { KanbanTab, SlaDashboardTab, SlaLegsBar, TeamsTab } from "./_phase1";
+import { SlaDashboardTab, SlaLegsBar, TeamsTab } from "./_phase1";
 import { AiOpsTab, CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
+import { RulesTab } from "../approvals/_rules-builder";
+import { WorkflowPanel } from "./_workflow-panel";
+
+// Keep the queue live: React Query re-fetches on this cadence (paused while the
+// tab is backgrounded), so SLA postures advance and triage/escalation changes
+// surface without a manual reload. The backend recomputes SLA from `now` on
+// every serialize, so each poll reflects real elapsed time.
+const LIVE_POLL = { refetchInterval: 15_000 } as const;
+
+// A shared wall-clock that re-renders its consumers every `ms`. Used to make
+// the SLA columns tick in real time instead of freezing between polls.
+function useNow(ms = 1000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(id);
+  }, [ms]);
+  return now;
+}
+
+// Elapsed with a live seconds field, so the SLA clock visibly runs.
+// ponytail: derives from submitted_at, so it ignores paused time between polls;
+// each 15s refetch re-syncs to the backend's pause-accurate posture.
+function fmtDurLive(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}h ${pad(m)}m ${pad(sec)}s` : `${m}m ${pad(sec)}s`;
+}
+
+// A truthful "it's live" cue: a pulsing dot + how long ago the queue last
+// refreshed, ticking every second. Owns its own tick so only this badge
+// re-renders, not the whole page.
+function LivePulse({ updatedAt }: { updatedAt: number }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const secs = updatedAt ? Math.max(0, Math.round((Date.now() - updatedAt) / 1000)) : 0;
+  const ago = secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m`;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-success"
+      title="The queue refreshes automatically"
+    >
+      <span className="relative flex h-1.5 w-1.5">
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-success" />
+      </span>
+      Live · updated {ago} ago
+    </span>
+  );
+}
 
 export default function IntakePage() {
   const { user } = useAuth();
   const isStaff = can(user, "intake:triage");
   const isAdmin = can(user, "admin_panel:access");
 
-  // Reference-style tab set — Work · File · Insights, divider-grouped. The Wall
-  // (absorbed Command) leads. Inbox/Cockpit/Kanban and SLA are first-class tabs
-  // (not nested view-toggles) so every lens is one click away, matching the
-  // reference app. Requesters get just the filing three.
+  // Reference-style tab set — Work · File · Insights, divider-grouped. Inbox and
+  // SLA are first-class tabs (not nested view-toggles) so every lens is one
+  // click away. Requesters get just the filing three.
   const groups = useMemo<{ id: string; label: string }[][]>(() => {
     if (!isStaff)
       return [[
         { id: "new", label: "New Request" },
         { id: "mywork", label: "My Work" },
-        { id: "self", label: "Self-Service" },
       ]];
     return [
       [
         { id: "queue", label: "Inbox" },
-        { id: "kanban", label: "Kanban" },
         { id: "mywork", label: "My Work" },
       ],
       [
         { id: "new", label: "New Request" },
-        { id: "self", label: "Self-Service" },
       ],
       [
+        { id: "workflows", label: "Workflows" },
         { id: "sla", label: "SLA" },
         { id: "agents", label: "Agents" },
         { id: "ops", label: "Operations" },
@@ -59,11 +112,11 @@ export default function IntakePage() {
   const [section, setSection] = useState(isStaff ? "queue" : "new");
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const { data: listData } = useQuery({
-    queryKey: ["intake-list"], queryFn: () => intakeApi.list(), enabled: isStaff,
+  const { data: listData, dataUpdatedAt } = useQuery({
+    queryKey: ["intake-list"], queryFn: () => intakeApi.list(), enabled: isStaff, ...LIVE_POLL,
   });
   const { data: myWork } = useQuery({
-    queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, enabled: isStaff,
+    queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, enabled: isStaff, ...LIVE_POLL,
   });
   const awaiting = (listData ?? []).filter((r) => r.status === "awaiting_triage").length;
 
@@ -75,30 +128,20 @@ export default function IntakePage() {
   const counts: Record<string, number> = { queue: openCount, mywork: onMe };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+    <div className="space-y-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600">
-            Operations · Legal · Intake
-          </p>
-          <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
-            Mission control for every legal request —{" "}
-            <span className="font-normal italic text-brand-600" style={{ fontFamily: 'Georgia, "Times New Roman", serif' }}>
-              triaged, drafted, resolved
-            </span>
-          </h1>
+          <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">Operations · Legal</p>
+          <h1 className="mt-1 text-[22px] font-semibold leading-tight tracking-[-0.02em] text-slate-900">Legal Intake</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500">Triage, draft, and resolve every legal request from one queue.</p>
         </div>
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2">
+        <div className="flex flex-shrink-0 flex-wrap items-center gap-2.5">
           {isStaff && awaiting > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-inset ring-amber-200">
+            <span className="inline-flex items-center gap-1 rounded-md bg-warning-subtle px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-warning">
               ◆ {awaiting} awaiting triage
             </span>
           )}
-          {isStaff && (
-            <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide text-emerald-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />AI triage · live
-            </span>
-          )}
+          {isStaff && <LivePulse updatedAt={dataUpdatedAt} />}
           <Button onClick={() => { setSection("new"); setDetailId(null); }}><Plus className="h-4 w-4" />New request</Button>
         </div>
       </div>
@@ -114,7 +157,7 @@ export default function IntakePage() {
                 onClick={() => { setSection(t.id); setDetailId(null); }}
                 aria-current={section === t.id ? "page" : undefined}
                 className={cn(
-                  "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 font-mono text-[11px] font-medium uppercase tracking-[0.09em] transition-colors",
+                  "-mb-px inline-flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors",
                   section === t.id
                     ? "border-brand-600 text-slate-900"
                     : "border-transparent text-slate-500 hover:text-slate-900",
@@ -139,12 +182,11 @@ export default function IntakePage() {
         <RequestDetailView id={detailId} canTriage={isStaff} onBack={() => setDetailId(null)} />
       ) : (
         <>
-          {section === "queue" && <InboxTab onOpen={setDetailId} />}
-          {section === "kanban" && <KanbanTab onOpen={setDetailId} />}
+          {section === "queue" && <InboxCockpit onOpen={setDetailId} />}
           {section === "mywork" && <MyWorkView isStaff={isStaff} onOpen={setDetailId} />}
           {section === "new" && <NewRequestTab onFiled={setDetailId} />}
-          {section === "self" && <SelfServiceTab onFileTopic={() => setSection("new")} />}
           {section === "sla" && isStaff && <SlaDashboardTab isAdmin={isAdmin} />}
+          {section === "workflows" && isStaff && <WorkflowsBuilderTab />}
           {section === "agents" && isStaff && <AiOpsTab />}
           {section === "ops" && isStaff && <OperationsView isAdmin={isAdmin} />}
         </>
@@ -169,23 +211,25 @@ function fmtElapsedHours(h: number): string {
 }
 
 function SlaCell({ r }: { r: IntakeRequest }) {
+  const now = useNow(1000);
   if (r.status === "closed" || r.status === "approved")
     return <span className="text-xs text-slate-400">—</span>;
   const posture = r.sla_status as IntakeSlaPosture;
   const submitted = r.submitted_at ? new Date(r.submitted_at).getTime() : null;
-  const elapsedH = submitted != null ? (Date.now() - submitted) / 3_600_000 : null;
+  const elapsedMs = submitted != null ? now - submitted : null;
+  const livePct = elapsedMs != null ? Math.min(100, (elapsedMs / (r.sla_hours * 3_600_000)) * 100) : r.sla_pct;
   return (
     <div className="flex flex-col gap-1">
-      {elapsedH != null && (
+      {elapsedMs != null && (
         <span className="text-xs tabular-nums text-slate-600">
-          {fmtElapsedHours(elapsedH)} <span className="text-slate-400">of {r.sla_hours}h</span>
+          {fmtDurLive(elapsedMs)} <span className="text-slate-400">of {r.sla_hours}h</span>
         </span>
       )}
       <div className="flex items-center gap-2">
         <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200">
           <div
-            className="h-full rounded-full"
-            style={{ width: `${Math.min(100, r.sla_pct)}%`, background: slaBarColor(posture) }}
+            className="h-full rounded-full transition-[width] duration-1000 ease-linear"
+            style={{ width: `${livePct}%`, background: slaBarColor(posture) }}
           />
         </div>
         <Badge tone={POSTURE_TONE[posture] as never}>{POSTURE_LABEL[posture]}</Badge>
@@ -199,8 +243,8 @@ function RequestRow({ r, onOpen, showStatus = true, selectable = false, checked 
     <TR
       className={cn(
         "cursor-pointer transition-colors hover:bg-slate-100/70",
-        showRequester && r.sla_status === "overdue" && "bg-red-50/50",
-        showRequester && r.sla_status === "at_risk" && "bg-amber-50/40",
+        showRequester && r.sla_status === "overdue" && "bg-danger-subtle",
+        showRequester && r.sla_status === "at_risk" && "bg-warning-subtle",
       )}
       onClick={() => onOpen(r.id)}
     >
@@ -212,7 +256,15 @@ function RequestRow({ r, onOpen, showStatus = true, selectable = false, checked 
             onChange={() => onToggle?.(r.id)} />
         </TD>
       )}
-      <TD><span className="font-mono text-xs text-slate-500">{r.ref}</span></TD>
+      <TD>
+        <span className="inline-flex items-center gap-2">
+          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full",
+            r.sla_status === "overdue" ? "bg-danger"
+              : r.sla_status === "at_risk" ? "bg-warning" : "bg-success")}
+            title={`SLA ${r.sla_status}`} />
+          <span className="font-mono text-xs text-slate-500">{r.ref}</span>
+        </span>
+      </TD>
       {showRequester && (
         <TD className="whitespace-nowrap">
           <div className="font-medium text-slate-900">{r.requester_name ?? "—"}</div>
@@ -235,149 +287,210 @@ function RequestRow({ r, onOpen, showStatus = true, selectable = false, checked 
 
 // ---- New Request ----------------------------------------------------------
 
-// Two-card chooser — the reference app's "how would you like to file this?"
-// router: a fast structured form vs. talking it through with the copilot.
-function PathRouter({ onPick }: { onPick: (m: "form" | "chat") => void }) {
-  const cardCls =
-    "group rounded-xl border border-slate-200 bg-slate-100/40 p-5 text-left transition-colors hover:border-brand-300 hover:bg-brand-50";
+
+// One landing for filing + self-serve: a segmented switch between the
+// structured form (reference "route to agent" styling), the copilot chat, and
+// the self-service KB. Self-Service is no longer its own tab — it lives here so
+// a requester tries to deflect before filing.
+const DEPARTMENTS = ["Product", "Engineering", "Sales", "HR", "Finance", "Procurement", "Marketing", "Operations", "Legal", "Executive"];
+const URGENCIES = ["Standard", "Priority", "Urgent — deadline this week", "Emergency — deal blocker"];
+// Built-in categories that don't map to a configured type — they file as a
+// general request (the configured types render first, with dynamic fields).
+const BUILTIN_EXTRAS = ["IP Question", "Vendor Due Diligence", "Contract Question", "Legal Question — General", "Other"];
+
+function urgencyToPriority(u: string): string {
+  if (u.startsWith("Emergency")) return "Critical";
+  if (u.startsWith("Urgent") || u === "Priority") return "High";
+  return "Medium";
+}
+
+function fileToB64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); const i = s.indexOf(","); resolve(i >= 0 ? s.slice(i + 1) : s); };
+    r.onerror = () => reject(new Error("Could not read file"));
+    r.readAsDataURL(file);
+  });
+}
+
+function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
+  const { data: types } = useQuery({ queryKey: ["intake-types"], queryFn: () => intakeApi.listTypes() });
+  const [mode, setMode] = useState<"form" | "chat" | "self">("form");
+  const [seedDesc, setSeedDesc] = useState("");
+
+  const MODES: { id: "form" | "chat" | "self"; label: string; hint: string }[] = [
+    { id: "form", label: "Structured form", hint: "Fast · route to agent" },
+    { id: "chat", label: "Copilot chat", hint: "Describe it in a conversation" },
+    { id: "self", label: "Self-service", hint: "Resolve it without a ticket" },
+  ];
+
   return (
-    <div className="max-w-3xl space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">How would you like to file this?</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Pick the fast structured form when you know what you need, or talk it through with the
-          copilot for a complex or ambiguous matter.
-        </p>
+    <div className="space-y-5">
+      {/* segmented switch — merges New Request + Self-Service on one page */}
+      <div className="mx-auto grid max-w-3xl grid-cols-3 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5">
+        {MODES.map((m) => {
+          const active = mode === m.id;
+          return (
+            <button key={m.id} onClick={() => setMode(m.id)}
+              className={cn("rounded-lg px-3 py-2 text-center transition-colors",
+                active ? "bg-brand-50 shadow-sm ring-1 ring-brand-200" : "hover:bg-slate-200/60")}>
+              <div className={cn("text-[13px] font-semibold", active ? "text-brand-700" : "text-slate-600")}>{m.label}</div>
+              <div className="mt-0.5 text-[10.5px] text-slate-400">{m.hint}</div>
+            </button>
+          );
+        })}
       </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <button onClick={() => onPick("form")} className={cardCls}>
-          <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-brand-600" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-400">Fast path · structured form</span>
-          </div>
-          <h3 className="mt-2 text-base font-semibold text-slate-900">When you know exactly what you need</h3>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            NDA, contract review, privacy / DPA, IP, vendor due-diligence — a quick form the
-            reviewer can triage instantly.
-          </p>
-          <span className="mt-3 inline-block text-xs font-semibold text-brand-600 group-hover:underline">Open the form →</span>
-        </button>
-        <button onClick={() => onPick("chat")} className={cardCls}>
-          <div className="flex items-center gap-2">
-            <MessageSquare className="h-5 w-5 text-brand-600" />
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-400">Smart path · guided chat</span>
-          </div>
-          <h3 className="mt-2 text-base font-semibold text-slate-900">When you&rsquo;re not sure what you need</h3>
-          <p className="mt-1 text-xs leading-relaxed text-slate-500">
-            Employment, litigation, a novel question — talk it through and the copilot files it to
-            the right place.
-          </p>
-          <span className="mt-3 inline-block text-xs font-semibold text-brand-600 group-hover:underline">Start a conversation →</span>
-        </button>
-      </div>
-      <p className="text-xs text-slate-400">Either path works — you can switch anytime.</p>
+
+      {mode === "form" && <div className="mx-auto max-w-3xl"><RequestForm types={types ?? []} onFiled={onFiled} initialDesc={seedDesc} /></div>}
+      {mode === "chat" && <div className="mx-auto max-w-3xl"><CopilotChat onFiled={onFiled} /></div>}
+      {mode === "self" && <SelfServiceTab onFileTopic={(t) => { setSeedDesc(`Re: ${t}\n\n`); setMode("form"); }} />}
     </div>
   );
 }
 
-function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
+function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType[]; onFiled: (id: string) => void; initialDesc: string }) {
   const qc = useQueryClient();
   const { notify } = useToast();
-  const { data: types } = useQuery({ queryKey: ["intake-types"], queryFn: () => intakeApi.listTypes() });
-  const [typeId, setTypeId] = useState("");
-  const [priority, setPriority] = useState("Medium");
-  const [department, setDepartment] = useState("");
-  const [description, setDescription] = useState("");
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.full_name ?? "");
+  const [department, setDepartment] = useState("Product");
+  const [urgency, setUrgency] = useState("Standard");
+  const [typeSel, setTypeSel] = useState<string>("");
   const [values, setValues] = useState<Record<string, string>>({});
+  const [description, setDescription] = useState(initialDesc);
+  const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const type = (types ?? []).find((t) => t.id === typeId);
-  const preview = derivePreview(description, type);
-  // Reference-style path chooser: pick fast-form vs guided-chat before filing.
-  const [chosen, setChosen] = useState<null | "form" | "chat">(null);
+  // A configured request-type from the DB carries dynamic fields + a stage
+  // ladder; the built-in extras carry only their label and file as general.
+  const gridItems = [
+    ...types.map((t) => ({ key: t.id, label: t.name, type: t as IntakeRequestType | null })),
+    ...BUILTIN_EXTRAS.map((label) => ({ key: label, label, type: null as IntakeRequestType | null })),
+  ];
+  const selected = gridItems.find((g) => g.key === typeSel) ?? null;
+  const selType = selected?.type ?? null;
 
-  // Client-side gate on required dynamic fields so we never fire a submit the
-  // server will 422 with no useful feedback.
-  const missingRequired = (type?.fields ?? []).filter(
-    (f) => f.required && !String(values[f.key] ?? "").trim(),
-  );
-  const canSubmit = !!description.trim() && missingRequired.length === 0;
+  const missingRequired = (selType?.fields ?? []).filter((f) => f.required && !String(values[f.key] ?? "").trim());
+  const preview = derivePreview(description, selType ?? undefined);
+  const canSubmit = !!name.trim() && (description.trim().length >= 10 || !!file) && missingRequired.length === 0;
 
   async function submit() {
     setBusy(true);
     try {
       const r = await intakeApi.create({
-        type_label: type ? type.name + " Request" : "General request",
-        request_type_id: typeId || null,
-        priority, department: department || null, description,
+        type_label: selType ? selType.name + " Request" : (selected ? selected.label : "General request"),
+        request_type_id: selType?.id ?? null,
+        priority: urgencyToPriority(urgency),
+        department: department || null,
+        requester_name: name.trim() || null,
+        description,
         field_values: Object.keys(values).length ? values : null,
       });
+      if (file) {
+        const content_b64 = await fileToB64(file);
+        await intakeApi.uploadDocument(r.id, { filename: file.name, mime_type: file.type || "application/octet-stream", content_b64 });
+        await intakeApi.ingestAttachment(r.id);
+      }
       qc.invalidateQueries({ queryKey: ["intake-mine"] });
       qc.invalidateQueries({ queryKey: ["intake-list"] });
       notify(`Filed ${r.ref} — routed for triage`, "success");
       onFiled(r.id);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Submit failed", "error");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
-  if (!chosen) return <PathRouter onPick={setChosen} />;
-
   return (
-    <div className="grid max-w-2xl gap-4">
-      <button onClick={() => setChosen(null)}
-        className="inline-flex w-fit items-center gap-1 font-mono text-[11px] uppercase tracking-[0.09em] text-slate-500 hover:text-slate-900">
-        ← Change path
-      </button>
-      {chosen === "chat" ? <CopilotChat onFiled={onFiled} /> : (
-      <Card>
-        <CardHeader><CardTitle>What do you need?</CardTitle></CardHeader>
-        <CardBody className="space-y-4">
-          <Field label="Request type">
-            <Select value={typeId} onChange={(e) => { setTypeId(e.target.value); setValues({}); }}>
-              <option value="">General question / not sure</option>
-              {(types ?? []).map((t) => (
-                <option key={t.id} value={t.id}>{t.name}{t.workstream ? ` · ${t.workstream}` : ""}</option>
-              ))}
+    <Card>
+      <CardBody className="space-y-5">
+        <Field label="Your name *">
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Smith" />
+        </Field>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Department *">
+            <Select value={department} onChange={(e) => setDepartment(e.target.value)}>
+              {DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}
             </Select>
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Priority">
-              <Select value={priority} onChange={(e) => setPriority(e.target.value)}>
-                {["Low", "Medium", "High", "Critical"].map((p) => <option key={p}>{p}</option>)}
-              </Select>
-            </Field>
-            <Field label="Department">
-              <Input value={department} onChange={(e) => setDepartment(e.target.value)} placeholder="e.g. Sales — EMEA" />
-            </Field>
-          </div>
-          {(type?.fields ?? []).map((f) => (
-            <DynamicField key={f.key} f={f} value={values[f.key] ?? ""}
-              onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
-          ))}
-          <Field label="Describe the request" hint="The reviewer reads this to triage — be specific.">
-            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4}
-              placeholder="What do you need, with whom, by when?" />
+          <Field label="Urgency">
+            <Select value={urgency} onChange={(e) => setUrgency(e.target.value)}>
+              {URGENCIES.map((u) => <option key={u}>{u}</option>)}
+            </Select>
           </Field>
-          {preview && (
-            <div className="rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-700">
-              Likely routing: <strong>{preview}</strong>
+        </div>
+
+        <Field label="Request type *">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {gridItems.map((g) => {
+              const active = typeSel === g.key;
+              return (
+                <button key={g.key} type="button"
+                  onClick={() => { setTypeSel(active ? "" : g.key); setValues({}); }}
+                  className={cn("rounded-lg border px-3 py-2.5 text-center text-[12px] font-medium transition-colors",
+                    active ? "border-brand-400 bg-brand-50 text-brand-700 ring-1 ring-brand-200"
+                      : "border-slate-200 bg-slate-100 text-slate-600 hover:border-slate-300 hover:bg-slate-200/50")}>
+                  {g.type && <span className="mr-1 text-brand-500">▣</span>}{g.label}
+                </button>
+              );
+            })}
+          </div>
+          {selType && (selType.stages?.length ?? 0) > 0 && (
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[9.5px] uppercase tracking-[0.08em] text-slate-400">Workflow</span>
+              {(selType.stages ?? []).map((s, i) => (
+                <span key={i} className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[10px] text-slate-500">{i + 1}. {titleCase(s)}</span>
+              ))}
             </div>
           )}
-          <div className="flex items-center justify-end gap-3">
-            {missingRequired.length > 0 && (
-              <span className="text-xs text-amber-600">
-                Required: {missingRequired.map((f) => f.label).join(", ")}
-              </span>
-            )}
-            <Button onClick={submit} loading={busy} disabled={!canSubmit}>Submit request</Button>
+        </Field>
+
+        {(selType?.fields ?? []).map((f) => (
+          <DynamicField key={f.key} f={f} value={values[f.key] ?? ""}
+            onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
+        ))}
+
+        <Field label="Describe your request *" hint="Be specific — regex + Claude triage and agent routing use this.">
+          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5}
+            placeholder="E.g. Mutual NDA for discussions with Acme Corp — 2-year term, Delaware law." />
+        </Field>
+
+        <Field label="Attach a document" hint="Word (.docx), text (.txt), or PDF — e.g. an NDA / MSA to review. The agent reads the extracted text. (Scanned / image-only PDFs can't be read — paste the text instead.)">
+          <div className="flex items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-100 px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700 hover:border-brand-400">
+              <Paperclip className="h-3.5 w-3.5" /> Choose file
+              <input type="file" accept=".docx,.txt,.text,.md,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="hidden" />
+            </label>
+            <span className="text-[11px] text-slate-400">Max 3 MB</span>
           </div>
-        </CardBody>
-      </Card>
-      )}
-    </div>
+          {file && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border-l-2 border-l-success bg-success-subtle/40 px-3 py-2 text-[12px]">
+              <span className="truncate text-slate-700">📄 {file.name} <span className="text-slate-400">· {(file.size / 1024).toFixed(0)} KB</span></span>
+              <button type="button" onClick={() => setFile(null)} className="shrink-0 text-slate-400 hover:text-danger">✕</button>
+            </div>
+          )}
+        </Field>
+
+        {preview && (
+          <div className="rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-700">
+            Likely routing: <strong>{preview}</strong>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Button onClick={submit} loading={busy} disabled={!canSubmit}>→ Submit · Route to agent</Button>
+          {missingRequired.length > 0 && (
+            <span className="text-xs text-warning">Required: {missingRequired.map((f) => f.label).join(", ")}</span>
+          )}
+        </div>
+
+        <div className="rounded-md border-l-2 border-l-brand-600 bg-slate-100/50 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-500">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-600">Flow</span>
+          <p className="mt-0.5">On submit: triage runs → ticket saved → the agent router picks the best fit → a recommendation is generated → the ticket lands in the queue for attorney review. <span className="text-warning">Agents never auto-close.</span></p>
+        </div>
+      </CardBody>
+    </Card>
   );
 }
 
@@ -449,7 +562,7 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
   const { notify } = useToast();
   const { user } = useAuth();
   const canTriage = can(user, "intake:triage");
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list() });
+  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), ...LIVE_POLL });
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -497,6 +610,17 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
 
   return (
     <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">
+          <span className="text-brand-600">◎</span> Intake queue
+          <span className="ml-2 inline-flex items-center gap-1 text-success">
+            <span className="h-1.5 w-1.5 rounded-full bg-success" />live
+          </span>
+        </p>
+        <span className="text-[10px] font-medium uppercase tracking-[0.06em] tabular-nums text-slate-400">
+          {total} open · {overdue} breached
+        </span>
+      </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Today's requests" value={String(total)} tone="blue" />
         <StatCard label="Auto-resolved"
@@ -513,12 +637,12 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
             const active = filter === f.id;
             return (
               <button key={f.id} onClick={() => setFilter(f.id)}
-                className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors",
-                  active ? "border-brand-600 bg-brand-600 text-white"
-                    : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200")}>
+                className={cn("inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] transition-colors",
+                  active ? "border-brand-600 bg-brand-50 text-brand-700"
+                    : "border-slate-200 bg-slate-100/50 text-slate-500 hover:border-slate-300 hover:text-slate-700")}>
                 {f.label}
-                <span className={cn("rounded-full px-1.5 text-[10px] tabular-nums",
-                  active ? "bg-white/25 text-white" : "bg-slate-200 text-slate-500")}>{n}</span>
+                <span className={cn("rounded px-1 text-[10px] tabular-nums",
+                  active ? "bg-brand-100 text-brand-700" : "bg-slate-200 text-slate-500")}>{n}</span>
               </button>
             );
           })}
@@ -530,7 +654,7 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
         </div>
       </div>
       {canTriage && selectedShown.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-sm">
           <span className="font-medium text-brand-700">{selectedShown.length} selected</span>
           <Button size="sm" loading={busy} onClick={() => bulk("approved")}>Approve</Button>
           <Button size="sm" variant="outline" loading={busy} onClick={() => bulk("manual_close")}>Close</Button>
@@ -543,7 +667,7 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
             {(FILTERS.find((f) => f.id === filter) ?? FILTERS[0]).label}
             <span className="ml-1.5 tabular-nums text-slate-400">{shown.length}{shown.length !== total ? ` of ${total}` : ""}</span>
           </p>
-          <span className="hidden font-mono text-[10px] uppercase tracking-wide text-slate-400 sm:inline">
+          <span className="hidden text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400 sm:inline">
             Status and SLA are independent signals
           </span>
         </div>
@@ -568,10 +692,159 @@ function InboxTab({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
+// ---- Operations Cockpit (Inbox landing) -----------------------------------
+const INBOX_PAGE = 60;
+
+// Inbox — the reference "Legal Mission Control" list: a KPI strip, filter chips,
+// and ONE dense full-width table (ID · Requester · Type · Description · Priority
+// · SLA · Status · Assignee). Click a row → the dispatch-desk detail. No side
+// cards, no rail — the queue is the page, so a filed ticket is easy to find.
+function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
+  const { user } = useAuth();
+  const now = useNow(1000); // tick the SLA clocks every second
+  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), ...LIVE_POLL });
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(INBOX_PAGE);
+  useEffect(() => setVisibleCount(INBOX_PAGE), [filter, search]);
+
+  const rows = useMemo(() => data ?? [], [data]);
+  const open = rows.filter((r) => r.status !== "closed" && r.status !== "approved");
+  const kpi = {
+    triage: rows.filter((r) => r.status === "awaiting_triage").length,
+    unassigned: rows.filter((r) => r.status !== "closed" && !r.assigned_to_user_id).length,
+    inFlight: rows.filter((r) => r.status === "in_review" || r.status === "escalated").length,
+    breached: rows.filter((r) => r.sla_status === "overdue" && r.status !== "closed").length,
+    atRisk: rows.filter((r) => r.sla_status === "at_risk" && r.status !== "closed").length,
+    deflected: rows.length ? Math.round((rows.filter((r) => r.status === "approved").length / rows.length) * 100) : 0,
+  };
+
+  const FILTERS = buildFilters(user?.id ?? null);
+  const q = search.trim().toLowerCase();
+  const activeMatch = (FILTERS.find((f) => f.id === filter) ?? FILTERS[0]).match;
+  // Three-tier queue order so the list reads top-to-bottom as work moves through
+  // it: (0) new / awaiting triage on top — a just-filed ticket lands where it's
+  // seen; (1) active work in the middle, most SLA pressure first; (2) finished
+  // tickets sink to the bottom, most-recently-closed first.
+  const created = (r: IntakeRequest) => r.created_at ?? r.submitted_at ?? "";
+  const doneAt = (r: IntakeRequest) => r.closed_at ?? created(r);
+  const tier = (r: IntakeRequest) =>
+    r.status === "awaiting_triage" ? 0 : r.status === "approved" || r.status === "closed" ? 2 : 1;
+  const shown = [...rows.filter(activeMatch).filter((r) =>
+    !q || `${r.ref} ${r.requester_name ?? ""} ${r.type_label} ${r.description ?? ""}`.toLowerCase().includes(q))]
+    .sort((a, b) => {
+      const ta = tier(a), tb = tier(b);
+      if (ta !== tb) return ta - tb;
+      if (ta === 0) return created(b).localeCompare(created(a)); // new: newest first
+      if (ta === 2) return doneAt(b).localeCompare(doneAt(a));   // done: most recently closed first
+      return sortBySla(a, b);                                     // active: SLA pressure
+    });
+  const page = shown.slice(0, visibleCount);
+
+  if (isLoading) return <CenterSpinner label="Loading the queue…" />;
+  if (error) return <ErrorState error={error} />;
+
+  return (
+    <div className="space-y-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <StatCard label="Awaiting triage" value={String(kpi.triage)} hint={`${kpi.unassigned} unassigned`} tone="blue" />
+        <StatCard label="In flight" value={String(kpi.inFlight)} hint="in review / escalated" tone="slate" />
+        <StatCard label="SLA breached" value={String(kpi.breached)} hint={`${kpi.atRisk} at risk`} tone="red" />
+        <StatCard label="Deflected" value={`${kpi.deflected}%`} hint="self-service" tone="green" />
+        <StatCard label="Open" value={String(open.length)} hint="total in queue" tone="slate" />
+      </div>
+
+      {/* filter chips + search */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {FILTERS.map((f) => {
+          const n = rows.filter(f.match).length;
+          const active = filter === f.id;
+          return (
+            <button key={f.id} onClick={() => setFilter(f.id)}
+              className={cn("inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] transition-colors",
+                active ? "border-brand-200 bg-brand-50 text-brand-700" : "border-slate-200 bg-slate-100 text-slate-500 hover:text-slate-800")}>
+              {f.label}<span className="tabular-nums text-slate-400">{n}</span>
+            </button>
+          );
+        })}
+        <div className="relative ml-auto w-56">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search id / requester / text…" className="h-8 pl-8 text-[13px]" />
+        </div>
+      </div>
+
+      {/* the queue table — the whole page */}
+      <Card className="overflow-hidden">
+        {shown.length === 0 ? (
+          <CardBody><EmptyState title="Nothing here" description={q ? `No requests match “${search.trim()}”.` : "No requests match this filter."} /></CardBody>
+        ) : (
+          <div className="overflow-x-auto"><div className="min-w-[920px]">
+            <Table>
+              <THead><TR>
+                <TH>ID</TH><TH>Requester</TH><TH>Type</TH><TH>Description</TH><TH>Priority</TH><TH>SLA</TH><TH>Status</TH><TH>Assignee</TH>
+              </TR></THead>
+              <tbody>{page.map((r) => {
+                const isNew = r.status === "awaiting_triage";
+                const dotCls = r.sla_status === "overdue" ? "bg-danger" : r.sla_status === "at_risk" ? "bg-warning" : "bg-success";
+                const desc = (r.description ?? "").split("\n")[0].trim() || r.type_label;
+                const tint = r.sla_status === "overdue" ? "bg-danger-subtle/40" : r.sla_status === "at_risk" ? "bg-warning-subtle/40" : isNew ? "bg-brand-50/50" : "";
+                return (
+                  <TR key={r.id} className={cn("cursor-pointer", tint)} onClick={() => onOpen(r.id)}>
+                    <TD className="whitespace-nowrap">
+                      <span className="inline-flex items-center gap-2">
+                        <span className={cn("h-1.5 w-1.5 rounded-full", dotCls)} />
+                        <span className={cn("font-mono text-xs font-semibold", isNew ? "text-brand-700" : "text-slate-500")}>{r.ref}</span>
+                      </span>
+                    </TD>
+                    <TD className="whitespace-nowrap">
+                      <div className="font-medium text-slate-800">{r.requester_name ?? "—"}</div>
+                      <div className="text-[10px] text-slate-400">{r.department ?? ""}</div>
+                    </TD>
+                    <TD className="whitespace-nowrap"><Badge tone="violet">{r.type_label}</Badge></TD>
+                    <TD className="max-w-[13rem] truncate text-slate-600" title={desc}>
+                      {isNew && <span className="mr-2 rounded bg-brand-600 px-1.5 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wide text-white">New</span>}
+                      {desc}
+                    </TD>
+                    <TD><Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge></TD>
+                    <TD className="whitespace-nowrap">{(() => {
+                      const submitted = r.submitted_at ? new Date(r.submitted_at).getTime() : null;
+                      if (r.status === "closed" || r.status === "approved" || submitted == null) return <span className="text-xs text-slate-400">—</span>;
+                      const elapsedMs = now - submitted;
+                      const livePct = Math.min(100, (elapsedMs / (r.sla_hours * 3_600_000)) * 100);
+                      const c = r.sla_status === "overdue" ? "text-danger" : r.sla_status === "at_risk" ? "text-warning" : "text-slate-500";
+                      return (
+                        <div className="flex items-center gap-1.5">
+                          <span className={cn("w-[4.75rem] shrink-0 text-right font-mono text-[10.5px] tabular-nums", c)}>{fmtDurLive(elapsedMs)}</span>
+                          <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-slate-200"><span className="block h-full rounded-full transition-[width] duration-1000 ease-linear" style={{ width: `${livePct}%`, background: slaBarColor(r.sla_status as IntakeSlaPosture) }} /></span>
+                          <span className="text-[9.5px] text-slate-400">of {r.sla_hours}h</span>
+                        </div>
+                      );
+                    })()}</TD>
+                    <TD><StatusPill r={r} /></TD>
+                    <TD className="whitespace-nowrap text-[11px] text-slate-600">{r.assigned_to_label ?? <span className="text-slate-400">Unassigned</span>}</TD>
+                  </TR>
+                );
+              })}</tbody>
+            </Table>
+            {shown.length > visibleCount && (
+              <button onClick={() => setVisibleCount((c) => c + INBOX_PAGE)}
+                className="w-full border-t border-slate-100 py-3 text-center font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-brand-700 hover:bg-slate-50">
+                ▾ Show more · {shown.length - visibleCount} remaining
+              </button>
+            )}
+          </div></div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+
 // ---- My Work (staff) ------------------------------------------------------
 
 function MyWorkTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-mywork"], queryFn: intakeApi.myWork });
+  const { data, isLoading, error } = useQuery({ queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, ...LIVE_POLL });
   if (isLoading) return <CenterSpinner label="Loading your work…" />;
   if (error) return <ErrorState error={error} />;
   const mw = data!;
@@ -739,16 +1012,241 @@ function TypeEditorModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
 
 // ---- Request detail (inline, reference-style) -----------------------------
 
+// The five derived Tier-0 gates (mirror backend app/intake/gates.py). Labels are
+// display-only; the server is the source of truth for what a gate forces.
+const GATE_CATALOG = [
+  { key: "exclusivity", label: "Exclusivity / exclusive licence" },
+  { key: "clinical", label: "Clinical-trial agreement" },
+  { key: "sensitive_data", label: "Sensitive personal data" },
+  { key: "regulated_marketing", label: "Regulated / therapeutic claim" },
+  { key: "litigation", label: "Litigation / breach-termination" },
+] as const;
+
+// RAG per rung — dot colour + name emphasis. "planned" = a preview rung (the
+// ladder before it's been started), rendered as a hollow dot.
+const RUNG_UI: Record<string, { dot: string; name: string }> = {
+  approved: { dot: "bg-success", name: "text-slate-500" },
+  pending: { dot: "bg-warning animate-pulse", name: "text-slate-900 font-semibold" },
+  waiting: { dot: "bg-slate-300", name: "text-slate-400" },
+  rejected: { dot: "bg-danger", name: "text-danger line-through" },
+  cancelled: { dot: "bg-slate-300", name: "text-slate-400 line-through" },
+  planned: { dot: "border border-slate-400", name: "text-slate-500" },
+};
+const RUNG_LABEL: Record<string, string> = {
+  approved: "Approved", pending: "Awaiting", waiting: "Waiting",
+  rejected: "Rejected", cancelled: "Skipped", planned: "Planned",
+};
+
+// Workflows tab — the approval-ladder builder (reuses the routing-rule builder)
+// plus the read-only Tier-0 gate catalogue that always forces its own rungs.
+function WorkflowsBuilderTab() {
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">
+          <span className="text-brand-600">◎</span> Approval ladders · workflow builder
+        </p>
+        <p className="mt-1.5 max-w-2xl text-sm text-slate-500">
+          Define the ordered approver chain a request runs through. The rule&rsquo;s criteria (value / type / risk) pick
+          the ladder; each step is a group, role, or person, activated in turn. Tier-0 gates below always force their
+          own senior rung on top — no matter which ladder matches.
+        </p>
+      </div>
+      <RulesTab />
+      <Card>
+        <CardHeader>
+          <CardTitle>Tier-0 hard gates</CardTitle>
+          <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">always applied</span>
+        </CardHeader>
+        <CardBody className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {GATE_CATALOG.map((g) => <Badge key={g.key} tone="amber">{g.label}</Badge>)}
+          </div>
+          <p className="text-xs text-slate-400">
+            An AI classifier fires these from the request text/fields and forces a senior rung regardless of the ladder
+            above. A reviewer can add or remove any gate per request from its Approval-ladder card.
+          </p>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// The rule-driven approval ladder, always visible: Tier-0 gate chips (add/remove
+// overrides) over a RAG rung strip. Before submission the rungs are a preview
+// (planned); after, they show live RAG status with inline Approve / Reject.
+function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
+  r: IntakeRequest; canTriage: boolean; onRefreshed: () => void;
+}) {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const [busy, setBusy] = useState(false);
+  const [addKey, setAddKey] = useState("");
+  const [reassign, setReassign] = useState<"delegate" | "escalate" | null>(null);
+  const [reassignTo, setReassignTo] = useState("");
+  const { data: chain } = useQuery({ queryKey: ["intake-chain", r.id], queryFn: () => intakeApi.approvalChain(r.id) });
+  const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees });
+
+  const gates = r.gates ?? { detected: [], overrides: [], effective: [], effective_keys: [] };
+  const effectiveKeys = new Set(gates.effective_keys);
+  const addable = GATE_CATALOG.filter((g) => !effectiveKeys.has(g.key));
+  const rungs = (chain ?? []).filter((x) => x.status !== "cancelled");
+  const started = rungs.some((x) => x.status !== "planned");
+  const pending = rungs.find((x) => x.status === "pending");
+  const closed = r.status === "closed" || r.status === "approved";
+
+  async function run(fn: () => Promise<unknown>, msg: string) {
+    setBusy(true);
+    try {
+      await fn();
+      qc.invalidateQueries({ queryKey: ["intake-chain", r.id] });
+      onRefreshed();
+      notify(msg, "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Action failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function decide(decision: "approve" | "reject") {
+    if (!pending?.approval_request_id) return;
+    let comment: string | undefined;
+    if (decision === "reject") {
+      comment = window.prompt("Reason for rejection (required):") ?? "";
+      if (!comment.trim()) return;
+    }
+    return run(
+      () => approvalsApi.decide(pending.approval_request_id as string, decision, comment),
+      decision === "approve" ? "Step approved" : "Sent back for review",
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Approval ladder</CardTitle>
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
+          {closed ? "Closed" : started ? "Running" : "Preview"}
+        </span>
+      </CardHeader>
+      <CardBody className="space-y-4">
+        {/* Tier-0 gates */}
+        <div>
+          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">Mandatory gates</p>
+          {gates.effective.length === 0 ? (
+            <p className="text-xs text-slate-400">No hard gates — the ladder follows the value / type routing rules.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {gates.effective.map((g) => (
+                <Badge key={g.key} tone="amber">
+                  {g.label} → {g.approver_group}
+                  {canTriage && !closed && (
+                    <button disabled={busy} title="Remove gate"
+                      onClick={() => run(() => intakeApi.overrideGate(r.id, { gate_key: g.key, action: "remove", reason: "removed by reviewer" }), "Gate removed")}
+                      className="ml-0.5 hover:text-warning disabled:opacity-50">×</button>
+                  )}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {canTriage && !closed && addable.length > 0 && (
+            <div className="mt-2 flex items-center gap-2">
+              <Select value={addKey} onChange={(e) => setAddKey(e.target.value)}>
+                <option value="">Add a gate…</option>
+                {addable.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+              </Select>
+              <Button size="sm" variant="ghost" loading={busy} disabled={!addKey}
+                onClick={() => run(() => intakeApi.overrideGate(r.id, { gate_key: addKey, action: "add", reason: "added by reviewer" }).then(() => setAddKey("")), "Gate added")}>
+                Add
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* RAG rung strip — always shown (preview before submit, live after) */}
+        <div>
+          <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
+            Governance ladder{!started && !closed ? " · preview" : ""}
+          </p>
+          {rungs.length === 0 ? (
+            <p className="text-xs text-slate-400">No approvers resolved — set a routing rule or add a gate.</p>
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
+              {rungs.map((rung, i) => {
+                const ui = RUNG_UI[rung.status] ?? RUNG_UI.waiting;
+                return (
+                  <Fragment key={rung.approval_request_id ?? `p${rung.step_order}`}>
+                    <span className="inline-flex items-center gap-1.5"
+                      title={`${rung.step_order}. ${rung.approver_label} — ${RUNG_LABEL[rung.status] ?? rung.status}${(rung.needed ?? 1) > 1 ? ` · needs all ${rung.needed}` : ""}`}>
+                      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", ui.dot)} />
+                      <span className={cn("text-[11px]", ui.name)}>{rung.approver_label}</span>
+                      {(rung.needed ?? 1) > 1 && (rung.status === "pending" || rung.status === "approved") && (
+                        <span className={cn("rounded px-1 text-[9px] font-semibold tabular-nums",
+                          (rung.approvals ?? 0) >= (rung.needed ?? 1) ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")}>
+                          {rung.approvals ?? 0}/{rung.needed}
+                        </span>
+                      )}
+                    </span>
+                    {i < rungs.length - 1 && <span className="px-1 text-slate-300">—</span>}
+                  </Fragment>
+                );
+              })}
+            </div>
+          )}
+
+          {/* actions */}
+          {!closed && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {!started && canTriage && (
+                <Button size="sm" loading={busy}
+                  onClick={() => run(() => intakeApi.submitForApproval(r.id), "Submitted for approval")}>
+                  Submit for approval
+                </Button>
+              )}
+              {started && pending && canTriage && (reassign ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] text-slate-500">{reassign === "delegate" ? "Delegate this step to" : "Escalate this step to"}</span>
+                  <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="h-8 w-48 text-[13px]">
+                    <option value="">Select a person…</option>
+                    {(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </Select>
+                  <Button size="sm" loading={busy} disabled={!reassignTo}
+                    onClick={() => run(() => approvalsApi.reassign(pending.approval_request_id as string, reassignTo, reassign), reassign === "delegate" ? "Delegated" : "Escalated").then(() => { setReassign(null); setReassignTo(""); })}>Go</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setReassign(null); setReassignTo(""); }}>Cancel</Button>
+                </div>
+              ) : (
+                <>
+                  <Button size="sm" loading={busy} onClick={() => decide("approve")}>✓ Approve step</Button>
+                  <Button size="sm" variant="outline" loading={busy} onClick={() => decide("reject")}>✕ Reject</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setReassign("delegate")}>Delegate</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setReassign("escalate")}>Escalate</Button>
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
+                    step {pending.step_order} · {pending.approver_label}{(pending.needed ?? 1) > 1 ? ` · ${pending.approvals ?? 0} of ${pending.needed} signed` : ""}
+                  </span>
+                </>
+              ))}
+              {started && !pending && (
+                <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-success">Ladder complete</span>
+              )}
+            </div>
+          )}
+        </div>
+      </CardBody>
+    </Card>
+  );
+}
+
 function WorkflowStepper({ steps }: { steps: IntakeRequest["workflow"] }) {
   return (
     <section>
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-slate-400">Request workflow</p>
-      <div className="flex overflow-x-auto rounded-lg border border-slate-200">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">Request workflow</p>
+      <div className="flex overflow-x-auto rounded-md border border-slate-200">
         {steps.map((s) => (
           <div key={s.stage}
             className={cn("min-w-[128px] flex-1 border-r border-slate-200 px-3 py-3 text-center last:border-r-0",
               s.active ? "bg-brand-50" : s.done ? "bg-slate-50" : "")}>
-            <div className={cn("text-sm leading-none", s.done ? "text-emerald-600" : s.active ? "text-brand-600" : "text-slate-300")}>
+            <div className={cn("text-sm leading-none", s.done ? "text-success" : s.active ? "text-brand-600" : "text-slate-300")}>
               {s.done ? "✓" : s.active ? "⏳" : "○"}
             </div>
             <div className={cn("mt-1.5 text-xs font-medium", s.active || s.done ? "text-slate-900" : "text-slate-400")}>{s.label}</div>
@@ -770,6 +1268,10 @@ const CONTRACT_STAGES: { key: string; label: string }[] = [
   { key: "active", label: "Active" },
   { key: "closed", label: "Closed" },
 ];
+
+const _NEXT_STAGE: Record<string, string> = {
+  intake: "drafting", drafting: "review", review: "approval", approval: "signature", signature: "active",
+};
 
 // Which draftable document (if any) a request maps to — mirrors the backend
 // resolve_doc_type keyword pass so the "Draft" button shows for the 4 types.
@@ -799,7 +1301,7 @@ function requestCounterparty(r: IntakeRequest): string | null {
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <dt className="font-mono text-[10px] uppercase tracking-wide text-slate-400">{label}</dt>
+      <dt className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">{label}</dt>
       <dd className="mt-0.5 text-sm text-slate-800">{children}</dd>
     </div>
   );
@@ -855,7 +1357,7 @@ function RelatedContractsCard({ r, contracts }: { r: IntakeRequest; contracts: C
   return (
     <Card>
       <CardHeader><CardTitle>Related contracts</CardTitle>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-slate-400">
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
           {sameParty.length + sameType.length} found
         </span>
       </CardHeader>
@@ -890,15 +1392,15 @@ function ContractLifecycleTracker({ contractId }: { contractId: string }) {
   const curIdx = rs ? CONTRACT_STAGES.findIndex((s) => s.key === rs.lifecycle_stage) : -1;
   return (
     <section>
-      <p className="mb-2 font-mono text-[11px] uppercase tracking-[0.12em] text-slate-400">Contract lifecycle</p>
-      <div className="flex overflow-x-auto rounded-lg border border-slate-200">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">Contract lifecycle</p>
+      <div className="flex overflow-x-auto rounded-md border border-slate-200">
         {CONTRACT_STAGES.map((s, i) => {
           const done = curIdx > i, active = curIdx === i;
           return (
             <div key={s.key}
               className={cn("min-w-[100px] flex-1 border-r border-slate-200 px-2 py-3 text-center last:border-r-0",
                 active ? "bg-brand-50" : done ? "bg-slate-50" : "")}>
-              <div className={cn("text-sm leading-none", done ? "text-emerald-600" : active ? "text-brand-600" : "text-slate-300")}>
+              <div className={cn("text-sm leading-none", done ? "text-success" : active ? "text-brand-600" : "text-slate-300")}>
                 {done ? "✓" : active ? "⏳" : "○"}
               </div>
               <div className={cn("mt-1.5 text-xs font-medium", active || done ? "text-slate-900" : "text-slate-400")}>{s.label}</div>
@@ -972,11 +1474,30 @@ function ContractNextStep({ contractId, onRefresh }: { contractId: string; onRef
     primary = <Button size="sm" onClick={() => goToWorkspace(contractId)}>Resolve in workspace →</Button>;
 
   return (
-    <Card className="border-2 border-brand-500">
+    <Card className="border-2 border-brand-600">
       <CardHeader className="bg-brand-50"><CardTitle>Next step</CardTitle>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-slate-500">{stage}</span></CardHeader>
+        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500">{stage}</span></CardHeader>
       <CardBody className="space-y-3">
         <p className="text-sm text-slate-700">{rs.next_step}</p>
+
+        {stage === "review" && (
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
+            <p className="mb-2 text-xs text-slate-500">
+              {rs.high_severity_issues > 0
+                ? `${rs.high_severity_issues} high-severity issue${rs.high_severity_issues > 1 ? "s" : ""} — recommend a lawyer reviews before it moves on.`
+                : "No high-severity issues — safe to move it forward yourself."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant={rs.high_severity_issues > 0 ? undefined : "outline"} loading={busy}
+                onClick={() => run(() => approvalsApi.submit({ contract_id: contractId }), "Sent to legal — approval requested")}>Send to legal</Button>
+              {_NEXT_STAGE[stage] && (
+                <Button size="sm" variant={rs.high_severity_issues > 0 ? "outline" : undefined} loading={busy}
+                  onClick={() => run(() => contractsApi.transition(contractId, _NEXT_STAGE[stage] as never, { reason: "Advanced from review" }), `Advanced to ${_NEXT_STAGE[stage]}`)}>Advance to next step</Button>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           {primary}
           {stage === "review" && (
@@ -1001,7 +1522,7 @@ function ContractNextStep({ contractId, onRefresh }: { contractId: string; onRef
           <div className="flex flex-wrap gap-3 text-xs text-slate-500">
             {rs.open_issues > 0 && <span>{rs.open_issues} open issues</span>}
             {rs.pending_redlines > 0 && <span>{rs.pending_redlines} pending redlines</span>}
-            {rs.high_severity_issues > 0 && <span className="font-medium text-red-600">{rs.high_severity_issues} high severity</span>}
+            {rs.high_severity_issues > 0 && <span className="font-medium text-danger">{rs.high_severity_issues} high severity</span>}
           </div>
         )}
         {!rs.ready_for_approval && stage === "review" && (
@@ -1012,9 +1533,289 @@ function ContractNextStep({ contractId, onRefresh }: { contractId: string; onRef
   );
 }
 
-function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () => void; canTriage: boolean }) {
+// The AI analysis surfaced on the ticket once a contract exists: weighted risk
+// + the playbook deviations, severity-ranked, so a reviewer can act without
+// leaving the ticket.
+function AiAnalysisCard({ contractId }: { contractId: string }) {
+  const { data: risk } = useQuery({ queryKey: ["contract-risk", contractId], queryFn: () => contractsApi.risk(contractId) });
+  const { data: devs } = useQuery({ queryKey: ["contract-devs", contractId], queryFn: () => contractsApi.deviations(contractId) });
+  const { data: plain, isLoading: plainLoading } = useQuery({ queryKey: ["contract-plain", contractId], queryFn: () => contractsApi.plainSummary(contractId), staleTime: 5 * 60 * 1000 });
+  const rs = (risk ?? null) as { score?: number | null; band?: string | null; note?: string } | null;
+  const deviations = devs ?? [];
+  const sev = (s: string) => (s || "").toLowerCase();
+  const counts = {
+    high: deviations.filter((d) => sev(d.severity) === "high" || sev(d.severity) === "critical").length,
+    medium: deviations.filter((d) => sev(d.severity) === "medium").length,
+    low: deviations.filter((d) => sev(d.severity) === "low").length,
+  };
+  return (
+    <Card>
+      <CardHeader><CardTitle>AI analysis</CardTitle>
+        {rs?.score != null
+          ? <Badge tone={riskTone(rs.band) as never}>{(rs.band ?? "risk")} · {rs.score}</Badge>
+          : <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">running…</span>}
+      </CardHeader>
+      <CardBody className="space-y-3">
+        {/* Plain-English summary — readable to non-lawyers, front and centre. */}
+        <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3">
+          <p className="mb-1.5 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-brand-600">In plain English</p>
+          {plainLoading
+            ? <p className="text-[13px] text-slate-400">Summarising the review…</p>
+            : <div className="prose-sm text-[13px] leading-relaxed text-slate-700 [&_p]:my-1.5 [&_strong]:text-slate-900 [&_ul]:my-1.5 [&_ul]:space-y-1 [&_ul]:pl-4"><Markdown>{plain?.summary || "No summary available yet."}</Markdown></div>}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="font-medium text-danger">{counts.high} high</span>
+          <span className="text-warning">{counts.medium} medium</span>
+          <span className="text-slate-500">{counts.low} low</span>
+          {deviations.length === 0 && (
+            <span className="text-slate-400">No open deviations — clean, or the review is still running.</span>
+          )}
+        </div>
+
+        {/* The clause-by-clause legal detail — tucked away for whoever wants it. */}
+        {deviations.length > 0 && (
+          <details className="rounded-md border border-slate-200">
+            <summary className="cursor-pointer list-none px-3 py-2 text-[12px] font-medium text-slate-600 hover:text-slate-900">▸ Clause-by-clause detail ({deviations.length})</summary>
+            <div className="space-y-2 px-3 pb-3">
+              {deviations.slice(0, 12).map((d) => (
+                <div key={d.id} className="rounded-md border border-slate-200 p-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone={riskTone(d.severity) as never}>{d.severity}</Badge>
+                    <span className="text-xs font-medium text-slate-800">{titleCase(d.clause_type)}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">{d.issue}</p>
+                  {d.suggested_fix && <p className="mt-1 text-[11px] text-slate-400">Fix: {d.suggested_fix}</p>}
+                </div>
+              ))}
+              {deviations.length > 12 && (
+                <p className="text-xs text-slate-400">+{deviations.length - 12} more — open the workspace for the full set.</p>
+              )}
+            </div>
+          </details>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+// ── Triage cockpit primitives (aegis-style, theme-adapted) ──
+function confidenceTier(c: number): { color: "emerald" | "amber" | "red"; label: string } {
+  if (c >= 0.9) return { color: "emerald", label: "High confidence" };
+  if (c >= 0.7) return { color: "amber", label: "Medium confidence" };
+  return { color: "red", label: "⚠ Review carefully" };
+}
+const TIER_CLS: Record<string, string> = {
+  emerald: "border-success/50 bg-success-subtle text-success",
+  amber: "border-warning/50 bg-warning-subtle text-warning",
+  red: "border-danger/50 bg-danger-subtle text-danger",
+};
+const TIER_DOT: Record<string, string> = { emerald: "bg-success", amber: "bg-warning", red: "bg-danger" };
+
+function ConfidenceBadge({ conf }: { conf: number }) {
+  const t = confidenceTier(conf);
+  return (
+    <span className={cn("inline-flex items-center gap-1.5 rounded border px-2 py-0.5", TIER_CLS[t.color])}>
+      <span className={cn("h-1.5 w-1.5 rounded-full", TIER_DOT[t.color])} />
+      <span className="text-[9px] font-semibold uppercase tracking-[0.06em]">{t.label}</span>
+      <span className="font-mono text-[11px] font-bold">{Math.round(conf * 100)}%</span>
+    </span>
+  );
+}
+
+function AgentBadge({ agentId }: { agentId: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-brand-600/40 bg-brand-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-brand-700">
+      <span className="text-[11px] leading-none">◉</span>
+      {titleCase(agentId.replace(/_agent$/, "").replace(/_/g, " "))}
+    </span>
+  );
+}
+
+function Kbd({ k }: { k: string }) {
+  return (
+    <kbd className="inline-flex min-w-[16px] items-center justify-center rounded-[3px] border border-slate-300 bg-slate-100 px-1 py-px font-mono text-[9px] font-semibold leading-[14px] text-slate-500">
+      {k}
+    </kbd>
+  );
+}
+
+// Per-step type metadata for the governance ladder — the icon + plain-English
+// status so a reviewer can tell an AI step from a human task from an approval,
+// and whether a step is done, running, or waiting on them.
+const STEP_META: Record<string, { icon: LucideIcon; label: string; wait: string; running: string }> = {
+  ai_task: { icon: Bot, label: "AI step", wait: "Needs your review", running: "Agent is working…" },
+  human_task: { icon: Users, label: "Human task", wait: "Waiting on you", running: "In progress" },
+  approval: { icon: ShieldCheck, label: "Approval", wait: "Awaiting sign-off", running: "Awaiting sign-off" },
+  signature: { icon: PenLine, label: "Signature", wait: "Out for signature", running: "Out for signature" },
+  clm_draft: { icon: FileText, label: "Draft", wait: "Awaiting document", running: "Drafting…" },
+  counterparty: { icon: Users, label: "Counterparty", wait: "With counterparty", running: "With counterparty" },
+  notify: { icon: Bell, label: "Notify", wait: "Notifying", running: "Notifying" },
+};
+function stepMeta(type: string) { return STEP_META[type] ?? STEP_META.human_task; }
+// Plain-English "what is this and what do I do" for the current step — the piece
+// that makes a bare step name ("Cross-functional Assessment") actionable.
+function stepGuidance(s: FlowRunStep): string {
+  const waiting = s.status.startsWith("waiting");
+  switch (s.type) {
+    case "human_task":
+      return `A manual checkpoint you handle off-system. Do the “${s.name}” work — loop in the relevant team and gather what's needed — then click “Complete this step” to record it and move the workflow on.`;
+    case "ai_task":
+      return waiting
+        ? "The agent flagged this for your review — its output is on the ticket. Check it, then complete the step to move on."
+        : "The agent runs this automatically. No action needed — it advances on its own when done.";
+    case "approval":
+      return "Waiting for the approver to sign off. It advances on its own once approved — use “Check approval status” to refresh, or complete it here if you're recording the decision manually.";
+    case "signature":
+      return "The document is out for e-signature. It advances once every signer has signed — use “Check signature status” to refresh.";
+    case "clm_draft":
+      return waiting ? "Waiting for the document to be drafted or uploaded before this step can advance." : "The agent is drafting the document — no action needed.";
+    case "counterparty":
+      return "With the counterparty for their review or input; advance once you hear back.";
+    case "notify":
+      return "Sending a notification — no action needed; it advances automatically.";
+    default:
+      return "Click “Complete this step” to advance the workflow.";
+  }
+}
+
+// The actual litigation findings an AI step produced — the extracted deadlines
+// (with statutory source) plus the hold / outside-counsel / settlement flags.
+function AiFindingsLitigation({ a }: { a: LitigationAssessment }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-100 px-2.5 py-2">
+      <p className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400">Findings · {a.matter_type}</p>
+      <div className="flex flex-wrap gap-1.5">
+        {a.legal_hold_required && <Badge tone="red">Legal hold required</Badge>}
+        {a.outside_counsel_likely && <Badge tone="amber">Outside counsel likely</Badge>}
+        {a.settlement_posture && a.settlement_posture !== "none" && <Badge tone="violet">Settlement {a.settlement_posture}</Badge>}
+      </div>
+      {a.statutory_deadlines?.length ? (
+        <ul className="mt-1.5 space-y-1">
+          {a.statutory_deadlines.map((d, i) => (
+            <li key={i} className="flex flex-wrap items-baseline gap-1.5 text-[12px]">
+              <span className="font-medium text-slate-800">{d.what}</span>
+              {d.date && <span className="font-mono text-[11px] font-semibold text-danger">{d.date}</span>}
+              {d.source && <span className="text-[10.5px] text-slate-400">· {d.source}</span>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="mt-1 text-[11px] text-slate-400">No dated deadlines extracted.</p>}
+    </div>
+  );
+}
+
+// The playbook deviations an AI review found — counts + the top few, inline.
+function AiFindingsDeviations({ contractId }: { contractId: string }) {
+  const { data: devs } = useQuery({ queryKey: ["contract-devs", contractId], queryFn: () => contractsApi.deviations(contractId) });
+  const deviations = devs ?? [];
+  const sev = (s: string) => (s || "").toLowerCase();
+  const hi = deviations.filter((d) => sev(d.severity) === "high" || sev(d.severity) === "critical").length;
+  const md = deviations.filter((d) => sev(d.severity) === "medium").length;
+  const lo = deviations.filter((d) => sev(d.severity) === "low").length;
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-100 px-2.5 py-2">
+      <p className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400">Playbook deviations</p>
+      {deviations.length === 0 ? (
+        <p className="text-[11px] text-slate-400">No open deviations — clean, or the review is still running.</p>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-3 text-[11px]">
+            <span className="font-medium text-danger">{hi} high</span>
+            <span className="text-warning">{md} medium</span>
+            <span className="text-slate-500">{lo} low</span>
+          </div>
+          <ul className="mt-1.5 space-y-1">
+            {deviations.slice(0, 3).map((d) => (
+              <li key={d.id} className="text-[12px]">
+                <span className={cn("mr-1.5 rounded px-1 py-0.5 text-[9px] font-semibold uppercase",
+                  sev(d.severity) === "high" || sev(d.severity) === "critical" ? "bg-danger-subtle text-danger" : sev(d.severity) === "medium" ? "bg-warning-subtle text-warning" : "bg-slate-200 text-slate-500")}>{d.severity}</span>
+                <span className="text-slate-700">{titleCase(d.clause_type)}</span> — <span className="text-slate-500">{d.issue}</span>
+              </li>
+            ))}
+          </ul>
+          {deviations.length > 3 && <p className="mt-1 text-[11px] text-slate-400">+{deviations.length - 3} more below.</p>}
+        </>
+      )}
+    </div>
+  );
+}
+
+// Dynamic step read-out — shows the information that matters for the SELECTED
+// step at its current state: an AI step surfaces the agent's output + findings,
+// a draft step the document, a human task the guidance; done steps show what
+// they produced, pending steps say they haven't run.
+function StepInfo({ step, r, state }: { step: FlowRunStep; r: IntakeRequest; state: "done" | "current" | "pending" }) {
+  const res = (step.result ?? {}) as Record<string, unknown>;
+  const conf = typeof res.confidence === "number" ? Math.round((res.confidence as number) * 100) : null;
+  const la = (r.ai_triage as Record<string, unknown> | null)?.litigation_assessment as LitigationAssessment | undefined;
+
+  const agentOutput = step.type === "ai_task" && (res.agent != null || res.category != null || conf != null) ? (
+    <div className="rounded-md border border-slate-200 bg-slate-100 px-2.5 py-2">
+      <p className="mb-1 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-400">Agent output</p>
+      <div className="flex flex-wrap items-center gap-2 text-[12.5px]">
+        {res.agent != null && <Badge tone="violet">{titleCase(String(res.agent).replace(/[-_]/g, " "))}</Badge>}
+        {res.category != null && <span className="text-slate-700">{String(res.category)}</span>}
+        {conf != null && <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", conf >= 75 ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")}>{conf}% confidence</span>}
+      </div>
+    </div>
+  ) : null;
+  const findings = step.type === "ai_task" ? (la ? <AiFindingsLitigation a={la} /> : r.contract_id ? <AiFindingsDeviations contractId={r.contract_id} /> : null) : null;
+
+  const statusLine =
+    state === "done" ? <p className="text-[12px] font-medium text-success">✓ Completed</p>
+      : state === "pending" ? <p className="text-[12px] text-slate-400">Pending — runs once the earlier steps finish.</p>
+        : <p className="text-[12.5px] leading-relaxed text-slate-600">{stepGuidance(step)}</p>;
+  const note = step.note ? <p className="text-[11px] text-slate-400">{step.note}</p> : null;
+  const link = step.type === "clm_draft" && r.contract_id
+    ? <a href={`/contracts/${r.contract_id}`} className="inline-block text-[12px] font-medium text-brand-700 hover:underline">Open the drafted document →</a>
+    : step.type === "ai_task" && r.contract_id
+      ? <a href={`/contracts/${r.contract_id}`} className="inline-block text-[12px] font-medium text-brand-700 hover:underline">Open the full analysis →</a>
+      : null;
+
+  return <div className="space-y-2">{agentOutput}{findings}{statusLine}{note}{link}</div>;
+}
+
+// Litigation Intake Agent read-out — the matter facts a triaging lawyer needs,
+// surfaced when the request classifies as litigation.
+function LitigationCard({ a }: { a: LitigationAssessment }) {
+  return (
+    <Card className="border-l-2 border-l-brand-600 p-5">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-600">§ Litigation Intake · {a.matter_type}</p>
+        {a.legal_hold_required && <Badge tone="red">Legal hold required</Badge>}
+        {a.outside_counsel_likely && <Badge tone="amber">Outside counsel likely</Badge>}
+        {a.settlement_posture && a.settlement_posture !== "none" && <Badge tone="violet">Settlement {a.settlement_posture}</Badge>}
+      </div>
+      <p className="text-[13px] leading-relaxed text-slate-700">{a.summary}</p>
+      {a.statutory_deadlines.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Deadlines</p>
+          <ul className="space-y-1 text-[12.5px] text-slate-600">
+            {a.statutory_deadlines.map((d, i) => (
+              <li key={i} className="flex flex-wrap items-baseline gap-1.5">
+                <span className="font-medium text-slate-800">{d.what}</span>
+                {d.date && <span className="font-mono text-[11px] font-semibold text-danger">{d.date}</span>}
+                {d.source && <span className="text-[11px] text-slate-400">· {d.source}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {a.key_parties.length > 0 && (
+        <div className="mt-3 border-t border-slate-100 pt-3">
+          <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Parties</p>
+          <p className="text-[12.5px] text-slate-600">{a.key_parties.join(" · ")}</p>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: string; onBack: () => void; canTriage: boolean; inPane?: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
+  const { user } = useAuth();
   const { data: r, isLoading } = useQuery({ queryKey: ["intake-req", id], queryFn: () => intakeApi.get(id) });
   const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canTriage });
@@ -1022,6 +1823,10 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list, enabled: canTriage });
   const { data: rec } = useQuery({ queryKey: ["intake-rec", id], queryFn: () => intakeApi.recommendation(id), enabled: canTriage });
   const { data: legs } = useQuery({ queryKey: ["intake-sla", id], queryFn: () => intakeApi.slaLegs(id) });
+  const { data: ticketDocs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
+  const { data: flowRun } = useQuery({ queryKey: ["flow-run", id], queryFn: () => flowsApi.runForRequest(id) });
+  const hasRun = !!flowRun && ["running", "waiting", "complete"].includes(flowRun.status);
+  const hasAttachment = (ticketDocs ?? []).some((d) => d.extracted_chars > 0);
   const [busy, setBusy] = useState(false);
   const [reassignTo, setReassignTo] = useState("");
   const [snoozeUntil, setSnoozeUntil] = useState("");
@@ -1029,8 +1834,8 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
   const [promoteTarget, setPromoteTarget] = useState("");
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const [showRec, setShowRec] = useState(false);
   const [showLegs, setShowLegs] = useState(false);
+  const [tab, setTab] = useState("overview");
   const promoteOptions =
     promoteKind === "project"
       ? (projects ?? []).map((p) => ({ id: p.id, label: p.name }))
@@ -1042,6 +1847,7 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
     qc.invalidateQueries({ queryKey: ["intake-handoffs", id] });
     qc.invalidateQueries({ queryKey: ["intake-rec", id] });
     qc.invalidateQueries({ queryKey: ["intake-sla", id] });
+    qc.invalidateQueries({ queryKey: ["flow-run", id] });
   }
   async function act(fn: () => Promise<unknown>, msg: string) {
     setBusy(true);
@@ -1050,6 +1856,28 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
     finally { setBusy(false); }
   }
 
+  // Cockpit shortcuts: A approve · E edit · R reject, while a rec is pending.
+  useEffect(() => {
+    if (!canTriage || !rec || rec.status !== "pending" || editing || hasRun) return;
+    function onKey(e: KeyboardEvent) {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "a") { e.preventDefault(); act(() => intakeApi.triage(id, { action: "approved" }), "Approved"); }
+      else if (k === "e") { e.preventDefault(); setDraft(rec!.drafted_response); setEditing(true); }
+      else if (k === "r") { e.preventDefault(); act(() => intakeApi.triage(id, { action: "rejected" }), "Rejected"); }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canTriage, rec, editing, id]);
+
+  // Which ladder step the detail box shows — defaults to and follows the current
+  // step; a click on any step overrides it. (Hook must precede the early return.)
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  useEffect(() => { setSelectedIdx(null); }, [flowRun?.current_index]);
+
   if (isLoading || !r) return <CenterSpinner label="Loading the request…" />;
 
   const posture = r.sla_status as IntakeSlaPosture;
@@ -1057,42 +1885,72 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
   const elapsedH = submitted != null ? (Date.now() - submitted) / 3_600_000 : null;
   const open = r.status !== "closed" && r.status !== "approved";
   const ai = (r.ai_triage ?? {}) as Record<string, unknown>;
-  const accent = posture === "overdue" ? "border-l-red-500" : posture === "at_risk" ? "border-l-amber-500" : "border-l-emerald-500";
-  const postureText = posture === "overdue" ? "text-red-600" : posture === "at_risk" ? "text-amber-600" : "text-emerald-600";
+  const la = ai.litigation_assessment as LitigationAssessment | undefined;
+  const accent = posture === "overdue" ? "border-l-danger" : posture === "at_risk" ? "border-l-warning" : "border-l-success";
+  const postureText = posture === "overdue" ? "text-danger" : posture === "at_risk" ? "text-warning" : "text-success";
   // A short header title — descriptions can be long (pasted text, folded
   // attachments). Take the first line, capped; the full text lives in Overview.
   const firstLine = (r.description || r.type_label).trim().split("\n")[0].trim();
   const shortTitle = firstLine.length > 140 ? `${firstLine.slice(0, 137).trimEnd()}…` : (firstLine || r.type_label);
 
-  return (
-    <div className="space-y-5">
-      <button onClick={onBack}
-        className="inline-flex items-center gap-1 font-mono text-[11px] uppercase tracking-[0.09em] text-slate-500 hover:text-slate-900">
-        ← Back to inbox
-      </button>
+  // Dispatch-desk detail (reference "Legal Mission Control" layout, in the light
+  // theme): a single scrolling page — header + SLA meter, dispatch banner,
+  // governance ladder, request brief, AI analysis, assignment, custody legs, and
+  // a tamper-evident timeline. A render helper draws the mono-caps section heads.
+  const youCreated = !!user && r.requester_user_id === user.id;
+  // A running governance ladder IS direction — count it as dispatched even if no
+  // owner is assigned yet, so the banner doesn't contradict the ladder below it.
+  const dispatched = hasRun || !!r.assigned_to_user_id || r.status !== "awaiting_triage";
+  const owner = r.assigned_to_label;
+  const flowSteps = flowRun?.steps ?? [];
+  const current = flowRun ? flowSteps[flowRun.current_index] : undefined;
+  const doneCount = flowSteps.filter((s) => s.status === "done" || s.status === "complete").length;
+  // Click any ladder step to inspect it; defaults to (and follows) the current step.
+  const selIdx = selectedIdx ?? flowRun?.current_index ?? 0;
+  const selStep = flowSteps[selIdx];
+  const selState: "done" | "current" | "pending" = !selStep ? "pending"
+    : (selStep.status === "done" || selStep.status === "complete") ? "done"
+      : (selStep.idx === flowRun?.current_index && flowRun?.status !== "complete") ? "current"
+        : "pending";
+  const head = (label: string, note?: React.ReactNode) => (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">{label}</span>
+      {note && <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-400">{note}</span>}
+    </div>
+  );
 
-      {/* header + SLA banner */}
-      <div className={cn("rounded-xl border border-slate-200 border-l-4 bg-slate-50/50 p-5", accent)}>
+  return (
+    <div className="space-y-3">
+      {!inPane && (
+        <button onClick={onBack}
+          className="inline-flex items-center gap-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500 hover:text-slate-900">
+          ← Back to inbox
+        </button>
+      )}
+
+      {/* ===== header + SLA meter ===== */}
+      <Card className={cn("border-l-[3px] p-5", accent)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-xs text-slate-500">{r.ref}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="font-mono text-[11px] text-slate-500">{r.ref}</span>
               <Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge>
-              <Badge tone="slate">{r.type_label}</Badge>
+              <Badge tone="blue">{r.type_label}</Badge>
               <StatusPill r={r} />
               {r.handoff_holder && <Badge tone="violet">{titleCase(r.handoff_holder)} holds</Badge>}
+              {youCreated && <Badge tone="slate">You created</Badge>}
             </div>
-            <h2 className="mt-2 line-clamp-2 text-xl font-semibold leading-snug text-slate-900">{shortTitle}</h2>
-            <p className="mt-1 text-xs text-slate-500">
+            <h2 className="mt-2 line-clamp-2 text-[19px] font-semibold leading-snug text-slate-900">{shortTitle}</h2>
+            <p className="mt-1.5 text-xs text-slate-500">
               From <span className="text-slate-700">{r.requester_name ?? "—"}</span>
               {r.department ? ` · ${r.department}` : ""}
               {r.submitted_at ? ` · Submitted ${new Date(r.submitted_at).toLocaleString()}` : ""}
-              {` · ${r.assigned_to_label ? `Assigned to ${r.assigned_to_label}` : "Unassigned"}`}
+              {owner ? <> · Owner <span className="text-slate-700">{owner}</span></> : ""}
             </p>
           </div>
           {open && elapsedH != null && (
             <div className="shrink-0 sm:text-right">
-              <p className={cn("font-mono text-[10px] uppercase tracking-wide", postureText)}>{POSTURE_LABEL[posture]}</p>
+              <p className={cn("font-mono text-[10px] font-semibold uppercase tracking-[0.1em]", postureText)}>SLA {POSTURE_LABEL[posture]}</p>
               <p className="text-2xl font-semibold tabular-nums text-slate-900">{fmtElapsedHours(elapsedH)}</p>
               <p className="text-[11px] text-slate-400">of {r.sla_hours} hrs window</p>
               <div className="mt-1.5 h-1.5 w-40 overflow-hidden rounded-full bg-slate-200 sm:ml-auto">
@@ -1102,251 +1960,268 @@ function RequestDetailView({ id, onBack, canTriage }: { id: string; onBack: () =
             </div>
           )}
         </div>
-      </div>
+      </Card>
 
-      {/* lifecycle — the intake spine before a contract exists, the contract
-          lifecycle once it's been drafted */}
-      {r.contract_id ? <ContractLifecycleTracker contractId={r.contract_id} /> : <WorkflowStepper steps={r.workflow} />}
-
-      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-        {/* ===== main: everything about this request ===== */}
-        <div className="space-y-4">
-          {/* overview — what it's for + the facts at a glance */}
-          <Card>
-            <CardHeader><CardTitle>Overview</CardTitle>
-              {ai.category != null && <Badge tone="blue">{String(ai.category)}</Badge>}
-              {ai.risk_flag != null && <Badge tone={String(ai.risk_flag) === "high" ? "red" : "amber"}>{String(ai.risk_flag)} risk</Badge>}
-            </CardHeader>
-            <CardBody className="space-y-4">
-              <div>
-                <p className="mb-1 font-mono text-[10px] uppercase tracking-wide text-slate-400">What they need</p>
-                <p className="max-h-44 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">{r.description || r.type_label}</p>
-              </div>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                <Fact label="Request type">{r.type_label}</Fact>
-                <Fact label="Priority"><Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge></Fact>
-                <Fact label="Counterparty">{requestCounterparty(r) ?? <span className="text-slate-400">—</span>}</Fact>
-                {ai.complexity != null && <Fact label="Complexity">{titleCase(String(ai.complexity))}</Fact>}
-                {ai.confidence != null && <Fact label="AI confidence">{Math.round(Number(ai.confidence) * 100)}%</Fact>}
-                {r.contract_id && r.contract_title && (
-                  <Fact label="Contract"><a className="text-brand-600 hover:underline" href={`/contracts/${r.contract_id}`}>{r.contract_title}</a></Fact>
-                )}
-              </dl>
-              {(r.fired_rules as { summaries?: { name: string; actions: string[] }[] } | null)?.summaries?.length ? (
-                <div className="border-t border-slate-100 pt-3">
-                  <p className="mb-1 font-mono text-[10px] uppercase tracking-wide text-slate-400">Routing rules fired</p>
-                  <ul className="space-y-1 text-xs text-slate-600">
-                    {(r.fired_rules as { summaries: { name: string; actions: string[] }[] }).summaries.map((s, i) => (
-                      <li key={i}>▸ <b>{s.name}</b> — {s.actions.join(", ")}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </CardBody>
-          </Card>
-
-          {/* counterparty / vendor + screening */}
-          <Card>
-            <CardHeader><CardTitle>Counterparty &amp; screening</CardTitle></CardHeader>
-            <CardBody className="space-y-4">
-              <PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} />
-              <ScreeningPanel r={r} canTriage={canTriage} onRefreshed={refresh} />
-            </CardBody>
-          </Card>
-
-          {/* related / similar contracts */}
-          <RelatedContractsCard r={r} contracts={contracts ?? []} />
-
-          {/* attachments */}
-          <Card><CardBody><DocumentsPanel requestId={r.id} /></CardBody></Card>
-
-          {/* timeline */}
-          <Card>
-            <CardHeader><CardTitle>Timeline</CardTitle>
-              <span className="ml-auto font-mono text-[10px] uppercase tracking-wide text-slate-400">Hand-off ledger</span></CardHeader>
-            <CardBody>
-              {(handoffs ?? []).length === 0 ? <p className="text-xs text-slate-400">Still in the intake queue — no hand-offs yet.</p> : (
-                <ol className="space-y-2.5">
-                  {(handoffs ?? []).map((h) => (
-                    <li key={h.id} className="flex gap-2.5 text-xs">
-                      <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
-                      <div>
-                        <span className="capitalize text-slate-500">{h.from_holder ?? "queue"}</span>
-                        <span className="text-slate-400"> → </span>
-                        <span className="font-medium capitalize text-slate-900">{h.to_label ?? h.to_holder}</span>
-                        {h.reason && <span className="text-slate-400"> · {h.reason}</span>}
-                        {h.created_at && <div className="text-[10px] text-slate-400">{new Date(h.created_at).toLocaleString()}</div>}
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </CardBody>
-          </Card>
-
-          {/* SLA custody legs — collapsible detail */}
-          {legs && legs.legs.length > 0 && (
-            <Card>
-              <button onClick={() => setShowLegs((v) => !v)} className="flex w-full items-center gap-2 px-4 py-3 text-left">
-                <span className="text-sm font-medium text-slate-900">SLA custody legs</span>
-                <span className={cn("font-mono text-[10px] uppercase tracking-wide", legs.breached ? "text-red-600" : "text-slate-400")}>{legs.breached ? "breached" : "running"}</span>
-                <span className="ml-auto text-xs text-slate-400">{showLegs ? "Hide" : "Show"}</span>
-              </button>
-              {showLegs && <CardBody className="pt-0"><SlaLegsBar legs={legs.legs} breached={legs.breached} /></CardBody>}
-            </Card>
-          )}
+      {/* ===== dispatch banner ===== */}
+      {canTriage && (
+        <div className={cn("flex items-start gap-2.5 rounded-xl border border-l-[3px] px-4 py-3 text-[13px]",
+          dispatched ? "border-success/30 border-l-success bg-success-subtle" : "border-warning/30 border-l-warning bg-warning-subtle")}>
+          <span className={cn("mt-0.5 font-semibold", dispatched ? "text-success" : "text-warning")}>{dispatched ? "✓" : "◆"}</span>
+          <div>
+            <p className={cn("font-mono text-[10px] font-semibold uppercase tracking-[0.1em]", dispatched ? "text-success" : "text-warning")}>
+              {dispatched ? "Dispatched → in the working queue" : "Not dispatched yet"}
+            </p>
+            <p className="mt-0.5 text-slate-600">
+              {dispatched
+                ? owner ? <>Assigned to <span className="font-medium text-slate-900">{owner}</span> — it now appears in their queue.</> : "A governance ladder is running on this request."
+                : "This request has no direction — start a governance ladder or assign an owner below."}
+            </p>
+          </div>
         </div>
+      )}
 
-        {/* sidebar */}
-        <div className="space-y-4">
-          {/* what to do next */}
-          {r.contract_id && canTriage && <ContractNextStep contractId={r.contract_id} onRefresh={refresh} />}
-
-          {!r.contract_id && canTriage && open && (
-            <Card>
-              <CardHeader><CardTitle>Quick actions</CardTitle></CardHeader>
-              <CardBody className="space-y-2">
-                {r.stage !== "complete" && (
-                  <Button className="w-full justify-start" size="sm" variant="outline" loading={busy}
-                    onClick={() => act(() => intakeApi.update(id, { stage: nextStage(r) }), "Stage advanced")}>→ Advance stage</Button>
-                )}
-                <Button className="w-full justify-start" size="sm" variant="outline" loading={busy}
-                  onClick={() => act(() => intakeApi.triage(id, { action: "escalate" }), "Escalated")}>⚡ Escalate</Button>
-                <Button className="w-full justify-start" size="sm" variant="outline" loading={busy}
-                  onClick={() => act(() => intakeApi.triage(id, { action: "manual_close" }), "Closed")}>✓ Mark complete</Button>
-              </CardBody>
-            </Card>
-          )}
-
-          {/* access the contract, or let the agent draft it */}
-          {r.contract_id ? (
-            <a href={`/contracts/${r.contract_id}`}
-              className="flex items-center justify-between rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm transition-colors hover:bg-brand-100">
-              <span className="min-w-0 truncate text-slate-700">Contract: <strong className="text-slate-900">{r.contract_title ?? "linked"}</strong></span>
-              <span className="shrink-0 font-semibold text-brand-700">Open →</span>
-            </a>
-          ) : canTriage && open && draftableDocType(r) ? (
-            <div className="rounded-lg border border-dashed border-brand-300 bg-brand-50/50 px-4 py-3 text-sm">
-              <p className="mb-2 text-slate-600">No contract yet. Let the agent draft the {draftableDocType(r)} to start the lifecycle, risk scoring and redlines.</p>
-              <Button size="sm" loading={busy}
-                onClick={() => act(() => intakeApi.draftContract(id), `${draftableDocType(r)} drafted — analysis running`)}>Draft the {draftableDocType(r)} →</Button>
+      {/* ===== governance ladder ===== */}
+      <Card className="p-5">
+        {hasRun && flowRun ? (
+          <>
+            {head(`Governance Ladder · ${flowRun.flow_name}`,
+              <>Step {Math.min(flowRun.current_index + 1, flowSteps.length)} of {flowSteps.length} · <span className={flowRun.status === "complete" ? "text-success" : "text-slate-500"}>{titleCase(flowRun.status)}</span></>)}
+            <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${flowSteps.length ? Math.round((doneCount / flowSteps.length) * 100) : 0}%` }} />
             </div>
-          ) : null}
-
-          {/* people */}
-          <Card>
-            <CardHeader><CardTitle>People</CardTitle></CardHeader>
-            <CardBody>
-              <dl className="grid gap-3">
-                <Fact label="Requester">{r.requester_name ?? "—"}</Fact>
-                <Fact label="Department">{r.department ?? "—"}</Fact>
-                <Fact label="Assignee">{r.assigned_to_label ?? "Unassigned"}</Fact>
-                <Fact label="Holder"><span className="capitalize">{r.handoff_holder ?? "—"}</span></Fact>
-                <Fact label="Submitted">{r.submitted_at ? new Date(r.submitted_at).toLocaleString() : "—"}</Fact>
-              </dl>
-            </CardBody>
-          </Card>
-
-          {/* agent recommendation — collapsible, kept out of the way */}
-          {rec && (
-            <Card className={cn("border", rec.can_auto_send ? "border-brand-300" : "border-amber-300")}>
-              <button onClick={() => setShowRec((v) => !v)} className="flex w-full items-center gap-2 px-4 py-3 text-left">
-                <span>🤖</span>
-                <span className="text-sm font-medium text-slate-900">{titleCase(rec.agent_id.replace(/_/g, " "))}</span>
-                <span className={cn("rounded-full px-2 py-0.5 text-[10px] font-bold",
-                  rec.confidence >= 0.75 ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>{rec.confidence.toFixed(2)}</span>
-                <span className="ml-auto text-xs text-slate-400">{showRec ? "Hide" : "Review"}</span>
-              </button>
-              {showRec && (
-                <CardBody className="space-y-3 pt-0">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    {rec.suggested_action === "approve_and_send" ? "Suggested · approve & send" : "Flagged for human review"}
-                  </p>
-                  {editing ? (
-                    <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} />
-                  ) : (
-                    <div className="whitespace-pre-wrap rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">{rec.drafted_response}</div>
-                  )}
-                  <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Reasoning</p>
-                    <p className="text-xs text-slate-600">{rec.reasoning}</p></div>
-                  {rec.concerns.length > 0 && (
-                    <ul className="space-y-0.5 text-xs text-slate-600">{rec.concerns.map((c, i) => <li key={i}>⚠ {c}</li>)}</ul>
-                  )}
-                  {canTriage && rec.status === "pending" && (
-                    <div className="flex flex-wrap gap-2">
-                      {editing ? (
-                        <>
-                          <Button size="sm" loading={busy}
-                            onClick={() => act(async () => { await intakeApi.triage(id, { action: "edited_approved", edited_response: draft }); setEditing(false); }, "Approved")}>Save &amp; approve</Button>
-                          <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button size="sm" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "approved" }), "Approved")}>Approve</Button>
-                          <Button size="sm" variant="outline" onClick={() => { setDraft(rec.drafted_response); setEditing(true); }}>Edit</Button>
-                          <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "rejected" }), "Rejected")}>Reject</Button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </CardBody>
+            <div className="flex items-start overflow-x-auto pb-1">
+              {flowSteps.map((s, i) => {
+                const m = stepMeta(s.type);
+                const Icon = m.icon;
+                const done = s.status === "done" || s.status === "complete";
+                const active = s.idx === flowRun.current_index && flowRun.status !== "complete";
+                const waiting = s.status.startsWith("waiting");
+                const isSel = s.idx === selIdx;
+                return (
+                  <Fragment key={s.idx}>
+                    <button type="button" onClick={() => setSelectedIdx(s.idx)}
+                      className={cn("flex min-w-[86px] max-w-[116px] shrink-0 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-center transition hover:bg-slate-50", isSel && "bg-slate-100 ring-1 ring-slate-200")}>
+                      <span className={cn("grid h-9 w-9 place-items-center rounded-full ring-2 transition",
+                        done ? "bg-success-subtle text-success ring-success/40"
+                          : active ? cn("bg-brand-50 text-brand-700 ring-brand-300", waiting && "animate-pulse")
+                            : "bg-slate-100 text-slate-400 ring-slate-200")}>
+                        {done ? <Check className="h-4 w-4" /> : <Icon className="h-4 w-4" />}
+                      </span>
+                      <span className={cn("text-[11px] leading-tight", active ? "font-semibold text-slate-900" : done ? "text-slate-600" : "text-slate-400")}>{s.name}</span>
+                      <span className={cn("font-mono text-[8.5px] uppercase tracking-wide",
+                        done ? "text-success" : active ? (waiting ? "text-warning" : "text-brand-600") : "text-slate-400")}>
+                        {done ? "Done" : active ? (waiting ? m.wait : m.running) : m.label}
+                      </span>
+                    </button>
+                    {i < flowSteps.length - 1 && <span className={cn("mt-4 h-0.5 min-w-[12px] flex-1 rounded", done ? "bg-success/40" : "bg-slate-200")} />}
+                  </Fragment>
+                );
+              })}
+            </div>
+            {selStep && (
+              <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-700">
+                  {(() => { const I = stepMeta(selStep.type).icon; return <I className="h-3.5 w-3.5" />; })()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-slate-400">{selState === "current" ? "Now" : selState === "done" ? "Done" : `Step ${selStep.idx + 1}`}</span>
+                    <span className="text-[13px] font-semibold text-slate-900">{selStep.name}</span>
+                    <Badge tone={selState === "done" ? "green" : selState === "current" ? (selStep.status.startsWith("waiting") ? "amber" : "blue") : "slate"}>{stepMeta(selStep.type).label}</Badge>
+                  </div>
+                  <div className="mt-1"><StepInfo step={selStep} r={r} state={selState} /></div>
+                </div>
+              </div>
+            )}
+            {flowRun.status === "complete" && (
+              <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/30 bg-success-subtle px-3 py-2 text-[13px] text-success">
+                <Check className="h-4 w-4" /> Workflow complete — every step is done.
+              </div>
+            )}
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+              {current?.status === "waiting_human" && (
+                <Button size="sm" loading={busy} onClick={() => act(() => flowsApi.completeStep(flowRun.id), `“${current.name}” completed`)}><Check className="h-4 w-4" /> Complete this step</Button>
               )}
-            </Card>
-          )}
+              {current && (current.type === "approval" || current.type === "signature") && (
+                <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => flowsApi.refreshRun(flowRun.id), "Refreshed")}>Check {current.type} status</Button>
+              )}
+              {r.contract_id && (
+                <a href={`/contracts/${r.contract_id}`} className="ml-auto inline-flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:underline">Open the drafted contract →</a>
+              )}
+              {flowRun.error && <p className="text-xs text-danger">{flowRun.error}</p>}
+            </div>
+          </>
+        ) : r.contract_id ? (
+          <>
+            <ContractLifecycleTracker contractId={r.contract_id} />
+            <div className="mt-3"><WorkflowPanel requestId={id} suggestion={r.ai_triage?.flow_suggestion as FlowSuggestion | undefined} /></div>
+          </>
+        ) : (
+          <>
+            {head("Request Workflow")}
+            <WorkflowStepper steps={r.workflow} />
+            <div className="mt-3"><WorkflowPanel requestId={id} suggestion={r.ai_triage?.flow_suggestion as FlowSuggestion | undefined} /></div>
+          </>
+        )}
+      </Card>
 
-          {canTriage && open && (
-            <Card>
-              <CardHeader><CardTitle>Route &amp; organize</CardTitle></CardHeader>
-              <CardBody className="space-y-3">
-                <div className="flex items-end gap-2">
-                  <Field label="Reassign to" className="flex-1">
-                    <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}>
-                      <option value="">Select…</option>
-                      {(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </Select>
-                  </Field>
-                  <Button size="sm" variant="outline" loading={busy} disabled={!reassignTo}
-                    onClick={() => act(async () => { await intakeApi.triage(id, { action: "reassigned", assignee_user_id: reassignTo }); setReassignTo(""); }, "Reassigned")}>Go</Button>
-                </div>
-                <div className="flex items-end gap-2">
-                  <Field label="Snooze until" className="flex-1">
-                    <Input type="date" value={snoozeUntil} onChange={(e) => setSnoozeUntil(e.target.value)} />
-                  </Field>
-                  <Button size="sm" variant="outline" loading={busy} disabled={!snoozeUntil}
-                    onClick={() => act(async () => { await intakeApi.triage(id, { action: "snoozed", snoozed_until: snoozeUntil }); setSnoozeUntil(""); }, "Snoozed")}>Go</Button>
-                </div>
-                <div className="flex items-end gap-2">
-                  <Field label="Promote to" className="flex-1">
-                    <div className="flex gap-1">
-                      <Select value={promoteKind} onChange={(e) => { setPromoteKind(e.target.value as "project" | "contract"); setPromoteTarget(""); }}>
-                        <option value="project">Project</option><option value="contract">Contract</option>
-                      </Select>
-                      <Select value={promoteTarget} onChange={(e) => setPromoteTarget(e.target.value)}>
-                        <option value="">Select…</option>
-                        {promoteOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-                      </Select>
-                    </div>
-                  </Field>
-                  <Button size="sm" variant="outline" loading={busy} disabled={!promoteTarget}
-                    onClick={() => act(async () => { await intakeApi.promote(id, promoteKind, promoteTarget); setPromoteTarget(""); }, `Promoted to ${promoteKind}`)}>Go</Button>
-                </div>
-                {(r.project_id || r.contract_id) && (
-                  <p className="text-xs text-slate-500">Linked to {[r.project_id && "a project", r.contract_id && "a contract"].filter(Boolean).join(" and ")}.</p>
-                )}
-              </CardBody>
-            </Card>
+      {la && <LitigationCard a={la} />}
+
+      {/* ===== request brief ===== */}
+      <Card className="p-5">
+        {head("Request Brief", <>{ai.category != null && <span className="text-brand-600">{String(ai.category)}</span>}{ai.risk_flag != null && <span className={cn("ml-2", String(ai.risk_flag) === "high" ? "text-danger" : "text-warning")}>{String(ai.risk_flag)} risk</span>}</>)}
+        <p className="max-h-48 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">{r.description || r.type_label}</p>
+        <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-slate-100 pt-4 sm:grid-cols-4">
+          <Fact label="Counterparty">{requestCounterparty(r) ?? <span className="text-slate-400">—</span>}</Fact>
+          <Fact label="Department">{r.department ?? "—"}</Fact>
+          {ai.confidence != null && <Fact label="AI confidence">{Math.round(Number(ai.confidence) * 100)}%</Fact>}
+          {ai.complexity != null && <Fact label="Complexity">{titleCase(String(ai.complexity))}</Fact>}
+          {r.contract_id && r.contract_title && <Fact label="Contract"><a className="text-brand-700 hover:underline" href={`/contracts/${r.contract_id}`}>{r.contract_title}</a></Fact>}
+        </dl>
+        {(r.fired_rules as { summaries?: { name: string; actions: string[] }[] } | null)?.summaries?.length ? (
+          <div className="mt-3 border-t border-slate-100 pt-3">
+            <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Routing rules fired</p>
+            <ul className="space-y-1 text-xs text-slate-600">
+              {(r.fired_rules as { summaries: { name: string; actions: string[] }[] }).summaries.map((s, i) => <li key={i}>▸ <b>{s.name}</b> — {s.actions.join(", ")}</li>)}
+            </ul>
+          </div>
+        ) : null}
+        {/* contract access / draft */}
+        {r.contract_id ? (
+          <a href={`/contracts/${r.contract_id}`} className="mt-4 flex items-center justify-between rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm hover:bg-brand-100">
+            <span className="min-w-0 truncate text-slate-700">Contract: <strong className="text-slate-900">{r.contract_title ?? "linked"}</strong></span>
+            <span className="shrink-0 font-semibold text-brand-700">Open →</span>
+          </a>
+        ) : canTriage && open && draftableDocType(r) ? (
+          <div className="mt-4 rounded-lg border border-dashed border-brand-300 bg-brand-50/50 px-4 py-3 text-sm">
+            {hasAttachment ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-slate-600">Attached document ready:</span>
+                <Button size="sm" loading={busy} onClick={() => act(() => intakeApi.ingestAttachment(id), "Using the attachment — review running")}>Use attached as the contract →</Button>
+                <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.draftContract(id), `${draftableDocType(r)} drafted — review running`)}>Approve &amp; draft fresh</Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="mr-1 text-slate-600">Approve to auto-draft the {draftableDocType(r)}:</span>
+                <Button size="sm" loading={busy} onClick={() => act(() => intakeApi.draftContract(id), `${draftableDocType(r)} drafted — review running`)}>Approve &amp; draft the {draftableDocType(r)} →</Button>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </Card>
+
+      {/* ===== AI analysis + triage recommendation ===== */}
+      {r.contract_id && <Card className="p-5">{head("Playbook Deviations · Risk")}<AiAnalysisCard contractId={r.contract_id} /></Card>}
+      {/* The standalone triage recommendation is the disposition path only when NO
+          governance ladder is running — once a flow drives the ticket, the ladder
+          (and its per-step AI output) supersedes it, and triage-approve would wrongly
+          short-circuit a mid-flight ladder. */}
+      {rec && !hasRun && (
+        <Card className="p-5">
+          {head("AI Triage Recommendation", <span className="inline-flex items-center gap-2"><AgentBadge agentId={rec.agent_id} /><ConfidenceBadge conf={rec.confidence} /></span>)}
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{rec.suggested_action === "approve_and_send" ? "Suggested · approve & send" : "Flagged for human review"}</p>
+          {editing ? <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={6} />
+            : <div className="whitespace-pre-wrap rounded-lg border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">{rec.drafted_response}</div>}
+          <p className="mt-3 mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Reasoning</p>
+          <p className="text-xs text-slate-600">{rec.reasoning}</p>
+          {rec.concerns.length > 0 && <ul className="mt-2 space-y-0.5 text-xs text-slate-600">{rec.concerns.map((c, i) => <li key={i}>⚠ {c}</li>)}</ul>}
+          {canTriage && rec.status === "pending" && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {editing ? (
+                <>
+                  <Button size="sm" loading={busy} onClick={() => act(async () => { await intakeApi.triage(id, { action: "edited_approved", edited_response: draft }); setEditing(false); }, "Approved")}>Save &amp; approve</Button>
+                  <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "approved" }), "Approved")}>Approve</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setDraft(rec.drafted_response); setEditing(true); }}>Edit</Button>
+                  <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "rejected" }), "Rejected")}>Reject</Button>
+                  <span className="ml-auto flex items-center gap-2.5 self-center text-[10px] text-slate-400"><span className="inline-flex items-center gap-1"><Kbd k="A" /> approve</span><span className="inline-flex items-center gap-1"><Kbd k="E" /> edit</span><span className="inline-flex items-center gap-1"><Kbd k="R" /> reject</span></span>
+                </>
+              )}
+            </div>
           )}
-        </div>
-      </div>
+        </Card>
+      )}
+
+      {/* ===== counterparty & screening + documents ===== */}
+      <Card className="p-5">{head("Counterparty & Screening")}
+        <div className="space-y-4"><PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} /><ScreeningPanel r={r} canTriage={canTriage} onRefreshed={refresh} /></div>
+      </Card>
+      <Card className="p-5">{head("Documents")}<DocumentsPanel requestId={r.id} /></Card>
+
+      {/* ===== assignment & dispatch ===== */}
+      {canTriage && open && (
+        <Card className="p-5">
+          {head("Assignment · Direction & Ownership", owner ? <>Owned by <span className="text-slate-600">{owner}</span></> : "Unassigned")}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex items-end gap-2">
+              <Field label="Reassign owner" className="flex-1">
+                <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}>
+                  <option value="">Select…</option>{(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </Select>
+              </Field>
+              <Button size="sm" variant="outline" loading={busy} disabled={!reassignTo} onClick={() => act(async () => { await intakeApi.triage(id, { action: "reassigned", assignee_user_id: reassignTo }); setReassignTo(""); }, "Reassigned")}>Go</Button>
+            </div>
+            <div className="flex items-end gap-2">
+              <Field label="Snooze until" className="flex-1"><Input type="date" value={snoozeUntil} onChange={(e) => setSnoozeUntil(e.target.value)} /></Field>
+              <Button size="sm" variant="outline" loading={busy} disabled={!snoozeUntil} onClick={() => act(async () => { await intakeApi.triage(id, { action: "snoozed", snoozed_until: snoozeUntil }); setSnoozeUntil(""); }, "Snoozed")}>Go</Button>
+            </div>
+            <div className="flex items-end gap-2 sm:col-span-2">
+              <Field label="Promote to" className="flex-1">
+                <div className="flex gap-1">
+                  <Select value={promoteKind} onChange={(e) => { setPromoteKind(e.target.value as "project" | "contract"); setPromoteTarget(""); }}><option value="project">Project</option><option value="contract">Contract</option></Select>
+                  <Select value={promoteTarget} onChange={(e) => setPromoteTarget(e.target.value)}><option value="">Select…</option>{promoteOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</Select>
+                </div>
+              </Field>
+              <Button size="sm" variant="outline" loading={busy} disabled={!promoteTarget} onClick={() => act(async () => { await intakeApi.promote(id, promoteKind, promoteTarget); setPromoteTarget(""); }, `Promoted to ${promoteKind}`)}>Go</Button>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+            {r.status !== "escalated" && <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "escalate" }), "Escalated")}>⚡ Escalate</Button>}
+            <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "manual_close" }), "Closed")}>✓ Mark complete</Button>
+          </div>
+        </Card>
+      )}
+
+      <RelatedContractsCard r={r} contracts={contracts ?? []} />
+
+      {/* ===== SLA custody legs ===== */}
+      {legs && legs.legs.length > 0 && (
+        <Card className="p-5">
+          {head("SLA Custody Legs", <span className={legs.breached ? "text-danger" : ""}>{legs.breached ? "Window breached" : "Clock running"} · {fmtElapsedHours(elapsedH ?? 0)} elapsed</span>)}
+          <SlaLegsBar legs={legs.legs} breached={legs.breached} />
+          <p className="mt-2 text-[11px] text-slate-400">Legs derive from the hand-off ledger — every baton pass starts a new clock segment. One window, no resets.</p>
+        </Card>
+      )}
+
+      {/* ===== timeline ===== */}
+      <Card className="p-5">
+        {head(`Timeline (${(handoffs ?? []).length})`, "Chain-sealed · tamper-evident")}
+        {(handoffs ?? []).length === 0 ? <p className="text-xs text-slate-400">Still in the intake queue — no hand-offs yet.</p> : (
+          <ol className="space-y-3">
+            {(handoffs ?? []).map((h) => (
+              <li key={h.id} className="flex gap-3 text-xs">
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
+                <div className="min-w-0">
+                  <span className="capitalize text-slate-500">{h.from_holder ?? "queue"}</span>
+                  <span className="text-slate-400"> → </span>
+                  <span className="font-medium capitalize text-slate-900">{h.to_label ?? h.to_holder}</span>
+                  {h.reason && <span className="text-slate-400"> · {h.reason}</span>}
+                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
+                    {h.created_at && <span>{new Date(h.created_at).toLocaleString()}</span>}
+                    <span className="font-mono">#{String(h.id).slice(0, 8)}</span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+      </Card>
     </div>
   );
 }
-
-function nextStage(r: IntakeRequest): string {
-  const idx = r.workflow.findIndex((s) => s.stage === r.stage);
-  return r.workflow[Math.min(idx + 1, r.workflow.length - 1)]?.stage ?? "complete";
-}
-
 
 // ---- screening + documents panels (gap-fill) -------------------------------
 
@@ -1378,7 +2253,7 @@ function PartiesPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTria
             <Badge tone={p.role === "adverse" ? "red" : p.role === "counterparty" ? "blue" : "slate"}>{ROLE_LABEL[p.role] ?? p.role}</Badge>
             <span className="font-medium text-slate-700">{p.name}</span>
             {canTriage && (
-              <button className="ml-auto text-slate-400 hover:text-red-600" disabled={busy}
+              <button className="ml-auto text-slate-400 hover:text-danger" disabled={busy}
                 onClick={() => save(parties.filter((_, j) => j !== i))}>remove</button>
             )}
           </li>
@@ -1435,7 +2310,7 @@ function ScreeningPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTr
             </Badge>
             {sc.sanctions?.party && <span className="text-slate-500">{sc.sanctions.party}</span>}
             {(sc.sanctions?.matches ?? []).slice(0, 2).map((m, i) => (
-              <span key={i} className="text-red-600">{m.name}{m.programs ? ` · ${m.programs}` : ""}</span>
+              <span key={i} className="text-danger">{m.name}{m.programs ? ` · ${m.programs}` : ""}</span>
             ))}
           </div>
           <div>
@@ -1537,7 +2412,7 @@ function DocumentsPanel({ requestId }: { requestId: string }) {
 function MyWorkView({ isStaff, onOpen }: { isStaff: boolean; onOpen: (id: string) => void }) {
   if (!isStaff) return <MyRequestsTab onOpen={onOpen} />;
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <MyWorkTab onOpen={onOpen} />
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Filed by me</p>

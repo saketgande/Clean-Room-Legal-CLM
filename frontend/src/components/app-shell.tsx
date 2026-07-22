@@ -60,6 +60,7 @@ const NAV: {
   {
     section: "Lifecycle",
     items: [
+      { href: "/workflow-builder", label: "Workflows", icon: WorkflowIcon },
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
       { href: "/signatures", label: "Signatures", icon: Signature },
       { href: "/obligations", label: "Obligations", icon: ListChecks },
@@ -169,22 +170,22 @@ function SidebarNav({
               onClick={toggleCollapsed}
               title="Expand sidebar"
               aria-label="Expand sidebar"
-              className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 font-serif text-base font-medium text-white transition-colors hover:bg-brand-700"
+              className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-base font-semibold text-white transition-colors hover:bg-brand-700"
             >
               A
             </button>
           ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-brand-600 font-serif text-base font-medium text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-base font-semibold text-white">
               A
             </div>
           )
         ) : (
           <>
             <div className="flex items-baseline gap-2">
-              <span className="font-serif text-[21px] font-medium tracking-tight text-slate-900">
+              <span className="text-[17px] font-semibold tracking-tight text-slate-900">
                 Aegis
               </span>
-              <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+              <span className="text-[9px] font-medium uppercase tracking-[0.12em] text-slate-500">
                 Legal
               </span>
             </div>
@@ -230,7 +231,7 @@ function SidebarNav({
         {NAV.map((group) => (
           <div key={group.section} className="mb-5">
             {!collapsed && (
-              <p className="px-2.5 pb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              <p className="px-2.5 pb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                 {group.section}
               </p>
             )}
@@ -245,17 +246,17 @@ function SidebarNav({
                     onClick={onNavigate}
                     title={collapsed ? item.label : undefined}
                     className={cn(
-                      "relative flex items-center rounded-md text-sm transition-colors",
+                      "relative flex items-center rounded-lg text-[13px] transition-colors",
                       collapsed
-                        ? "justify-center px-2 py-2.5"
-                        : "gap-2.5 px-2.5 py-2",
+                        ? "justify-center px-2 py-2"
+                        : "gap-2.5 px-2.5 py-1.5",
                       active
-                        ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-300"
-                        : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+                        ? "bg-slate-100 font-medium text-brand-700 shadow-sm ring-1 ring-slate-200"
+                        : "font-normal text-slate-600 hover:bg-slate-100 hover:text-slate-900",
                     )}
                   >
                     {active && !collapsed && (
-                      <span className="absolute -left-1.5 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-full bg-brand-600 dark:bg-brand-400" />
+                      <span className="absolute -left-1.5 top-1/2 h-4 w-[2.5px] -translate-y-1/2 rounded-full bg-brand-600" />
                     )}
                     <Icon
                       className={cn(
@@ -282,8 +283,8 @@ function SidebarNav({
             "flex items-center rounded-md text-sm transition-colors",
             collapsed ? "justify-center px-2 py-2.5" : "gap-2.5 px-2.5 py-2",
             notifActive
-              ? "bg-brand-50 font-semibold text-brand-700 dark:bg-brand-400/15 dark:text-brand-300 dark:shadow-[0_0_0_1px_rgba(71,158,245,0.12)]"
-              : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+              ? "bg-brand-50 font-medium text-brand-700"
+              : "font-normal text-slate-600 hover:bg-slate-100 hover:text-slate-900",
           )}
         >
           <span className="relative shrink-0">
@@ -401,7 +402,7 @@ function SidebarNav({
                   setMenuOpen(false);
                   void logout();
                 }}
-                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+                className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium text-danger hover:bg-danger-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
               >
                 <LogOut className="h-4 w-4" />
                 Sign out
@@ -409,60 +410,6 @@ function SidebarNav({
             </div>
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Desktop-only top strip carrying the console's "liveness": a mono-caps route
- * eyebrow on the left, a pulsing LIVE dot + ticking clock on the right — the
- * reference's signature chrome, felt on every page. The clock renders only
- * after mount to avoid an SSR/client hydration mismatch.
- */
-function LiveStrip() {
-  const pathname = usePathname();
-  const [now, setNow] = useState<Date | null>(null);
-  useEffect(() => {
-    setNow(new Date());
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  let eyebrow = "Aegis · Legal";
-  for (const group of NAV) {
-    const item = group.items.find((i) =>
-      i.href === "/"
-        ? pathname === "/" || pathname.startsWith("/assistant")
-        : pathname.startsWith(i.href),
-    );
-    if (item) {
-      eyebrow = `${group.section} · ${item.label}`;
-      break;
-    }
-  }
-  if (pathname.startsWith("/contracts")) eyebrow = "Workspace · Legal Intake";
-
-  const clock = now
-    ? `${now.toLocaleTimeString("en-US", { hour12: false })} · ${now.toLocaleDateString(
-        "en-US",
-        { month: "short", day: "numeric", year: "numeric" },
-      )}`
-    : "—";
-
-  return (
-    <div className="hidden h-10 shrink-0 items-center justify-between border-b border-slate-200 bg-slate-50 px-6 lg:flex">
-      <p className="truncate font-mono text-[10.5px] uppercase tracking-[0.18em] text-slate-400">
-        {eyebrow}
-      </p>
-      <div className="flex items-center gap-4">
-        <span className="flex items-center gap-1.5">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-brand-600">
-            Live
-          </span>
-        </span>
-        <span className="font-mono text-[11px] tabular-nums text-slate-500">{clock}</span>
       </div>
     </div>
   );
@@ -497,7 +444,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside
         className={cn(
           "hidden shrink-0 flex-col border-r border-slate-200 bg-slate-50 transition-[width] duration-200 lg:flex",
-          deskCollapsed ? "w-[4.25rem]" : "w-60",
+          deskCollapsed ? "w-[4.25rem]" : "w-56",
         )}
       >
         <SidebarNav collapsed={deskCollapsed} />
@@ -528,9 +475,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Desktop LIVE strip — route eyebrow + ticking clock, so the console's
-            liveness is felt on every page (the reference's signature chrome). */}
-        <LiveStrip />
         {/* Mobile top bar only — on desktop these controls live in the sidebar,
             so the main area runs full-height with no top chrome. */}
         <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-3 sm:px-6 lg:hidden">
@@ -566,7 +510,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {fullBleed ? (
             children
           ) : (
-            <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 sm:py-6">
+            <div className="mx-auto max-w-[1400px] px-5 py-4 sm:px-6">
               {children}
             </div>
           )}

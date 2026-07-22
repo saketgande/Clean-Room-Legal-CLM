@@ -111,7 +111,7 @@ export default function BuildPlaybookPage() {
           <ArrowLeft className="h-3.5 w-3.5" /> Playbooks
         </Link>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h1 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+          <h1 className="flex items-center gap-2 text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
             <Sparkles className="h-5 w-5 text-brand-600" /> Build playbook with AI
           </h1>
           <div className="flex items-center gap-2">
@@ -154,7 +154,7 @@ export default function BuildPlaybookPage() {
         >
           <div className="flex-1 space-y-3 overflow-y-auto p-4">
             {messages.length === 0 && (
-              <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">
+              <div className="rounded-md border border-dashed border-slate-300 p-4 text-[13px] text-slate-500">
                 Attach a template, an exemplar contract, or your existing playbook, then say
                 <span className="font-medium"> “build a playbook from these.”</span> Iterate with
                 things like <span className="font-medium">“make the liability rule stricter”</span>{" "}
@@ -189,7 +189,7 @@ export default function BuildPlaybookPage() {
                   <FileText className="h-3 w-3" /> {d.filename}
                   <button
                     onClick={() => setDocs(docs.filter((_, idx) => idx !== i))}
-                    className="text-slate-400 hover:text-rose-600"
+                    className="text-slate-400 hover:text-danger"
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -248,7 +248,7 @@ export default function BuildPlaybookPage() {
               <p className="text-sm text-slate-400">Rules will appear here as you build.</p>
             ) : (
               rules.map((r, i) => (
-                <div key={i} className="rounded-lg border border-slate-200 bg-slate-100 p-3">
+                <div key={i} className="rounded-md border border-slate-200 bg-slate-100 p-3">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-slate-900">
                       {titleCase(r.clause_type)}

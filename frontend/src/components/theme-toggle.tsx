@@ -39,7 +39,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={nextLabel}
       title={nextLabel}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+      className="flex h-9 w-9 shrink-0 items-center justify-center rounded border border-slate-200 text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
     >
       {/* Render a stable icon until mounted to avoid a hydration mismatch. */}
       {!mounted ? (

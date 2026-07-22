@@ -366,6 +366,7 @@ class RequestResponse(BaseModel):
     triage_action: str | None = None
     agent_outcome: str | None = None
     ai_triage: dict | None = None
+    gates: dict | None = None
     fired_rules: dict | None = None
     screening: dict | None = None
     parties: list[dict] = Field(default_factory=list)

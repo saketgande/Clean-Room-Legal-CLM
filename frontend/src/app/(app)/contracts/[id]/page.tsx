@@ -362,7 +362,7 @@ function CommentsPanel({ contractId }: { contractId: string }) {
                       ?.scrollIntoView({ behavior: "smooth", block: "center" })
                   }
                   title="Jump to this passage in the document"
-                  className="mb-1.5 block w-full truncate border-l-2 border-sky-300 pl-2 text-left text-xs italic text-slate-500 hover:text-sky-700"
+                  className="mb-1.5 block w-full truncate border-l-2 border-info/40 pl-2 text-left text-xs italic text-slate-500 hover:text-info"
                 >
                   “{(c.anchor as { quote?: string }).quote}”
                 </button>
@@ -390,7 +390,7 @@ function CommentsPanel({ contractId }: { contractId: string }) {
                       (list) => list.filter((x) => x.id !== c.id),
                     )
                   }
-                  className="inline-flex items-center gap-1 text-slate-400 hover:text-rose-600"
+                  className="inline-flex items-center gap-1 text-slate-400 hover:text-danger"
                 >
                   <Trash2 className="h-3.5 w-3.5" /> Delete
                 </button>
@@ -696,9 +696,9 @@ function DiffModal({
                 className={cn(
                   "whitespace-pre-wrap px-3 py-0.5",
                   l.type === "add"
-                    ? "bg-emerald-50 text-emerald-800"
+                    ? "bg-success-subtle text-success"
                     : l.type === "remove"
-                      ? "bg-rose-50 text-rose-800"
+                      ? "bg-danger-subtle text-danger"
                       : "text-slate-600",
                 )}
               >
@@ -710,7 +710,7 @@ function DiffModal({
             ))}
           </div>
           {data.truncated && (
-            <p className="text-xs text-amber-600">Diff truncated for a large document.</p>
+            <p className="text-xs text-warning">Diff truncated for a large document.</p>
           )}
         </div>
       )}
@@ -737,7 +737,7 @@ function ChainPill({ step }: { step: ApprovalChainStep }) {
     return (
       <span
         title={step.decided_by ? `Approved by ${step.decided_by}` : "Approved"}
-        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700"
+        className="inline-flex items-center gap-1 rounded-full bg-success-subtle px-2.5 py-1 text-xs font-semibold text-success"
       >
         <CheckCircle2 className="h-3.5 w-3.5" />
         {step.approver_label}
@@ -747,7 +747,7 @@ function ChainPill({ step }: { step: ApprovalChainStep }) {
     return (
       <span
         title={step.decided_by ? `Rejected by ${step.decided_by}` : "Rejected"}
-        className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-700"
+        className="inline-flex items-center gap-1 rounded-full bg-danger-subtle px-2.5 py-1 text-xs font-semibold text-danger"
       >
         <X className="h-3.5 w-3.5" />
         {step.approver_label}
@@ -758,7 +758,7 @@ function ChainPill({ step }: { step: ApprovalChainStep }) {
       <span
         className={cn(
           "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold",
-          step.overdue ? "bg-rose-600 text-white" : "bg-brand-600 text-white",
+          step.overdue ? "bg-danger text-white" : "bg-brand-600 text-white",
         )}
       >
         <Circle className="h-2 w-2 fill-current" />
@@ -815,7 +815,7 @@ function NextStepHero({
 
   const TONE = {
     brand: { band: "bg-brand-50/60", icon: "bg-brand-100 text-brand-700" },
-    emerald: { band: "bg-emerald-50/60", icon: "bg-emerald-100 text-emerald-700" },
+    emerald: { band: "bg-success-subtle", icon: "bg-success-subtle text-success" },
     slate: { band: "bg-slate-50", icon: "bg-slate-100 text-slate-500" },
   };
 
@@ -943,7 +943,7 @@ function NextStepHero({
     return (
       <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-brand-50/60 px-4 py-1.5">
         <Wand2 className="h-3.5 w-3.5 shrink-0 text-brand-600" />
-        <p className="min-w-0 flex-1 truncate font-serif text-[13.5px] text-slate-800">
+        <p className="min-w-0 flex-1 truncate font-sans text-[13.5px] text-slate-800">
           {review.next_step}
         </p>
         {review.next_action && (
@@ -980,11 +980,11 @@ function NextStepHero({
       </button>
       {/* Left: the single next step, spoken plainly. */}
       <div className="flex flex-col justify-center gap-1.5 border-b border-slate-200 bg-brand-50/60 px-4 py-2.5 lg:border-b-0 lg:border-r">
-        <p className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.18em] text-brand-600">
+        <p className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-600">
           <Wand2 className="h-3.5 w-3.5" />
           Next step · {titleCase(contract.lifecycle_stage)}
         </p>
-        <p className="font-serif text-[15px] leading-snug text-slate-900">
+        <p className="font-sans text-[15px] leading-snug text-slate-900">
           {review.next_step}
         </p>
         <div className="flex items-center gap-3">
@@ -1025,9 +1025,9 @@ function NextStepHero({
               className={cn(
                 "flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
                 m.style === "red" &&
-                  "border-rose-200 bg-rose-50/40 hover:border-rose-300 dark:border-rose-400/40 dark:bg-rose-400/10",
+                  "border-danger/30 bg-danger-subtle hover:border-danger/50",
                 m.style === "amber" &&
-                  "border-amber-200 bg-amber-50/40 hover:border-amber-300 dark:border-amber-400/40 dark:bg-amber-400/10",
+                  "border-warning/30 bg-warning-subtle hover:border-warning/50",
                 m.style === "done" && "cursor-default border-slate-200 bg-slate-100/60",
                 m.style === "todo" && "border-slate-200 bg-slate-100 hover:border-brand-300",
                 m.style === "opt" && "border-dashed border-slate-300 bg-transparent hover:border-brand-300",
@@ -1039,11 +1039,11 @@ function NextStepHero({
                 className={cn(
                   "flex h-5 w-5 shrink-0 items-center justify-center rounded-full",
                   m.style === "done" &&
-                    "bg-emerald-100 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400",
+                    "bg-success-subtle text-success",
                   m.style === "red" &&
-                    "bg-rose-100 text-rose-600 dark:bg-rose-400/15 dark:text-rose-400",
+                    "bg-danger-subtle text-danger",
                   m.style === "amber" &&
-                    "bg-amber-100 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400",
+                    "bg-warning-subtle text-warning",
                   (m.style === "todo" || m.style === "opt" || m.style === "lock") &&
                     "text-slate-400",
                   m.style === "ready" && "bg-brand-100 text-brand-600",
@@ -1064,9 +1064,9 @@ function NextStepHero({
                   className={cn(
                     "block truncate text-[10.5px]",
                     m.style === "red"
-                      ? "text-rose-600/90 dark:text-rose-400/90"
+                      ? "text-danger"
                       : m.style === "amber"
-                        ? "text-amber-600/90 dark:text-amber-400/90"
+                        ? "text-warning"
                         : "text-slate-400",
                   )}
                 >
@@ -1147,15 +1147,15 @@ function AtAGlance({
 
   const band = (riskBand ?? "").toLowerCase();
   const riskValueTone =
-    band === "high" ? "text-rose-600" : band === "medium" ? "text-amber-600" : "text-emerald-600";
+    band === "high" ? "text-danger" : band === "medium" ? "text-warning" : "text-success";
 
   return (
     <div className="shrink-0 border-b border-slate-200 bg-slate-50 px-3 py-2">
-      <p className="mb-1 text-[9.5px] font-bold uppercase tracking-[0.1em] text-slate-400">
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
         At a glance
       </p>
       <Row
-        tone="bg-amber-100 text-amber-700"
+        tone="bg-warning-subtle text-warning"
         icon={<AlertTriangle className="h-3 w-3" />}
         label="Risk"
         value={riskScore != null ? `${riskScore} Â· ${titleCase(riskBand ?? "")}` : "Not scored"}
@@ -1172,7 +1172,7 @@ function AtAGlance({
             onClick={() => onOpen("obligations")}
           />
           <Row
-            tone="bg-sky-100 text-sky-700"
+            tone="bg-info-subtle text-info"
             icon={<RefreshCw className="h-3 w-3" />}
             label="Renewal notice"
             value={renewalNoticeLabel(renewals ?? [])}
@@ -1183,7 +1183,7 @@ function AtAGlance({
       ) : (
         <>
           <Row
-            tone="bg-rose-100 text-rose-700"
+            tone="bg-danger-subtle text-danger"
             icon={<AlertTriangle className="h-3 w-3" />}
             label="Open issues"
             value={
@@ -1191,11 +1191,11 @@ function AtAGlance({
                 ? `${review.open_issues}${review.high_severity_issues ? ` Â· ${review.high_severity_issues} high` : ""}`
                 : "â"
             }
-            valueTone={review?.high_severity_issues ? "text-rose-600" : undefined}
+            valueTone={review?.high_severity_issues ? "text-danger" : undefined}
             onClick={() => onOpen("redlines")}
           />
           <Row
-            tone="bg-amber-100 text-amber-700"
+            tone="bg-warning-subtle text-warning"
             icon={<FileDiff className="h-3 w-3" />}
             label="Pending redlines"
             value={review ? String(review.pending_redlines) : "â"}
@@ -1232,7 +1232,7 @@ function renewalNoticeTone(renewals: { notice_date: string | null }[]): string {
     .sort()[0];
   if (!next) return "text-slate-400 font-normal";
   const days = Math.round((new Date(next).getTime() - Date.now()) / 86_400_000);
-  return days <= 30 ? "text-amber-600" : "text-slate-900";
+  return days <= 30 ? "text-warning" : "text-slate-900";
 }
 
 // Inline obligations for the contract (Manage phase) -- no jump to the global page.
@@ -1257,7 +1257,7 @@ function ObligationsPanel({ contractId }: { contractId: string }) {
         <div key={o.id} className="rounded-md border border-slate-200 p-3">
           <div className="mb-1 flex items-center gap-2">
             {o.obligation_type && (
-              <span className="rounded-sm bg-brand-50 px-1.5 py-0.5 text-[10px] font-bold uppercase text-brand-700 dark:bg-brand-400/10 dark:text-brand-300">
+              <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-brand-700">
                 {o.obligation_type}
               </span>
             )}
@@ -1299,15 +1299,15 @@ function RenewalsPanel({ contractId }: { contractId: string }) {
   return (
     <div className="space-y-3">
       {rows.map((r) => (
-        <div key={r.id} className="rounded-md border border-brand-200 bg-brand-50 p-3 dark:bg-brand-400/5">
-          <p className="mb-1 text-xs font-bold text-brand-700 dark:text-brand-300">
+        <div key={r.id} className="rounded-md border border-brand-200 bg-brand-50 p-3">
+          <p className="mb-1 text-xs font-semibold text-brand-700">
             {r.notice_date
               ? `Renewal notice window: ${fmtDate(r.notice_date)}`
               : r.expiration_date
                 ? `Expires: ${fmtDate(r.expiration_date)}`
                 : "Renewal tracked"}
           </p>
-          <div className="space-y-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+          <div className="space-y-0.5 text-[11px] text-slate-600">
             {r.expiration_date && <p>Expiration: {fmtDate(r.expiration_date)}</p>}
             {r.renewal_window_starts_at && <p>Window opens: {fmtDate(r.renewal_window_starts_at)}</p>}
             <p>
@@ -1554,7 +1554,7 @@ export default function ContractDetailPage({
                   className="fixed inset-0 z-20"
                   onClick={() => setMenuOpen(false)}
                 />
-                <div className="absolute right-0 z-30 mt-1.5 w-56 rounded-xl border border-slate-200 bg-slate-100 p-1.5 shadow-pop">
+                <div className="absolute right-0 z-30 mt-1.5 w-56 rounded-md border border-slate-200 bg-slate-100 p-1.5 shadow-pop">
                   {moreActions.map((a) => {
                     const Icon = a.icon;
                     return (
@@ -1565,7 +1565,7 @@ export default function ContractDetailPage({
                           setMenuOpen(false);
                           a.onClick();
                         }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
+                        className="flex w-full items-center gap-2.5 rounded px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50"
                       >
                         <Icon className="h-4 w-4 text-slate-400" />
                         {a.label}
@@ -1662,7 +1662,7 @@ export default function ContractDetailPage({
                   <Icon className="h-3.5 w-3.5" />
                   {meta.label}
                   {count !== undefined && (
-                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-warning px-1 text-[10px] font-bold text-white">
                       {count}
                     </span>
                   )}
@@ -2050,9 +2050,9 @@ function RiskPanel({ contractId }: { contractId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-slate-100 p-4">
+      <div className="rounded-md border border-slate-200 bg-slate-100 p-4">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-3xl font-semibold tabular-nums text-slate-900">
+          <span className="font-mono text-[28px] font-semibold tabular-nums text-slate-900">
             {data!.score}
           </span>
           <span className="text-sm text-slate-400">/100</span>
@@ -2061,9 +2061,9 @@ function RiskPanel({ contractId }: { contractId: string }) {
           </Badge>
         </div>
         <p className="mt-1.5 text-xs text-slate-500">
-          <span className="font-medium text-rose-600">{data!.counts.high} high</span>{" "}
+          <span className="font-medium text-danger">{data!.counts.high} high</span>{" "}
           ·{" "}
-          <span className="font-medium text-amber-600">
+          <span className="font-medium text-warning">
             {data!.counts.medium} medium
           </span>{" "}
           · {data!.counts.low} low — weighted by clause impact
@@ -2221,7 +2221,7 @@ function OverviewBar({
       {collapsed && !trackerOpen ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="flex items-center gap-1.5 font-semibold text-slate-700">
-            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+            <CheckCircle2 className="h-3.5 w-3.5 text-success" />
             {titleCase(contract.lifecycle_stage)}
           </span>
           {(() => {
@@ -2279,7 +2279,7 @@ function OverviewBar({
                       current &&
                         "bg-brand-500 text-white ring-4 ring-brand-500/20",
                       locked &&
-                        "border-[1.5px] border-dashed border-amber-400/70 text-amber-500",
+                        "border-[1.5px] border-dashed border-warning/60 text-warning",
                       !done && !current && !locked &&
                         "border-[1.5px] border-slate-300 text-slate-300",
                     )}
@@ -2300,7 +2300,7 @@ function OverviewBar({
                         : done
                           ? "text-slate-500"
                           : locked
-                            ? "text-amber-600/90 dark:text-amber-400/90"
+                            ? "text-warning"
                             : "text-slate-400",
                     )}
                   >
@@ -2311,10 +2311,10 @@ function OverviewBar({
                       "whitespace-nowrap font-mono text-[9.5px]",
                       current
                         ? options?.sla_breached
-                          ? "font-semibold text-rose-500"
+                          ? "font-semibold text-danger"
                           : "text-brand-500/90"
                         : locked
-                          ? "text-amber-500/80"
+                          ? "text-warning"
                           : "text-slate-400",
                     )}
                   >
@@ -2349,14 +2349,14 @@ function OverviewBar({
               variant="outline"
               className={cn(
                 blockerParts.length > 0 &&
-                  "border-amber-300 text-amber-700 hover:border-amber-400 dark:border-amber-400/50 dark:text-amber-400",
+                  "border-warning/50 text-warning hover:border-warning",
               )}
               disabled={!options?.allowed_transitions.length}
               onClick={() => setTransitionOpen(true)}
             >
               Advance stage
               {blockerParts.length > 0 && (
-                <span className="rounded bg-amber-100 px-1.5 font-mono text-[10px] font-semibold text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                <span className="rounded bg-warning-subtle px-1.5 font-mono text-[10px] font-semibold text-warning">
                   {blockerParts.length}
                 </span>
               )}
@@ -2373,7 +2373,7 @@ function OverviewBar({
       {/* Whose turn + last move + expandable history. */}
       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
         {waitingOn && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand-700 dark:border-brand-400/40 dark:bg-brand-400/10 dark:text-brand-300">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-0.5 text-[11px] font-semibold text-brand-700">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-brand-500" />
             {waitingOn}
           </span>
@@ -2406,7 +2406,7 @@ function OverviewBar({
               {" · "}
               {fmtDateTime(h.changed_at)}
               {h.override_used && (
-                <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] text-amber-700 dark:bg-amber-400/15 dark:text-amber-300">
+                <span className="ml-1 rounded bg-warning-subtle px-1 text-[10px] text-warning">
                   override
                 </span>
               )}
@@ -2802,12 +2802,12 @@ function Redlines({
                 </div>
               </div>
               {e.original_text && (
-                <div className="max-h-32 overflow-y-auto rounded-lg bg-red-50 p-3 text-sm text-red-800 line-through">
+                <div className="max-h-32 overflow-y-auto rounded-md bg-danger-subtle p-3 text-sm text-danger line-through">
                   {e.original_text}
                 </div>
               )}
               {e.replacement_text && (
-                <div className="max-h-32 overflow-y-auto rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+                <div className="max-h-32 overflow-y-auto rounded-md bg-success-subtle p-3 text-sm text-success">
                   {e.replacement_text}
                 </div>
               )}
@@ -2830,7 +2830,7 @@ function Redlines({
                 </div>
               )}
               {unlocated && (
-                <p className="text-xs text-amber-600">
+                <p className="text-xs text-warning">
                   Could not locate this text in the current document — review
                   manually.
                 </p>
@@ -3341,7 +3341,7 @@ function AskAIPanel({
           <Sparkles className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-serif text-sm font-medium leading-tight text-slate-900">
+          <p className="font-sans text-sm font-medium leading-tight text-slate-900">
             Ask AEGIS
           </p>
           <p className="truncate text-xs text-slate-400">
@@ -3396,7 +3396,7 @@ function AskAIPanel({
                 {it.tool?.status === "running" ? (
                   <Spinner className="h-3 w-3" />
                 ) : it.tool?.status === "error" ? (
-                  <X className="h-3.5 w-3.5 text-red-500" />
+                  <X className="h-3.5 w-3.5 text-danger" />
                 ) : (
                   <Check className="h-3.5 w-3.5 text-brand-600" />
                 )}
@@ -3407,7 +3407,7 @@ function AskAIPanel({
             return (
               <div
                 key={it.id}
-                className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/50 px-3 py-2.5"
+                className="space-y-2 rounded-md border border-brand-200 bg-brand-50/50 px-3 py-2.5"
               >
                 <p className="flex items-center gap-1.5 text-xs font-medium text-slate-700">
                   <Wand2 className="h-3.5 w-3.5 text-brand-600" />
@@ -3472,11 +3472,11 @@ function AskAIPanel({
         })}
 
         {pending && (
-          <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3">
-            <p className="text-sm font-medium text-amber-900">
+          <div className="space-y-2 rounded-md border border-warning/30 bg-warning-subtle p-3">
+            <p className="text-sm font-medium text-warning">
               Approve {titleCase(pending.toolName.replace(/_/g, " "))}?
             </p>
-            <p className="text-xs text-amber-700">
+            <p className="text-xs text-warning">
               The assistant needs your confirmation before changing the
               contract.
             </p>
@@ -3506,7 +3506,7 @@ function AskAIPanel({
       </div>
 
       <div className="shrink-0 border-t border-slate-100 p-3">
-        <div className="rounded-xl border border-slate-200 bg-slate-100 p-2 transition focus-within:border-slate-300">
+        <div className="rounded-md border border-slate-200 bg-slate-100 p-2 transition focus-within:border-slate-300">
           <Textarea
             rows={1}
             placeholder="Ask or instruct an edit…"

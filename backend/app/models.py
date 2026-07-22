@@ -70,8 +70,12 @@ from app.tabular_review.models import (
     TabularReviewColumn,
 )
 from app.workflows.models import Workflow, WorkflowRun
+from app.flows.models import Flow, FlowRun, FlowStepRun
 
 __all__ = [
+    "Flow",
+    "FlowRun",
+    "FlowStepRun",
     "AdminSetting",
     "AuthorityGrant",
     "EthicalWall",

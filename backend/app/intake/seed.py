@@ -20,8 +20,25 @@ _TYPES = [
         "key": "nda", "name": "NDA", "workstream": "Commercial", "sort_order": 10,
         "stages": ["draft", "review"],
         "fields": [
-            {"key": "counterparty", "label": "Counterparty", "kind": "text", "required": True, "sort_order": 10},
-            {"key": "mutual", "label": "Mutual?", "kind": "boolean", "required": False, "sort_order": 20},
+            {"key": "draft_path", "label": "How should we produce the NDA?", "kind": "select", "required": True, "sort_order": 5,
+             "options": [
+                 {"value": "fast_lane", "label": "Fast-lane — use our standard NDA template (recommended)"},
+                 {"value": "custom", "label": "Draft custom — an attorney drafts it fresh, no template"},
+                 {"value": "attach", "label": "Attach existing — I'll upload our NDA to review"},
+             ]},
+            {"key": "nda_direction", "label": "Direction", "kind": "select", "required": True, "sort_order": 10,
+             "options": [
+                 {"value": "mutual", "label": "Mutual — both sides disclose"},
+                 {"value": "oneway_disclose", "label": "One-way — we disclose"},
+                 {"value": "oneway_receive", "label": "One-way — we receive"},
+             ]},
+            {"key": "counterparty", "label": "Counterparty (legal name)", "kind": "text", "required": True, "sort_order": 20},
+            {"key": "counterparty_jurisdiction", "label": "Counterparty jurisdiction / state", "kind": "text", "required": False, "sort_order": 30},
+            {"key": "purpose", "label": "Purpose of disclosure", "kind": "textarea", "required": False, "sort_order": 40},
+            {"key": "term", "label": "Term / duration (e.g. 2 weeks, 1 year)", "kind": "text", "required": False, "sort_order": 50},
+            {"key": "survival_years", "label": "Confidentiality survives (years)", "kind": "number", "required": False, "sort_order": 60},
+            {"key": "governing_law", "label": "Governing law (e.g. Delaware)", "kind": "text", "required": False, "sort_order": 70},
+            {"key": "effective_date", "label": "Effective date", "kind": "date", "required": False, "sort_order": 80},
         ],
     },
     {
@@ -60,24 +77,73 @@ _KB = [
      "tags": ["contracts", "review", "threshold"]},
 ]
 
+# One request per scenario the agents + flow library cover — so the inbox
+# demonstrates the full range (NDA, contract review, vendor DD, privacy/breach,
+# patent litigation, legal notice, regulatory, investigation, employment,
+# trademark, self-serve) with a spread of priorities and SLA postures.
 _REQUESTS = [
+    # ── Commercial / contracts ──────────────────────────────────────────
     {"ref_key": "seed-nda", "type": "nda", "type_label": "NDA Request", "priority": "Medium",
-     "description": "Need a mutual NDA with Northwind Traders GmbH before a product eval.",
-     "fields": {"counterparty": "Northwind Traders GmbH", "mutual": True},
+     "description": "Need a mutual NDA with Northwind Traders GmbH before a product evaluation — 2-year term, Delaware law.",
+     "fields": {"draft_path": "fast_lane", "nda_direction": "mutual", "counterparty": "Northwind Traders GmbH",
+                "governing_law": "Delaware", "term": "2 years"},
      "requester": "user1@example.com"},
     {"ref_key": "seed-msa", "type": "contract_review", "type_label": "Contract Review", "priority": "High",
-     "description": ("Review the Globex MSA — several non-standard clauses flagged by procurement, "
-                     "including uncapped liability, unilateral termination and broad IP assignment. "
-                     "This is complex non-standard paper and needs a careful redline."),
+     "description": ("Review the Globex MSA — several non-standard clauses flagged by procurement, including "
+                     "uncapped liability, unilateral termination and broad IP assignment. Complex non-standard "
+                     "paper that needs a careful redline."),
      "fields": {"counterparty": "Globex Corporation", "value": 250000},
      "requester": "user1@example.com"},
-    {"ref_key": "seed-dpa", "type": "privacy", "type_label": "Data Privacy Assessment", "priority": "High",
-     "description": "DPIA for a new marketing analytics vendor processing EU customer data.",
-     "fields": {"system": "Marketing analytics — Fabrikam"},
-     "requester": "user2@example.com"},
+    {"ref_key": "seed-vendor", "type": None, "type_label": "Vendor Due Diligence", "priority": "Medium",
+     "description": ("Onboarding a new supplier, Fabrikam Ltd, for cloud infrastructure. Run sanctions and "
+                     "debarment screening and clear any exceptions before we sign the vendor MSA."),
+     "fields": {"counterparty": "Fabrikam Ltd"}, "requester": "user2@example.com"},
+
+    # ── Privacy ─────────────────────────────────────────────────────────
+    {"ref_key": "seed-breach", "type": None, "type_label": "Data Privacy Incident (DPA)", "priority": "Critical",
+     "description": ("Suspected personal-data breach — our marketing analytics vendor exposed roughly 40,000 EU "
+                     "customer records. The 72-hour GDPR breach-notification clock is running; we need containment "
+                     "and a regulator-notification decision now."),
+     "fields": {"counterparty": "Contoso Analytics"}, "requester": "user2@example.com", "overdue": True},
+    {"ref_key": "seed-dpia", "type": "privacy", "type_label": "Data Privacy Assessment", "priority": "Medium",
+     "description": "DPIA for a new marketing-analytics vendor that will process EU customer personal data.",
+     "fields": {"system": "Marketing analytics — Fabrikam"}, "requester": "user2@example.com"},
+
+    # ── Litigation & disputes ───────────────────────────────────────────
+    {"ref_key": "seed-patent", "type": None, "type_label": "Litigation — Patent (Para IV)", "priority": "Critical",
+     "description": ("Received a Paragraph IV notice on our generic-drug ANDA filing. There is a 45-day statutory "
+                     "window to sue the patent holder. Need matter docketing, deadline extraction and IP-counsel "
+                     "assessment; a legal hold is likely required."),
+     "fields": {"counterparty": "Initech Pharma"}, "requester": "user1@example.com"},
     {"ref_key": "seed-litig", "type": None, "type_label": "Litigation hold", "priority": "Critical",
      "description": "Litigation hold — Acme dispute. Preserve all documents; deadline approaching.",
-     "fields": {}, "requester": "user2@example.com", "overdue": True},
+     "fields": {"counterparty": "Acme Corp"}, "requester": "user2@example.com", "overdue": True},
+    {"ref_key": "seed-notice", "type": None, "type_label": "Legal Notice", "priority": "High",
+     "description": ("Cease-and-desist letter from Initech alleging trademark infringement of our new logo. It sets "
+                     "a statutory reply deadline 10 days out — extract the deadline and draft a response."),
+     "fields": {"counterparty": "Initech"}, "requester": "user1@example.com"},
+
+    # ── Regulatory / compliance / employment ────────────────────────────
+    {"ref_key": "seed-reg", "type": None, "type_label": "Regulatory Action", "priority": "High",
+     "description": ("USFDA issued Form 483 observations after inspecting our Baddi manufacturing facility. We need "
+                     "a coordinated, cross-functional response with Quality/Regulatory within 15 business days."),
+     "fields": {}, "requester": "user2@example.com"},
+    {"ref_key": "seed-invest", "type": None, "type_label": "Compliance Investigation", "priority": "High",
+     "description": ("Whistleblower complaint alleging kickbacks in procurement. Needs a confidential investigation "
+                     "with an investigation plan, fact-finding and a mandatory closure report."),
+     "fields": {}, "requester": "user2@example.com"},
+    {"ref_key": "seed-empl", "type": None, "type_label": "Employment / POSH Matter", "priority": "High",
+     "description": ("POSH committee matter — a harassment complaint has been raised against a senior manager. "
+                     "Statutory timelines apply and the matter is confidential."),
+     "fields": {}, "requester": "user1@example.com"},
+
+    # ── IP + self-serve ─────────────────────────────────────────────────
+    {"ref_key": "seed-tm", "type": "trademark", "type_label": "Trademark", "priority": "Medium",
+     "description": "Trademark clearance for the new brand name 'Aegis Shield' ahead of the Q3 product launch.",
+     "fields": {"mark": "Aegis Shield"}, "requester": "user1@example.com"},
+    {"ref_key": "seed-faq", "type": None, "type_label": "Legal Question — General", "priority": "Low",
+     "description": "Quick question — can we share our standard MSA with a prospect under our existing mutual NDA?",
+     "fields": {}, "requester": "user1@example.com"},
 ]
 
 _TEAMS = [
@@ -217,6 +283,12 @@ def seed_intake(db, org, admin) -> bool:
         db.flush()
         routing_mod.apply_routing(db, r)
         svc.run_triage(db, r, counterparty=spec["fields"].get("counterparty"))
+        # Let the Flow Router / Litigation agent suggest a workflow so the seeded
+        # inbox demonstrates them. Best-effort — a model hiccup never fails seed.
+        try:
+            svc._compute_intake_analysis(db, r)
+        except Exception:
+            pass
         if spec.get("overdue"):
             r.sla_status = "overdue"
         created = True

@@ -106,7 +106,7 @@ export default function ProjectDetailPage({
         />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
               {project.name}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -460,9 +460,9 @@ function ProjectAssistantTab({
             <button
               key={s.id}
               onClick={() => openChat(s.id)}
-              className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-slate-100 p-4 text-left transition-colors hover:border-brand-300 hover:bg-brand-50/40"
+              className="flex w-full items-center gap-3 rounded-md border border-slate-200 bg-slate-100 p-4 text-left transition-colors hover:border-brand-300 hover:bg-brand-50"
             >
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded bg-brand-50 text-brand-600">
                 <MessageSquare className="h-4 w-4" />
               </div>
               <div className="min-w-0 flex-1">

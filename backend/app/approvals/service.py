@@ -74,38 +74,235 @@ def ensure_default_approver_groups(
     return created
 
 
-def _matches(rule: ApprovalRoutingRule, contract: Contract) -> bool:
-    """Does this routing rule's criteria match the contract?
+# --- Approval subjects ----------------------------------------------------
+# The ladder engine is subject-agnostic: it drives a *subject* through an
+# ordered chain of ApprovalRequest rows. A subject exposes the attributes the
+# routing rules + Delegation-of-Authority read (same names as Contract) and the
+# lifecycle hooks that fire as the chain starts / rejects / completes. Contracts
+# and intake requests each supply their own; the engine never names either.
+#
+# The intake subject lives in app/intake/approval_bridge.py and is reached by a
+# lazy import (below) so this lower-level package keeps no static dep on intake.
+
+
+class ContractSubject:
+    """A contract driven through the approval ladder — preserves the original
+    contract-only behaviour exactly (stage guards, fast-lane, stage transitions)."""
+
+    kind = "contract"
+    allow_fast_lane = True
+
+    def __init__(self, contract: Contract, *, version_id: str | None = None):
+        self.contract = contract
+        self.version_id = version_id or contract.current_authoritative_version_id
+
+    # attributes read by _matches (routing) + _grant_covers (authority)
+    @property
+    def id(self) -> str:
+        return self.contract.id
+
+    @property
+    def org_id(self) -> str:
+        return self.contract.org_id
+
+    @property
+    def title(self) -> str:
+        return self.contract.title or "Untitled contract"
+
+    @property
+    def value_amount(self):
+        return self.contract.value_amount
+
+    @property
+    def contract_type(self):
+        return self.contract.contract_type
+
+    @property
+    def risk_band(self):
+        return self.contract.risk_band
+
+    @property
+    def risk_level(self):
+        return self.contract.risk_level
+
+    @property
+    def currency(self):
+        return self.contract.currency
+
+    @property
+    def jurisdiction(self):
+        return self.contract.jurisdiction
+
+    def precheck(self, db: Session) -> None:
+        # Approval applies to pre-execution contracts. Submitting one that's
+        # already in signing / active / closed makes no sense — block it clearly.
+        if self.contract.lifecycle_stage in {
+            ContractLifecycleStage.SIGNATURE,
+            ContractLifecycleStage.ACTIVE,
+            ContractLifecycleStage.CLOSED,
+        }:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"Cannot submit a contract in '{self.contract.lifecycle_stage}' for approval",
+            )
+
+    def try_fast_lane(self, db: Session, *, user: User, request_id: str | None) -> bool:
+        """Routine contracts route themselves: an eligible NDA skips the approval
+        chain entirely and lands in Signature with a full audit trail. Returns
+        True when fast-laned (the caller then creates no chain)."""
+        reason = _fast_lane_reason(db, contract=self.contract)
+        if not reason:
+            return False
+        from app.notifications.models import Notification
+
+        transition_contract_stage(
+            db,
+            contract=self.contract,
+            to_stage=ContractLifecycleStage.SIGNATURE,
+            actor_user_id=user.id,
+            reason=reason,
+            override=True,
+            override_authorized=True,
+            request_id=request_id,
+        )
+        write_audit_log(
+            db,
+            action="approval.fast_laned",
+            resource_type="contract",
+            resource_id=self.contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            request_id=request_id,
+            metadata={"reason": reason},
+        )
+        recipients = {user.id}
+        if self.contract.owner_user_id:
+            recipients.add(self.contract.owner_user_id)
+        for uid in recipients:
+            db.add(
+                Notification(
+                    org_id=user.org_id,
+                    user_id=uid,
+                    channel="in_app",
+                    event_type="approval.fast_laned",
+                    subject=f"Fast-laned to signature: {self.contract.title}",
+                    body=(
+                        f'"{self.contract.title}" qualified for the NDA fast-lane '
+                        "(low risk, within value cap, no open high-severity issues) "
+                        "and skipped approval — it is ready to send for signature."
+                    ),
+                    status="sent",
+                )
+            )
+        db.commit()
+        return True
+
+    def guard_can_decide(self, db: Session) -> None:
+        if self.contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "Approval can only be decided while the contract is in the approval stage",
+            )
+
+    def forced_rungs(self, db: Session) -> list[dict]:
+        return []  # contracts have no Tier-0 gate rungs (Phase-1 behaviour unchanged)
+
+    def on_submit(self, db: Session, *, actor_user_id: str | None, request_id: str | None) -> None:
+        if self.contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
+            transition_contract_stage(
+                db,
+                contract=self.contract,
+                to_stage=ContractLifecycleStage.APPROVAL,
+                actor_user_id=actor_user_id,
+                reason="Submitted for approval",
+                override=True,
+                override_authorized=True,
+                request_id=request_id,
+            )
+
+    def on_reject(
+        self, db: Session, *, actor_user_id: str | None, comment: str | None, request_id: str | None
+    ) -> None:
+        transition_contract_stage(
+            db,
+            contract=self.contract,
+            to_stage=ContractLifecycleStage.REVIEW,
+            actor_user_id=actor_user_id,
+            reason=comment,
+            override=True,
+            override_authorized=True,
+            request_id=request_id,
+        )
+
+    def on_complete(
+        self, db: Session, *, actor_user_id: str | None, request_id: str | None
+    ) -> None:
+        transition_contract_stage(
+            db,
+            contract=self.contract,
+            to_stage=ContractLifecycleStage.SIGNATURE,
+            actor_user_id=actor_user_id,
+            reason="Approval chain completed",
+            override=True,
+            override_authorized=True,
+            request_id=request_id,
+        )
+
+
+def _subject_clause(subject):
+    """WHERE clause selecting the ApprovalRequest rows belonging to a subject."""
+    if subject.kind == "contract":
+        return ApprovalRequest.contract_id == subject.id
+    return ApprovalRequest.intake_request_id == subject.id
+
+
+def _subject_for(db: Session, approval: ApprovalRequest):
+    """Reconstruct the subject a stored approval belongs to, so a decision can
+    fire the right lifecycle transitions."""
+    if approval.contract_id:
+        contract = db.get(Contract, approval.contract_id)
+        if contract is None or contract.org_id != approval.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
+        return ContractSubject(contract, version_id=approval.contract_version_id)
+    if approval.intake_request_id:
+        from app.intake.approval_bridge import build_intake_subject
+
+        return build_intake_subject(db, approval.intake_request_id, org_id=approval.org_id)
+    raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Approval has no subject")
+
+
+def _matches(rule: ApprovalRoutingRule, subject) -> bool:
+    """Does this routing rule's criteria match the subject?
 
     Supported criteria keys (all optional; empty criteria = match everything):
-      min_value / max_value        — numeric bounds on contract value
+      min_value / max_value        — numeric bounds on the subject's value
       contract_type(s)             — string or list, case-insensitive
       risk_band(s)                 — string or list vs risk_band/risk_level
       any other key                — exact (case-insensitive) match against the
-                                     contract attribute of the same name
+                                     subject attribute of the same name
     """
     criteria = rule.criteria or {}
     if not criteria:
         return True
     for key, expected in criteria.items():
         if key == "min_value":
-            if (contract.value_amount or 0) < float(expected):
+            if (subject.value_amount or 0) < float(expected):
                 return False
         elif key == "max_value":
-            if (contract.value_amount or 0) > float(expected):
+            if (subject.value_amount or 0) > float(expected):
                 return False
         elif key in {"contract_type", "contract_types"}:
             allowed = expected if isinstance(expected, list) else [expected]
-            ct = (contract.contract_type or "").strip().lower()
+            ct = (subject.contract_type or "").strip().lower()
             if ct not in {str(a).strip().lower() for a in allowed}:
                 return False
         elif key in {"risk_band", "risk_bands"}:
             allowed = expected if isinstance(expected, list) else [expected]
-            band = (contract.risk_band or contract.risk_level or "").strip().lower()
+            band = (subject.risk_band or subject.risk_level or "").strip().lower()
             if band not in {str(a).strip().lower() for a in allowed}:
                 return False
         else:
-            actual = getattr(contract, key, None)
+            actual = getattr(subject, key, None)
             if actual is None:
                 return False
             if str(actual).strip().lower() != str(expected).strip().lower():
@@ -147,28 +344,36 @@ def _fast_lane_reason(db: Session, *, contract: Contract) -> str | None:
     )
 
 
-def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]:
-    """Pick the single best-matching active rule (lowest priority number) and
-    return its ordered approval chain as a list of step targets:
+def resolve_chain(
+    db: Session, *, subject, org_id: str, rule_id: str | None = None
+) -> list[dict]:
+    """Return an active rule's ordered approval chain as a list of step targets:
     ``{routing_rule_id, step_order, approver_user_id, approver_group_id,
-    approver_role, mode}``. Empty list means no rule matched (caller falls back
-    to the manually-specified approver)."""
+    approver_role, mode}``.
+
+    ``rule_id`` pins a specific rule (a workflow step that chose its route) — it
+    is used verbatim, skipping criteria matching, as long as it is active in this
+    org; otherwise we fall back to the best-matching active rule (lowest priority
+    number, then most-specific criteria). Empty list means nothing applied (the
+    caller falls back to the manually-specified approver)."""
     rules = db.scalars(
         select(ApprovalRoutingRule).where(
             ApprovalRoutingRule.org_id == org_id,
             ApprovalRoutingRule.is_active.is_(True),
         )
     ).all()
-    matched = sorted(
-        (r for r in rules if _matches(r, contract)),
-        key=lambda r: (
-            int(r.priority) if str(r.priority).isdigit() else 100,
-            -len(r.criteria or {}),
-        ),
-    )
-    if not matched:
+    rule = next((r for r in rules if r.id == rule_id), None) if rule_id else None
+    if rule is None:
+        matched = sorted(
+            (r for r in rules if _matches(r, subject)),
+            key=lambda r: (
+                int(r.priority) if str(r.priority).isdigit() else 100,
+                -len(r.criteria or {}),
+            ),
+        )
+        rule = matched[0] if matched else None
+    if rule is None:
         return []
-    rule = matched[0]
     steps = sorted(rule.steps, key=lambda s: s.step_order)
     if steps:
         return [
@@ -195,6 +400,51 @@ def resolve_chain(db: Session, *, contract: Contract, org_id: str) -> list[dict]
     ]
 
 
+def plan_chain(
+    db: Session,
+    *,
+    subject,
+    org_id: str,
+    approver_user_id: str | None = None,
+    approver_group_id: str | None = None,
+    approver_role: str | None = None,
+    routing_rule_id: str | None = None,
+) -> list[dict]:
+    """The ordered rung targets for a subject BEFORE persistence — the routed
+    chain plus forced Tier-0 gate rungs (deduped, senior last), or the manual
+    fallback approver when nothing matched. Shared by submit and the read-only
+    ladder preview so both show the same rungs. ``routing_rule_id`` pins a
+    specific route (a workflow Approval step's choice)."""
+    chain = resolve_chain(db, subject=subject, org_id=org_id, rule_id=routing_rule_id)
+    forced = subject.forced_rungs(db)
+    if not chain and not forced:
+        chain = [
+            {
+                "routing_rule_id": None,
+                "step_order": 1,
+                "approver_user_id": approver_user_id,
+                "approver_group_id": approver_group_id,
+                "approver_role": approver_role,
+                "mode": "any",
+            }
+        ]
+    if forced:
+        existing = {
+            (t.get("approver_group_id"), t.get("approver_role"), t.get("approver_user_id"))
+            for t in chain
+        }
+        for rung in forced:
+            key = (rung.get("approver_group_id"), rung.get("approver_role"),
+                   rung.get("approver_user_id"))
+            if key in existing:
+                continue
+            existing.add(key)
+            chain.append(rung)
+    for idx, target in enumerate(chain):
+        target["step_order"] = idx + 1
+    return chain
+
+
 def _step_recipients(db: Session, *, approval: ApprovalRequest) -> list[User]:
     """Users who should be emailed when ``approval`` becomes active: the named
     user, or every active member of the assigned group. Role-only steps have no
@@ -211,7 +461,7 @@ def _step_recipients(db: Session, *, approval: ApprovalRequest) -> list[User]:
 
 
 async def _activate_step(
-    db: Session, *, approval: ApprovalRequest, contract: Contract, requester: User | None
+    db: Session, *, approval: ApprovalRequest, subject, requester: User | None
 ) -> bool | None:
     """Issue single-use tokens + send the approve/reject email to every recipient
     of a now-active step. Returns True/False once a send is attempted, or None
@@ -227,7 +477,7 @@ async def _activate_step(
         if ttl_days
         else f"{APPROVAL_TOKEN_TTL_HOURS} hours"
     )
-    safe_title = html.escape(contract.title or "Untitled contract")
+    safe_title = html.escape(subject.title or "Untitled")
     safe_requester = html.escape(
         (requester.full_name or requester.email) if requester else "A colleague"
     )
@@ -253,7 +503,7 @@ async def _activate_step(
         try:
             await resend_client.send_email(
                 to=approver.email,
-                subject=f"Approval requested: {contract.title}",
+                subject=f"Approval requested: {subject.title}",
                 html=(
                     f"<div style=\"font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px\">"
                     f"<p style=\"font-size:15px;color:#0f172a\">"
@@ -282,38 +532,31 @@ async def _activate_step(
     return any_sent
 
 
-async def submit_contract_for_approval(
+async def submit_subject_for_approval(
     db: Session,
     *,
     user: User,
-    contract: Contract,
-    contract_version_id: str | None,
-    approver_user_id: str | None,
-    approver_role: str | None,
+    subject,
+    approver_user_id: str | None = None,
+    approver_group_id: str | None = None,
+    approver_role: str | None = None,
+    routing_rule_id: str | None = None,
     request_id: str | None = None,
 ) -> list[ApprovalRequest]:
-    # Approval applies to pre-execution contracts. Submitting one that's already
-    # in signing / active / closed makes no sense — block it clearly. (From
-    # intake/drafting/review the submit auto-advances the stage to APPROVAL.)
-    if contract.lifecycle_stage in {
-        ContractLifecycleStage.SIGNATURE,
-        ContractLifecycleStage.ACTIVE,
-        ContractLifecycleStage.CLOSED,
-    }:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            f"Cannot submit a contract in '{contract.lifecycle_stage}' for approval",
-        )
-    target_version_id = contract_version_id or contract.current_authoritative_version_id
+    """Materialise a subject's approval ladder: one ApprovalRequest per routing
+    step, step 1 PENDING (emailed) and the rest WAITING, activated in order as
+    each preceding step is approved. Subject-agnostic — contracts and intake
+    requests both flow through here."""
+    subject.precheck(db)
 
-    # If a chain is already live for this contract+version, return it unchanged
+    # If a chain is already live for this subject (+version), return it unchanged
     # (idempotent re-submit) rather than stacking a second chain.
     existing = db.scalars(
         select(ApprovalRequest)
         .where(
             ApprovalRequest.org_id == user.org_id,
-            ApprovalRequest.contract_id == contract.id,
-            ApprovalRequest.contract_version_id == target_version_id,
+            _subject_clause(subject),
+            ApprovalRequest.contract_version_id == subject.version_id,
             ApprovalRequest.status.in_([ApprovalStatus.PENDING, ApprovalStatus.WAITING]),
         )
         .order_by(ApprovalRequest.step_order)
@@ -321,70 +564,21 @@ async def submit_contract_for_approval(
     if existing:
         return existing
 
-    # Routine contracts route themselves: an eligible NDA skips the approval
-    # chain entirely and lands in Signature with a full audit trail.
-    fast_lane = _fast_lane_reason(db, contract=contract)
-    if fast_lane:
-        from app.notifications.models import Notification
-
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.SIGNATURE,
-            actor_user_id=user.id,
-            reason=fast_lane,
-            override=True,
-            override_authorized=True,
-            request_id=request_id,
-        )
-        write_audit_log(
-            db,
-            action="approval.fast_laned",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=user.org_id,
-            actor_user_id=user.id,
-            request_id=request_id,
-            metadata={"reason": fast_lane},
-        )
-        recipients = {user.id}
-        if contract.owner_user_id:
-            recipients.add(contract.owner_user_id)
-        for uid in recipients:
-            db.add(
-                Notification(
-                    org_id=user.org_id,
-                    user_id=uid,
-                    channel="in_app",
-                    event_type="approval.fast_laned",
-                    subject=f"Fast-laned to signature: {contract.title}",
-                    body=(
-                        f'"{contract.title}" qualified for the NDA fast-lane '
-                        "(low risk, within value cap, no open high-severity issues) "
-                        "and skipped approval — it is ready to send for signature."
-                    ),
-                    status="sent",
-                )
-            )
-        db.commit()
+    if subject.allow_fast_lane and subject.try_fast_lane(
+        db, user=user, request_id=request_id
+    ):
         return []
 
-    chain = resolve_chain(db, contract=contract, org_id=user.org_id)
-    if not chain:
-        # No rule matched → fall back to the explicitly-supplied approver as a
-        # single step (preserves the manual "submit to X" behaviour).
-        chain = [
-            {
-                "routing_rule_id": None,
-                "step_order": 1,
-                "approver_user_id": approver_user_id,
-                "approver_group_id": None,
-                "approver_role": approver_role,
-                "mode": "any",
-            }
-        ]
+    # Routed rungs + forced Tier-0 gate rungs (intake only; [] for contracts),
+    # or the manual fallback approver. Same planner the ladder preview uses.
+    chain = plan_chain(
+        db, subject=subject, org_id=user.org_id,
+        approver_user_id=approver_user_id, approver_group_id=approver_group_id,
+        approver_role=approver_role, routing_rule_id=routing_rule_id,
+    )
 
     due_at = datetime.now(UTC) + timedelta(days=max(1, settings.approval_default_due_days))
+    is_contract = subject.kind == "contract"
     requests: list[ApprovalRequest] = []
     for target in chain:
         # Validate referenced approver/group belong to this org.
@@ -406,14 +600,16 @@ async def submit_contract_for_approval(
         is_first = target["step_order"] == 1
         approval = ApprovalRequest(
             org_id=user.org_id,
-            contract_id=contract.id,
-            contract_version_id=target_version_id,
+            contract_id=subject.id if is_contract else None,
+            intake_request_id=None if is_contract else subject.id,
+            contract_version_id=subject.version_id,
             requested_by_user_id=user.id,
             approver_user_id=target["approver_user_id"],
             approver_role=target["approver_role"],
             approver_group_id=target["approver_group_id"],
             routing_rule_id=target["routing_rule_id"],
             step_order=target["step_order"],
+            mode=target.get("mode", "any"),
             status=ApprovalStatus.PENDING if is_first else ApprovalStatus.WAITING,
             due_at=due_at,
             created_by_user_id=user.id,
@@ -425,7 +621,7 @@ async def submit_contract_for_approval(
         email_sent: bool | None = None
         if is_first:
             email_sent = await _activate_step(
-                db, approval=approval, contract=contract, requester=user
+                db, approval=approval, subject=subject, requester=user
             )
         write_audit_log(
             db,
@@ -436,7 +632,9 @@ async def submit_contract_for_approval(
             actor_user_id=user.id,
             request_id=request_id,
             after={
-                "contract_id": contract.id,
+                "subject_type": subject.kind,
+                "contract_id": approval.contract_id,
+                "intake_request_id": approval.intake_request_id,
                 "step_order": approval.step_order,
                 "status": approval.status,
                 "approver_user_id": approval.approver_user_id,
@@ -447,24 +645,102 @@ async def submit_contract_for_approval(
         )
         requests.append(approval)
 
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.APPROVAL,
-            actor_user_id=user.id,
-            reason="Submitted for approval",
-            override=True,
-            override_authorized=True,
-            request_id=request_id,
-        )
+    subject.on_submit(db, actor_user_id=user.id, request_id=request_id)
     return requests
+
+
+async def submit_contract_for_approval(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    contract_version_id: str | None,
+    approver_user_id: str | None,
+    approver_role: str | None,
+    routing_rule_id: str | None = None,
+    request_id: str | None = None,
+) -> list[ApprovalRequest]:
+    """Thin contract wrapper over the subject-agnostic ladder — the public API
+    the contract routes / AI tools already call is unchanged."""
+    subject = ContractSubject(contract, version_id=contract_version_id)
+    return await submit_subject_for_approval(
+        db,
+        user=user,
+        subject=subject,
+        approver_user_id=approver_user_id,
+        approver_role=approver_role,
+        routing_rule_id=routing_rule_id,
+        request_id=request_id,
+    )
+
+
+def _quorum_needed(db: Session, approval: ApprovalRequest) -> int:
+    """How many distinct approvals a rung needs before it advances: 1 for an
+    'any' rung / a named user / a role, or the full active group size for 'all'."""
+    if (approval.mode or "any") != "all":
+        return 1
+    if approval.approver_group_id:
+        group = db.get(ApproverGroup, approval.approver_group_id)
+        members = [m for m in (group.members if group else []) if m.org_id == approval.org_id]
+        return max(1, len(members))
+    return 1
+
+
+async def reassign_rung(
+    db: Session,
+    *,
+    approval: ApprovalRequest,
+    to_user: User,
+    kind: str,
+    actor: User,
+    request_id: str | None = None,
+) -> ApprovalRequest:
+    """Hand a pending rung to another person — 'delegate' (sideways) or 'escalate'
+    (up). Pins the rung to that named user, re-issues their token + email, and
+    audits who moved it. Only a PENDING rung can be reassigned."""
+    if approval.status != ApprovalStatus.PENDING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a pending approval can be reassigned")
+    if to_user.org_id != approval.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Target user not found")
+    if to_user.id == approval.requested_by_user_id:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The requester can't approve their own request")
+
+    prev = approval.approver_user_id
+    approval.approver_user_id = to_user.id
+    approval.approver_group_id = None
+    approval.approver_role = None
+    approval.mode = "any"  # a reassign pins the rung to one named approver
+    approval.updated_by_user_id = actor.id
+    approval.metadata_json = {
+        **(approval.metadata_json or {}),
+        "reassign": {"kind": kind, "from_user_id": prev, "by_user_id": actor.id},
+    }
+    db.flush()
+
+    subject = _subject_for(db, approval)
+    requester = db.get(User, approval.requested_by_user_id)
+    email_sent = await _activate_step(db, approval=approval, subject=subject, requester=requester)
+    write_audit_log(
+        db, action=f"approval.{kind}", resource_type="approval_request",
+        resource_id=approval.id, org_id=approval.org_id, actor_user_id=actor.id,
+        request_id=request_id,
+        after={"to_user_id": to_user.id, "from_user_id": prev, "email_sent": email_sent},
+    )
+    write_timeline_event(
+        db, org_id=approval.org_id, resource_type=subject.kind, resource_id=subject.id,
+        event_type=f"approval.{kind}",
+        title=f"Approval {kind}d to {to_user.full_name or to_user.email} (step {approval.step_order})",
+        actor_user_id=actor.id, request_id=request_id,
+        details={"approval_request_id": approval.id},
+    )
+    return approval
 
 
 async def _apply_decision(
     db: Session,
     *,
     approval: ApprovalRequest,
+    subject,
     decision: str,
     comment: str | None,
     actor_user_id: str | None,
@@ -475,9 +751,17 @@ async def _apply_decision(
         raise HTTPException(status.HTTP_409_CONFLICT, "Approval request is already decided")
     if decision == "reject" and not comment:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Rejection requires a comment")
-    approval.status = (
-        ApprovalStatus.APPROVED if decision == "approve" else ApprovalStatus.REJECTED
-    )
+
+    # One person can't decide the same rung twice — that would double-count a
+    # quorum or flip-flop a decision. Token single-use covers the emailed path;
+    # this covers a repeat in-app click.
+    prior = db.scalars(
+        select(ApprovalDecision).where(ApprovalDecision.approval_request_id == approval.id)
+    ).all()
+    if actor_user_id and any(d.approver_user_id == actor_user_id for d in prior):
+        raise HTTPException(status.HTTP_409_CONFLICT, "You have already decided this approval")
+
+    subject.guard_can_decide(db)
     approval.updated_by_user_id = actor_user_id
     db.add(
         ApprovalDecision(
@@ -491,22 +775,14 @@ async def _apply_decision(
             updated_by_user_id=actor_user_id,
         )
     )
-    contract = db.get(Contract, approval.contract_id)
-    if contract is None or contract.org_id != approval.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
-    if contract.lifecycle_stage != ContractLifecycleStage.APPROVAL:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            "Approval can only be decided while the contract is in the approval stage",
-        )
 
-    # The active chain = the other non-cancelled steps for this contract+version.
+    # The active chain = the other non-cancelled steps for this subject+version.
     # Only one chain is ever live at a time (submit is idempotent), so its
     # WAITING rows uniquely identify the steps still ahead.
     siblings = db.scalars(
         select(ApprovalRequest).where(
             ApprovalRequest.org_id == approval.org_id,
-            ApprovalRequest.contract_id == approval.contract_id,
+            _subject_clause(subject),
             ApprovalRequest.contract_version_id == approval.contract_version_id,
             ApprovalRequest.id != approval.id,
             ApprovalRequest.status != ApprovalStatus.CANCELLED,
@@ -514,23 +790,40 @@ async def _apply_decision(
     ).all()
 
     if decision == "reject":
-        # Reject short-circuits the whole chain and sends the contract back.
+        # Reject short-circuits the whole chain and sends the subject back.
+        approval.status = ApprovalStatus.REJECTED
         for sibling in siblings:
             if sibling.status in (ApprovalStatus.PENDING, ApprovalStatus.WAITING):
                 sibling.status = ApprovalStatus.CANCELLED
                 sibling.updated_by_user_id = actor_user_id
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.REVIEW,
-            actor_user_id=actor_user_id,
-            reason=comment,
-            override=True,
-            override_authorized=True,
-            request_id=request_id,
+        subject.on_reject(
+            db, actor_user_id=actor_user_id, comment=comment, request_id=request_id
         )
     else:
-        # Approve → activate the next waiting step, or finish the chain.
+        # Quorum: an "all" rung needs every group member; anything else needs one.
+        needed = _quorum_needed(db, approval)
+        approvals = sum(1 for d in prior if d.decision == "approve") + 1
+        approval.metadata_json = {**(approval.metadata_json or {}), "approvals": approvals, "needed": needed}
+        if approvals < needed:
+            # Not enough sign-offs yet — record this one, keep the rung PENDING,
+            # do NOT advance. The other members still have to approve.
+            write_audit_log(
+                db, action="approval.partial_approved", resource_type="approval_request",
+                resource_id=approval.id, org_id=approval.org_id, actor_user_id=actor_user_id,
+                request_id=request_id,
+                after={"approvals": approvals, "needed": needed, "step_order": approval.step_order},
+            )
+            write_timeline_event(
+                db, org_id=approval.org_id, resource_type=subject.kind, resource_id=subject.id,
+                event_type="approval.partial",
+                title=f"Approval signed {approvals} of {needed} (step {approval.step_order})",
+                actor_user_id=actor_user_id, request_id=request_id,
+                details={"approval_request_id": approval.id, "decided_by": actor_label},
+            )
+            return approval
+
+        # Quorum met → this rung is approved; activate the next step or finish.
+        approval.status = ApprovalStatus.APPROVED
         waiting_ahead = sorted(
             (
                 s
@@ -545,7 +838,7 @@ async def _apply_decision(
             next_step.updated_by_user_id = actor_user_id
             requester = db.get(User, next_step.requested_by_user_id)
             email_sent = await _activate_step(
-                db, approval=next_step, contract=contract, requester=requester
+                db, approval=next_step, subject=subject, requester=requester
             )
             write_audit_log(
                 db,
@@ -558,17 +851,10 @@ async def _apply_decision(
                 after={"step_order": next_step.step_order, "email_sent": email_sent},
             )
         else:
-            # Last step approved → the whole chain is done, so the contract
-            # auto-advances into the signature (execution) stage.
-            transition_contract_stage(
-                db,
-                contract=contract,
-                to_stage=ContractLifecycleStage.SIGNATURE,
-                actor_user_id=actor_user_id,
-                reason="Approval chain completed",
-                override=True,
-                override_authorized=True,
-                request_id=request_id,
+            # Last step approved → the whole chain is done; the subject advances
+            # (contract → signature; intake request → approved).
+            subject.on_complete(
+                db, actor_user_id=actor_user_id, request_id=request_id
             )
 
     write_audit_log(
@@ -589,8 +875,8 @@ async def _apply_decision(
     write_timeline_event(
         db,
         org_id=approval.org_id,
-        resource_type="contract",
-        resource_id=approval.contract_id,
+        resource_type=subject.kind,
+        resource_id=subject.id,
         event_type="approval.decided",
         title=f"Approval {decision}d (step {approval.step_order})",
         actor_user_id=actor_user_id,
@@ -609,9 +895,11 @@ async def decide_in_app(
     comment: str | None,
     request_id: str | None = None,
 ) -> ApprovalRequest:
+    subject = _subject_for(db, approval)
     return await _apply_decision(
         db,
         approval=approval,
+        subject=subject,
         decision=decision,
         comment=comment,
         actor_user_id=user.id,
@@ -665,9 +953,11 @@ async def redeem_token_decision(
     )
     if approver is not None and approver.id == approval.requested_by_user_id:
         raise _reject("requester_cannot_approve_own_request")
+    subject = _subject_for(db, approval)
     return await _apply_decision(
         db,
         approval=approval,
+        subject=subject,
         decision=decision,
         comment=comment,
         actor_user_id=approver.id if approver else None,
@@ -695,8 +985,29 @@ def get_review_context_for_token(db: Session, *, token: str) -> dict:
     if approval is None or approval.org_id != row.org_id:
         raise _reject()
 
-    contract = db.get(Contract, approval.contract_id)
     requester = db.get(User, approval.requested_by_user_id)
+    requester_name = (
+        (requester.full_name or requester.email) if requester else "A colleague"
+    )
+    can_decide = approval.status == ApprovalStatus.PENDING and row.used_at is None
+
+    if not approval.contract_id:
+        # Intake-request approval — no contract document; show the request itself.
+        from app.intake.models import IntakeRequest
+
+        req = db.get(IntakeRequest, approval.intake_request_id)
+        text = (req.description if req and req.description else "") or ""
+        return {
+            "contract_title": (f"{req.ref} · {req.type_label}" if req else "Request"),
+            "requester_name": requester_name,
+            "status": approval.status,
+            "can_decide": can_decide,
+            "due_at": approval.due_at,
+            "document_text": text[:200_000],
+            "document_truncated": len(text) > 200_000,
+        }
+
+    contract = db.get(Contract, approval.contract_id)
     version_id = approval.contract_version_id or (
         contract.current_authoritative_version_id if contract else None
     )
@@ -712,11 +1023,9 @@ def get_review_context_for_token(db: Session, *, token: str) -> dict:
 
     return {
         "contract_title": contract.title if contract else "Contract",
-        "requester_name": (requester.full_name or requester.email)
-        if requester
-        else "A colleague",
+        "requester_name": requester_name,
         "status": approval.status,
-        "can_decide": approval.status == ApprovalStatus.PENDING and row.used_at is None,
+        "can_decide": can_decide,
         "due_at": approval.due_at,
         "document_text": text[:200_000],
         "document_truncated": len(text) > 200_000,

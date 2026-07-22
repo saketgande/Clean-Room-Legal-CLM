@@ -30,13 +30,13 @@ from app.organizations.models import Organization
 # placeholders — {company}, {counterparty}, {effective_date} — are filled via
 # str.format; keep the bodies free of stray braces.
 
-_MUTUAL_NDA = """MUTUAL NON-DISCLOSURE AGREEMENT
+_MUTUAL_NDA = """{nda_kind_title}NON-DISCLOSURE AGREEMENT
 
-This Mutual Non-Disclosure Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("Counterparty"). {company} and Counterparty are each a "Party" and together the "Parties."
+This {nda_kind_word} Non-Disclosure Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("Counterparty"). {company} and Counterparty are each a "Party" and together the "Parties."
 
 RECITALS
 
-The Parties wish to explore a potential business relationship (the "Purpose") and, in connection with the Purpose, each Party may disclose to the other certain confidential and proprietary information. This Agreement sets out the terms on which such information will be protected.
+The Parties wish to {purpose_phrase} (the "Purpose") and, in connection with the Purpose, certain confidential and proprietary information may be disclosed. {direction_recital} This Agreement sets out the terms on which such information will be protected.
 
 1. DEFINITION OF CONFIDENTIAL INFORMATION
 
@@ -56,7 +56,7 @@ The Parties wish to explore a potential business relationship (the "Purpose") an
 
 5. TERM AND TERMINATION
 
-5.1 This Agreement commences on the Effective Date and continues for two (2) years, unless earlier terminated by either Party on thirty (30) days' written notice. The confidentiality obligations survive termination and continue for three (3) years from the date of disclosure of each item of Confidential Information; obligations with respect to trade secrets continue for as long as the information remains a trade secret.
+5.1 This Agreement commences on the Effective Date and {term_clause}, unless earlier terminated by either Party on thirty (30) days' written notice. The confidentiality obligations survive termination and {survival_clause} from the date of disclosure of each item of Confidential Information; obligations with respect to trade secrets continue for as long as the information remains a trade secret.
 
 6. RETURN OR DESTRUCTION
 
@@ -72,7 +72,7 @@ The Parties wish to explore a potential business relationship (the "Purpose") an
 
 9. GENERAL
 
-9.1 This Agreement is governed by the laws of the State of Delaware, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior understandings. It may be amended only in a writing signed by both Parties. Neither Party may assign this Agreement without the other's prior written consent.
+9.1 This Agreement is governed by the laws of {governing_law}, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior understandings. It may be amended only in a writing signed by both Parties. Neither Party may assign this Agreement without the other's prior written consent.
 
 IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
 
@@ -299,14 +299,42 @@ def _primary_counterparty(r: IntakeRequest) -> str:
     return (name or "").strip() or "the Counterparty"
 
 
-def render_document(doc_type: str, *, company: str, counterparty: str, effective: str) -> str:
+def _nda_fill(*, company: str, counterparty: str, effective: str, fields: dict) -> dict:
+    """Turn the NDA intake fields (direction / purpose / term / survival /
+    governing law) into the template's placeholders. Empty fields fall back to
+    the standard playbook defaults, so a bare request still yields a clean NDA."""
+    f = fields or {}
+    direction = str(f.get("nda_direction") or "mutual").lower()
+    one_way = "one" in direction  # oneway_disclose / oneway_receive / one-way
+    purpose = str(f.get("purpose") or "").strip()
+    term = str(f.get("term") or "").strip()
+    survival = str(f.get("survival_years") or "").strip()
+    law = str(f.get("governing_law") or "").strip() or "the State of Delaware"
+    if one_way:
+        disc, recv = (counterparty, company) if "receive" in direction else (company, counterparty)
+        direction_recital = (
+            f"This is a one-way disclosure in which {disc} is the Disclosing Party "
+            f"and {recv} is the Receiving Party."
+        )
+    else:
+        direction_recital = "Each Party may act as both Disclosing Party and Receiving Party."
+    return {
+        "company": company, "counterparty": counterparty, "effective_date": effective,
+        "nda_kind_title": "ONE-WAY " if one_way else "MUTUAL ",
+        "nda_kind_word": "One-Way" if one_way else "Mutual",
+        "purpose_phrase": purpose or "explore a potential business relationship",
+        "direction_recital": direction_recital,
+        "term_clause": f"continues for the term of {term}" if term else "continues for two (2) years",
+        "survival_clause": f"continue for {survival} year(s)" if survival else "continue for three (3) years",
+        "governing_law": law,
+    }
+
+
+def render_document(doc_type: str, *, company: str, counterparty: str, effective: str, fields: dict | None = None) -> str:
     spec = _DOC_TYPES[doc_type]
+    if doc_type == "nda":
+        return spec["template"].format(**_nda_fill(company=company, counterparty=counterparty, effective=effective, fields=fields or {}))
     return spec["template"].format(company=company, counterparty=counterparty, effective_date=effective)
-
-
-# Back-compat alias — some callers/tests import render_nda directly.
-def render_nda(*, company: str, counterparty: str, effective: str) -> str:
-    return render_document("nda", company=company, counterparty=counterparty, effective=effective)
 
 
 async def draft_contract_for_request(
@@ -335,9 +363,16 @@ async def draft_contract_for_request(
 
     org = db.get(Organization, actor.org_id)
     company = (org.name if org and org.name else "Company")
-    counterparty = _primary_counterparty(request)
-    text = render_document(doc_type, company=company, counterparty=counterparty, effective=date.today().isoformat())
-    title = f"{spec['label']} — {counterparty}"
+    fv = request.field_values or {}
+    # Prefer the details captured on the intake form; fall back to screening / today.
+    counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
+    effective = str(fv.get("effective_date") or "").strip() or date.today().isoformat()
+    text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
+    # One-way NDAs get a clearer label than the generic template label.
+    label = spec["label"]
+    if doc_type == "nda" and "one" in str(fv.get("nda_direction") or "").lower():
+        label = "One-Way NDA"
+    title = f"{label} — {counterparty}"
 
     data = text.encode("utf-8")
     upload = UploadFile(
@@ -376,6 +411,73 @@ async def draft_contract_for_request(
         event_type="intake.contract_drafted", title=f"Drafted the {spec['label']}",
         actor_user_id=actor.id, request_id=http_request_id,
         details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"]},
+    )
+    db.commit()
+    db.refresh(request)
+    return contract
+
+
+async def ingest_attachment_as_contract(
+    db, *, actor, request: IntakeRequest, http_request_id: str | None = None
+):
+    """Create a contract FROM the request's most recent attachment (its extracted
+    text) instead of a template — the 'review an existing contract' path.
+    Idempotent; flags the contract for auto AI review."""
+    from fastapi import HTTPException, status
+    from sqlalchemy import select
+
+    from app.contract_files.service import create_contract_from_upload
+    from app.contracts.models import Contract
+    from app.intake.models import IntakeDocument
+
+    if request.contract_id:
+        existing = db.get(Contract, request.contract_id)
+        if existing is not None:
+            return existing
+
+    doc = db.scalars(
+        select(IntakeDocument)
+        .where(IntakeDocument.request_id == request.id, IntakeDocument.extracted_text.isnot(None))
+        .order_by(IntakeDocument.created_at.desc())
+    ).first()
+    if doc is None or not (doc.extracted_text or "").strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "No attached document with extractable text to use as the contract.",
+        )
+
+    counterparty = _primary_counterparty(request)
+    doc_type = resolve_doc_type(request)
+    contract_type = _DOC_TYPES[doc_type]["contract_type"] if doc_type else None
+    base = doc.filename.rsplit(".", 1)[0] if "." in doc.filename else doc.filename
+    title = base.strip() or f"Contract — {counterparty}"
+
+    data = (doc.extracted_text or "").encode("utf-8")
+    upload = UploadFile(
+        file=io.BytesIO(data), size=len(data),
+        filename=f"{base or 'contract'}.txt", headers=Headers({"content-type": "text/plain"}),
+    )
+    result = await create_contract_from_upload(
+        db, upload=upload, user=actor, title=title,
+        counterparty_name=counterparty, contract_type=contract_type, request_id=http_request_id,
+    )
+    contract = result["contract"]
+
+    meta = dict(contract.metadata_json or {})
+    meta["auto_review_pending"] = True
+    contract.metadata_json = meta
+    request.contract_id = contract.id
+    request.updated_by_user_id = actor.id
+    write_audit_log(
+        db, action="intake.contract_from_attachment", resource_type="intake_request",
+        resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
+        request_id=http_request_id, after={"contract_id": contract.id, "document_id": doc.id},
+    )
+    write_timeline_event(
+        db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
+        event_type="intake.contract_from_attachment", title="Created the contract from the attachment",
+        actor_user_id=actor.id, request_id=http_request_id,
+        details={"contract_id": contract.id, "title": title, "document": doc.filename},
     )
     db.commit()
     db.refresh(request)

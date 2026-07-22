@@ -7,7 +7,7 @@ import { memo } from "react";
 /** Claude-style prose renderer for assistant messages. */
 function MarkdownImpl({ children }: { children: string }) {
   return (
-    <div className="font-serif text-[16px] leading-[1.75] text-slate-800">
+    <div className="font-sans text-[16px] leading-[1.75] text-slate-800">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

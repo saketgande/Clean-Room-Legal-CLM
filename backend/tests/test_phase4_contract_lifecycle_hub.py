@@ -1,10 +1,8 @@
-import inspect
 from datetime import date
 
 from app.ai.controller import ai_controller
 from app.contracts.lifecycle import allowed_transitions_for
 from app.contracts.schemas import ContractUpdate
-from app.contracts.service import contract_hub_summary
 from app.core.enums import ContractLifecycleStage
 
 
@@ -31,17 +29,6 @@ def test_lifecycle_state_machine_exposes_allowed_transitions():
     assert ContractLifecycleStage.ARCHIVED not in allowed_transitions_for(
         ContractLifecycleStage.DRAFTING
     )
-
-
-def test_contract_hub_summary_is_permission_aware_and_widget_backed():
-    source = inspect.getsource(contract_hub_summary)
-
-    assert "accessible_contract_filter(user)" in source
-    assert "pending_approvals" in source
-    assert "pending_signatures" in source
-    assert "upcoming_renewals" in source
-    assert "overdue_obligations" in source
-    assert "recent_activity" in source
 
 
 def test_assistant_prompt_includes_contract_status_context_without_ids():

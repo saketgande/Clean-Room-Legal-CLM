@@ -121,7 +121,7 @@ export default function ObligationsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Obligations"
         description="Every commitment extracted from your contracts — who owes it, which agreement it comes from, and when it applies."
@@ -152,7 +152,7 @@ export default function ObligationsPage() {
             ))}
           </Select>
         </Field>
-        <p className="ml-auto self-center text-xs text-slate-400">
+        <p className="ml-auto self-center text-[13px] text-slate-500">
           Click any row to see the exact contract language it came from.
         </p>
       </Card>
@@ -206,7 +206,7 @@ export default function ObligationsPage() {
                       </TD>
                       <TD className="max-w-md">
                         {o.obligation_type && (
-                          <span className="mb-1 inline-block rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-400/10 dark:text-brand-300">
+                          <span className="mb-1 inline-block rounded bg-brand-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700">
                             {o.obligation_type}
                           </span>
                         )}
@@ -233,7 +233,7 @@ export default function ObligationsPage() {
                         <Link
                           href={`/contracts/${o.contract_id}`}
                           onClick={(e) => e.stopPropagation()}
-                          className="font-medium text-brand-700 hover:underline dark:text-brand-300"
+                          className="font-medium text-brand-700 hover:underline"
                         >
                           {o.contract_title ?? o.contract_id}
                         </Link>
@@ -278,16 +278,16 @@ export default function ObligationsPage() {
                       </TD>
                     </TR>
                     {open && (
-                      <tr key={`${o.id}-detail`} className="bg-slate-50/70 dark:bg-slate-800/30">
+                      <tr key={`${o.id}-detail`} className="bg-slate-50">
                         <td />
                         <td colSpan={6} className="px-4 py-4">
                           <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
                             <div>
-                              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                                 <Quote className="h-3.5 w-3.5" /> What the contract says
                               </p>
                               {quote ? (
-                                <blockquote className="rounded-lg border-l-2 border-brand-400 bg-slate-100 px-3 py-2 text-[13px] italic leading-relaxed text-slate-700 dark:bg-slate-800/50 dark:text-slate-300">
+                                <blockquote className="rounded-md border-l-2 border-brand-600 bg-slate-100 px-3 py-2 text-[13px] italic leading-relaxed text-slate-700">
                                   “{quote}”
                                 </blockquote>
                               ) : (
@@ -295,7 +295,7 @@ export default function ObligationsPage() {
                                   No source excerpt was captured for this obligation.
                                 </p>
                               )}
-                              <p className="mt-2 text-[13px] leading-relaxed text-slate-600 dark:text-slate-300">
+                              <p className="mt-2 text-[13px] leading-relaxed text-slate-600">
                                 {o.description}
                               </p>
                             </div>
@@ -326,7 +326,7 @@ export default function ObligationsPage() {
                               )}
                               <Link
                                 href={`/contracts/${o.contract_id}`}
-                                className="inline-block pt-1 text-[13px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
+                                className="inline-block pt-1 text-[13px] font-semibold text-brand-700 hover:underline"
                               >
                                 Open {o.contract_title ?? "contract"} →
                               </Link>

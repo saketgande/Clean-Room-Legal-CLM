@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.ai.models import AIPromptVersion
 from app.core.config import settings
-from app.core.database import utcnow
 from app.core.enums import AIPromptStatus
 
 
@@ -203,32 +202,3 @@ def get_active_prompt_bundle(
     )
 
 
-def create_prompt_version(
-    db: Session,
-    *,
-    org_id: str,
-    prompt_key: str,
-    version: str,
-    prompt_text: str,
-    status: str,
-    created_by_user_id: str | None,
-    description: str | None = None,
-    model_name: str | None = None,
-    model_config_hash_value: str | None = None,
-) -> AIPromptVersion:
-    row = AIPromptVersion(
-        org_id=org_id,
-        prompt_key=prompt_key,
-        version=version,
-        status=status,
-        prompt_text=prompt_text,
-        prompt_hash=hash_text(f"{SHARED_LEGAL_SYSTEM_PROMPT}\n\n{prompt_text}"),
-        description=description,
-        model_name=model_name,
-        model_config_hash=model_config_hash_value,
-        activated_at=utcnow() if status == AIPromptStatus.ACTIVE else None,
-        created_by_user_id=created_by_user_id,
-        updated_by_user_id=created_by_user_id,
-    )
-    db.add(row)
-    return row

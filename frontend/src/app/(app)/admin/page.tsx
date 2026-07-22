@@ -84,7 +84,7 @@ export default function AdminPage() {
 
   if (!can(user, "admin_panel:access")) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <PageHeader title="Admin" description="Organization settings and administration." />
         <EmptyState
           icon={<Lock className="h-6 w-6" />}
@@ -96,7 +96,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Admin"
         description="Manage your organization, members, settings and integrations."
@@ -193,7 +193,7 @@ function OrganizationTab() {
 // ---- Users & Access ------------------------------------------------------
 function UsersTab() {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PendingUsersSection />
       <InvitationsSection />
       <JoinRequestsSection />
@@ -829,7 +829,7 @@ function UpsertSettingModal({
         <label className="flex items-center gap-2 text-sm text-slate-700">
           <input
             type="checkbox"
-            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-200"
             checked={isSecret}
             onChange={(e) => setIsSecret(e.target.checked)}
           />
@@ -943,7 +943,7 @@ function RolesTab() {
   if (error) return <ErrorState error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
         <CardHeader>
           <CardTitle>Roles</CardTitle>
@@ -1164,7 +1164,7 @@ function RoleEditorModal({
           />
         </Field>
         <div>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Permissions ({selected.size})
           </p>
           <div className="max-h-[46vh] space-y-4 overflow-y-auto rounded-md border border-slate-200 p-3">
@@ -1300,7 +1300,7 @@ function AssignRolesPanel({ roles }: { roles: RoleResponse[] }) {
         {selectedUser && (
           <>
             <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+              <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                 Roles
               </p>
               <div className="grid gap-1.5 sm:grid-cols-2">
@@ -1415,7 +1415,7 @@ function EthicalWallsTab() {
   if (error) return <ErrorState error={error} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
         <CardHeader>
           <div>
@@ -1456,7 +1456,7 @@ function EthicalWallsTab() {
                   <TR key={w.id}>
                     <TD>
                       <div className="flex items-center gap-2">
-                        <ShieldAlert className="h-4 w-4 text-rose-500" />
+                        <ShieldAlert className="h-4 w-4 text-danger" />
                         <span className="font-medium text-slate-900">{w.name}</span>
                       </div>
                       {w.reason && (
@@ -1635,7 +1635,7 @@ function WallEditorModal({
           </Field>
         </div>
         <div>
-          <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Bar these people
           </p>
           <div className="max-h-52 overflow-y-auto rounded-md border border-slate-200 p-2">
@@ -1649,7 +1649,7 @@ function WallEditorModal({
                   >
                     <input
                       type="checkbox"
-                      className="h-4 w-4 accent-rose-600"
+                      className="h-4 w-4 accent-brand-600"
                       checked={barred.has(key)}
                       onChange={() => toggle(key)}
                     />
@@ -1660,7 +1660,7 @@ function WallEditorModal({
             </div>
             {(roles ?? []).length > 0 && (
               <>
-                <p className="mb-1 mt-2 px-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                <p className="mb-1 mt-2 px-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                   Or whole roles
                 </p>
                 <div className="grid gap-1 sm:grid-cols-2">
@@ -1673,7 +1673,7 @@ function WallEditorModal({
                       >
                         <input
                           type="checkbox"
-                          className="h-4 w-4 accent-rose-600"
+                          className="h-4 w-4 accent-brand-600"
                           checked={barred.has(key)}
                           onChange={() => toggle(key)}
                         />
@@ -1744,7 +1744,7 @@ function AuthorityTab() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <Card>
         <CardHeader>
           <div>

@@ -13,72 +13,180 @@ import { cn } from "@/lib/utils";
 import type { CopilotTurn, IntakeKbArticle } from "@/lib/types";
 
 // ======================= SELF-SERVICE =======================
+// Reference "Ask before you ticket" deflection surface: 4 KPIs, an Ask-Aurora
+// FAQ box (best-match over the KB — resolve it without a ticket), a searchable
+// knowledge base with category chips, and a list → article-detail split view.
 
-export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) => void }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-kb"], queryFn: intakeApi.kb });
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+function kbScore(a: IntakeKbArticle, query: string): number {
+  const words = query.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2);
+  if (!words.length) return 0;
+  const hay = `${a.title} ${a.body} ${a.tags.join(" ")}`.toLowerCase();
+  return words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0), 0);
+}
 
-  const cats = useMemo(() => {
-    const s = new Set<string>();
-    (data ?? []).forEach((a) => a.tags.forEach((t) => s.add(t)));
-    return [...s].sort();
-  }, [data]);
+type AuroraMsg = { role: "user" | "aurora"; text: string; source?: string; decline?: boolean; draft?: string };
 
-  if (isLoading) return <CenterSpinner />;
-  if (error) return <ErrorState error={error} />;
-  const shown = (data ?? []).filter((a) => {
-    if (cat && !a.tags.includes(cat)) return false;
-    if (q && !(`${a.title} ${a.body}`.toLowerCase().includes(q.toLowerCase()))) return false;
-    return true;
-  });
+// Ask Aurora — a best-match FAQ over the KB the page already loaded. No ticket,
+// no round-trip: it reads the query and returns the closest playbook answer, or
+// declines to a ticket when nothing scores.
+function AskAurora({ articles, onFileTopic }: { articles: IntakeKbArticle[]; onFileTopic: (t: string) => void }) {
+  const [input, setInput] = useState("");
+  const [msgs, setMsgs] = useState<AuroraMsg[]>([]);
+
+  function send() {
+    const query = input.trim();
+    if (!query) return;
+    setInput("");
+    const best = articles.map((a) => ({ a, s: kbScore(a, query) })).sort((x, y) => y.s - x.s)[0];
+    const user: AuroraMsg = { role: "user", text: query };
+    const reply: AuroraMsg = !best || best.s === 0
+      ? { role: "aurora", text: "I couldn't find a playbook answer for that one — file a ticket and an attorney will pick it up.", decline: true, draft: query }
+      : { role: "aurora", text: best.a.body, source: best.a.source_ref };
+    setMsgs((m) => [...m, user, reply]);
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-700">
-        <b>Ask before you ticket.</b> Standard questions and self-serve docs — no lawyer needed for routine things.
+    <div className="rounded-xl border border-brand-200 bg-brand-50/40 px-4 py-3.5">
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="rounded border border-brand-300 px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em] text-brand-600">◎ AI</span>
+        <span className="text-[13.5px] text-slate-700">Have a quick legal question? <span className="font-medium text-brand-700">Ask Aurora.</span></span>
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:max-w-md">
-        <StatCard label="KB articles" value={String((data ?? []).length)} hint="from the legal playbook" tone="blue" />
-        <StatCard label="Categories" value={String(cats.length)} hint="coverage areas" tone="slate" />
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the knowledge base — try 'nda', 'dpa', 'payment terms'…" className="pl-9" />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => setCat(null)} className={chip(cat === null)}>All</button>
-        {cats.map((c) => <button key={c} onClick={() => setCat(c)} className={chip(cat === c)}>{c}</button>)}
-      </div>
-      {shown.length === 0 ? (
-        <Card><CardBody><EmptyState title="No articles" description="Nothing matches — file a request and legal will help." /></CardBody></Card>
-      ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {shown.map((a) => (
-            <Card key={a.id}>
-              <CardBody>
-                <p className="text-[10px] font-bold uppercase tracking-wide text-brand-600">{a.tags[0] ?? "General"}</p>
-                <h4 className="mt-1 text-sm font-semibold">{a.title}</h4>
-                <p className={cn("mt-1 text-xs text-slate-600", open === a.id ? "" : "line-clamp-3")}>{a.body}</p>
-                <div className="mt-3 flex gap-3 text-xs">
-                  <button className="text-brand-600 hover:underline" onClick={() => setOpen(open === a.id ? null : a.id)}>
-                    {open === a.id ? "Show less" : "Read more"}</button>
-                  <button className="text-slate-500 hover:underline" onClick={() => onFileTopic(a.title)}>Still need help — file a request</button>
-                </div>
-              </CardBody>
-            </Card>
+      {msgs.length > 0 && (
+        <div className="mb-2.5 max-h-72 space-y-2 overflow-y-auto rounded-lg bg-slate-100 p-2.5">
+          {msgs.map((m, i) => (
+            <div key={i} className={cn("text-[12.5px]", m.role === "user" && "text-right")}>
+              <div className={cn("inline-block max-w-[85%] rounded-lg px-3 py-2 text-left",
+                m.role === "user" ? "bg-brand-600 text-white" : "bg-slate-50 text-slate-700 ring-1 ring-slate-200")}>
+                <p className="whitespace-pre-wrap leading-relaxed">{m.text}</p>
+                {m.source && <p className="mt-1 font-mono text-[10px] text-slate-400">Source · {m.source}</p>}
+                {m.decline && <button onClick={() => onFileTopic(m.draft ?? "")} className="mt-1 text-[11px] font-medium text-brand-700 underline">File a ticket →</button>}
+              </div>
+            </div>
           ))}
         </div>
       )}
+      <div className="flex gap-2">
+        <Input value={input} onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); send(); } }}
+          placeholder={"Ask anything: “What's our standard NDA term?”"} className="h-9" />
+        <Button onClick={send} disabled={!input.trim()}><Send className="h-3.5 w-3.5" /> Send</Button>
+      </div>
     </div>
   );
 }
+
+export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) => void }) {
+  const { data, isLoading, error } = useQuery({ queryKey: ["intake-kb"], queryFn: intakeApi.kb });
+  const { data: metrics } = useQuery({ queryKey: ["intake-agent-metrics"], queryFn: intakeApi.agentMetrics });
+  const [q, setQ] = useState("");
+  const [cat, setCat] = useState<string | null>(null);
+  const [sel, setSel] = useState<IntakeKbArticle | null>(null);
+
+  const articles = useMemo(() => data ?? [], [data]);
+  const cats = useMemo(() => {
+    const s = new Set<string>();
+    articles.forEach((a) => a.tags.forEach((t) => s.add(t)));
+    return [...s].sort();
+  }, [articles]);
+
+  if (isLoading) return <CenterSpinner />;
+  if (error) return <ErrorState error={error} />;
+
+  const shown = articles.filter((a) => {
+    if (cat && !a.tags.includes(cat)) return false;
+    if (q && !`${a.title} ${a.body} ${a.tags.join(" ")} ${a.source_ref}`.toLowerCase().includes(q.toLowerCase())) return false;
+    return true;
+  });
+  const faq = metrics?.agents.find((a) => a.agent_id === "faq-agent") ?? null;
+  const faqAnswers = faq ? String(faq.produced) : "—";
+  const faqConf = faq?.avg_confidence != null ? `${Math.round(faq.avg_confidence * 100)}%` : "—";
+
+  return (
+    <div className="space-y-4">
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="KB articles" value={String(articles.length)} hint="from the legal playbook" tone="blue" />
+        <StatCard label="Categories" value={String(cats.length)} hint="coverage areas" tone="violet" />
+        <StatCard label="FAQ answers · 7d" value={faqAnswers} hint="drafted by the FAQ agent" tone="green" />
+        <StatCard label="FAQ confidence" value={faqConf} hint="avg · last 7 days" tone="cyan" />
+      </div>
+
+      {/* Ask Aurora — quick FAQ, no ticket */}
+      <AskAurora articles={articles} onFileTopic={onFileTopic} />
+
+      {/* Ask before you ticket — search + category chips */}
+      <Card>
+        <CardBody className="space-y-3">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-600">◎ Ask before you ticket</p>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the legal knowledge base — try 'nda', 'sanctions', 'payment terms'…" className="pl-9" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setCat(null)} className={chip(cat === null)}>All</button>
+            {cats.map((c) => <button key={c} onClick={() => setCat(cat === c ? null : c)} className={chip(cat === c)}>{c}</button>)}
+          </div>
+          <p className="font-mono text-[10.5px] text-slate-400">{shown.length} article{shown.length === 1 ? "" : "s"} · Aurora reads your query and returns the best match</p>
+        </CardBody>
+      </Card>
+
+      {/* KB list → article detail split */}
+      <div className={cn("grid gap-4", sel ? "lg:grid-cols-[1fr_1.25fr]" : "grid-cols-1")}>
+        <Card>
+          <CardBody className="space-y-2">
+            <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">▤ Knowledge base articles</p>
+            {shown.length === 0 ? (
+              <EmptyState title="No matches" description="Nothing matches — file a request and legal will help." />
+            ) : shown.map((a) => (
+              <button key={a.id} onClick={() => setSel(a)}
+                className={cn("block w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+                  sel?.id === a.id ? "border-brand-300 bg-brand-50" : "border-slate-200 bg-slate-100 hover:border-slate-300")}>
+                <div className="flex items-center justify-between gap-2">
+                  <Badge tone="violet">{a.tags[0] ?? "General"}</Badge>
+                  <span className="font-mono text-[9.5px] font-semibold text-slate-400">{a.source_ref}</span>
+                </div>
+                <p className="mt-1.5 text-[12.5px] font-semibold text-slate-900">{a.title}</p>
+                <p className="mt-0.5 line-clamp-2 text-[11px] text-slate-500">{a.body}</p>
+              </button>
+            ))}
+          </CardBody>
+        </Card>
+
+        {sel && (
+          <Card className="border-l-2 border-l-brand-600">
+            <CardBody className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-600">◎ Article detail</p>
+                <button onClick={() => setSel(null)} className="text-slate-400 hover:text-slate-700">✕</button>
+              </div>
+              <div><Badge tone="violet">{sel.tags[0] ?? "General"}</Badge></div>
+              <h3 className="text-[17px] font-semibold leading-snug text-slate-900">{sel.title}</h3>
+              <div className="rounded-lg border-l-2 border-l-success bg-success-subtle/40 px-3.5 py-3">
+                <p className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-success">Answer</p>
+                <p className="mt-1 text-[13px] leading-relaxed text-slate-700">{sel.body}</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-slate-100 px-3 py-2 text-center">
+                  <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-slate-400">Category</p>
+                  <p className="mt-0.5 text-[12px] text-brand-700">{sel.tags[0] ?? "General"}</p>
+                </div>
+                <div className="rounded-lg bg-slate-100 px-3 py-2 text-center">
+                  <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-slate-400">Source</p>
+                  <p className="mt-0.5 font-mono text-[11px] text-slate-700">{sel.source_ref}</p>
+                </div>
+              </div>
+              <p className="text-[11.5px] text-slate-500">Still need help? <button onClick={() => onFileTopic(sel.title)} className="font-medium text-brand-700 underline">File a ticket</button> — the FAQ agent will answer from this same playbook entry.</p>
+            </CardBody>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function chip(active: boolean) {
-  return cn("rounded-full border px-3 py-1 text-xs font-semibold",
-    active ? "border-brand-600 bg-brand-600 text-white" : "border-slate-200 bg-slate-100 text-slate-600 hover:bg-slate-200");
+  return cn("rounded-full border px-3 py-1 font-mono text-[10px] uppercase tracking-[0.04em] transition-colors",
+    active ? "border-brand-400 bg-brand-50 text-brand-700" : "border-slate-200 bg-slate-100 text-slate-500 hover:text-slate-800");
 }
 
 // ======================= POOL OPS =======================
@@ -91,7 +199,7 @@ export function PoolOpsTab() {
   const mixTotal = o.complexity_mix.simple + o.complexity_mix.standard + o.complexity_mix.complex || 1;
   return (
     <div className="space-y-4">
-      <p className="text-xs text-slate-500">Capacity by tier — the “senior counsel freed for strategic work” evidence, live.</p>
+      <p className="text-[13px] text-slate-500">Capacity by tier — the “senior counsel freed for strategic work” evidence, live.</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard label="Open" value={String(o.totals.open)} tone="blue" />
         <StatCard label="Overdue" value={String(o.totals.overdue)} tone="red" />
@@ -200,11 +308,11 @@ export function CopilotChat({ onFiled }: { onFiled: (id: string) => void }) {
       <CardHeader><MessageSquare className="h-4 w-4 text-brand-600" /><CardTitle>Intake Copilot</CardTitle>
         <span className="text-xs text-slate-400">guided filing</span></CardHeader>
       <CardBody className="space-y-3">
-        <div className="max-h-80 space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <div className="max-h-80 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-3">
           {messages.map((m, i) => (
             <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div className={cn("max-w-[80%] rounded-lg px-3 py-2 text-sm",
-                m.role === "user" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700 shadow-sm")}>{m.content}</div>
+              <div className={cn("max-w-[80%] rounded-md px-3 py-2 text-[13px]",
+                m.role === "user" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700")}>{m.content}</div>
             </div>
           ))}
         </div>
@@ -239,7 +347,7 @@ export function AiOpsTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">The specialist agents that triage and draft every request — each an AI first-pass a named lawyer approves.</p>
+        <p className="text-[13px] text-slate-500">The specialist agents that triage and draft every request — each an AI first-pass a named lawyer approves.</p>
         <Button variant="outline" size="sm" loading={refreshing} onClick={async () => {
           setRefreshing(true);
           try { const r = await intakeApi.sanctionsRefresh(); notify(`OFAC list refreshed — ${(r as { added?: number }).added ?? 0} added`, "success"); }
@@ -268,7 +376,7 @@ export function AiOpsTab() {
                       ? <Badge tone="green">Live</Badge>
                       : <Badge tone="amber">Demo</Badge>}
                   </div>
-                  <p className="mt-1 text-xs leading-relaxed text-slate-500">{a.description}</p>
+                  <p className="mt-1 text-[13px] leading-relaxed text-slate-500">{a.description}</p>
                 </div>
               </div>
               <div className="mt-auto grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-center">
@@ -289,8 +397,8 @@ export function AiOpsTab() {
 function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: "amber"; hint?: string }) {
   return (
     <div title={hint}>
-      <p className={cn("text-sm font-semibold tabular-nums", tone === "amber" ? "text-amber-600" : "text-slate-900")}>{value}</p>
-      <p className="font-mono text-[9px] uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={cn("text-sm font-semibold tabular-nums", tone === "amber" ? "text-warning" : "text-slate-900")}>{value}</p>
+      <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">{label}</p>
     </div>
   );
 }

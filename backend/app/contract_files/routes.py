@@ -17,7 +17,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contract_files.models import (
@@ -919,70 +919,6 @@ def restore_contract_version(
     db.commit()
     db.refresh(restored_version)
     return restored_version
-
-
-@router.delete("/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_contract_version(
-    contract_id: str,
-    version_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("contract_file:delete")),
-):
-    get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    version = db.get(ContractVersion, version_id)
-    if version is None or version.contract_id != contract_id or version.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
-    if version.is_authoritative:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Authoritative version cannot be deleted")
-    contract_file = db.get(ContractFile, version.contract_file_id)
-    if contract_file is not None and contract_file.current_version_id == version_id:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Current file version cannot be deleted")
-
-    version.deleted_at = utcnow()
-    version.deleted_by_user_id = current_user.id
-    version.updated_by_user_id = current_user.id
-    if version.text_snapshot_id:
-        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
-        if snapshot is not None and snapshot.deleted_at is None:
-            snapshot.deleted_at = version.deleted_at
-            snapshot.deleted_by_user_id = current_user.id
-            snapshot.updated_by_user_id = current_user.id
-
-    active_storage_refs = db.scalar(
-        select(func.count(ContractVersion.id)).where(
-            ContractVersion.org_id == current_user.org_id,
-            ContractVersion.storage_object_id == version.storage_object_id,
-            ContractVersion.deleted_at.is_(None),
-            ContractVersion.id != version.id,
-        )
-    )
-    if not active_storage_refs:
-        storage_object = db.get(StorageObject, version.storage_object_id)
-        if storage_object is not None and storage_object.deleted_at is None:
-            storage_object.deleted_at = version.deleted_at
-            storage_object.deleted_by_user_id = current_user.id
-            storage_object.updated_by_user_id = current_user.id
-
-    write_audit_log(
-        db,
-        action="contract.version_deleted",
-        resource_type="contract_version",
-        resource_id=version.id,
-        org_id=current_user.org_id,
-        actor_user_id=current_user.id,
-        metadata={"contract_id": contract_id, "storage_object_id": version.storage_object_id},
-    )
-    write_timeline_event(
-        db,
-        org_id=current_user.org_id,
-        resource_type="contract",
-        resource_id=contract_id,
-        event_type="contract.version_deleted",
-        title="Contract version deleted",
-        actor_user_id=current_user.id,
-        details={"contract_version_id": version.id, "version_number": version.version_number},
-    )
-    db.commit()
 
 
 @router.get("/shares", response_model=list[ContractShareResponse])

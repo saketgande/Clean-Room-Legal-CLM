@@ -180,7 +180,7 @@ export function CreateReviewModal({
         </>
       }
     >
-      <div className="space-y-5">
+      <div className="space-y-4">
         <Field label="Name">
           <Input
             placeholder="e.g. Q2 vendor MSA audit"
@@ -244,7 +244,7 @@ export function CreateReviewModal({
             <Upload className="h-3.5 w-3.5" />
             Import a new file
           </button>
-          <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+          <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
             {(contracts ?? []).length === 0 ? (
               <p className="px-2 py-3 text-sm text-slate-400">
                 No contracts available.
@@ -253,7 +253,7 @@ export function CreateReviewModal({
               (contracts ?? []).map((c) => (
                 <label
                   key={c.id}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
                 >
                   <input
                     type="checkbox"
@@ -280,7 +280,7 @@ export function CreateReviewModal({
             {columns.map((col, idx) => (
               <div
                 key={idx}
-                className="space-y-2 rounded-lg border border-slate-200 p-3"
+                className="space-y-2 rounded-md border border-slate-200 p-3"
               >
                 <div className="flex items-center gap-2">
                   <Input

@@ -182,39 +182,6 @@ export function getMock(
       { id: "jr-1", org_id: "org-1", email: "contractor@partner.com", full_name: "Sam Partner", requested_domain: "partner.com", message: "Need access for the Globex deal.", status: "pending", decision_reason: null, invitation_token: null },
     ]);
 
-  // Contract hub
-  if (p === "/contract-hub")
-    return ok({
-      contracts_by_stage: { intake: 3, drafting: 6, review: 11, approval: 3, signature: 3, active: 14, closed: 11 },
-      contracts_by_risk: { low: 18, medium: 21, high: 9, critical: 4 },
-      total_contract_versions: 142,
-      widgets: {
-        pending_approvals: 3,
-        pending_signatures: 1,
-        upcoming_renewals: 3,
-        overdue_obligations: 2,
-        top_deviated_clauses: [
-          { clause_type: "limitation_of_liability", count: 12 },
-          { clause_type: "indemnification", count: 9 },
-          { clause_type: "termination", count: 7 },
-          { clause_type: "data_protection", count: 5 },
-        ],
-        average_cycle_time_days: 18.4,
-        counterparty_friction: [
-          { counterparty_name: "Globex Corporation", count: 4 },
-          { counterparty_name: "Hooli Inc.", count: 2 },
-        ],
-        recent_activity: ACTIVITY.map((a) => ({
-          id: a.id,
-          resource_id: "c-1",
-          event_type: a.event_type,
-          title: a.title,
-          details: {},
-          created_at: a.created_at,
-        })),
-      },
-    });
-
   // Contracts
   if (p === "/contracts" && m === "GET") return ok(CONTRACTS);
   const cMatch = /^\/contracts\/([^/]+)$/.exec(p);
@@ -310,18 +277,6 @@ export function getMock(
       { id: "msg-1", session_id: "as-1", org_id: "org-1", role: "user", content: "Summarise the key risks in the Globex MSA.", citations: null, metadata_json: {}, created_at: iso(-1), created_by_user_id: "u-1" },
       { id: "msg-2", session_id: "as-1", org_id: "org-1", role: "assistant", content: "The Globex MSA has three high-risk areas:\n\n1. **Uncapped indemnification** for IP claims (§9.2).\n2. **Termination for convenience** favouring the counterparty at 90 days (§14.1).\n3. **Missing cyber-insurance** requirement.\n\nI recommend running the MSA Playbook to generate redlines.", citations: [{ type: "text_snapshot", contract_id: "c-1", excerpt: "Supplier's indemnification obligations under this Section shall not be subject to the limitation of liability in Section 10.", quote: "Supplier's indemnification obligations … shall not be subject to the limitation of liability." }], metadata_json: {}, created_at: iso(-1), created_by_user_id: null },
     ]);
-  if (/^\/assistant\/sessions\/[^/]+\/runs$/.test(p)) return ok([]);
-  if (p === "/assistant/tools")
-    return ok([
-      { name: "read_contract", description: "Read the full text of a contract.", category: "READ_ONLY", permission: "contract:read", confirmation_policy: "none", feature_flag: null, enabled_by_default: true, input_schema: {}, output_schema: {} },
-      { name: "redline_against_playbook", description: "Generate tracked-change redlines against a playbook.", category: "MUTATING", permission: "contract:redline", confirmation_policy: "required", feature_flag: null, enabled_by_default: true, input_schema: {}, output_schema: {} },
-      { name: "send_for_signature", description: "Send the approved version to DocuSign.", category: "EXTERNAL_ACTION", permission: "contract:sign", confirmation_policy: "required", feature_flag: null, enabled_by_default: true, input_schema: {}, output_schema: {} },
-    ]);
-
-  // AI
-  if (p === "/ai/skills") return ok([]);
-  if (p === "/ai/skill-runs") return ok([]);
-
   // Workflows
   if (p === "/workflows" && m === "GET")
     return ok([
@@ -337,8 +292,6 @@ export function getMock(
   if (p === "/playbooks" && m === "GET") return ok(PLAYBOOKS);
   if (p === "/playbooks" && (m === "POST"))
     return ok({ id: "pb-new", name: "New playbook", description: "", status: "draft", current_version_id: null, ...(body as object) });
-  if (p === "/playbooks/generate")
-    return ok({ id: "pb-gen", name: (body as { name?: string })?.name ?? "Generated playbook", description: "AI-generated rulebook", status: "draft", current_version_id: "pv-gen" });
   const pbMatch = /^\/playbooks\/([^/]+)$/.exec(p);
   if (pbMatch && m === "GET")
     return ok(PLAYBOOKS.find((x) => x.id === pbMatch[1]) ?? PLAYBOOKS[0]);
@@ -426,9 +379,6 @@ export function getMock(
     ]);
   if (p === "/contract-brain/ask")
     return ok({ id: "bq-new", org_id: "org-1", query_scope: (body as { query_scope?: string })?.query_scope ?? "portfolio", question: (body as { question?: string })?.question ?? "", contract_id: (body as { contract_id?: string })?.contract_id ?? null, project_id: null, answer: "Based on the indexed contract portfolio: the Globex MSA and Soylent DPA represent the highest aggregate risk. The Globex MSA carves IP indemnification out of the liability cap, and the Soylent DPA is GDPR-critical with a breach-notification SLA of 24 hours.", citations: [{ quote: "Supplier's indemnification obligations under this Section shall not be subject to the limitation of liability in Section 10.", validation_status: "valid", similarity_score: 0.93 }, { quote: "Processor shall notify Controller without undue delay and in any event within 24 hours.", validation_status: "valid", similarity_score: 0.88 }], retrieval_metadata: { scope: "portfolio", source_count: 2, graph_facts: 7, vector_chunks: 14, fulltext_clauses: 5, contract_ids: ["c-1", "c-4"], confidence: "high", citation_review: "valid", limitations: null }, created_at: iso(0), updated_at: iso(0) });
-  if (p.startsWith("/contract-brain/precedents"))
-    return ok(CONTRACTS.slice(0, 2));
-
   // Tabular review
   if (p === "/tabular-reviews" && m === "GET") return ok(TABULAR);
   if (p === "/tabular-reviews" && m === "POST")
@@ -520,8 +470,6 @@ export function getMock(
   // Debug
   if (p === "/debug/config-status")
     return ok({ claude: { configured: true, mock: true }, reducto: { configured: true, mock: true }, resend: { configured: true, mock: true }, docusign: { configured: true, mock: true }, storage_root: "/data/contracts", debug: true });
-  if (p === "/debug/health")
-    return ok({ status: "ok", app: "Clean Room Legal CLM (demo)", environment: "demo" });
 
   // Generic fallbacks so list pages never crash.
   if (m === "GET") return ok([]);

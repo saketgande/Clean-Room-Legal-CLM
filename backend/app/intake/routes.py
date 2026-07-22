@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_permission
@@ -164,6 +165,70 @@ def triage_request(
     )
 
 
+@router.post("/requests/{request_id}/suggest-flow", response_model=RequestResponse)
+def suggest_flow(
+    request_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(_TRIAGE),
+):
+    """Re-run the Flow Router agent for this request; the suggestion lands on
+    ai_triage.flow_suggestion. Assigning it is a separate one-click flows/start."""
+    return service.resuggest_flow(db, actor=current_user, request_id=request_id)
+
+
+# ---- approval ladder ------------------------------------------------------
+
+class _ApprovalLadderSubmit(BaseModel):
+    # Optional manual fallback approver, used only when no routing rule matches.
+    approver_user_id: str | None = None
+    approver_role: str | None = None
+
+
+@router.post("/requests/{request_id}/submit-for-approval")
+async def submit_for_approval(
+    request_id: str,
+    request: Request,
+    payload: _ApprovalLadderSubmit | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(_TRIAGE),
+):
+    p = payload or _ApprovalLadderSubmit()
+    return await service.start_approval_ladder(
+        db, actor=current_user, request_id=request_id,
+        approver_user_id=p.approver_user_id, approver_role=p.approver_role,
+        http_request_id=_req_id(request),
+    )
+
+
+@router.get("/requests/{request_id}/approval-chain")
+def approval_chain(
+    request_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    return service.get_approval_chain(db, actor=current_user, request_id=request_id)
+
+
+class _GateOverride(BaseModel):
+    gate_key: str
+    action: str  # 'add' | 'remove'
+    reason: str | None = None
+
+
+@router.post("/requests/{request_id}/gates", response_model=RequestResponse)
+def override_gate(
+    request_id: str,
+    payload: _GateOverride,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_TRIAGE),
+):
+    return service.override_gate(
+        db, actor=current_user, request_id=request_id, gate_key=payload.gate_key,
+        action=payload.action, reason=payload.reason, http_request_id=_req_id(request),
+    )
+
+
 # ---- handoff / custody ----------------------------------------------------
 
 @router.post("/requests/{request_id}/handoff", response_model=RequestResponse)
@@ -303,6 +368,25 @@ async def draft_contract(
 
     r = service.get_request(db, user=current_user, request_id=request_id)
     await draft_contract_for_request(
+        db, actor=current_user, request=r, http_request_id=_req_id(request)
+    )
+    r = service.get_request(db, user=current_user, request_id=request_id)
+    return service.serialize_request(db, r)
+
+
+@router.post("/requests/{request_id}/ingest-attachment", response_model=RequestResponse)
+async def ingest_attachment(
+    request_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_TRIAGE),
+):
+    """Use the request's attached document as the contract (the 'review an
+    existing contract' path) instead of drafting from a template. Idempotent."""
+    from app.intake.drafting import ingest_attachment_as_contract
+
+    r = service.get_request(db, user=current_user, request_id=request_id)
+    await ingest_attachment_as_contract(
         db, actor=current_user, request=r, http_request_id=_req_id(request)
     )
     r = service.get_request(db, user=current_user, request_id=request_id)

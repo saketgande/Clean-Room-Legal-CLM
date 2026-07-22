@@ -60,12 +60,50 @@ export interface IntakeRequest {
   triaged_by_user_id: ID | null; triage_action: string | null;
   agent_outcome: string | null;
   ai_triage: Record<string, unknown> | null;
+  gates?: IntakeGates | null;
   screening?: Record<string, unknown> | null;
   parties?: IntakeParty[];
   fired_rules: Record<string, unknown> | null;
   handoff_holder: string | null; handoff_user_id: ID | null;
   project_id: ID | null; contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
+}
+// Flow Router agent output — lives on ai_triage.flow_suggestion.
+export interface FlowSuggestion {
+  flow_id: string | null;
+  flow_name: string | null;
+  confidence: number;
+  reasoning: string;
+  alternatives: { flow_id: string; flow_name: string; why: string }[];
+  needs_human: boolean;
+  source: "llm" | "deterministic" | "degraded";
+}
+// Litigation Intake Agent output — lives on ai_triage.litigation_assessment.
+export interface LitigationAssessment {
+  matter_type: string;
+  statutory_deadlines: { what: string; date?: string; source?: string }[];
+  legal_hold_required: boolean;
+  outside_counsel_likely: boolean;
+  settlement_posture: string;
+  key_parties: string[];
+  summary: string;
+}
+export interface IntakeGateDetected {
+  key: string; label: string; confidence: number; matched_text?: string; source: string;
+}
+export interface IntakeGateOverride {
+  action: "add" | "remove"; gate_key: string; by_user_id: ID; by_name: string;
+  reason: string | null; at: string;
+}
+export interface IntakeGateEffective { key: string; label: string; approver_group: string; }
+export interface IntakeGates {
+  detected: IntakeGateDetected[]; overrides: IntakeGateOverride[];
+  effective: IntakeGateEffective[]; effective_keys: string[];
+}
+export interface IntakeApprovalRung {
+  approval_request_id: ID; step_order: number; status: string;
+  approver_label: string; due_at: string | null;
+  mode?: "any" | "all"; approvals?: number; needed?: number;
 }
 export interface IntakeTask {
   id: ID; request_id: ID; title: string; description: string | null;
@@ -264,15 +302,6 @@ export interface OrgJoinRequestResponse {
   invitation_token: string | null;
 }
 
-export interface ApiKeyResponse {
-  id: ID;
-  name: string;
-  last_used_at: ISODateTime | null;
-  revoked_at: ISODateTime | null;
-  created_at: ISODateTime;
-  api_key: string | null;
-}
-
 // ---------------------------------------------------------------------------
 // Projects
 // ---------------------------------------------------------------------------
@@ -342,6 +371,19 @@ export interface ReviewChecklistItem {
   status: "done" | "todo" | "blocked" | "in_progress";
   count: number;
   detail: string | null;
+}
+
+export interface ContractDeviation {
+  id: ID;
+  playbook_run_id: ID;
+  playbook_rule_id: ID | null;
+  contract_id: ID;
+  severity: string;
+  clause_type: string;
+  issue: string;
+  suggested_fix: string | null;
+  citation: Record<string, unknown> | null;
+  status: string;
 }
 
 export interface ReviewStatusResponse {
@@ -651,29 +693,6 @@ export interface LifecycleOptionsResponse {
   allowed_transitions: ContractLifecycleStage[];
 }
 
-export interface ContractHubResponse {
-  contracts_by_stage: Record<string, number>;
-  contracts_by_risk: Record<string, number>;
-  total_contract_versions: number;
-  widgets: {
-    pending_approvals: number;
-    pending_signatures: number;
-    upcoming_renewals: number;
-    overdue_obligations: number;
-    top_deviated_clauses: { clause_type: string; count: number }[];
-    average_cycle_time_days: number | null;
-    counterparty_friction: { counterparty_name: string; count: number }[];
-    recent_activity: {
-      id: ID;
-      resource_id: ID;
-      event_type: string;
-      title: string;
-      details: Record<string, unknown>;
-      created_at: ISODateTime;
-    }[];
-  };
-}
-
 // ---------------------------------------------------------------------------
 // Assistant
 // ---------------------------------------------------------------------------
@@ -744,37 +763,6 @@ export interface AssistantRun {
   completed_at: ISODateTime | null;
 }
 
-export interface AssistantToolCall {
-  id: ID;
-  session_id: ID;
-  assistant_run_id: ID;
-  org_id: ID;
-  tool_name: string;
-  category: string;
-  arguments: Record<string, unknown>;
-  result: Record<string, unknown> | null;
-  status: string;
-  confirmation_required: boolean;
-  confirmation_id: ID | null;
-  resource_type: string | null;
-  resource_id: ID | null;
-  started_at: ISODateTime | null;
-  finished_at: ISODateTime | null;
-  error_message: string | null;
-}
-
-export interface ToolInfo {
-  name: string;
-  description: string;
-  category: string;
-  permission: string;
-  confirmation_policy: "none" | "required";
-  feature_flag: string | null;
-  enabled_by_default: boolean;
-  input_schema: Record<string, unknown>;
-  output_schema: Record<string, unknown>;
-}
-
 export type AssistantStreamEventType =
   | "session_started"
   | "message_delta"
@@ -790,48 +778,6 @@ export type AssistantStreamEventType =
 export interface AssistantStreamEvent {
   type: AssistantStreamEventType;
   data: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// AI skills
-// ---------------------------------------------------------------------------
-
-export interface SkillInfo {
-  name: string;
-  version: string;
-  execution_mode: string;
-  prompt_key: string;
-  prompt_version: string;
-  output_schema_name: string;
-  required_permission: string | null;
-  feature_flag: string | null;
-  enabled_by_default: boolean;
-  requires_citations: boolean;
-  allows_mutation: boolean;
-}
-
-export interface AISkillRunResponse {
-  id: ID;
-  org_id: ID;
-  skill_name: string;
-  skill_version: string;
-  execution_mode: string;
-  status: string;
-  resource_type: string | null;
-  resource_id: ID | null;
-  validation_status: string | null;
-  error_message: string | null;
-}
-
-export interface AIPromptVersionResponse {
-  id: ID | null;
-  prompt_key: string;
-  version: string;
-  status: string;
-  prompt_hash: string;
-  description: string | null;
-  model_name: string | null;
-  model_config_hash: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -869,6 +815,65 @@ export interface WorkflowUsage {
   run_count: number;
   last_run_at: ISODateTime | null;
   distinct_users: number;
+}
+
+// ---------------------------------------------------------------------------
+// Flows (workflow engine)
+// ---------------------------------------------------------------------------
+
+export type FlowStepType =
+  | "ai_task"
+  | "human_task"
+  | "clm_draft"
+  | "approval"
+  | "signature"
+  | "counterparty"
+  | "notify";
+
+export interface FlowStepDef {
+  id: ID;
+  type: FlowStepType;
+  name: string;
+  config: Record<string, unknown>;
+}
+
+export interface Flow {
+  id: ID;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  is_builtin: boolean;
+  eval_order: number;
+  version: number;
+  criteria: {
+    match_type?: string | null;
+    match_priority?: string | null;
+    match_department?: string | null;
+    match_keyword?: string | null;
+  };
+  steps: FlowStepDef[];
+}
+
+export interface FlowRunStep {
+  idx: number;
+  type: FlowStepType;
+  name: string;
+  status: string;
+  assignee_user_id: ID | null;
+  note: string | null;
+  result: Record<string, unknown> | null;
+}
+
+export interface FlowRun {
+  id: ID;
+  request_id: ID;
+  flow_id: ID;
+  flow_name: string;
+  status: "running" | "waiting" | "complete" | "failed" | "cancelled";
+  current_index: number;
+  contract_id: ID | null;
+  error: string | null;
+  steps: FlowRunStep[];
 }
 
 // ---------------------------------------------------------------------------
@@ -965,6 +970,10 @@ export interface ApprovalRequest {
   approver_group_name?: string | null;
   routing_rule_id?: ID | null;
   step_order?: number;
+  mode?: "any" | "all";
+  approvals?: number;
+  needed?: number;
+  reassign?: { kind: "delegate" | "escalate"; from_user_id: ID | null; by_user_id: ID } | null;
   due_at: ISODateTime | null;
   overdue?: boolean;
   metadata_json: Record<string, unknown>;
@@ -1339,98 +1348,6 @@ export interface ApiError {
   status: number;
   message: string;
   detail?: unknown;
-}
-
-// ---- Command console (Contracts Hub) ----
-export interface ConsoleQueueItem {
-  kind: string;
-  action: string;
-  contract_id: ID;
-  title: string;
-  counterparty: string | null;
-  stage: string;
-  days_in_stage: number;
-  sla_days: number | null;
-  sla_breached: boolean;
-  issues: number;
-  high_issues: number;
-  redlines: number;
-}
-
-export interface ConsoleResponse {
-  strip: {
-    live_value: number;
-    contracts: number;
-    needs_you: number;
-    sla_breaches: number;
-    approvals_pending: number;
-    approvals_overdue: number;
-    to_sign: number;
-    obligations_due_14d: number;
-    obligations_total: number;
-    renewals_90d: number;
-    automated_pct: number | null;
-    cycle_median_days: number | null;
-  };
-  action_queue: ConsoleQueueItem[];
-  approvals_in_flight: {
-    contract_id: ID;
-    title: string;
-    steps: { label: string; status: string; overdue: boolean; due_at: string | null }[];
-  }[];
-  deadlines: {
-    kind: "obligation" | "renewal" | "expiry";
-    what: string;
-    contract_id: ID;
-    contract_title: string;
-    due: string;
-    days: number;
-  }[];
-  pipeline: {
-    stage: string;
-    count: number;
-    avg_days: number | null;
-    sla_days: number | null;
-    breached: number;
-  }[];
-  risk_board: {
-    contract_id: ID;
-    title: string;
-    score: number | null;
-    band: string | null;
-    top_driver: string | null;
-  }[];
-  engine_log: { ts: string; event: string; auto: boolean; contract_id?: string }[];
-  triage: {
-    rank: number;
-    kind: "send" | "work" | "decide" | "classify" | "nudge" | "move";
-    title: string;
-    detail: string;
-    reason: string;
-    urgency: number;
-    contract_id: ID;
-    stage: string;
-    sla_breached: boolean;
-  }[];
-  friction: { counterparty: string; rounds: number; contracts: number }[];
-  register: {
-    contract_id: ID;
-    title: string;
-    stage: string;
-    risk_score: number | null;
-    risk_band: string | null;
-    days_in_stage: number;
-    sla_days: number | null;
-    sla_breached: boolean;
-    health: "critical" | "working" | "moving" | "healthy" | "idle";
-    counterparty: string | null;
-    value: number | null;
-    issues: number;
-    redlines: number;
-    obligations: number;
-  }[];
-  recent_activity: { ts: string; title: string; contract_id: ID; contract_title: string }[];
-  value_by_stage: { stage: string; value: number }[];
 }
 
 export interface IntakeDocument {

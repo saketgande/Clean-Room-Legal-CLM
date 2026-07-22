@@ -196,7 +196,7 @@ function FilterMenu({
     <div className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-100 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
+        className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-slate-100 px-3 py-1.5 text-[13px] text-slate-600 hover:bg-slate-50"
       >
         {value
           ? `${short}: ${options.find((o) => o.value === value)?.label ?? value}`
@@ -209,7 +209,7 @@ function FilterMenu({
             className="fixed inset-0 z-10"
             onClick={() => setOpen(false)}
           />
-          <div className="absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-y-auto rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-pop">
+          <div className="absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-y-auto rounded-md border border-slate-200 bg-slate-100 p-1 shadow-pop">
             <button
               onClick={() => {
                 onPick(null);
@@ -429,16 +429,16 @@ export default function WorkflowsPage() {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-slate-100">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto rounded-md border border-slate-200 bg-slate-100">
+          <table className="w-full text-[13px]">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="px-5 py-3">Name</th>
-                <th className="px-4 py-3">Type</th>
-                <th className="px-4 py-3">Practice</th>
-                <th className="px-4 py-3">Used</th>
-                <th className="px-4 py-3">Source</th>
-                <th className="w-12 px-4 py-3" />
+              <tr className="border-b border-slate-200 text-left text-[11px] font-medium uppercase tracking-[0.04em] text-slate-500">
+                <th className="px-3 py-2">Name</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Practice</th>
+                <th className="px-3 py-2">Used</th>
+                <th className="px-3 py-2">Source</th>
+                <th className="w-12 px-3 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -450,9 +450,9 @@ export default function WorkflowsPage() {
                   <tr
                     key={w.id}
                     onClick={() => setSelected(w)}
-                    className="cursor-pointer border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-50"
+                    className="cursor-pointer border-b border-slate-100 last:border-0 transition-colors hover:bg-slate-100"
                   >
-                    <td className="px-5 py-3.5 font-medium text-slate-900">
+                    <td className="px-3 py-2 font-medium text-slate-900">
                       <div className="flex items-center gap-2">
                         <button
                           onClick={(e) => {
@@ -462,7 +462,7 @@ export default function WorkflowsPage() {
                           className={cn(
                             "-ml-1 rounded p-0.5 transition-colors",
                             favorites.includes(w.id)
-                              ? "text-amber-500"
+                              ? "text-warning"
                               : "text-slate-300 hover:text-slate-500",
                           )}
                           aria-label={
@@ -478,14 +478,14 @@ export default function WorkflowsPage() {
                         {w.name}
                       </div>
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-2">
                       <span
                         className={cn(
                           "inline-flex items-center gap-1.5 text-xs font-medium",
                           asst
                             ? "text-brand-600"
                             : tab2
-                              ? "text-violet-600"
+                              ? "text-brand-600"
                               : "text-slate-500",
                         )}
                       >
@@ -503,10 +503,10 @@ export default function WorkflowsPage() {
                             : titleCase(w.workflow_type)}
                       </span>
                     </td>
-                    <td className="px-4 py-3.5 text-slate-600">
+                    <td className="px-3 py-2 text-slate-600">
                       {practiceOf(w)}
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-2">
                       {usage && usage.run_count > 0 ? (
                         <span
                           className="tabular-nums text-slate-600"
@@ -518,7 +518,7 @@ export default function WorkflowsPage() {
                         <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-3 py-2">
                       <span className="inline-flex items-center gap-1.5 text-slate-600">
                         {isBuiltin(w) ? (
                           <>
@@ -531,7 +531,7 @@ export default function WorkflowsPage() {
                       </span>
                     </td>
                     <td
-                      className="relative px-4 py-3.5 text-right"
+                      className="relative px-3 py-2 text-right"
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
@@ -549,7 +549,7 @@ export default function WorkflowsPage() {
                             className="fixed inset-0 z-10"
                             onClick={() => setMenuId(null)}
                           />
-                          <div className="absolute right-4 z-20 mt-1 w-40 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-pop">
+                          <div className="absolute right-4 z-20 mt-1 w-40 rounded-md border border-slate-200 bg-slate-100 p-1 shadow-pop">
                             <button
                               onClick={() => {
                                 setSelected(w);
@@ -830,8 +830,8 @@ function WorkflowDetailModal({
         )}
 
         {isAssistant && vars.length > 0 && (
-          <div className="rounded-md border border-brand-200 bg-brand-50 p-3 dark:bg-brand-400/5">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-brand-700 dark:text-brand-300">
+          <div className="rounded-md border border-brand-200 bg-brand-50 p-3">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700">
               Fill in {vars.length} variable{vars.length === 1 ? "" : "s"}
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -876,7 +876,7 @@ function WorkflowDetailModal({
 
         {isAssistant && (
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               {vars.length > 0 ? "Preview" : "Prompt"}
             </p>
             <div className="max-h-[50vh] overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm">
@@ -891,7 +891,7 @@ function WorkflowDetailModal({
 
         {isTabular && (
           <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               {columns.length} column{columns.length === 1 ? "" : "s"}
             </p>
             <div className="max-h-[50vh] space-y-2 overflow-y-auto">
@@ -1012,7 +1012,7 @@ function NewWorkflowModal({
               <button
                 type="button"
                 onClick={() => setPrompt(PROMPT_SCAFFOLD)}
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-400/10"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
               >
                 <Sparkles className="h-3.5 w-3.5" /> Insert 5-part scaffold
               </button>
@@ -1185,7 +1185,7 @@ function EditWorkflowModal({
               <button
                 type="button"
                 onClick={() => setPrompt(PROMPT_SCAFFOLD)}
-                className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-400/10"
+                className="inline-flex items-center gap-1 rounded-md border border-brand-200 bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
               >
                 <Sparkles className="h-3.5 w-3.5" /> Insert 5-part scaffold
               </button>
@@ -1212,7 +1212,7 @@ function EditWorkflowModal({
                   className={cn(
                     "flex flex-col items-center gap-1 rounded-md border px-2 py-2.5 text-center text-xs font-medium transition-colors",
                     active
-                      ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-400/10"
+                      ? "border-brand-500 bg-brand-50 text-brand-700"
                       : "border-slate-200 text-slate-600 hover:bg-slate-50",
                   )}
                 >
@@ -1226,7 +1226,7 @@ function EditWorkflowModal({
 
         {visibility === "shared_with_users" && (
           <div className="rounded-md border border-slate-200 bg-slate-50 p-2">
-            <p className="mb-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Share with {sharedIds.length > 0 ? `(${sharedIds.length})` : "…"}
             </p>
             <div className="max-h-40 space-y-0.5 overflow-y-auto">

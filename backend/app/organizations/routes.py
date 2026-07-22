@@ -1,9 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.models import OrgJoinRequest, UserInvitation
 from app.core.deps import get_db, require_permission
 from app.organizations.models import Organization
 
@@ -55,24 +53,3 @@ def update_organization(
     db.commit()
     db.refresh(org)
     return org
-
-
-@router.get("/join-requests")
-def list_join_requests(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("user:approve")),
-):
-    rows = db.scalars(
-        select(OrgJoinRequest).where(OrgJoinRequest.org_id == current_user.org_id)
-    ).all()
-    return rows
-
-
-@router.get("/invitations")
-def list_invitations(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("user:approve")),
-):
-    return db.scalars(
-        select(UserInvitation).where(UserInvitation.org_id == current_user.org_id)
-    ).all()

@@ -19,25 +19,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply the saved theme before first paint to avoid a flash. Mission
-            Control is dark-first — a fresh visitor defaults to the navy ground. */}
+        {/* Apply the saved theme before first paint to avoid a flash. The app is
+            light-first — a fresh visitor defaults to the light ground. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':true;document.documentElement.classList.toggle('dark',dark);}catch(e){document.documentElement.classList.add('dark');}})();",
+              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':false;document.documentElement.classList.toggle('dark',dark);}catch(e){}})();",
           }}
-        />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-        {/* UI chrome is Segoe UI (Fluent stack, system font — no webfont needed).
-            Newsreader remains for long-form contract reading surfaces only. */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,380;6..72,440;6..72,500;6..72,560&display=swap"
-          rel="stylesheet"
         />
       </head>
       <body>

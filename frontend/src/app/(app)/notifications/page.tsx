@@ -63,7 +63,7 @@ export default function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Notifications"
         description="Emails and in-app alerts sent across your organization."

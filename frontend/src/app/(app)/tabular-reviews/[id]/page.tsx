@@ -93,7 +93,7 @@ export default function TabularReviewDetailPage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <Breadcrumbs
           items={
@@ -111,7 +111,7 @@ export default function TabularReviewDetailPage({
         />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
               {review.name}
             </h1>
             <div className="mt-2 flex items-center gap-2">
@@ -332,7 +332,7 @@ function AddColumnsModal({
         {cols.map((col, idx) => (
           <div
             key={idx}
-            className="space-y-2 rounded-lg border border-slate-200 p-3"
+            className="space-y-2 rounded-md border border-slate-200 p-3"
           >
             <div className="flex items-center gap-2">
               <Input
@@ -455,7 +455,7 @@ function AddContractsModal({
           <Upload className="h-3.5 w-3.5" />
           Import a new file
         </button>
-        <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-slate-200 p-2">
+        <div className="max-h-72 space-y-1 overflow-y-auto rounded-md border border-slate-200 p-2">
           {available.length === 0 ? (
             <p className="px-2 py-3 text-sm text-slate-400">
               No more contracts available to add.
@@ -523,7 +523,7 @@ function CellView({
         className="flex w-full flex-col items-start gap-1 text-left"
       >
         <Badge tone="red">Failed</Badge>
-        <span className="line-clamp-2 text-xs text-red-600/90">
+        <span className="line-clamp-2 text-xs text-danger">
           {cell.error_message ?? "Extraction failed — click to retry."}
         </span>
       </button>
@@ -600,7 +600,7 @@ function CellModal({
 
         {cell.status !== "failed" && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Answer
             </p>
             <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-800">
@@ -611,7 +611,7 @@ function CellModal({
 
         {cell.reasoning && (
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Reasoning
             </p>
             <p className="mt-1.5 whitespace-pre-wrap text-sm text-slate-600">
@@ -621,14 +621,14 @@ function CellModal({
         )}
 
         {cell.error_message && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-red-500">
+          <div className="rounded-md border border-danger/30 bg-danger-subtle p-3">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-danger">
               Why it failed
             </p>
-            <p className="mt-1.5 whitespace-pre-wrap text-sm text-red-700">
+            <p className="mt-1.5 whitespace-pre-wrap text-sm text-danger">
               {cell.error_message}
             </p>
-            <p className="mt-2 text-xs text-red-500">
+            <p className="mt-2 text-xs text-danger">
               Use “Re-run cell” below to try again.
             </p>
           </div>
@@ -636,13 +636,13 @@ function CellModal({
 
         {cell.citations && cell.citations.length > 0 && (
           <div className="space-y-2 border-t border-slate-200 pt-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Citations
             </p>
             {cell.citations.map((c, i) => (
               <blockquote
                 key={i}
-                className="border-l-2 border-brand-400 pl-3 text-sm text-slate-600"
+                className="border-l-2 border-brand-600 pl-3 text-sm text-slate-600"
               >
                 {c.quote ?? c.excerpt}
               </blockquote>
@@ -724,7 +724,7 @@ function ChatPanel({ reviewId }: { reviewId: string }) {
                         {m.citations.map((c, i) => (
                           <blockquote
                             key={i}
-                            className="border-l-2 border-brand-400 pl-2 text-xs text-slate-600"
+                            className="border-l-2 border-brand-600 pl-2 text-xs text-slate-600"
                           >
                             {c.quote ?? c.excerpt}
                           </blockquote>

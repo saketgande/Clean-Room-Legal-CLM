@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AIPromptVersion, AISkillRun
-from app.ai.prompt_versions import DEFAULT_SKILL_PROMPTS, create_prompt_version, hash_text
+from app.ai.prompt_versions import DEFAULT_SKILL_PROMPTS, hash_text
 from app.ai.registry import skill_registry
 from app.ai.schemas import AIPromptVersionResponse, AISkillRunResponse, SkillInfo
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
@@ -17,14 +17,6 @@ from app.core.enums import AIPromptStatus
 from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/ai", tags=["ai"])
-
-
-class PromptVersionCreate(BaseModel):
-    prompt_key: str
-    version: str
-    prompt_text: str
-    status: str = AIPromptStatus.DRAFT
-    description: str | None = None
 
 
 class ContractAIRerunRequest(BaseModel):
@@ -55,18 +47,6 @@ def list_skill_runs(
     ).all()
 
 
-@router.get("/skill-runs/{skill_run_id}", response_model=AISkillRunResponse)
-def get_skill_run(
-    skill_run_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("assistant:use")),
-):
-    run = db.get(AISkillRun, skill_run_id)
-    if run is None or run.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "AI skill run not found")
-    return run
-
-
 @router.get("/prompt-versions", response_model=list[AIPromptVersionResponse])
 def list_prompt_versions(
     db: Session = Depends(get_db),
@@ -92,27 +72,6 @@ def list_prompt_versions(
         )
         for key, prompt in sorted(DEFAULT_SKILL_PROMPTS.items())
     ]
-
-
-@router.post("/prompt-versions", response_model=AIPromptVersionResponse)
-def create_prompt(
-    payload: PromptVersionCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("admin_panel:access")),
-):
-    row = create_prompt_version(
-        db,
-        org_id=current_user.org_id,
-        prompt_key=payload.prompt_key,
-        version=payload.version,
-        prompt_text=payload.prompt_text,
-        status=payload.status,
-        created_by_user_id=current_user.id,
-        description=payload.description,
-    )
-    db.commit()
-    db.refresh(row)
-    return row
 
 
 @router.post("/contracts/{contract_id}/metadata-extraction")

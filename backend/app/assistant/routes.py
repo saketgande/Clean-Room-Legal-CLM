@@ -239,16 +239,6 @@ def get_run(
     return {"assistant_run": run, "tool_calls": tool_calls}
 
 
-@router.get("/runs/{assistant_run_id}/tool-calls")
-def list_run_tool_calls(
-    assistant_run_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("assistant:use")),
-):
-    run = _get_run_for_user(db, assistant_run_id=assistant_run_id, current_user=current_user)
-    return _tool_calls_for_run(db, assistant_run_id=run.id, org_id=current_user.org_id)
-
-
 @router.post("/sessions/{session_id}/stream")
 @limiter.limit(settings.rate_limit_assistant_stream)
 async def stream_session(

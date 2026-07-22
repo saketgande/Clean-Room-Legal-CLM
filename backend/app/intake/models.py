@@ -181,7 +181,6 @@ class IntakeRequest(
     conversation = Column(JSON, nullable=True)  # copilot transcript
     handoff_holder = Column(String(10), nullable=True)  # agent|human|queue
     handoff_user_id = Column(String(36), nullable=True)
-    handoff_updated_at = Column(DateTime(timezone=True), nullable=True)
     external_message_id = Column(String(200), nullable=True)
     screening = Column(JSON, nullable=True)  # {counterparty, sanctions, conflicts, relationship}
     parties = Column(JSON, nullable=True)  # [{name, role, is_person}] — counterparty + adverse/related

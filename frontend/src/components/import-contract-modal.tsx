@@ -73,7 +73,7 @@ export function ImportContractModal({
     >
       <div className="space-y-4">
         <Field label="Contract file" hint="PDF, DOCX, DOC, TXT, PNG, JPEG">
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600 hover:border-brand-400">
+          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-[13px] text-slate-600 hover:border-brand-400">
             {file ? file.name : "Click to choose a file"}
             <input
               type="file"

@@ -21,7 +21,7 @@ from app.authority.routes import router as authority_router
 from app.intake.routes import router as intake_router
 from app.contract_brain.routes import router as contract_brain_router
 from app.contract_files.routes import external_share_router, router as contract_files_router
-from app.contracts.routes import hub_router, router as contracts_router
+from app.contracts.routes import router as contracts_router
 from app.contracts.comments_routes import router as contract_comments_router
 from app.core.config import settings, validate_runtime_settings
 from app.core.deps import get_db
@@ -49,6 +49,7 @@ from app.signatures.routes import router as signatures_router
 from app.tabular_review.routes import router as tabular_review_router
 from app.word_addin.routes import router as word_addin_router
 from app.workflows.routes import router as workflows_router
+from app.flows.routes import router as flows_router
 
 
 @asynccontextmanager
@@ -146,8 +147,8 @@ def create_app() -> FastAPI:
     app.include_router(ai_router, prefix=prefix)
     app.include_router(assistant_router, prefix=prefix)
     app.include_router(workflows_router, prefix=prefix)
+    app.include_router(flows_router, prefix=prefix)
     app.include_router(playbooks_router, prefix=prefix)
-    app.include_router(hub_router, prefix=prefix)
     app.include_router(contract_brain_router, prefix=prefix)
     app.include_router(approvals_router, prefix=prefix)
     app.include_router(signatures_router, prefix=prefix)
