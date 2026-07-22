@@ -1065,19 +1065,12 @@ export const intakeApi = {
     apiFetch<{ request: IntakeRequest; chain: IntakeApprovalRung[] }>(
       `/intake/requests/${id}/submit-for-approval`, { method: "POST", body: body ?? {} }),
   overrideGate: (id: string, body: { gate_key: string; action: "add" | "remove"; reason?: string }) =>
-        apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
 
-    // channel sync
-    gmailSync: () =>
-        apiFetch<{ status: string; fetched?: number; filed?: unknown[]; skipped?: unknown[]; note?: string }>(
-            "/intake/gmail-sync", { method: "POST" }),
-
-    // recommendation / verdicts / promote
-    recommendation: (id: string) =>
-        apiFetch<IntakeRecommendation | null>(`/intake/requests/${id}/recommendation`),
-    bulkTriage: (ids: string[], action: string) =>
-        apiFetch<{ results: { id: string; ok: boolean; error?: string }[] }>(
-            "/intake/requests/bulk-triage", { method: "POST", body: { ids, action } }),
+  // channel sync — Gmail intake polling (email → request)
+  gmailSync: () =>
+    apiFetch<{ status: string; fetched?: number; filed?: unknown[]; skipped?: unknown[]; note?: string }>(
+      "/intake/gmail-sync", { method: "POST" }),
 
   // promote
   promote: (id: string, target: "project" | "contract", targetId: string) =>
