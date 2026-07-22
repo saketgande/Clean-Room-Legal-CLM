@@ -1388,7 +1388,10 @@ def add_document(db: Session, *, actor: User, request_id: str, filename: str,
     extracted, quality = "", None
     try:
         result = extract_text(content, mime_type=mime_type, filename=filename)
-        extracted = (result.text or "")[:20000]
+        # Postgres TEXT/VARCHAR columns can never store a NUL byte — some PDF
+        # extractors emit them for certain font encodings, which would
+        # otherwise fail this insert.
+        extracted = (result.text or "").replace("\x00", "")[:20000]
         quality = result.quality_score
     except Exception:
         extracted = ""
