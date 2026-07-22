@@ -511,6 +511,7 @@ import base64 as _b64
 
 from fastapi import Body, Header
 
+from app.intake import gmail_sync as gmail_sync_mod
 from app.intake import ingest as ingest_mod
 from app.intake import screening as screening_mod
 
@@ -554,6 +555,12 @@ async def teams_webhook(request: Request, db: Session = Depends(get_db)):
 def mailbox_poll(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
     """Manually trigger the M365 mailbox sweep (inert until INTAKE_GRAPH_* set)."""
     return ingest_mod.poll_mailbox(db)
+
+
+@router.post("/gmail-sync")
+def gmail_sync(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
+    """Manually trigger a Gmail inbox sync (inert until INTAKE_GMAIL_* set)."""
+    return gmail_sync_mod.sync_gmail_inbox(db)
 
 
 @router.post("/requests/{request_id}/screen")

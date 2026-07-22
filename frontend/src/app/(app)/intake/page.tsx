@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users } from "lucide-react";
+import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users, Mail, MessageSquare, } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
@@ -82,6 +82,37 @@ export default function IntakePage() {
   const { user } = useAuth();
   const isStaff = can(user, "intake:read");
   const isAdmin = can(user, "admin_panel:access");
+  const { notify } = useToast();
+  const qc = useQueryClient();
+  const [gmailSyncing, setGmailSyncing] = useState(false);
+
+  async function syncGmail() {
+    setGmailSyncing(true);
+    try {
+      const res = await intakeApi.gmailSync();
+      if (res.status === "disabled") {
+        notify(res.note || "Gmail sync isn't configured yet", "error");
+      } else if (res.status === "error") {
+        notify(res.note || "Gmail sync failed", "error");
+      } else {
+        type Filed = { deduped?: boolean; thread_followup?: boolean; documents_added?: string[] };
+        const filed = (res.filed ?? []) as Filed[];
+        const newRequests = filed.filter((f) => !f.deduped).length;
+        const docsAddedToThreads = filed
+          .filter((f) => f.thread_followup)
+          .reduce((n, f) => n + (f.documents_added?.length ?? 0), 0);
+        const parts = [];
+        if (newRequests > 0) parts.push(`${newRequests} new request(s)`);
+        if (docsAddedToThreads > 0) parts.push(`${docsAddedToThreads} document(s) added to existing threads`);
+        notify(parts.length > 0 ? `Synced: ${parts.join(", ")}` : "No new emails to sync", "success");
+        qc.invalidateQueries({ queryKey: ["intake-list"] });
+      }
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Gmail sync failed", "error");
+    } finally {
+      setGmailSyncing(false);
+    }
+  }
 
   // Reference-style tab set — Work · File · Insights, divider-grouped. Inbox and
   // SLA are first-class tabs (not nested view-toggles) so every lens is one
@@ -138,7 +169,16 @@ export default function IntakePage() {
               ◆ {openCount} open
             </span>
           )}
-          {isStaff && <LivePulse updatedAt={dataUpdatedAt} />}
+          {isStaff && (
+            <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide text-emerald-600">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />AI triage · live
+            </span>
+          )}
+          {isStaff && (
+            <Button disabled={gmailSyncing} onClick={syncGmail}>
+              <Mail className="h-4 w-4" />{gmailSyncing ? "Syncing…" : "Sync With Email"}
+            </Button>
+          )}
           <Button onClick={() => { setSection("new"); setDetailId(null); }}><Plus className="h-4 w-4" />New request</Button>
         </div>
       </div>

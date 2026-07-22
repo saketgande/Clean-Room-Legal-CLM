@@ -174,6 +174,10 @@ class Settings(BaseSettings):
     intake_graph_client_secret: str | None = None
     intake_graph_mailbox: str | None = None  # e.g. legal@company.com
     intake_mailbox_auto_ack: bool = False
+    intake_gmail_address: str | None = None  # Gmail account to sync, e.g. legal@gmail.com
+    intake_gmail_app_password: str | None = None  # 16-char Google App Password (not the account password)
+    intake_gmail_folder: str = "INBOX"
+    intake_gmail_max_messages: int = 20  # cap per sync click
     # Non-production-ready agents stay hidden unless demo agents are enabled,
     # so users never see fabricated analysis in production.
     intake_demo_agents: bool = True
