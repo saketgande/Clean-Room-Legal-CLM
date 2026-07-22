@@ -75,7 +75,7 @@ export default function PlaybookDetailPage({
   if (!playbook) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <Breadcrumbs
           items={[
@@ -85,7 +85,7 @@ export default function PlaybookDetailPage({
         />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+            <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
               {playbook.name}
             </h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -417,7 +417,7 @@ function RuleCard({
         )}
 
         {(r.escalation_role || r.rationale || r.negotiation_guidance) && (
-          <div className="space-y-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <div className="space-y-3 border-t border-slate-200 pt-3">
             {r.escalation_role && <Detail label="Escalation role" value={r.escalation_role} />}
             {r.rationale && <Detail label="Rationale" value={r.rationale} />}
             {r.negotiation_guidance && (
@@ -428,10 +428,10 @@ function RuleCard({
 
         {r.sample_clause && (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Sample clause
             </p>
-            <p className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/50 dark:text-slate-300">
+            <p className="mt-1 whitespace-pre-wrap rounded-md bg-slate-50 p-3 text-[13px] text-slate-600">
               {r.sample_clause}
             </p>
           </div>
@@ -452,15 +452,15 @@ function Detail({
 }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dt className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">{label}</dt>
       <dd
         className={cn(
-          "mt-1 text-sm",
+          "mt-1 text-[13px]",
           tone === "red"
-            ? "text-rose-600 dark:text-rose-300"
+            ? "text-danger"
             : tone === "green"
-              ? "text-emerald-700 dark:text-emerald-300"
-              : "text-slate-700 dark:text-slate-300",
+              ? "text-success"
+              : "text-slate-700",
         )}
       >
         {value || "\u2014"}
@@ -608,7 +608,7 @@ function RuleModal({
               />
             </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <label className="flex items-center gap-2 text-[13px] text-slate-600">
             <input
               type="checkbox"
               checked={form.approval_required}
@@ -685,7 +685,7 @@ function RuleModal({
 function FormSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-3">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-400">{title}</p>
+      <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">{title}</p>
       {children}
     </div>
   );
@@ -941,17 +941,17 @@ function RunDetailContent({ run }: { run: PlaybookRunDetailResponse }) {
         {run.model_name && <Badge tone="slate">{run.model_name}</Badge>}
       </div>
       {run.error_message && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        <div className="rounded-md border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger">
           {run.error_message}
         </div>
       )}
 
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+        <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
           Deviations ({run.deviations.length})
         </p>
         {run.deviations.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-300 bg-slate-100 py-8 text-center text-sm text-slate-400">
+          <div className="rounded-md border border-dashed border-slate-300 bg-slate-100 py-8 text-center text-[13px] text-slate-400">
             No deviations found.
           </div>
         ) : (
@@ -1022,17 +1022,17 @@ function DeviationCard({
           </Badge>
         </div>
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Issue
           </p>
-          <p className="mt-1 text-sm text-slate-700">{deviation.issue}</p>
+          <p className="mt-1 text-[13px] text-slate-700">{deviation.issue}</p>
         </div>
         {deviation.suggested_fix && (
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               Suggested fix
             </p>
-            <p className="mt-1 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-800">
+            <p className="mt-1 rounded-md bg-success-subtle p-3 text-[13px] text-success">
               {deviation.suggested_fix}
             </p>
           </div>
@@ -1125,7 +1125,7 @@ function InsightsTab({ playbookId }: { playbookId: string }) {
             evidence-based suggestions for changes. (Needs decided deviation history first.)
           </p>
         ) : !data.ready ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <div className="rounded-md border border-warning/30 bg-warning-subtle p-4 text-[13px] text-warning">
             Not enough usage data yet — {data.decided_count} decided deviation(s); need at least{" "}
             {data.min_required}. Run this playbook on contracts and decide the flagged deviations to
             build history, then re-analyze.
@@ -1139,7 +1139,7 @@ function InsightsTab({ playbookId }: { playbookId: string }) {
             {data.summary && <p className="text-sm text-slate-600">{data.summary}</p>}
             {data.recommendations.map((r, i) =>
               dismissed.has(i) ? null : (
-                <div key={i} className="rounded-lg border border-slate-200 p-3">
+                <div key={i} className="rounded-md border border-slate-200 p-3">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
                     <span className="font-medium text-slate-900">{titleCase(r.clause_type)}</span>
                     <Badge tone={riskDirectionTone(r.risk_direction)}>

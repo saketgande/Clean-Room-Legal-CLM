@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, Request, Response, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, get_db, require_permission
@@ -8,7 +9,6 @@ from app.intake import service
 from app.intake import teams as teams_mod
 from app.intake.schemas import (
     AssigneeResponse,
-    BulkTriageRequest,
     CopilotFileRequest,
     CopilotTurnRequest,
     CopilotTurnResponse,
@@ -19,7 +19,6 @@ from app.intake.schemas import (
     KbUpdate,
     PartiesUpdate,
     PromoteRequest,
-    RecommendationResponse,
     RequestCreate,
     RequestResponse,
     RequestTypeCreate,
@@ -41,8 +40,7 @@ from app.intake.schemas import (
 router = APIRouter(prefix="/intake", tags=["intake"])
 
 _CREATE = require_permission("intake:create")   # all employees — file + own tickets
-_READ = require_permission("intake:read")        # staff-wide list/detail
-_TRIAGE = require_permission("intake:triage")     # verdicts / cockpit / my-work
+_READ = require_permission("intake:read")        # the staff gate — queue + manage actions
 _UPDATE = require_permission("intake:update")     # stage / handoff / tasks
 _MANAGE = require_permission("admin_panel:access")  # admin config (types, teams, rules)
 
@@ -156,11 +154,75 @@ def triage_request(
     payload: TriageActionRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
+    current_user=Depends(_READ),
 ):
     return service.record_triage_action(
         db, actor=current_user, request_id=request_id, payload=payload,
         http_request_id=_req_id(request),
+    )
+
+
+@router.post("/requests/{request_id}/suggest-flow", response_model=RequestResponse)
+def suggest_flow(
+    request_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    """Re-run the Flow Router agent for this request; the suggestion lands on
+    ai_triage.flow_suggestion. Assigning it is a separate one-click flows/start."""
+    return service.resuggest_flow(db, actor=current_user, request_id=request_id)
+
+
+# ---- approval ladder ------------------------------------------------------
+
+class _ApprovalLadderSubmit(BaseModel):
+    # Optional manual fallback approver, used only when no routing rule matches.
+    approver_user_id: str | None = None
+    approver_role: str | None = None
+
+
+@router.post("/requests/{request_id}/submit-for-approval")
+async def submit_for_approval(
+    request_id: str,
+    request: Request,
+    payload: _ApprovalLadderSubmit | None = None,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    p = payload or _ApprovalLadderSubmit()
+    return await service.start_approval_ladder(
+        db, actor=current_user, request_id=request_id,
+        approver_user_id=p.approver_user_id, approver_role=p.approver_role,
+        http_request_id=_req_id(request),
+    )
+
+
+@router.get("/requests/{request_id}/approval-chain")
+def approval_chain(
+    request_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    return service.get_approval_chain(db, actor=current_user, request_id=request_id)
+
+
+class _GateOverride(BaseModel):
+    gate_key: str
+    action: str  # 'add' | 'remove'
+    reason: str | None = None
+
+
+@router.post("/requests/{request_id}/gates", response_model=RequestResponse)
+def override_gate(
+    request_id: str,
+    payload: _GateOverride,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    return service.override_gate(
+        db, actor=current_user, request_id=request_id, gate_key=payload.gate_key,
+        action=payload.action, reason=payload.reason, http_request_id=_req_id(request),
     )
 
 
@@ -242,7 +304,7 @@ def log_effort(
 @router.get("/my-work")
 def my_work(
     db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
+    current_user=Depends(_READ),
 ):
     return service.my_work(db, user=current_user)
 
@@ -255,28 +317,7 @@ def list_assignees(
     return service.list_assignees(db, org_id=current_user.org_id)
 
 
-# ---- recommendation / verdicts / promote ----------------------------------
-
-@router.get("/requests/{request_id}/recommendation")
-def get_recommendation(
-    request_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(_CREATE),
-):
-    return service.get_recommendation(db, user=current_user, request_id=request_id)
-
-
-@router.post("/requests/bulk-triage")
-def bulk_triage(
-    payload: BulkTriageRequest,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
-):
-    return {"results": service.bulk_triage(
-        db, actor=current_user, ids=payload.ids, action=payload.action,
-        http_request_id=_req_id(request))}
-
+# ---- promote --------------------------------------------------------------
 
 @router.post("/requests/{request_id}/promote", response_model=RequestResponse)
 def promote(
@@ -284,7 +325,7 @@ def promote(
     payload: PromoteRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
+    current_user=Depends(_READ),
 ):
     return service.promote(db, actor=current_user, request_id=request_id, payload=payload,
                            http_request_id=_req_id(request))
@@ -295,7 +336,7 @@ async def draft_contract(
     request_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
+    current_user=Depends(_READ),
 ):
     """Render a draft contract from an intake request and link it back — the
     intake → contract-lifecycle bridge. Idempotent."""
@@ -303,6 +344,25 @@ async def draft_contract(
 
     r = service.get_request(db, user=current_user, request_id=request_id)
     await draft_contract_for_request(
+        db, actor=current_user, request=r, http_request_id=_req_id(request)
+    )
+    r = service.get_request(db, user=current_user, request_id=request_id)
+    return service.serialize_request(db, r)
+
+
+@router.post("/requests/{request_id}/ingest-attachment", response_model=RequestResponse)
+async def ingest_attachment(
+    request_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    """Use the request's attached document as the contract (the 'review an
+    existing contract' path) instead of drafting from a template. Idempotent."""
+    from app.intake.drafting import ingest_attachment_as_contract
+
+    r = service.get_request(db, user=current_user, request_id=request_id)
+    await ingest_attachment_as_contract(
         db, actor=current_user, request=r, http_request_id=_req_id(request)
     )
     r = service.get_request(db, user=current_user, request_id=request_id)
@@ -334,7 +394,7 @@ def set_pause(
 @router.get("/sla-ops")
 def sla_ops(
     db: Session = Depends(get_db),
-    current_user=Depends(_TRIAGE),
+    current_user=Depends(_READ),
 ):
     return service.sla_ops_summary(db, org_id=current_user.org_id)
 
@@ -350,7 +410,7 @@ def sla_scan(
 # ---- teams / pools (admin) ------------------------------------------------
 
 @router.get("/teams", response_model=list[TeamResponse])
-def list_teams(db: Session = Depends(get_db), current_user=Depends(_TRIAGE)):
+def list_teams(db: Session = Depends(get_db), current_user=Depends(_READ)):
     return teams_mod.list_teams(db, org_id=current_user.org_id)
 
 
@@ -373,7 +433,7 @@ def delete_team(team_id: str, db: Session = Depends(get_db), current_user=Depend
 # ---- routing rules (read=triage, write=admin per Part 0.14) ---------------
 
 @router.get("/routing-rules", response_model=list[RuleResponse])
-def list_rules(db: Session = Depends(get_db), current_user=Depends(_TRIAGE)):
+def list_rules(db: Session = Depends(get_db), current_user=Depends(_READ)):
     return routing_mod.list_rules(db, org_id=current_user.org_id)
 
 
@@ -425,7 +485,7 @@ def delete_kb(kb_id: str, db: Session = Depends(get_db), current_user=Depends(_M
 # ---- pool ops -------------------------------------------------------------
 
 @router.get("/pool-ops")
-def pool_ops(days: int = 30, db: Session = Depends(get_db), current_user=Depends(_TRIAGE)):
+def pool_ops(days: int = 30, db: Session = Depends(get_db), current_user=Depends(_READ)):
     return service.pool_ops_summary(db, org_id=current_user.org_id, days=days)
 
 
@@ -505,7 +565,7 @@ def gmail_sync(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
 
 @router.post("/requests/{request_id}/screen")
 def rescreen_request(request_id: str, db: Session = Depends(get_db),
-                     current_user=Depends(_TRIAGE)):
+                     current_user=Depends(_READ)):
     r = service.get_request(db, user=current_user, request_id=request_id)
     result = screening_mod.run_screening(db, r, actor_user_id=current_user.id)
     db.commit()
@@ -544,11 +604,6 @@ def list_request_documents(request_id: str, db: Session = Depends(get_db),
 
 @router.put("/requests/{request_id}/parties", response_model=RequestResponse)
 def set_request_parties(request_id: str, payload: PartiesUpdate,
-                        db: Session = Depends(get_db), current_user=Depends(_TRIAGE)):
+                        db: Session = Depends(get_db), current_user=Depends(_READ)):
     """Replace the request's parties (counterparty + adverse/related) and re-screen."""
     return service.set_parties(db, actor=current_user, request_id=request_id, parties=payload.parties)
-
-
-@router.get("/agent-metrics")
-def get_agent_metrics(db: Session = Depends(get_db), current_user=Depends(_TRIAGE)):
-    return service.agent_metrics(db, current_user.org_id)

@@ -40,17 +40,27 @@ const config: Config = {
           900: "rgb(var(--color-brand-900) / <alpha-value>)",
           950: "rgb(var(--color-brand-950) / <alpha-value>)",
         },
+        // Semantic status colors — their own tokens (never ride slate/brand).
+        // Each has a solid (text/icon/border) and a -subtle (badge/banner bg).
+        success: "rgb(var(--color-success) / <alpha-value>)",
+        "success-subtle": "rgb(var(--color-success-subtle) / <alpha-value>)",
+        warning: "rgb(var(--color-warning) / <alpha-value>)",
+        "warning-subtle": "rgb(var(--color-warning-subtle) / <alpha-value>)",
+        danger: "rgb(var(--color-danger) / <alpha-value>)",
+        "danger-subtle": "rgb(var(--color-danger-subtle) / <alpha-value>)",
+        info: "rgb(var(--color-info) / <alpha-value>)",
+        "info-subtle": "rgb(var(--color-info-subtle) / <alpha-value>)",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
-        serif: ["var(--font-serif)", "Newsreader", "Georgia", "serif"],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       boxShadow: {
-        // Theme-aware depth (values per theme in globals.css): subtle ink on
-        // light, deep black + faint violet lift on dark.
+        // Theme-aware depth (values per theme in globals.css). Resting cards are
+        // border-only (card = none); pop/modal carry real elevation.
         card: "var(--shadow-card)",
         pop: "var(--shadow-pop)",
+        modal: "var(--shadow-modal)",
       },
       keyframes: {
         "fade-in": {

@@ -423,16 +423,16 @@ export function ContractDocument({
   return (
     <div
       className={
-        "flex h-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm " +
+        "flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-slate-100 " +
         (className ?? "")
       }
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">
+          <p className="truncate text-[13px] font-semibold text-slate-900">
             {contract?.title ?? "Contract"}
           </p>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-400">
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
             {editing ? (
               <Badge tone="violet">Editing — saves as a new version</Badge>
             ) : redlineMode ? (
@@ -452,7 +452,7 @@ export function ContractDocument({
                 proposed
               </span>
             )}
-            <span className="hidden text-slate-300 sm:inline">
+            <span className="hidden text-slate-400 sm:inline">
               · select text to redline or comment
             </span>
           </div>
@@ -464,7 +464,7 @@ export function ContractDocument({
                 value={saveSummary}
                 onChange={(e) => setSaveSummary(e.target.value)}
                 placeholder="Describe the change (optional)"
-                className="h-8 w-52 rounded-md border border-slate-200 bg-slate-50 px-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                className="h-8 w-52 rounded border border-slate-300 bg-slate-50 px-2 text-xs focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-200"
               />
               <Button
                 size="sm"
@@ -555,7 +555,7 @@ export function ContractDocument({
             autoFocus
             spellCheck={false}
             aria-label="Edit contract text"
-            className="block h-full w-full resize-none whitespace-pre-wrap bg-slate-100 px-12 py-10 font-serif text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500/30"
+            className="block h-full w-full resize-none whitespace-pre-wrap bg-slate-100 px-12 py-10 font-sans text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-200"
           />
         ) : !docText ? (
           <div className="flex flex-col items-center justify-center gap-2 py-20 text-center text-slate-400">
@@ -569,14 +569,14 @@ export function ContractDocument({
             </p>
           </div>
         ) : (
-          <article className="w-full whitespace-pre-wrap px-12 py-10 font-serif text-[15px] leading-7 text-slate-800">
+          <article className="w-full whitespace-pre-wrap px-12 py-10 font-sans text-[15px] leading-7 text-slate-800">
             {redlineMode && edits
               ? buildSegments(docText, edits).map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;
                   const e = seg.edit;
                   const active = activeEditId === e.id;
                   const ring = active
-                    ? " ring-2 ring-offset-1 ring-brand-400 rounded"
+                    ? " ring-2 ring-offset-1 ring-brand-600 rounded"
                     : "";
                   if (e.status === "accepted") {
                     return (
@@ -586,11 +586,11 @@ export function ContractDocument({
                         onClick={() => onSelectEdit?.(e.id)}
                         className={"cursor-pointer" + ring}
                       >
-                        <del className="bg-red-50 text-red-700 line-through decoration-red-400">
+                        <del className="bg-danger-subtle text-danger line-through decoration-danger/60">
                           {seg.text}
                         </del>
                         {e.replacement_text && (
-                          <ins className="bg-emerald-50 text-emerald-800 no-underline">
+                          <ins className="bg-success-subtle text-success no-underline">
                             {e.replacement_text}
                           </ins>
                         )}
@@ -605,7 +605,7 @@ export function ContractDocument({
                       onClick={() => onSelectEdit?.(e.id)}
                       title={e.rationale ?? "Suggested change"}
                       className={
-                        "cursor-pointer rounded bg-amber-100 text-amber-900 underline decoration-amber-400 decoration-dotted underline-offset-2" +
+                        "cursor-pointer rounded bg-warning-subtle text-warning underline decoration-warning/60 decoration-dotted underline-offset-2" +
                         ring
                       }
                     >
@@ -622,7 +622,7 @@ export function ContractDocument({
                       <mark
                         key="h"
                         id="cite-hl"
-                        className="rounded bg-amber-100 text-amber-900 underline decoration-amber-400 underline-offset-2"
+                        className="rounded bg-warning-subtle text-warning underline decoration-warning/60 underline-offset-2"
                       >
                         {docText.slice(span[0], span[1])}
                       </mark>,
@@ -640,7 +640,7 @@ export function ContractDocument({
                             id={`anchor-comment-${seg.comment.id}`}
                             onClick={() => onSelectComment?.(seg.comment.id)}
                             title={`${seg.comment.author_name}: ${seg.comment.body.slice(0, 120)}`}
-                            className="cursor-pointer rounded bg-sky-100 text-sky-900 underline decoration-sky-400 decoration-dotted underline-offset-2"
+                            className="cursor-pointer rounded bg-info-subtle text-info underline decoration-info/60 decoration-dotted underline-offset-2"
                           >
                             {seg.text}
                           </mark>
@@ -653,18 +653,18 @@ export function ContractDocument({
 
         {selection && (
           <div
-            className="absolute z-20 w-[19rem] -translate-x-1/2 rounded-xl border border-slate-200 bg-slate-100 p-2 shadow-pop"
+            className="absolute z-20 w-[19rem] -translate-x-1/2 rounded-lg border border-slate-200 bg-slate-100 p-2 shadow-pop"
             style={{ left: selection.x, top: selection.y }}
             onMouseUp={(e) => e.stopPropagation()}
           >
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <p className="truncate text-[11px] text-slate-400">
+              <p className="truncate text-[11px] text-slate-500">
                 “{selection.quote.slice(0, 60)}
                 {selection.quote.length > 60 ? "…" : ""}”
               </p>
               <button
                 onClick={() => setSelection(null)}
-                className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                className="shrink-0 rounded p-0.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
                 aria-label="Close"
               >
                 <X className="h-3.5 w-3.5" />
@@ -700,13 +700,13 @@ export function ContractDocument({
                   onChange={(e) => setReplacement(e.target.value)}
                   rows={3}
                   placeholder="Replacement text (leave empty to delete)"
-                  className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  className="w-full resize-none rounded border border-slate-300 bg-slate-50 p-2 text-xs focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-200"
                 />
                 <input
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   placeholder="Rationale (optional)"
-                  className="w-full rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  className="w-full rounded border border-slate-300 bg-slate-50 p-2 text-xs focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-200"
                 />
                 <Button
                   size="sm"
@@ -726,7 +726,7 @@ export function ContractDocument({
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
                   placeholder="Comment on this passage…"
-                  className="w-full resize-none rounded-md border border-slate-200 bg-slate-50 p-2 text-xs focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                  className="w-full resize-none rounded border border-slate-300 bg-slate-50 p-2 text-xs focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-200"
                 />
                 <div className="flex items-center gap-1.5">
                   <Select

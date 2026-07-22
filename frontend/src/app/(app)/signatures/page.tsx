@@ -66,7 +66,7 @@ export default function SignaturesPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Signatures"
         description="Send contracts for e-signature and track envelope status."

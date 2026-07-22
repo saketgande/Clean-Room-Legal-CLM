@@ -71,7 +71,7 @@ export default function RenewalsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Renewals"
         description="Monitor upcoming expirations and record renewal decisions."

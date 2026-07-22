@@ -1,288 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
-  ErrorState, Field, Input, Modal, Select, StatCard, Table, TD, TH, THead, TR, Textarea,
+  ErrorState, Field, Input, Modal, Select, StatCard, Table, TD, TH, THead, TR,
 } from "@/components/ui";
 import { intakeApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
-import { cn, titleCase } from "@/lib/utils";
-import {
-  POSTURE_TONE, PRIORITY_TONE, STATUS_LABEL, STATUS_TONE,
-} from "@/lib/intake";
-import type { IntakeRequest, IntakeSlaLeg } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import type { IntakeSlaLeg } from "@/lib/types";
 
-const AUTO_SEND = 0.75;
-
-function Pill({ r }: { r: IntakeRequest }) {
-  return <Badge tone={STATUS_TONE[r.status] as never}>{STATUS_LABEL[r.status]}</Badge>;
-}
-
-// ======================= TRIAGE COCKPIT =======================
-
-export function CockpitTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list() });
-  const queue = useMemo(
-    () => (data ?? []).filter((r) => r.status !== "closed" && r.status !== "approved" && r.triage_action !== "snoozed"),
-    [data],
-  );
-  const [idx, setIdx] = useState(0);
-  const cur = queue[idx];
-  const { data: rec } = useQuery({
-    queryKey: ["intake-rec", cur?.id],
-    queryFn: () => intakeApi.recommendation(cur!.id),
-    enabled: !!cur,
-  });
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => { setEditing(false); }, [cur?.id]);
-  useEffect(() => { if (idx >= queue.length && queue.length) setIdx(0); }, [queue.length, idx]);
-
-  async function verdict(action: string, extra: Record<string, unknown> = {}) {
-    if (!cur) return;
-    setBusy(true);
-    try {
-      await intakeApi.triage(cur.id, { action, ...extra });
-      qc.invalidateQueries({ queryKey: ["intake-list"] });
-      qc.invalidateQueries({ queryKey: ["intake-mywork"] });
-      notify(`${titleCase(action.replace("_", " "))} · ${cur.ref}`, "success");
-      setEditing(false);
-    } catch (e) { notify(e instanceof Error ? e.message : "Action failed", "error"); }
-    finally { setBusy(false); }
-  }
-  const next = () => setIdx((i) => Math.min(i + 1, queue.length - 1));
-  const prev = () => setIdx((i) => Math.max(i - 1, 0));
-
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.target as HTMLElement)?.matches?.("input,textarea,select")) return;
-      const k = e.key.toLowerCase();
-      if (k === "j") { next(); }
-      else if (k === "k") { prev(); }
-      else if (k === "a" && rec?.status === "pending") verdict("approved");
-      else if (k === "e" && rec?.status === "pending") { setDraft(rec.drafted_response); setEditing(true); }
-      else if (k === "x" && rec?.status === "pending") verdict("rejected");
-      else if (k === "s" && cur) verdict("escalate");
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [rec, queue.length]); // eslint-disable-line
-
-  if (isLoading) return <CenterSpinner label="Loading the cockpit…" />;
-  if (error) return <ErrorState error={error} />;
-  if (!queue.length)
-    return <Card><CardBody><EmptyState title="Queue clear 🎉" description="Nothing awaiting triage right now." /></CardBody></Card>;
-
-  return (
-    <div className="space-y-4">
-      {/* shortcut legend — the cockpit's keyboard-first feel */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[10px] uppercase tracking-[0.08em] text-slate-400">
-        <span className="text-slate-500">Shortcuts</span>
-        <span><Kbd>J</Kbd>/<Kbd>K</Kbd> move</span>
-        <span><Kbd>A</Kbd> approve</span>
-        <span><Kbd>E</Kbd> edit</span>
-        <span><Kbd>X</Kbd> reject</span>
-        <span><Kbd>S</Kbd> escalate</span>
-      </div>
-      {/* queue strip */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {queue.slice(0, 12).map((r, i) => (
-          <button key={r.id} onClick={() => setIdx(i)}
-            className={cn("shrink-0 rounded-lg border px-3 py-2 text-left",
-              i === idx ? "border-brand-600 ring-2 ring-brand-100" : "border-slate-200 hover:border-brand-300")}>
-            <div className="font-mono text-[10px] text-slate-400">{r.ref}</div>
-            <div className="max-w-[150px] truncate text-xs font-medium">{r.type_label}</div>
-          </button>
-        ))}
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[1.1fr_1fr]">
-        {/* left: request detail */}
-        <Card>
-          <CardHeader>
-            <span className="font-mono text-xs text-slate-500">{cur.ref}</span>
-            <CardTitle>{cur.type_label}</CardTitle>
-            <div className="ml-auto flex items-center gap-2"><Pill r={cur} />
-              <Badge tone={POSTURE_TONE[cur.sla_status] as never}>{cur.sla_pct}% SLA</Badge></div>
-          </CardHeader>
-          <CardBody className="space-y-4 text-sm">
-            <dl className="grid grid-cols-[110px_1fr] gap-y-1.5">
-              <dt className="text-slate-400">Requester</dt><dd>{cur.requester_name}</dd>
-              <dt className="text-slate-400">Priority</dt><dd><Badge tone={PRIORITY_TONE[cur.priority] as never}>{cur.priority}</Badge></dd>
-              <dt className="text-slate-400">Assignee</dt><dd>{cur.assigned_to_label ?? "Unassigned"}</dd>
-              <dt className="text-slate-400">Holder</dt><dd className="capitalize">{cur.handoff_holder}</dd>
-            </dl>
-            {cur.ai_triage && (
-              <div>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">AI triage</p>
-                <div className="flex flex-wrap gap-1.5 text-xs">
-                  <Badge tone="blue">{String((cur.ai_triage as Record<string, unknown>).category)}</Badge>
-                  <Badge tone="slate">Complexity: {String((cur.ai_triage as Record<string, unknown>).complexity)}</Badge>
-                  <Badge tone="slate">Risk: {String((cur.ai_triage as Record<string, unknown>).risk_flag)}</Badge>
-                </div>
-              </div>
-            )}
-            {(cur.fired_rules as { summaries?: { name: string; actions: string[] }[] } | null)?.summaries?.length ? (
-              <div>
-                <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Routing rules fired</p>
-                <ul className="space-y-1 text-xs text-slate-600">
-                  {(cur.fired_rules as { summaries: { name: string; actions: string[] }[] }).summaries.map((s, i) => (
-                    <li key={i}>▸ <b>{s.name}</b> — {s.actions.join(", ")}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            <button className="text-xs text-brand-600 hover:underline" onClick={() => onOpen(cur.id)}>Open full detail →</button>
-          </CardBody>
-        </Card>
-
-        {/* right: recommendation */}
-        <div>
-          {cur.approval_gate_user_id && (
-            <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-700">
-              🔒 Approval is gated to a specific person for this request. Others’ approvals are refused &amp; logged.
-            </div>
-          )}
-          {!rec ? (
-            <Card><CardBody><EmptyState title="No recommendation" description="No agent matched — handle manually below." /></CardBody></Card>
-          ) : (
-            <Card className={cn("border-2", rec.can_auto_send ? "border-brand-500" : "border-amber-400")}>
-              <CardHeader className={rec.can_auto_send ? "bg-brand-50" : "bg-amber-50"}>
-                <span>🤖</span>
-                <CardTitle>{titleCase(rec.agent_id.replace(/_/g, " "))}{rec.status !== "pending" ? ` · ${rec.status}` : ""}</CardTitle>
-                <span className={cn("ml-auto rounded-full px-2 py-0.5 text-xs font-bold",
-                  rec.confidence >= AUTO_SEND ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700")}>
-                  {rec.confidence.toFixed(2)} confidence
-                </span>
-              </CardHeader>
-              <CardBody className="space-y-3">
-                {!rec.can_auto_send && rec.status === "pending" && (
-                  <div className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Confidence below {AUTO_SEND} — the agent did <b>not</b> auto-send. Your review decides.
-                  </div>
-                )}
-                <div>
-                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-                    {rec.suggested_action === "approve_and_send" ? "Suggested · approve & send" : "Flagged for human review"}
-                  </p>
-                  {editing ? (
-                    <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={7} />
-                  ) : (
-                    <div className="whitespace-pre-wrap rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-sm">{rec.drafted_response}</div>
-                  )}
-                </div>
-                <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Reasoning</p>
-                  <p className="text-xs text-slate-600">{rec.reasoning}</p></div>
-                {rec.concerns.length > 0 && (
-                  <div><p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">Concerns</p>
-                    <ul className="space-y-0.5 text-xs text-slate-600">{rec.concerns.map((c, i) => <li key={i}>⚠ {c}</li>)}</ul></div>
-                )}
-                {rec.citations.length > 0 && (
-                  <p className="text-xs text-slate-500">Sources: {rec.citations.map((c) => c.title).join(" · ")}</p>
-                )}
-                {rec.status === "pending" && (
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {editing ? (
-                      <>
-                        <Button size="sm" loading={busy} onClick={() => verdict("edited_approved", { edited_response: draft })}>Save &amp; approve</Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditing(false)}>Cancel</Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button size="sm" loading={busy} onClick={() => verdict("approved")}><Kbd>A</Kbd> Approve</Button>
-                        <Button size="sm" variant="outline" onClick={() => { setDraft(rec.drafted_response); setEditing(true); }}><Kbd>E</Kbd> Edit</Button>
-                        <Button size="sm" variant="outline" loading={busy} onClick={() => verdict("rejected")}><Kbd>X</Kbd> Reject</Button>
-                        <Button size="sm" variant="ghost" loading={busy} onClick={() => verdict("manual_close")}>Close</Button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </CardBody>
-            </Card>
-          )}
-          <p className="mt-3 text-xs text-slate-400">Keyboard: <Kbd>J</Kbd>/<Kbd>K</Kbd> next/prev · <Kbd>A</Kbd> approve · <Kbd>E</Kbd> edit · <Kbd>X</Kbd> reject. Approval commits with its audit row in one transaction.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return <kbd className="rounded border border-slate-300 border-b-2 bg-slate-100 px-1.5 font-mono text-[10px] text-slate-600">{children}</kbd>;
-}
-
-// ======================= KANBAN =======================
-
-const KCOLS: { key: string; label: string; accent: string }[] = [
-  { key: "new", label: "New", accent: "#64748B" },
-  { key: "triage", label: "AI Triage", accent: "#7A3EA6" },
-  { key: "assigned", label: "Assigned", accent: "#0F6CBD" },
-  { key: "review", label: "In Review", accent: "#9A6700" },
-  { key: "complete", label: "Complete", accent: "#0E7A0B" },
-];
-const DOT: Record<string, string> = { on_track: "#0E7A0B", at_risk: "#9A6700", overdue: "#B10E1C" };
-
-export function KanbanTab({ onOpen }: { onOpen: (id: string) => void }) {
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list() });
-  if (isLoading) return <CenterSpinner />;
-  if (error) return <ErrorState error={error} />;
-  const rows = data ?? [];
-  const colFor = (r: IntakeRequest) =>
-    ["new", "triage", "assigned", "review", "complete"].includes(r.stage) ? r.stage : "review";
-  return (
-    <div className="space-y-3">
-      <p className="text-xs text-slate-400">Every open request by lifecycle stage · click a card to open it.</p>
-      <div className="flex gap-3 overflow-x-auto pb-2">
-        {KCOLS.map((c) => {
-          const items = rows.filter((r) => colFor(r) === c.key);
-          const breached = items.filter((r) => r.sla_status === "overdue").length;
-          return (
-            <div key={c.key} className="flex w-[250px] shrink-0 flex-col rounded-xl border border-slate-200 bg-slate-50/60">
-              <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5">
-                <div className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full" style={{ background: c.accent }} />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{c.label}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {breached > 0 && <span className="rounded-full bg-red-100 px-1.5 text-[10px] font-semibold tabular-nums text-red-700">{breached}</span>}
-                  <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-semibold tabular-nums text-slate-500">{items.length}</span>
-                </div>
-              </div>
-              <div className="flex flex-col gap-2 p-2">
-                {items.length === 0 ? (
-                  <p className="px-2 py-6 text-center text-[11px] text-slate-400">Empty</p>
-                ) : items.map((r) => (
-                  <button key={r.id} onClick={() => onOpen(r.id)}
-                    className={cn("group rounded-lg border bg-slate-100 p-2.5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-brand-400 hover:shadow-card",
-                      r.sla_status === "overdue" ? "border-red-200" : r.sla_status === "at_risk" ? "border-amber-200" : "border-slate-200")}>
-                    <div className="flex items-center justify-between">
-                      <span className="font-mono text-[10px] text-slate-400">{r.ref}</span>
-                      <span className="inline-flex items-center gap-1 font-mono text-[10px] tabular-nums" style={{ color: DOT[r.sla_status] }}>
-                        <span className="h-1.5 w-1.5 rounded-full" style={{ background: DOT[r.sla_status] }} />{r.sla_pct}%
-                      </span>
-                    </div>
-                    <div className="mt-1 line-clamp-2 text-xs font-medium leading-snug text-slate-900">{r.description || r.type_label}</div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge>
-                      <span className="max-w-[120px] truncate text-[10px] text-slate-400">{r.assigned_to_label ?? "Unassigned"}</span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
 
 // ======================= SLA DASHBOARD =======================
 
@@ -382,7 +111,7 @@ export function SlaLegsBar({ legs, breached }: { legs: IntakeSlaLeg[]; breached:
         {legs.map((l, i) => (
           <span key={i} className="inline-flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded" style={{ background: l.breached_during_leg ? "#B10E1C" : color(l.holder) }} />
-            {l.holder_label} · {l.pct_of_sla}%{l.breached_during_leg && <b className="text-red-600"> ⚠ breach here</b>}
+            {l.holder_label} · {l.pct_of_sla}%{l.breached_during_leg && <b className="text-danger"> ⚠ breach here</b>}
           </span>
         ))}
       </div>
@@ -484,7 +213,7 @@ function RuleEditor({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
           <Field label="Name"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Standard NDA fast-lane" /></Field>
           <Field label="Order"><Input type="number" value={f.eval_order} onChange={(e) => set("eval_order", e.target.value)} /></Field>
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">When (conditions AND)</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">When (conditions AND)</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Request type"><Select value={f.match_type ?? ""} onChange={(e) => set("match_type", e.target.value)}>
             <option value="">Any</option>{(types ?? []).map((t) => <option key={t.id} value={`${t.name} Request`}>{t.name} Request</option>)}</Select></Field>
@@ -494,7 +223,7 @@ function RuleEditor({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
             <option value="">Any</option>{["Low", "Medium", "High", "Critical"].map((c) => <option key={c}>{c}</option>)}</Select></Field>
           <Field label="Keyword in description"><Input value={f.match_keyword ?? ""} onChange={(e) => set("match_keyword", e.target.value)} /></Field>
         </div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Then (actions)</p>
+        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Then (actions)</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Assign to"><Select value={f.set_assignee_user_id ?? ""} onChange={(e) => set("set_assignee_user_id", e.target.value)}>
             <option value="">—</option>{(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
@@ -588,7 +317,7 @@ function TeamEditor({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
         </div>
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Members</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">Members</p>
             <Button variant="outline" size="sm" onClick={() => setMembers((s) => [...s, { user_id: "", capacity: 5 }])}>Add member</Button>
           </div>
           <div className="space-y-2">{members.map((m, i) => (

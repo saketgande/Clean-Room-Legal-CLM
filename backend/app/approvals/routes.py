@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -16,8 +16,10 @@ from app.approvals.models import (
     ApproverGroup,
 )
 from app.approvals.service import (
+    _quorum_needed,
     decide_in_app,
     get_review_context_for_token,
+    reassign_rung,
     redeem_token_decision,
     submit_contract_for_approval,
 )
@@ -42,6 +44,11 @@ class ApprovalSubmit(BaseModel):
 class ApprovalDecisionPayload(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
     comment: str | None = None
+
+
+class ReassignPayload(BaseModel):
+    to_user_id: str
+    kind: str = Field(default="delegate", pattern="^(delegate|escalate)$")
 
 
 class TokenDecisionPayload(BaseModel):
@@ -163,6 +170,28 @@ def _serialize_rule(
     }
 
 
+def _validate_org_user(db: Session, org_id: str, user_id: str | None) -> None:
+    if not user_id:
+        return
+    u = db.get(User, user_id)
+    if u is None or u.org_id != org_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Approver user must belong to this organization",
+        )
+
+
+def _validate_org_group(db: Session, org_id: str, group_id: str | None) -> None:
+    if not group_id:
+        return
+    g = db.get(ApproverGroup, group_id)
+    if g is None or g.org_id != org_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Approver group must belong to this organization",
+        )
+
+
 def _org_name_maps(db: Session, *, org_id: str) -> tuple[dict[str, str], dict[str, str]]:
     """Build {id: name} maps for the org's groups and users so step targets can be
     labelled without an N+1 lookup per step."""
@@ -205,6 +234,7 @@ def list_approvals(
     return [
         _serialize_approval(
             row,
+            db=db,
             can_decide=_can_decide_approval(db, approval=row, user=current_user),
             group_names=group_names,
         )
@@ -214,10 +244,11 @@ def list_approvals(
 
 
 def _serialize_approval(
-    req: ApprovalRequest, *, can_decide: bool, group_names: dict[str, str] | None = None
+    req: ApprovalRequest, *, db: Session, can_decide: bool, group_names: dict[str, str] | None = None
 ) -> dict:
     """Approval row + a server-computed can_decide (so the UI shows the
     Approve/Reject buttons for group members, not just role/user matches)."""
+    meta = req.metadata_json or {}
     return {
         "id": req.id,
         "org_id": req.org_id,
@@ -231,6 +262,10 @@ def _serialize_approval(
         "approver_group_name": (group_names or {}).get(req.approver_group_id or ""),
         "routing_rule_id": req.routing_rule_id,
         "step_order": req.step_order,
+        "mode": req.mode,
+        "approvals": meta.get("approvals", 0),
+        "needed": _quorum_needed(db, req),
+        "reassign": meta.get("reassign"),
         "due_at": req.due_at,
         "overdue": bool(
             req.status == "pending"
@@ -310,6 +345,9 @@ def approval_chain(
                 "approval_request_id": req.id,
                 "step_order": req.step_order,
                 "status": req.status,
+                "mode": req.mode,
+                "approvals": (req.metadata_json or {}).get("approvals", 0),
+                "needed": _quorum_needed(db, req),
                 "approver_label": (
                     groups.get(req.approver_group_id)
                     or users.get(req.approver_user_id)
@@ -522,6 +560,81 @@ def create_routing_rule(
     return _serialize_rule(rule, group_names=group_names, user_names=user_names)
 
 
+@router.patch("/routing-rules/{rule_id}")
+def update_routing_rule(
+    rule_id: str,
+    payload: RoutingRulePayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    """Replace a routing rule in place (name, priority, criteria, active, chain).
+    The whole rule is authoritative — the payload is the same shape as create."""
+    rule = db.get(ApprovalRoutingRule, rule_id)
+    if rule is None or rule.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Routing rule not found")
+
+    _validate_org_user(db, current_user.org_id, payload.approver_user_id)
+    rule.name = payload.name
+    rule.priority = payload.priority
+    rule.criteria = payload.criteria
+    rule.is_active = payload.is_active
+    rule.approver_role = payload.approver_role if not payload.steps else None
+    rule.approver_user_id = payload.approver_user_id if not payload.steps else None
+    rule.updated_by_user_id = current_user.id
+
+    # Replace the ordered chain (delete-orphan cascade clears the old steps).
+    for old in list(rule.steps):
+        db.delete(old)
+    db.flush()
+    for idx, step in enumerate(payload.steps):
+        if not (step.approver_group_id or step.approver_user_id or step.approver_role):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                f"Step {idx + 1} needs an approver group, user, or role",
+            )
+        _validate_org_group(db, current_user.org_id, step.approver_group_id)
+        _validate_org_user(db, current_user.org_id, step.approver_user_id)
+        db.add(
+            ApprovalRoutingStep(
+                org_id=current_user.org_id,
+                rule_id=rule.id,
+                step_order=idx + 1,
+                approver_group_id=step.approver_group_id,
+                approver_user_id=step.approver_user_id,
+                approver_role=step.approver_role,
+                mode=step.mode,
+                created_by_user_id=current_user.id,
+                updated_by_user_id=current_user.id,
+            )
+        )
+
+    db.commit()
+    db.refresh(rule)
+    group_names, user_names = _org_name_maps(db, org_id=current_user.org_id)
+    return _serialize_rule(rule, group_names=group_names, user_names=user_names)
+
+
+@router.delete("/routing-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_routing_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:admin")),
+):
+    rule = db.get(ApprovalRoutingRule, rule_id)
+    if rule is None or rule.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Routing rule not found")
+    # Existing approvals keep their materialised chain; drop the provenance FK so
+    # it doesn't block deletion.
+    db.execute(
+        update(ApprovalRequest)
+        .where(ApprovalRequest.routing_rule_id == rule_id)
+        .values(routing_rule_id=None)
+    )
+    db.delete(rule)  # steps cascade (delete-orphan)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # --- Submit & decide ------------------------------------------------------
 @router.post("/requests", status_code=status.HTTP_201_CREATED)
 async def submit_for_approval(
@@ -570,13 +683,23 @@ async def decide_approval(
         from app.authority.service import enforce_authority
         from app.contracts.models import Contract
 
-        contract = db.get(Contract, approval.contract_id)
-        if contract is not None:
+        # DoA gate reads value/type/jurisdiction/risk off the subject — a contract
+        # or (duck-typed identically) an intake-request approval subject.
+        gate_subject = None
+        if approval.contract_id:
+            gate_subject = db.get(Contract, approval.contract_id)
+        elif approval.intake_request_id:
+            from app.intake.approval_bridge import build_intake_subject
+
+            gate_subject = build_intake_subject(
+                db, approval.intake_request_id, org_id=current_user.org_id
+            )
+        if gate_subject is not None:
             enforce_authority(
                 db,
                 user=current_user,
                 action="contract:approve",
-                contract=contract,
+                contract=gate_subject,
                 resource_type="approval_request",
                 resource_id=approval.id,
                 request_id=getattr(request.state, "request_id", None),
@@ -587,6 +710,35 @@ async def decide_approval(
         approval=approval,
         decision=payload.decision,
         comment=payload.comment,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    db.commit()
+    db.refresh(approval)
+    return approval
+
+
+@router.post("/requests/{approval_request_id}/reassign")
+async def reassign_approval(
+    approval_request_id: str,
+    payload: ReassignPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("approval:decide")),
+):
+    """Delegate or escalate a pending rung to another person. Allowed for the
+    rung's current approver (or an approval admin) — same gate as deciding it."""
+    approval = db.scalar(
+        select(ApprovalRequest).where(ApprovalRequest.id == approval_request_id).with_for_update()
+    )
+    if approval is None or approval.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
+    if not _can_decide_approval(db, approval=approval, user=current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to move this approval")
+    to_user = db.get(User, payload.to_user_id)
+    if to_user is None or to_user.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Target user not found")
+    await reassign_rung(
+        db, approval=approval, to_user=to_user, kind=payload.kind, actor=current_user,
         request_id=getattr(request.state, "request_id", None),
     )
     db.commit()

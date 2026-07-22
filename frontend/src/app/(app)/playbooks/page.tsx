@@ -42,7 +42,7 @@ export default function PlaybooksPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Playbooks"
         description="Negotiation rulebooks used to review contracts and surface deviations."
@@ -268,7 +268,7 @@ function GeneratePlaybookModal({
               type="button"
               onClick={() => setMode(m)}
               className={`flex-1 rounded px-3 py-1.5 font-medium ${
-                mode === m ? "bg-slate-100 text-slate-900 shadow-sm" : "text-slate-500"
+                mode === m ? "bg-brand-50 text-brand-700" : "text-slate-500"
               }`}
             >
               {m === "file" ? "Upload file" : "Paste text"}

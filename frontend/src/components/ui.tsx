@@ -34,20 +34,20 @@ type ButtonSize = "sm" | "md" | "lg" | "icon";
 
 const buttonVariants: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm dark:bg-brand-400 dark:text-slate-50 dark:hover:bg-brand-300 dark:active:bg-brand-500",
+    "bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800 shadow-sm",
   secondary:
-    "bg-slate-900 text-white hover:bg-slate-800 active:bg-slate-950 shadow-sm",
+    "bg-slate-900 text-slate-50 hover:bg-slate-800 active:bg-slate-950",
   outline:
-    "border border-slate-300 bg-slate-100 text-slate-700 hover:bg-slate-50 hover:border-slate-400",
+    "border border-slate-300 bg-slate-100 text-slate-800 hover:bg-slate-50 hover:border-slate-400",
   ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-  danger: "bg-red-600 text-white hover:bg-red-700 active:bg-red-800 shadow-sm",
+  danger: "bg-danger text-white hover:opacity-90 active:opacity-100",
 };
 
 const buttonSizes: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-xs gap-1.5",
-  md: "h-9 px-4 text-sm gap-2",
-  lg: "h-11 px-6 text-sm gap-2",
-  icon: "h-9 w-9",
+  sm: "h-7 px-2.5 text-xs gap-1.5",
+  md: "h-8 px-3 text-[13px] gap-2",
+  lg: "h-9 px-4 text-[13px] gap-2",
+  icon: "h-7 w-7",
 };
 
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -65,7 +65,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       ref={ref}
       disabled={disabled || loading}
       className={cn(
-        "inline-flex items-center justify-center rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
+        "inline-flex items-center justify-center rounded-lg font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35 focus-visible:ring-offset-1 disabled:pointer-events-none disabled:opacity-50",
         buttonVariants[variant],
         buttonSizes[size],
         className,
@@ -87,7 +87,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-md border border-slate-200 bg-slate-100 shadow-card",
+        "rounded-xl border border-slate-200 bg-slate-100 shadow-card",
         className,
       )}
       {...props}
@@ -102,7 +102,7 @@ export function CardHeader({
   return (
     <div
       className={cn(
-        "flex items-center justify-between border-b border-slate-100 px-5 py-4",
+        "flex items-center justify-between border-b border-slate-200 px-5 py-4",
         className,
       )}
       {...props}
@@ -116,7 +116,7 @@ export function CardTitle({
 }: HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-sm font-semibold text-slate-900", className)}
+      className={cn("text-[13px] font-semibold text-slate-900", className)}
       {...props}
     />
   );
@@ -140,13 +140,13 @@ type Tone =
   | "cyan";
 
 const badgeTones: Record<Tone, string> = {
-  slate: "bg-slate-100 text-slate-700 ring-slate-200",
-  blue: "bg-brand-50 text-brand-700 ring-brand-200",
-  green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  amber: "bg-amber-50 text-amber-700 ring-amber-200",
-  red: "bg-red-50 text-red-700 ring-red-200",
-  violet: "bg-violet-50 text-violet-700 ring-violet-200",
-  cyan: "bg-cyan-50 text-cyan-700 ring-cyan-200",
+  slate: "bg-slate-50 text-slate-600",
+  blue: "bg-info-subtle text-info",
+  green: "bg-success-subtle text-success",
+  amber: "bg-warning-subtle text-warning",
+  red: "bg-danger-subtle text-danger",
+  violet: "bg-brand-50 text-brand-700",
+  cyan: "bg-info-subtle text-info",
 };
 
 export function Badge({
@@ -161,7 +161,7 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 font-mono text-[10.5px] font-semibold uppercase tracking-[0.04em] ring-1 ring-inset",
+        "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.04em]",
         badgeTones[tone],
         className,
       )}
@@ -175,10 +175,10 @@ export function Badge({
 type MessageIntent = "info" | "success" | "warning" | "error";
 
 const messageIntents: Record<MessageIntent, string> = {
-  info: "bg-brand-50 border-brand-200 text-brand-800 dark:bg-brand-400/10 dark:text-brand-200",
-  success: "bg-emerald-50 border-emerald-200 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-200",
-  warning: "bg-amber-50 border-amber-200 text-amber-800 dark:bg-amber-400/10 dark:text-amber-200",
-  error: "bg-red-50 border-red-200 text-red-800 dark:bg-red-400/10 dark:text-red-200",
+  info: "bg-info-subtle border-info/30 text-info",
+  success: "bg-success-subtle border-success/30 text-success",
+  warning: "bg-warning-subtle border-warning/30 text-warning",
+  error: "bg-danger-subtle border-danger/30 text-danger",
 };
 
 const messageIcons: Record<MessageIntent, string> = {
@@ -223,7 +223,7 @@ export const Input = forwardRef<
   <input
     ref={ref}
     className={cn(
-      "h-9 w-full rounded border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 placeholder:text-slate-500 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 disabled:bg-slate-50 disabled:text-slate-500",
+      "h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35 disabled:bg-slate-50 disabled:text-slate-400",
       className,
     )}
     {...props}
@@ -238,7 +238,7 @@ export const Textarea = forwardRef<
   <textarea
     ref={ref}
     className={cn(
-      "w-full rounded border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-[13px] text-slate-900 placeholder:text-slate-400 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
       className,
     )}
     {...props}
@@ -253,7 +253,7 @@ export const Select = forwardRef<
   <select
     ref={ref}
     className={cn(
-      "h-9 w-full rounded border border-slate-300 bg-slate-100 px-3 text-sm text-slate-900 transition-colors focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20",
+      "h-8 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-[13px] text-slate-900 transition-colors focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
       className,
     )}
     {...props}
@@ -325,7 +325,7 @@ export function Table({
   return (
     <div className="overflow-x-auto">
       <table
-        className={cn("w-full border-collapse text-sm", className)}
+        className={cn("w-full border-collapse text-[13px]", className)}
         {...props}
       />
     </div>
@@ -343,7 +343,7 @@ export function TH({
   return (
     <th
       className={cn(
-        "border-b border-slate-200 px-4 py-2.5 text-left font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500",
+        "border-b border-slate-300 px-3 py-2 text-left text-[11px] font-medium uppercase tracking-[0.04em] text-slate-500",
         className,
       )}
       {...props}
@@ -358,7 +358,7 @@ export function TR({
   return (
     <tr
       className={cn(
-        "border-b border-slate-100 last:border-0 hover:bg-slate-50/60 transition-colors",
+        "border-b border-slate-200 last:border-0 hover:bg-slate-100 transition-colors",
         className,
       )}
       {...props}
@@ -372,7 +372,7 @@ export function TD({
 }: TdHTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
-      className={cn("px-4 py-3 text-slate-700 align-middle", className)}
+      className={cn("px-3 py-2 text-slate-600 align-middle", className)}
       {...props}
     />
   );
@@ -392,7 +392,7 @@ export function CenterSpinner({ label }: { label?: string }) {
   return (
     <div
       role="status"
-      className="flex flex-col items-center justify-center gap-3 py-20 text-slate-500"
+      className="flex flex-col items-center justify-center gap-3 py-12 text-slate-500"
     >
       <Spinner className="h-6 w-6" />
       {label ? (
@@ -416,13 +416,13 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-100 py-16 text-center">
+    <div className="flex flex-col items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 py-10 text-center">
       {icon && (
         <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100 text-slate-400">
           {icon}
         </div>
       )}
-      <p className="text-lg font-semibold text-slate-900">{title}</p>
+      <p className="text-base font-semibold text-slate-900">{title}</p>
       {description && (
         <p className="mt-1.5 max-w-sm text-sm text-slate-500">{description}</p>
       )}
@@ -437,7 +437,7 @@ export function ErrorState({ error }: { error: unknown }) {
   return (
     <div
       role="alert"
-      className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+      className="rounded-md border border-danger/30 bg-danger-subtle p-4 text-[13px] text-danger"
     >
       {message}
     </div>
@@ -448,7 +448,7 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "animate-pulse rounded-md bg-slate-200/70",
+        "animate-pulse rounded-md bg-slate-200",
         className,
       )}
     />
@@ -541,15 +541,15 @@ export function PageHeader({
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
       <div>
         {eyebrow && (
-          <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-brand-600">
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-brand-700">
             {eyebrow}
           </p>
         )}
-        <h1 className="font-serif text-[27px] font-normal leading-tight tracking-[-0.01em] text-slate-900">
+        <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
           {title}
         </h1>
         {description && (
-          <p className="mt-1.5 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 text-[13px] text-slate-500">{description}</p>
         )}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -625,7 +625,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -636,11 +636,11 @@ export function Modal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={cn(
-          "relative z-10 w-full animate-fade-in rounded-md border border-slate-200 bg-slate-100 shadow-pop focus:outline-none",
+          "relative z-10 w-full animate-fade-in rounded-2xl border border-slate-200 bg-slate-100 shadow-modal focus:outline-none",
           widths[size],
         )}
       >
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
           <h2 id={titleId} className="text-sm font-semibold text-slate-900">
             {title}
           </h2>
@@ -654,7 +654,7 @@ export function Modal({
         </div>
         <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
             {footer}
           </div>
         )}
@@ -678,22 +678,22 @@ export function StatCard({
   tone?: Tone;
 }) {
   const iconTones: Record<Tone, string> = {
-    slate: "bg-slate-100 text-slate-600",
+    slate: "bg-slate-50 text-slate-600",
     blue: "bg-brand-50 text-brand-600",
-    green: "bg-emerald-50 text-emerald-600",
-    amber: "bg-amber-50 text-amber-600",
-    red: "bg-red-50 text-red-600",
-    violet: "bg-violet-50 text-violet-600",
-    cyan: "bg-cyan-50 text-cyan-600",
+    green: "bg-success-subtle text-success",
+    amber: "bg-warning-subtle text-warning",
+    red: "bg-danger-subtle text-danger",
+    violet: "bg-brand-50 text-brand-600",
+    cyan: "bg-info-subtle text-info",
   };
   return (
-    <Card className="p-5">
+    <Card className="p-4">
       <div className="flex items-start justify-between">
         <div>
-          <p className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             {label}
           </p>
-          <p className="mt-2 text-[28px] font-semibold tracking-tight text-slate-900">
+          <p className="mt-1.5 text-[28px] font-semibold tracking-tight tabular-nums text-slate-900">
             {value}
           </p>
           {hint && <p className="mt-1 text-xs text-slate-500">{hint}</p>}
@@ -701,7 +701,7 @@ export function StatCard({
         {icon && (
           <div
             className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-md",
+              "flex h-9 w-9 items-center justify-center rounded-md",
               iconTones[tone],
             )}
           >
@@ -756,15 +756,15 @@ export function Tabs({
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           className={cn(
-            "relative -mb-px px-3 py-2 font-mono text-[11px] font-medium uppercase tracking-[0.09em] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
+            "relative -mb-px px-3 py-2 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35",
             active === t.id
               ? "border-b-2 border-brand-600 text-slate-900"
-              : "border-b-2 border-transparent text-slate-500 hover:text-slate-900",
+              : "border-b-2 border-transparent text-slate-500 hover:text-slate-800",
           )}
         >
           {t.label}
           {t.count !== undefined && (
-            <span className="ml-1.5 rounded-full bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">
+            <span className="ml-1.5 rounded-full bg-slate-50 px-1.5 py-0.5 text-xs text-slate-500">
               {t.count}
             </span>
           )}

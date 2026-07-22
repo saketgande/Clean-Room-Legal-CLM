@@ -23,7 +23,6 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.intake import agents, routing
 from app.intake.models import (
-    IntakeAgentRecommendation,
     IntakeHandoff,
     IntakeKbArticle,
     IntakeRequest,
@@ -152,8 +151,8 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "closed_at": _iso(r.closed_at),
         "triaged_by_user_id": r.triaged_by_user_id,
         "triage_action": r.triage_action,
-        "agent_outcome": r.agent_outcome,
         "ai_triage": r.ai_triage,
+        "gates": _gates_summary(r),
         "fired_rules": r.fired_rules,
         "screening": r.screening,
         # Expose the EFFECTIVE parties screening actually uses (structured list,
@@ -167,6 +166,24 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "contract_title": _contract_title(db, r.contract_id),
         "workflow": _workflow(r, rtype),
         "created_at": _iso(r.created_at),
+    }
+
+
+def _gates_summary(r: IntakeRequest) -> dict:
+    """Tier-0 gates for the UI: what the classifier detected, the human overrides,
+    and the effective set that will force ladder rungs."""
+    from app.intake import gates as gates_mod
+
+    at = r.ai_triage or {}
+    effective = gates_mod.effective_gate_keys(at)
+    return {
+        "detected": at.get("gates", []),
+        "overrides": at.get("gate_overrides", []),
+        "effective": [
+            {"key": g.key, "label": g.label, "approver_group": g.approver_group}
+            for g in gates_mod.effective_gates(at)
+        ],
+        "effective_keys": effective,
     }
 
 
@@ -341,6 +358,57 @@ def _validate_field_values(rtype: IntakeRequestType | None, values: dict | None)
 
 # --- request create / list / get -------------------------------------------
 
+def _compute_intake_analysis(db: Session, request: IntakeRequest) -> None:
+    """Populate ai_triage.flow_suggestion for every request; for litigation-
+    category requests, run the Litigation Intake Agent instead — its richer
+    assessment lands on ai_triage.litigation_assessment and its extracted facts
+    pre-fill the litigation flow's branch answers. Mutates request; caller commits."""
+    from app.intake.litigation_agent import assess_litigation, branch_fields, is_litigation
+
+    at = dict(request.ai_triage or {})
+    if is_litigation(request):
+        assessment = assess_litigation(db, request)
+        at["flow_suggestion"] = assessment.pop("flow_suggestion")
+        at["litigation_assessment"] = assessment
+        # Pre-fill the ladder's conditional-step answers without clobbering any
+        # the requester supplied.
+        fv = dict(request.field_values or {})
+        for k, v in branch_fields(assessment).items():
+            fv.setdefault(k, v)
+        request.field_values = fv
+    else:
+        from app.intake.flow_agent import suggest_flow
+
+        at["flow_suggestion"] = suggest_flow(db, request)
+        at.pop("litigation_assessment", None)
+    request.ai_triage = at  # reassign so SQLAlchemy tracks the JSON mutation
+
+
+def _attach_flow_suggestion(db: Session, request: IntakeRequest) -> None:
+    """Suggest — never start — the workflow this request should ride (+ litigation
+    assessment for disputes). Best-effort; runs post-commit so it owns its own
+    transaction and never breaks intake."""
+    try:
+        _compute_intake_analysis(db, request)
+        db.commit()
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning(
+            "flow suggestion on create failed for %s", request.id, exc_info=True
+        )
+
+
+def resuggest_flow(db: Session, *, actor: User, request_id: str) -> dict:
+    """Re-run the router / litigation agent on demand (ticket 'Re-suggest')."""
+    r = get_request(db, user=actor, request_id=request_id)
+    _require_staff(actor)
+    _compute_intake_analysis(db, r)
+    db.commit()
+    db.refresh(r)
+    return serialize_request(db, r)
+
+
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
                    conversation: list | None = None) -> dict:
     rtype = None
@@ -354,7 +422,7 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
         department=payload.department, request_type_id=(rtype.id if rtype else None),
         type_label=payload.type_label.strip(), description=payload.description or "",
         field_values=payload.field_values, priority=payload.priority,
-        status="awaiting_triage", stage="new", sla_hours=24,
+        status="open", stage="new", sla_hours=24,
         submitted_at=now, handoff_holder="queue", conversation=conversation,
         stage_timestamps=[{"stage": "new", "at": now.isoformat()}],
         created_by_user_id=actor.id, updated_by_user_id=actor.id,
@@ -366,6 +434,12 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     if cp and str(cp).strip():
         r.parties = [{"name": str(cp).strip(), "role": "counterparty", "is_person": False}]
     r.ai_triage = agents.classify(r.type_label, r.description)
+    # Tier-0 hard gates: AI classifier (keyword fallback) forces senior rungs into
+    # the approval ladder; litigation/etc. also escalate here, before routing runs.
+    from app.intake import gates as gates_mod
+
+    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(r), "gate_overrides": []}
+    gates_mod.apply_gate_side_effects(r)
     db.add(r)
     db.flush()
     write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
@@ -374,9 +448,10 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
                          event_type="intake.created", title=f"Request filed — {r.type_label}",
                          actor_user_id=actor.id, request_id=request_id)
-    # Routing rules evaluate in the save chokepoint, then the agent drafts.
+    # Routing rules set assignee / priority / SLA / escalation in the save
+    # chokepoint. (Triage removed: no AI recommendation is drafted — the request
+    # lands 'open' in the queue and a reviewer starts its workflow.)
     routing.apply_routing(db, r)
-    run_triage(db, r, counterparty=cp)
     if r.assigned_to_user_id and r.assigned_to_user_id != actor.id:
         _notify(db, r, r.assigned_to_user_id, "intake.assigned",
                 f"{r.ref} assigned to you", f"{r.type_label} — priority {r.priority}.")
@@ -388,6 +463,7 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     # lost to a mid-transaction flush; isolating it — like the /screen endpoint —
     # makes it reliable and can never leave the request half-written.
     _run_screening_safe(db, r, actor.id)
+    _attach_flow_suggestion(db, r)
     return serialize_request(db, r)
 
 
@@ -417,6 +493,7 @@ def set_parties(db: Session, *, actor: User, request_id: str, parties: list) -> 
     db.commit()
     db.refresh(r)
     _run_screening_safe(db, r, actor.id)
+    _attach_flow_suggestion(db, r)
     return serialize_request(db, r)
 
 
@@ -447,62 +524,6 @@ def _notify(db: Session, r: IntakeRequest, user_id: str | None, event_type: str,
                             event_type=event_type, subject=subject, body=body, status="sent"))
     except Exception:
         pass
-
-
-def run_triage(db: Session, request: IntakeRequest, *, counterparty: str | None = None) -> None:
-    """The AI pass: pick the best-fit agent, draft a recommendation, and write the
-    auto-baton custody rows. Gated on agent_processed_at (fires exactly once)."""
-    if request.agent_processed_at is not None:
-        return
-    cls = request.ai_triage or agents.classify(request.type_label, request.description)
-    agent_id = cls.get("agent_id")
-
-    # queue -> agent (always)
-    record_handoff(db, actor=None, request=request, to_holder="agent",
-                   reason=("Agent triage started" if agent_id else "Router evaluated the ticket"),
-                   actor_type="agent", sync_assignee=False)
-
-    if agent_id:
-        kb = agents.retrieve_kb(db, request.org_id, request.description)
-        d = agents.draft(agent_id, type_label=request.type_label, description=request.description,
-                         counterparty=counterparty, classification=cls, kb=kb)
-        rec = IntakeAgentRecommendation(
-            org_id=request.org_id, request_id=request.id, agent_id=agent_id,
-            confidence=d["confidence"], suggested_action=d["suggested_action"],
-            drafted_response=d["drafted_response"], reasoning=d["reasoning"],
-            concerns=d["concerns"], citations=d["citations"], degraded=d["degraded"],
-            status="pending",
-        )
-        db.add(rec)
-        db.flush()
-        request.agent_outcome = "matched"
-        # Never downgrade an escalated request; otherwise move into review.
-        if request.status not in ("escalated", "closed"):
-            request.status = "in_review"
-        if request.stage in ("new", "triage"):
-            request.stage = "assigned" if request.assigned_to_user_id else "triage"
-            _stamp_stage(request, request.stage)
-        # agent -> assignee | queue
-        if request.assigned_to_user_id:
-            record_handoff(db, actor=None, request=request, to_holder="human",
-                           to_user_id=request.assigned_to_user_id,
-                           reason="Agent draft ready — passed to the assignee for review",
-                           actor_type="agent", recommendation_id=rec.id, sync_assignee=False)
-        else:
-            record_handoff(db, actor=None, request=request, to_holder="queue",
-                           reason="Agent draft ready — queued for attorney review",
-                           actor_type="agent", recommendation_id=rec.id)
-        write_audit_log(db, action="intake.recommendation.generated", resource_type="intake_request",
-                        resource_id=request.id, org_id=request.org_id, actor_user_id=None,
-                        after={"agent": agent_id, "confidence": d["confidence"],
-                               "suggested_action": d["suggested_action"]})
-    else:
-        request.agent_outcome = "no_match"
-        record_handoff(db, actor=None, request=request, to_holder="queue",
-                       reason="No agent matched — queued for manual triage", actor_type="agent")
-        write_audit_log(db, action="intake.agent_no_match", resource_type="intake_request",
-                        resource_id=request.id, org_id=request.org_id, actor_user_id=None)
-    request.agent_processed_at = utcnow()
 
 
 def _accessible(user: User):
@@ -568,8 +589,7 @@ def _validate_handoff(r: IntakeRequest, to_holder: str, to_user_id: str | None) 
 
 def record_handoff(db: Session, *, actor: User | None, request: IntakeRequest, to_holder: str,
                    to_user_id: str | None = None, reason: str | None = None,
-                   actor_type: str = "user", sync_assignee: bool = True,
-                   recommendation_id: str | None = None) -> IntakeHandoff:
+                   actor_type: str = "user", sync_assignee: bool = True) -> IntakeHandoff:
     if request.status == "closed":
         raise HTTPException(409, "Request is closed — file a follow-up")
     if actor_type == "user":
@@ -577,14 +597,13 @@ def record_handoff(db: Session, *, actor: User | None, request: IntakeRequest, t
     row = IntakeHandoff(
         org_id=request.org_id, request_id=request.id, from_holder=request.handoff_holder,
         to_holder=to_holder, to_user_id=(to_user_id if to_holder == "human" else None),
-        reason=reason, actor_type=actor_type, recommendation_id=recommendation_id,
+        reason=reason, actor_type=actor_type,
         created_by_user_id=(actor.id if actor and actor_type == "user" else None),
     )
     db.add(row)
     before = {"holder": request.handoff_holder, "user_id": request.handoff_user_id}
     request.handoff_holder = to_holder
     request.handoff_user_id = to_user_id if to_holder == "human" else None
-    request.handoff_updated_at = utcnow()
     if to_holder == "human" and sync_assignee and to_user_id:
         request.assigned_to_user_id = to_user_id
     write_audit_log(db, action="intake.handoff", resource_type="intake_request",
@@ -623,18 +642,6 @@ def handoff(db: Session, *, actor: User, request_id: str, payload) -> dict:
 
 # --- triage actions (Phase 0 subset: reassign / close / snooze / escalate) --
 
-def _pending_recommendation(db: Session, request_id: str, *, lock: bool = False) -> IntakeAgentRecommendation | None:
-    q = (
-        select(IntakeAgentRecommendation)
-        .where(IntakeAgentRecommendation.request_id == request_id,
-               IntakeAgentRecommendation.status == "pending")
-        .limit(1)
-    )
-    if lock:
-        q = q.with_for_update()
-    return db.scalar(q)
-
-
 @dataclass
 class _AuthorityShim:
     """The six attributes enforce_authority._grant_covers reads (Part 0.6).
@@ -670,73 +677,16 @@ def _approval_gate_blocked(db: Session, *, actor: User, request: IntakeRequest,
     raise HTTPException(403, "Approval is gated to a specific person for this request")
 
 
-def _decide_recommendation(db: Session, *, actor: User, request: IntakeRequest, action: str,
-                           payload, http_request_id: str | None) -> dict:
-    rec = _pending_recommendation(db, request.id, lock=True)
-    if rec is None:
-        raise HTTPException(422, "No draft to approve — use manual close")
-
-    if action in ("approved", "edited_approved"):
-        # Gate + Delegation-of-Authority both bind approval.
-        _approval_gate_blocked(db, actor=actor, request=request, attempted=action,
-                               http_request_id=http_request_id)
-        from app.authority.service import enforce_authority
-
-        rtype = db.get(IntakeRequestType, request.request_type_id) if request.request_type_id else None
-        shim = _AuthorityShim(contract_type=(rtype.key if rtype else request.type_label))
-        enforce_authority(db, user=actor, action="contract:approve", contract=shim,
-                          resource_type="intake_request", resource_id=request.id,
-                          request_id=http_request_id)
-
-        if action == "edited_approved" and payload.edited_response:
-            rec.drafted_response = payload.edited_response
-            rec.status = "edited"
-            rec.edited_at = utcnow()
-            rec.override_reason = "Attorney edited the drafted response before approval."
-        else:
-            rec.status = "approved"
-        rec.reviewed_by_user_id = actor.id
-        rec.reviewed_at = utcnow()
-        request.triaged_by_user_id = actor.id
-        request.triaged_at = utcnow()
-        request.triage_action = action
-        _transition(db, request=request, actor=actor, to_status="approved", to_stage="complete",
-                    audit_action=("intake.recommendation.edited_approved" if action == "edited_approved"
-                                  else "intake.recommendation.approved"),
-                    after={"agent": rec.agent_id}, timeline_title="Response approved by legal",
-                    request_id=http_request_id)
-        # a plain approved audit row for the humanized feed
-        write_audit_log(db, action="intake.approved", resource_type="intake_request",
-                        resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
-                        after={"ref": request.ref})
-
-    else:  # rejected — request returns to the human queue, SLA still running (Part 0.8)
-        rec.status = "rejected"
-        rec.reviewed_by_user_id = actor.id
-        rec.reviewed_at = utcnow()
-        request.triaged_by_user_id = actor.id
-        request.triaged_at = utcnow()
-        request.triage_action = "rejected"
-        _transition(db, request=request, actor=actor, to_status="in_review", to_stage="triage",
-                    audit_action="intake.rejected", after={"agent": rec.agent_id},
-                    timeline_title="Sent back for manual handling", request_id=http_request_id)
-
-    db.commit()
-    db.refresh(request)
-    return serialize_request(db, request)
-
-
 def record_triage_action(db: Session, *, actor: User, request_id: str, payload,
                          http_request_id: str | None = None) -> dict:
+    """Request-management actions on a ticket: reassign, escalate, snooze, close.
+    (Triage verdicts removed — a request is resolved by its workflow / approval
+    ladder, not by approving an AI recommendation.)"""
     r = get_request(db, user=actor, request_id=request_id)
     _require_staff(actor)
     if r.status == "closed":
         raise HTTPException(409, "Request is closed — file a follow-up")
     action = payload.action
-
-    if action in ("approved", "edited_approved", "rejected"):
-        return _decide_recommendation(db, actor=actor, request=r, action=action, payload=payload,
-                                      http_request_id=http_request_id)
 
     if action == "reassigned":
         if not payload.assignee_user_id:
@@ -782,6 +732,130 @@ def record_triage_action(db: Session, *, actor: User, request_id: str, payload,
     db.commit()
     db.refresh(r)
     return serialize_request(db, r)
+
+
+# --- approval ladder -------------------------------------------------------
+
+def _rung_label(db: Session, *, user_id: str | None, group_id: str | None, role: str | None) -> str:
+    from app.approvals.models import ApproverGroup
+
+    if user_id:
+        u = db.get(User, user_id)
+        return (u.full_name or u.email) if u else user_id
+    if group_id:
+        g = db.get(ApproverGroup, group_id)
+        return g.name if g else (role or "Approver")
+    return role or "Approver"
+
+
+def _serialize_chain(db: Session, rows: list) -> list[dict]:
+    """One rung per ApprovalRequest, in order — the intake ladder strip."""
+    from app.approvals.service import _quorum_needed
+
+    return [{
+        "approval_request_id": a.id,
+        "step_order": a.step_order,
+        "status": a.status,
+        "mode": getattr(a, "mode", "any"),
+        "approvals": (a.metadata_json or {}).get("approvals", 0),
+        "needed": _quorum_needed(db, a),
+        "approver_label": _rung_label(db, user_id=a.approver_user_id,
+                                      group_id=a.approver_group_id, role=a.approver_role),
+        "due_at": a.due_at.isoformat() if a.due_at else None,
+    } for a in rows]
+
+
+async def start_approval_ladder(db: Session, *, actor: User, request_id: str,
+                                approver_user_id: str | None = None,
+                                approver_role: str | None = None,
+                                http_request_id: str | None = None) -> dict:
+    """Submit an intake request into the shared approval ladder. The active
+    value/type/risk routing rules decide the rungs; falls back to the passed
+    approver when no rule matches."""
+    r = get_request(db, user=actor, request_id=request_id)
+    _require_staff(actor)
+    if r.status == "closed":
+        raise HTTPException(409, "Request is closed — file a follow-up")
+    from app.intake.approval_bridge import submit_request_for_approval
+
+    requests = await submit_request_for_approval(
+        db, actor=actor, request=r, approver_user_id=approver_user_id,
+        approver_role=approver_role, request_id=http_request_id,
+    )
+    db.commit()
+    db.refresh(r)
+    return {"request": serialize_request(db, r), "chain": _serialize_chain(db, requests)}
+
+
+def override_gate(db: Session, *, actor: User, request_id: str, gate_key: str, action: str,
+                  reason: str | None = None, http_request_id: str | None = None) -> dict:
+    """Manually add or remove a Tier-0 gate. The override wins over the classifier
+    and is audited; adding a gate applies its escalation side-effects immediately."""
+    from app.intake import gates as gates_mod
+
+    if action not in ("add", "remove"):
+        raise HTTPException(422, "action must be 'add' or 'remove'")
+    if gate_key not in gates_mod.GATE_BY_KEY:
+        raise HTTPException(422, f"Unknown gate '{gate_key}'")
+    r = get_request(db, user=actor, request_id=request_id)
+    _require_staff(actor)
+    if r.status == "closed":
+        raise HTTPException(409, "Request is closed — file a follow-up")
+
+    at = dict(r.ai_triage or {})
+    overrides = list(at.get("gate_overrides", []))
+    overrides.append({
+        "action": action, "gate_key": gate_key,
+        "by_user_id": actor.id, "by_name": (actor.full_name or actor.email),
+        "reason": (reason or "").strip() or None, "at": utcnow().isoformat(),
+    })
+    at["gate_overrides"] = overrides
+    r.ai_triage = at  # reassign so SQLAlchemy tracks the JSON mutation
+    if action == "add":
+        gates_mod.apply_gate_side_effects(r)
+    write_audit_log(db, action="intake.gate_overridden", resource_type="intake_request",
+                    resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                    request_id=http_request_id,
+                    after={"gate": gate_key, "override": action, "reason": reason})
+    r.updated_by_user_id = actor.id
+    db.commit()
+    db.refresh(r)
+    return serialize_request(db, r)
+
+
+def get_approval_chain(db: Session, *, actor: User, request_id: str) -> list[dict]:
+    """The request's approval rungs. If a chain is live, its real rows (RAG). If
+    not yet submitted, the PLANNED rungs (status 'planned') so the ladder is
+    always visible — value/type routing rules + Tier-0 gates decide them."""
+    from app.approvals.models import ApprovalRequest
+
+    r = get_request(db, user=actor, request_id=request_id)
+    rows = db.scalars(
+        select(ApprovalRequest)
+        .where(
+            ApprovalRequest.org_id == actor.org_id,
+            ApprovalRequest.intake_request_id == r.id,
+        )
+        .order_by(ApprovalRequest.created_at, ApprovalRequest.step_order)
+    ).all()
+    if rows:
+        return _serialize_chain(db, rows)
+    if r.status in ("closed", "approved"):
+        return []
+    # Preview the planned ladder from the same planner submit uses.
+    from app.approvals.service import plan_chain
+    from app.intake.approval_bridge import build_intake_subject
+
+    subject = build_intake_subject(db, r.id, org_id=actor.org_id)
+    targets = plan_chain(db, subject=subject, org_id=actor.org_id)
+    return [{
+        "approval_request_id": None,
+        "step_order": t["step_order"],
+        "status": "planned",
+        "approver_label": _rung_label(db, user_id=t.get("approver_user_id"),
+                                      group_id=t.get("approver_group_id"), role=t.get("approver_role")),
+        "due_at": None,
+    } for t in targets]
 
 
 # --- tasks -----------------------------------------------------------------
@@ -869,20 +943,6 @@ def _sla_order_key(r: IntakeRequest, now):
 
 def my_work(db: Session, *, user: User) -> dict:
     now = utcnow()
-    # Awaiting my review — pending recommendations on requests assigned to me
-    recs = db.scalars(
-        select(IntakeAgentRecommendation)
-        .join(IntakeRequest, IntakeRequest.id == IntakeAgentRecommendation.request_id)
-        .where(IntakeAgentRecommendation.org_id == user.org_id,
-               IntakeAgentRecommendation.status == "pending",
-               IntakeRequest.assigned_to_user_id == user.id)
-    ).all()
-    awaiting = []
-    for rec in recs:
-        r = db.get(IntakeRequest, rec.request_id)
-        if r:
-            awaiting.append({**serialize_request(db, r), "recommendation_id": rec.id,
-                             "agent_id": rec.agent_id, "confidence": rec.confidence})
     # My tickets — assigned to me + open
     tickets = db.scalars(
         select(IntakeRequest).where(
@@ -901,36 +961,13 @@ def my_work(db: Session, *, user: User) -> dict:
         ).order_by(IntakeTask.sort_order)
     ).all()
     return {
-        "awaiting_review": awaiting,
+        "awaiting_review": [],  # triage removed — no AI recommendations to review
         "my_tickets": [serialize_request(db, r) for r in tickets],
         "my_tasks": [serialize_task(db, t) for t in tasks],
     }
 
 
-# --- recommendation serialize + promote + bulk -----------------------------
-
-def serialize_recommendation(r: IntakeAgentRecommendation) -> dict:
-    from app.intake.constants import AUTO_SEND_THRESHOLD
-    return {
-        "id": r.id, "request_id": r.request_id, "agent_id": r.agent_id,
-        "confidence": r.confidence, "suggested_action": r.suggested_action,
-        "drafted_response": r.drafted_response, "reasoning": r.reasoning,
-        "concerns": r.concerns or [], "citations": r.citations or [],
-        "degraded": r.degraded, "status": r.status,
-        "reviewed_by_user_id": r.reviewed_by_user_id,
-        "can_auto_send": r.suggested_action == "approve_and_send" and r.confidence >= AUTO_SEND_THRESHOLD,
-    }
-
-
-def get_recommendation(db: Session, *, user: User, request_id: str) -> dict | None:
-    get_request(db, user=user, request_id=request_id)  # access gate
-    rec = db.scalar(
-        select(IntakeAgentRecommendation)
-        .where(IntakeAgentRecommendation.request_id == request_id)
-        .order_by(IntakeAgentRecommendation.created_at.desc()).limit(1)
-    )
-    return serialize_recommendation(rec) if rec else None
-
+# --- promote ---------------------------------------------------------------
 
 def promote(db: Session, *, actor: User, request_id: str, payload,
             http_request_id: str | None = None) -> dict:
@@ -958,22 +995,6 @@ def promote(db: Session, *, actor: User, request_id: str, payload,
     db.commit()
     db.refresh(r)
     return serialize_request(db, r)
-
-
-def bulk_triage(db: Session, *, actor: User, ids: list[str], action: str,
-                http_request_id: str | None = None) -> list[dict]:
-    results = []
-    for rid in ids:
-        try:
-            from app.intake.schemas import TriageActionRequest
-            record_triage_action(db, actor=actor, request_id=rid,
-                                 payload=TriageActionRequest(action=action),
-                                 http_request_id=http_request_id)
-            results.append({"id": rid, "ok": True})
-        except HTTPException as e:
-            db.rollback()
-            results.append({"id": rid, "ok": False, "error": e.detail})
-    return results
 
 
 # --- SLA engine (legs / pause / sweep / ops) -------------------------------
@@ -1080,7 +1101,7 @@ def sla_ops_summary(db: Session, *, org_id: str) -> dict:
             on_track += 1
         if r.paused_at:
             paused += 1
-        if r.status == "awaiting_triage":
+        if r.status == "open":
             awaiting += 1
         if r.status == "escalated":
             escalated += 1
@@ -1108,7 +1129,7 @@ def sla_ops_summary(db: Session, *, org_id: str) -> dict:
     ).all()
     return {
         "generated_at": now.isoformat(),
-        "open_total": len(rows), "awaiting_triage": awaiting, "escalated": escalated,
+        "open_total": len(rows), "open": awaiting, "escalated": escalated,
         "on_track": on_track, "at_risk": at_risk, "overdue": overdue, "paused": paused,
         "avg_elapsed_pct": int(pct_sum / len(rows)) if rows else 0,
         "breaches_7d": int(breaches_7d),
@@ -1311,7 +1332,7 @@ def list_assignees(db: Session, *, org_id: str) -> list[dict]:
     return [{"id": u.id, "name": u.full_name or u.email, "email": u.email} for u in rows]
 
 
-_STAGE_STATUS = {"new": "awaiting_triage", "triage": "awaiting_triage", "complete": "closed"}
+_STAGE_STATUS = {"new": "open", "complete": "closed"}
 
 
 def update_request(db: Session, *, actor: User, request_id: str, payload,
@@ -1331,7 +1352,7 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
         valid = stages_for(rtype)
         if payload.stage not in valid:
             raise HTTPException(422, f"Unknown stage '{payload.stage}'")
-        mapped = _STAGE_STATUS.get(payload.stage, "in_review")
+        mapped = _STAGE_STATUS.get(payload.stage, "open")
         _transition(
             db, request=r, actor=actor, to_status=mapped, to_stage=payload.stage,
             audit_action="intake.stage_advanced", before=before,
@@ -1350,67 +1371,6 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
 
 
 # ---- gap-fill: agent observability + documents (reference parity) ------------
-
-def agent_metrics(db: Session, org_id: str) -> dict:
-    """The Agents directory: every registered agent (identity + what it does)
-    merged with its live health (produced / accept rate / avg confidence /
-    degraded rate). Mirrors the reference's agent registry + metrics."""
-    from app.intake.agents import agent_registry
-
-    recs = db.scalars(select(IntakeAgentRecommendation)
-                      .where(IntakeAgentRecommendation.org_id == org_id)).all()
-    per: dict[str, dict] = {}
-    for rec in recs:
-        m = per.setdefault(rec.agent_id, {"produced": 0, "accepted": 0, "rejected": 0,
-                                          "pending": 0, "degraded": 0, "conf_sum": 0.0,
-                                          "review_ms": [], })
-        m["produced"] += 1
-        m["conf_sum"] += rec.confidence or 0
-        m["degraded"] += 1 if rec.degraded else 0
-        if rec.status in ("approved", "edited"):
-            m["accepted"] += 1
-        elif rec.status == "rejected":
-            m["rejected"] += 1
-        else:
-            m["pending"] += 1
-        if rec.reviewed_at and rec.created_at:
-            m["review_ms"].append((rec.reviewed_at - rec.created_at).total_seconds() * 1000)
-
-    # Iterate the full registry so every agent shows — even one that has never
-    # fired — with its identity; then merge in whatever metrics it has.
-    agents_out = []
-    for meta in agent_registry():
-        m = per.get(meta["agent_id"], {"produced": 0, "accepted": 0, "rejected": 0,
-                                       "pending": 0, "degraded": 0, "conf_sum": 0.0, "review_ms": []})
-        decided = m["accepted"] + m["rejected"]
-        produced = m["produced"]
-        agents_out.append({
-            "agent_id": meta["agent_id"],
-            "name": meta["name"], "short_name": meta["short_name"],
-            "icon": meta["icon"], "description": meta["description"],
-            "production_ready": meta["production_ready"], "active": meta["active"],
-            "produced": produced,
-            "accepted": m["accepted"], "rejected": m["rejected"], "pending": m["pending"],
-            "accept_rate": round(m["accepted"] / decided, 2) if decided else None,
-            "avg_confidence": round(m["conf_sum"] / produced, 2) if produced else None,
-            "degraded_rate": round(m["degraded"] / produced, 2) if produced else 0,
-            "avg_review_minutes": round(sum(m["review_ms"]) / len(m["review_ms"]) / 60000, 1)
-            if m["review_ms"] else None,
-        })
-    agents_out.sort(key=lambda a: -a["produced"])
-    total = len(recs)
-    decided_all = sum(1 for x in recs if x.status in ("approved", "edited", "rejected"))
-    accepted_all = sum(1 for x in recs if x.status in ("approved", "edited"))
-    return {
-        "agents": agents_out,
-        "summary": {
-            "recommendations": total,
-            "pending_review": sum(1 for x in recs if x.status == "pending"),
-            "accept_rate": round(accepted_all / decided_all, 2) if decided_all else None,
-            "degraded": sum(1 for x in recs if x.degraded),
-        },
-    }
-
 
 _DOC_MAX_BYTES = 3 * 1024 * 1024  # 3 MB inline cap, mirrors the reference
 

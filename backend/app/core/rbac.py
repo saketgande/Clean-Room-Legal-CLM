@@ -56,13 +56,12 @@ USER_PERMISSIONS = {"user:read", "user:update_role", "user:approve"}
 # track their OWN requests without being able to enumerate everyone's (which
 # would leak HR/litigation content):
 #   create — file + read own requests (all employees)
-#   read   — staff-wide list/detail/timeline/SLA-legs (legal roles only)
-#   triage — verdicts, cockpit, bulk, sla-ops, read routing rules
+#   read   — staff-wide queue: list/detail/timeline/SLA-legs + manage actions
+#            (the staff gate; triage removed)
 #   update — stage/handoff/tasks/work-status
 INTAKE_PERMISSIONS = {
     "intake:create",
     "intake:read",
-    "intake:triage",
     "intake:update",
 }
 
@@ -114,7 +113,6 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "obligation:read",
         "intake:create",
         "intake:read",
-        "intake:triage",
         "intake:update",
     },
     APPROVER_ROLE_NAME: {
@@ -125,7 +123,6 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract_file:read",
         "intake:create",
         "intake:read",
-        "intake:triage",
     },
 }
 

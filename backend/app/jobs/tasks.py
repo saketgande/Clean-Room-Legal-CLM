@@ -747,17 +747,45 @@ async def _run_renewal_window_check() -> dict:
         db.close()
 
 
+def _overdue_decision(
+    od: dict, days_over: int, escalate_after: int
+) -> tuple[bool, bool, bool]:
+    """Pure state machine for overdue-approval enforcement.
+
+    Given the stored ``overdue`` metadata (empty on first sight), how many days
+    the request is past due, and the escalation cadence, decide what to do this
+    run: ``(flag_first_time, send_reminder, escalate_now)``. Kept side-effect
+    free so the day-threshold arithmetic is testable without a DB.
+    """
+    flag = not od
+    remind = bool(od) and days_over >= od.get("reminded_day", 0) + escalate_after
+    escalate = days_over >= escalate_after and not od.get("escalated")
+    return flag, remind, escalate
+
+
 @celery_app.task
 def mark_overdue_approvals() -> dict:
-    """Daily: flag pending approval requests whose ``due_at`` has passed.
+    """Daily: enforce overdue pending approvals — flag, re-nudge, escalate.
 
     ApprovalStatus has no OVERDUE member, so rather than invent an enum value
-    (which would need a migration) we tag metadata_json["overdue"] and leave
-    status=PENDING. Idempotent: already-flagged rows are skipped. Safe no-op
-    when nothing is overdue.
+    (which would need a migration) we track enforcement state under
+    metadata_json["overdue"] and leave status=PENDING:
+
+      * first day overdue  -> flag + notify the approver(s) and the submitter
+      * every ``sla_escalation_after_days`` further days -> re-nudge approvers
+      * once ``sla_escalation_after_days`` days overdue -> escalate to org
+        admins (once)
+
+    Idempotent per day via the ``reminded_day`` / ``escalated`` markers, so a
+    daily beat never double-sends. Safe no-op when nothing is overdue.
     """
-    from app.approvals.models import ApprovalRequest
+    from app.approvals.models import ApprovalRequest, ApproverGroup
+    from app.auth.models import Role, User
+    from app.contracts.models import Contract
+    from app.core.config import settings
     from app.core.enums import ApprovalStatus
+    from app.intake.models import IntakeRequest
+    from app.notifications.models import Notification
 
     db = SessionLocal()
     try:
@@ -769,52 +797,107 @@ def mark_overdue_approvals() -> dict:
                 ApprovalRequest.due_at < now,
             )
         ).all()
-        from app.approvals.models import ApproverGroup
-        from app.contracts.models import Contract
-        from app.notifications.models import Notification
 
-        flagged = 0
+        escalate_after = max(1, settings.sla_escalation_after_days)
+        admin_cache: dict[str, list[str]] = {}
+
+        def org_admin_ids(org_id: str) -> list[str]:
+            if org_id not in admin_cache:
+                rows = db.scalars(
+                    select(User).join(User.roles).where(
+                        User.org_id == org_id, Role.name == "admin"
+                    )
+                ).all()
+                admin_cache[org_id] = [u.id for u in rows]
+            return admin_cache[org_id]
+
+        def notify(uid: str, org_id: str, event: str, subject: str, body: str) -> None:
+            db.add(
+                Notification(
+                    org_id=org_id,
+                    user_id=uid,
+                    channel="in_app",
+                    event_type=event,
+                    subject=subject,
+                    body=body,
+                    status="sent",
+                )
+            )
+
+        flagged = reminded = escalated = 0
         for req in overdue_requests:
             meta = req.metadata_json or {}
-            if meta.get("overdue"):
-                continue
-            req.metadata_json = {**meta, "overdue": {"at": now.isoformat()}}
-            flagged += 1
+            od = dict(meta.get("overdue") or {})
+            days_over = max(0, (now - req.due_at).days)
 
-            # Surface it: in-app notifications for whoever must act (the
-            # assigned approver, or every member of the approver group) and
-            # for the submitter. Flag-gated above, so this fires once per
-            # request, not once per day.
-            contract = db.get(Contract, req.contract_id)
-            title = contract.title if contract else "a contract"
-            recipient_ids: set[str] = set()
+            # Resolve a human title from whichever subject this row rides —
+            # a contract chain or a Legal Intake request (contract_id is null).
+            title = "this request"
+            if req.contract_id:
+                contract = db.get(Contract, req.contract_id)
+                if contract is not None:
+                    title = contract.title
+            elif req.intake_request_id:
+                ir = db.get(IntakeRequest, req.intake_request_id)
+                if ir is not None:
+                    title = ir.title
+
+            # Who must act: the assigned approver, or every group member.
+            approver_ids: set[str] = set()
             if req.approver_user_id:
-                recipient_ids.add(req.approver_user_id)
+                approver_ids.add(req.approver_user_id)
             elif req.approver_group_id:
                 group = db.get(ApproverGroup, req.approver_group_id)
                 if group is not None:
-                    recipient_ids.update(m.id for m in group.members)
-            if req.requested_by_user_id:
-                recipient_ids.add(req.requested_by_user_id)
-            due_label = req.due_at.date().isoformat() if req.due_at else "its due date"
-            for uid in recipient_ids:
-                db.add(
-                    Notification(
-                        org_id=req.org_id,
-                        user_id=uid,
-                        channel="in_app",
-                        event_type="approval.overdue",
-                        subject=f"Approval overdue: {title}",
-                        body=(
-                            f"Step {req.step_order} of the approval chain for "
-                            f"\"{title}\" passed its due date ({due_label}) "
-                            "and is still waiting for a decision."
-                        ),
-                        status="sent",
+                    approver_ids.update(m.id for m in group.members)
+            due_label = req.due_at.date().isoformat()
+            do_flag, do_remind, do_escalate = _overdue_decision(
+                od, days_over, escalate_after
+            )
+
+            if do_flag:
+                # First time overdue: alert approvers + the submitter.
+                recipients = set(approver_ids)
+                if req.requested_by_user_id:
+                    recipients.add(req.requested_by_user_id)
+                for uid in recipients:
+                    notify(
+                        uid, req.org_id, "approval.overdue",
+                        f"Approval overdue: {title}",
+                        f"Step {req.step_order} of the approval chain for "
+                        f"\"{title}\" passed its due date ({due_label}) and is "
+                        "still waiting for a decision.",
                     )
-                )
+                od = {"at": now.isoformat(), "reminded_day": days_over}
+                flagged += 1
+            elif do_remind:
+                # Still stuck: re-nudge the people who must decide.
+                for uid in approver_ids:
+                    notify(
+                        uid, req.org_id, "approval.overdue_reminder",
+                        f"Reminder — approval still overdue: {title}",
+                        f"Step {req.step_order} for \"{title}\" has been overdue "
+                        f"for {days_over} days. Please decide, delegate, or escalate.",
+                    )
+                od["reminded_day"] = days_over
+                reminded += 1
+
+            # Past the threshold: escalate to org admins, once.
+            if do_escalate:
+                for uid in org_admin_ids(req.org_id):
+                    notify(
+                        uid, req.org_id, "approval.escalation",
+                        f"Escalation — approval {days_over}d overdue: {title}",
+                        f"Step {req.step_order} for \"{title}\" is {days_over} days "
+                        "overdue and needs intervention — reassign it or decide it.",
+                    )
+                od["escalated"] = {"at": now.isoformat(), "day": days_over}
+                escalated += 1
+
+            req.metadata_json = {**meta, "overdue": od}
+
         db.commit()
-        return {"marked_overdue": flagged}
+        return {"marked_overdue": flagged, "reminded": reminded, "escalated": escalated}
     finally:
         db.close()
 

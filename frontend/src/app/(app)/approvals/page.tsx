@@ -4,18 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowDown,
-  ArrowUp,
   CheckCircle2,
-  GitBranch,
   Plus,
   Send,
-  Trash2,
   Users,
 } from "lucide-react";
 import { approvalsApi, contractsApi } from "@/lib/endpoints";
 import { can } from "@/lib/intake";
 import { RoutingTab as IntakeRoutingTab } from "../intake/_phase1";
+import { RulesTab } from "./_rules-builder";
 import {
   Badge,
   Button,
@@ -47,7 +44,7 @@ export default function ApprovalsPage() {
   const isAdmin = can(user, "admin_panel:access");
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Approvals & routing"
         description="Route contracts through a multi-step sign-off chain, and route incoming legal requests to the right team."
@@ -82,11 +79,18 @@ function RequestsTab() {
   const { user } = useAuth();
   const [submitOpen, setSubmitOpen] = useState(false);
   const [rejectFor, setRejectFor] = useState<ApprovalRequest | null>(null);
+  const [reassignFor, setReassignFor] = useState<
+    { req: ApprovalRequest; kind: "delegate" | "escalate" } | null
+  >(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["approvals"],
     queryFn: approvalsApi.list,
+  });
+  const { data: eligible } = useQuery({
+    queryKey: ["eligible-approvers"],
+    queryFn: approvalsApi.eligibleApprovers,
   });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],
@@ -125,6 +129,20 @@ function RequestsTab() {
       setRejectFor(null);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Decision failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reassign(req: ApprovalRequest, toUserId: string, kind: "delegate" | "escalate") {
+    setBusyId(req.id);
+    try {
+      await approvalsApi.reassign(req.id, toUserId, kind);
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      notify(kind === "delegate" ? "Delegated" : "Escalated", "success");
+      setReassignFor(null);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Reassign failed", "error");
     } finally {
       setBusyId(null);
     }
@@ -181,7 +199,16 @@ function RequestsTab() {
                       {titleMap.get(req.contract_id) ?? req.contract_id}
                     </Link>
                   </TD>
-                  <TD>{req.step_order ? `Step ${req.step_order}` : "—"}</TD>
+                  <TD>
+                    <span className="flex items-center gap-1.5">
+                      {req.step_order ? `Step ${req.step_order}` : "—"}
+                      {(req.needed ?? 1) > 1 && (
+                        <Badge tone={(req.approvals ?? 0) >= (req.needed ?? 1) ? "green" : "amber"}>
+                          {req.approvals ?? 0}/{req.needed} signed
+                        </Badge>
+                      )}
+                    </span>
+                  </TD>
                   <TD>
                     <span className="flex items-center gap-1.5">
                       <Badge tone={statusTone(req.status)}>{titleCase(req.status)}</Badge>
@@ -193,12 +220,12 @@ function RequestsTab() {
                       ? titleCase(req.approver_role)
                       : req.approver_group_name ?? (req.approver_group_id ? "Group" : req.approver_user_id ?? "—")}
                   </TD>
-                  <TD className={req.overdue ? "font-semibold text-rose-600" : undefined}>
+                  <TD className={req.overdue ? "font-semibold text-danger" : undefined}>
                     {fmtDate(req.due_at)}
                   </TD>
                   <TD className="text-right">
                     {req.status === "pending" && canDecide(req) ? (
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <Button
                           size="sm"
                           loading={busyId === req.id}
@@ -213,6 +240,24 @@ function RequestsTab() {
                           onClick={() => setRejectFor(req)}
                         >
                           Reject
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === req.id}
+                          onClick={() => setReassignFor({ req, kind: "delegate" })}
+                          title="Hand this step to another approver"
+                        >
+                          Delegate
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busyId === req.id}
+                          onClick={() => setReassignFor({ req, kind: "escalate" })}
+                          title="Escalate this step to a senior approver"
+                        >
+                          Escalate
                         </Button>
                       </div>
                     ) : (
@@ -243,7 +288,77 @@ function RequestsTab() {
         busy={busyId === rejectFor?.id}
         onReject={(comment) => rejectFor && decide(rejectFor, "reject", comment)}
       />
+
+      <ReassignModal
+        target={reassignFor}
+        approvers={eligible ?? []}
+        onClose={() => setReassignFor(null)}
+        busy={!!reassignFor && busyId === reassignFor.req.id}
+        onConfirm={(toUserId) =>
+          reassignFor && reassign(reassignFor.req, toUserId, reassignFor.kind)
+        }
+      />
     </div>
+  );
+}
+
+function ReassignModal({
+  target,
+  approvers,
+  onClose,
+  onConfirm,
+  busy,
+}: {
+  target: { req: ApprovalRequest; kind: "delegate" | "escalate" } | null;
+  approvers: { id: string; full_name: string; email: string }[];
+  onClose: () => void;
+  onConfirm: (toUserId: string) => void;
+  busy: boolean;
+}) {
+  const [toUserId, setToUserId] = useState("");
+
+  useEffect(() => {
+    setToUserId("");
+  }, [target?.req.id, target?.kind]);
+
+  const kind = target?.kind ?? "delegate";
+  const pool = approvers.filter((a) => a.id !== target?.req.approver_user_id);
+
+  return (
+    <Modal
+      open={!!target}
+      onClose={onClose}
+      title={kind === "delegate" ? "Delegate approval" : "Escalate approval"}
+      size="sm"
+      footer={
+        <>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={busy} disabled={!toUserId} onClick={() => onConfirm(toUserId)}>
+            {kind === "delegate" ? "Delegate" : "Escalate"}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600">
+          {kind === "delegate"
+            ? "Reassign this pending step to another approver. They receive a fresh single-use approval link."
+            : "Escalate this step to a senior approver. They take over the pending decision."}
+        </p>
+        <Field label={kind === "delegate" ? "Delegate to" : "Escalate to"}>
+          <Select value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
+            <option value="">Select approver…</option>
+            {pool.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.full_name} — {a.email}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+    </Modal>
   );
 }
 
@@ -363,312 +478,6 @@ function RejectModal({
   );
 }
 
-// ---- Routing rules -------------------------------------------------------
-function chainSummary(rule: {
-  steps: { step_order: number; approver_group_name?: string | null; approver_user_name?: string | null; approver_role: string | null }[];
-  approver_role: string | null;
-  approver_user_id: string | null;
-}): string {
-  if (rule.steps && rule.steps.length) {
-    return rule.steps
-      .slice()
-      .sort((a, b) => a.step_order - b.step_order)
-      .map(
-        (s) =>
-          s.approver_group_name ||
-          s.approver_user_name ||
-          (s.approver_role ? titleCase(s.approver_role) : "?"),
-      )
-      .join("  →  ");
-  }
-  if (rule.approver_role) return titleCase(rule.approver_role);
-  return rule.approver_user_id ?? "—";
-}
-
-function RulesTab() {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const [newOpen, setNewOpen] = useState(false);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["approval-routing-rules"],
-    queryFn: approvalsApi.routingRules,
-  });
-
-  return (
-    <div className="space-y-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setNewOpen(true)}>
-          <Plus className="h-4 w-4" />
-          New rule
-        </Button>
-      </div>
-
-      {isLoading ? (
-        <SkeletonRows rows={4} />
-      ) : error ? (
-        <ErrorState error={error} />
-      ) : (data ?? []).length === 0 ? (
-        <EmptyState
-          icon={<GitBranch className="h-6 w-6" />}
-          title="No routing rules"
-          description="Create a rule to route approvals through an ordered chain of approvers."
-          action={
-            <Button onClick={() => setNewOpen(true)}>
-              <Plus className="h-4 w-4" />
-              New rule
-            </Button>
-          }
-        />
-      ) : (
-        <Card>
-          <Table>
-            <THead>
-              <tr>
-                <TH>Name</TH>
-                <TH>Priority</TH>
-                <TH>Approval chain</TH>
-                <TH>Active</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(data ?? []).map((rule) => (
-                <TR key={rule.id}>
-                  <TD className="font-medium text-slate-900">{rule.name}</TD>
-                  <TD>{rule.priority}</TD>
-                  <TD className="text-slate-700">{chainSummary(rule)}</TD>
-                  <TD>
-                    <Badge tone={rule.is_active ? "green" : "slate"}>
-                      {rule.is_active ? "Active" : "Inactive"}
-                    </Badge>
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        </Card>
-      )}
-
-      <NewRuleModal
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
-        onCreated={() => {
-          qc.invalidateQueries({ queryKey: ["approval-routing-rules"] });
-          notify("Routing rule created", "success");
-          setNewOpen(false);
-        }}
-      />
-    </div>
-  );
-}
-
-function NewRuleModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const { notify } = useToast();
-  const [name, setName] = useState("");
-  const [priority, setPriority] = useState("100");
-  const [minValue, setMinValue] = useState("");
-  const [isActive, setIsActive] = useState(true);
-  // Each step holds an encoded target: "group:<id>" or "user:<id>" (or "").
-  const [steps, setSteps] = useState<string[]>([""]);
-  const [busy, setBusy] = useState(false);
-
-  const { data: groups } = useQuery({
-    queryKey: ["approval-groups"],
-    queryFn: approvalsApi.groups,
-    enabled: open,
-  });
-  const { data: people } = useQuery({
-    queryKey: ["eligible-approvers"],
-    queryFn: approvalsApi.eligibleApprovers,
-    enabled: open,
-  });
-
-  function reset() {
-    setName("");
-    setPriority("100");
-    setMinValue("");
-    setIsActive(true);
-    setSteps([""]);
-  }
-
-  function setStep(i: number, value: string) {
-    setSteps((prev) => prev.map((s, idx) => (idx === i ? value : s)));
-  }
-  function addStep() {
-    setSteps((prev) => [...prev, ""]);
-  }
-  function removeStep(i: number) {
-    setSteps((prev) => (prev.length === 1 ? prev : prev.filter((_, idx) => idx !== i)));
-  }
-  function move(i: number, dir: -1 | 1) {
-    setSteps((prev) => {
-      const next = [...prev];
-      const j = i + dir;
-      if (j < 0 || j >= next.length) return prev;
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
-  }
-
-  async function submit() {
-    const chosen = steps.filter(Boolean);
-    if (!name.trim() || chosen.length === 0) return;
-    setBusy(true);
-    try {
-      await approvalsApi.createRoutingRule({
-        name: name.trim(),
-        priority: String(Number(priority) || 0),
-        is_active: isActive,
-        criteria: minValue ? { min_value: Number(minValue) } : {},
-        steps: chosen.map((s) => {
-          const [kind, id] = s.split(":");
-          return kind === "group"
-            ? { approver_group_id: id }
-            : { approver_user_id: id };
-        }),
-      });
-      reset();
-      onCreated();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Create failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const canSave = !!name.trim() && steps.some(Boolean);
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="New routing rule"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} loading={busy} disabled={!canSave}>
-            Create rule
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Name">
-          <Input
-            value={name}
-            placeholder="e.g. Standard contract chain"
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Priority" hint="Lower wins when rules overlap.">
-            <Input
-              type="number"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            />
-          </Field>
-          <Field label="Applies when value ≥" hint="Optional threshold.">
-            <Input
-              type="number"
-              placeholder="Any value"
-              value={minValue}
-              onChange={(e) => setMinValue(e.target.value)}
-            />
-          </Field>
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-slate-700">Approval steps</span>
-            <span className="text-xs text-slate-400">Approved in order, top to bottom</span>
-          </div>
-          {steps.map((value, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="w-12 shrink-0 text-xs font-medium text-slate-500">
-                Step {i + 1}
-              </span>
-              <Select
-                className="flex-1"
-                value={value}
-                onChange={(e) => setStep(i, e.target.value)}
-              >
-                <option value="">Select approver…</option>
-                <optgroup label="Groups">
-                  {(groups ?? []).map((g) => (
-                    <option key={g.id} value={`group:${g.id}`}>
-                      {g.name}
-                      {g.members.length ? ` (${g.members.length})` : " (no members)"}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="People">
-                  {(people ?? []).map((u) => (
-                    <option key={u.id} value={`user:${u.id}`}>
-                      {u.full_name} — {u.email}
-                    </option>
-                  ))}
-                </optgroup>
-              </Select>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-                disabled={i === 0}
-                onClick={() => move(i, -1)}
-                aria-label="Move step up"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"
-                disabled={i === steps.length - 1}
-                onClick={() => move(i, 1)}
-                aria-label="Move step down"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="rounded p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30"
-                disabled={steps.length === 1}
-                onClick={() => removeStep(i)}
-                aria-label="Remove step"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-          <Button variant="outline" size="sm" onClick={addStep}>
-            <Plus className="h-4 w-4" />
-            Add step
-          </Button>
-        </div>
-
-        <label className="flex items-center gap-2 text-sm text-slate-700">
-          <input
-            type="checkbox"
-            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-            checked={isActive}
-            onChange={(e) => setIsActive(e.target.checked)}
-          />
-          Active
-        </label>
-      </div>
-    </Modal>
-  );
-}
-
 // ---- Approver groups -----------------------------------------------------
 function GroupsTab() {
   const qc = useQueryClient();
@@ -734,7 +543,7 @@ function GroupsTab() {
                   </TD>
                   <TD className="text-slate-700">
                     {g.members.length === 0 ? (
-                      <span className="text-xs text-amber-600">No members yet</span>
+                      <span className="text-xs text-warning">No members yet</span>
                     ) : (
                       g.members.map((m) => m.full_name).join(", ")
                     )}

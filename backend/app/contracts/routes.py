@@ -24,7 +24,6 @@ from app.contracts.service import (
     add_contract_party,
     compute_review_status,
     compute_version_diff,
-    contract_hub_summary,
     delete_contract_party,
     get_contract_for_user,
     list_contract_activity,
@@ -37,7 +36,6 @@ from app.contracts.service import (
 from app.core.deps import get_db, require_permission
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
-hub_router = APIRouter(prefix="/contract-hub", tags=["contract-hub"])
 
 
 @router.get("", response_model=list[ContractResponse])
@@ -104,6 +102,105 @@ def get_contract_risk(
         "clause_count": 0,
         "note": "Not computed yet.",
     }
+
+
+@router.get("/{contract_id}/deviations")
+def get_contract_deviations(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Open playbook deviations for the contract, severity-sorted — powers the
+    on-ticket AI analysis view."""
+    from sqlalchemy import select as _select
+
+    from app.playbooks.models import PlaybookDeviation
+    from app.playbooks.schemas import PlaybookDeviationResponse
+
+    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rows = db.scalars(
+        _select(PlaybookDeviation)
+        .where(
+            PlaybookDeviation.org_id == current_user.org_id,
+            PlaybookDeviation.contract_id == contract_id,
+            PlaybookDeviation.status.in_(["open", "needs_review"]),
+        )
+        .order_by(PlaybookDeviation.created_at.asc())
+    ).all()
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    rows = sorted(rows, key=lambda d: rank.get((d.severity or "").lower(), 9))
+    return [PlaybookDeviationResponse.model_validate(d).model_dump() for d in rows]
+
+
+_PLAIN_SUMMARY_SYSTEM = (
+    "You explain a contract's AI legal review to a NON-LAWYER — a colleague in sales, "
+    "procurement or product who just needs to know where things stand. Write in plain, "
+    "everyday English with no legal jargon; if a legal term is unavoidable, explain it in "
+    "a few words. Keep it short: start with ONE bottom-line sentence (is it safe to proceed "
+    "and the overall risk), then 2 to 4 short bullet points ('• ' each) for the things "
+    "actually worth knowing — each phrased as what it means for the business, not the clause "
+    "name. End with one line on what to do next. Be calm and reassuring where the risk is "
+    "low. Never invent issues or numbers."
+)
+
+
+@router.get("/{contract_id}/plain-summary")
+async def contract_plain_summary(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """A plain-English, non-lawyer-readable summary of the AI review (risk + playbook
+    deviations). Best-effort — degrades to a deterministic summary; never raises."""
+    from sqlalchemy import select as _select
+
+    from app.core.config import settings
+    from app.integrations.claude import claude_client
+    from app.playbooks.models import PlaybookDeviation
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    devs = db.scalars(
+        _select(PlaybookDeviation).where(
+            PlaybookDeviation.org_id == current_user.org_id,
+            PlaybookDeviation.contract_id == contract_id,
+            PlaybookDeviation.status.in_(["open", "needs_review"]),
+        )
+    ).all()
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    devs = sorted(devs, key=lambda d: rank.get((d.severity or "").lower(), 9))
+    rs = contract.risk_summary or {}
+    band = rs.get("band") or "unrated"
+    score = rs.get("score")
+    counts = rs.get("counts") or {}
+
+    def _fallback() -> str:
+        if not devs:
+            return (f"Overall {band} risk. The review found no open issues — this looks like "
+                    "standard, safe paper you can proceed with.")
+        hi, md, lo = counts.get("high", 0), counts.get("medium", 0), counts.get("low", 0)
+        head = f"Overall {band} risk — {hi} important, {md} moderate and {lo} minor point(s) worth knowing before signing."
+        pts = "\n".join(f"• {d.issue}" for d in devs[:3])
+        tail = ("A lawyer should glance at the important items before you sign."
+                if hi else "Minor tweaks only — safe to proceed once they're addressed.")
+        return f"{head}\n\n{pts}\n\n{tail}"
+
+    if settings.mock_claude or not devs:
+        return {"summary": _fallback(), "generated": False}
+    try:
+        dev_lines = "\n".join(
+            f"- [{d.severity or 'low'}] {d.clause_type}: {d.issue}"
+            + (f" (suggested fix: {d.suggested_fix})" if d.suggested_fix else "")
+            for d in devs[:12]
+        )
+        resp = await claude_client.complete_text(
+            system_prompt=_PLAIN_SUMMARY_SYSTEM,
+            user_prompt=f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}",
+            max_tokens=500, temperature=0.3,
+        )
+        answer = "".join(b.get("text", "") for b in resp.content_blocks if b.get("type") == "text").strip()
+        return {"summary": answer or _fallback(), "generated": bool(answer)}
+    except Exception:
+        return {"summary": _fallback(), "generated": False}
 
 
 @router.post("/{contract_id}/risk")
@@ -308,21 +405,3 @@ def get_contract_activity(
     return list_contract_activity(db, contract=contract, limit=limit)
 
 
-@hub_router.get("/console")
-def contract_hub_console(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("contract:read")),
-):
-    """Single aggregate powering the Command console — every operational
-    signal in one response."""
-    from app.contracts.console import build_console
-
-    return build_console(db, user=current_user)
-
-
-@hub_router.get("")
-def contract_hub(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("contract:read")),
-):
-    return contract_hub_summary(db, user=current_user)

@@ -47,7 +47,6 @@ from app.grants.models import ResourceGrant
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 from app.authority.models import AuthorityGrant
 from app.intake.models import (
-    IntakeAgentRecommendation,
     IntakeDocument,
     IntakeHandoff,
     IntakeKbArticle,
@@ -70,13 +69,16 @@ from app.tabular_review.models import (
     TabularReviewColumn,
 )
 from app.workflows.models import Workflow, WorkflowRun
+from app.flows.models import Flow, FlowRun, FlowStepRun
 
 __all__ = [
+    "Flow",
+    "FlowRun",
+    "FlowStepRun",
     "AdminSetting",
     "AuthorityGrant",
     "EthicalWall",
     "EthicalWallPrincipal",
-    "IntakeAgentRecommendation",
     "IntakeDocument",
     "IntakeHandoff",
     "IntakeKbArticle",

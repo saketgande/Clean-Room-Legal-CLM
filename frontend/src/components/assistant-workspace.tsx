@@ -749,7 +749,7 @@ export function AssistantWorkspace() {
         <section className="relative flex min-w-0 flex-1 flex-col">
           {/* Floating controls — replaces the removed top bar */}
           <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-2">
-            <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-slate-200 bg-slate-50/85 p-1 shadow-sm backdrop-blur">
+            <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50/85 p-1 shadow-pop backdrop-blur">
               <button
                 onClick={() => setRailOpen(true)}
                 title="Chats"
@@ -770,7 +770,7 @@ export function AssistantWorkspace() {
             {activeContractId && (
               <Link
                 href={`/contracts/${activeContractId}`}
-                className="pointer-events-auto flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50/85 px-2.5 py-1.5 text-xs font-medium text-brand-600 shadow-sm backdrop-blur transition-colors hover:bg-brand-50"
+                className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50/85 px-2.5 py-1.5 text-xs font-medium text-brand-600 shadow-pop backdrop-blur transition-colors hover:bg-brand-50"
               >
                 <FileText className="h-3.5 w-3.5" />
                 Open contract page
@@ -780,7 +780,7 @@ export function AssistantWorkspace() {
           {!activeSession ? (
             <div className="flex flex-1 flex-col items-center overflow-y-auto px-6">
               <div className="flex w-full max-w-[640px] flex-1 flex-col justify-center py-16">
-                <h1 className="animate-rise-in font-serif text-[52px] font-normal leading-[1.04] tracking-[-0.02em] text-slate-900">
+                <h1 className="animate-rise-in font-sans text-[52px] font-normal leading-[1.04] tracking-[-0.02em] text-slate-900">
                   {greeting},<br />
                   <span className="font-medium">{firstName}.</span>
                 </h1>
@@ -790,7 +790,7 @@ export function AssistantWorkspace() {
                 </p>
 
                 {workflow && (
-                  <div className="mt-7 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
+                  <div className="mt-7 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                     <Wand2 className="h-3.5 w-3.5" />
                     <span className="font-medium">Prompt:</span>
                     {workflow.name}
@@ -804,7 +804,7 @@ export function AssistantWorkspace() {
                 )}
 
                 <div className="mt-12 animate-rise-in">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                     Suggested
                   </p>
                   <div className="h-px bg-slate-200" />
@@ -821,7 +821,7 @@ export function AssistantWorkspace() {
                             <Icon className="h-[18px] w-[18px]" />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block font-serif text-[16px] font-medium text-slate-900">
+                            <span className="block font-sans text-[16px] font-medium text-slate-900">
                               {p.title}
                             </span>
                             <span className="block text-[13px] leading-snug text-slate-500">
@@ -838,7 +838,7 @@ export function AssistantWorkspace() {
               </div>
 
               <div className="sticky bottom-7 w-full max-w-[640px]">
-                <div className="rounded-2xl border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+                <div className="rounded-md border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                   <textarea
                     rows={1}
                     placeholder="Ask Aegis, or describe what you need…"
@@ -967,12 +967,12 @@ export function AssistantWorkspace() {
                     />
                   )}
                   {pending && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-                      <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
+                    <div className="rounded-md border border-warning/30 bg-warning-subtle p-4">
+                      <div className="flex items-center gap-2 text-sm font-medium text-warning">
                         <ShieldAlert className="h-4 w-4" />
                         {confirmCopy(pending.toolName).title}
                       </div>
-                      <p className="mt-1 text-sm text-amber-700">
+                      <p className="mt-1 text-sm text-warning">
                         {confirmCopy(pending.toolName).body}
                       </p>
                       <div className="mt-3 flex gap-2">
@@ -1005,10 +1005,10 @@ export function AssistantWorkspace() {
                             key={d.id}
                             onClick={() => upsertTab(d.contractId, d.kind)}
                             className={cn(
-                              "flex w-full items-center gap-2 rounded-xl border px-3.5 py-2.5 text-sm transition-colors",
+                              "flex w-full items-center gap-2 rounded-md border px-3.5 py-2.5 text-sm transition-colors",
                               d.kind === "redline"
-                                ? "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
-                                : "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
+                                ? "border-warning/30 bg-warning-subtle text-warning hover:bg-warning-subtle"
+                                : "border-success/30 bg-success-subtle text-success hover:bg-success-subtle",
                             )}
                           >
                             <FileText className="h-4 w-4 shrink-0" />
@@ -1037,7 +1037,7 @@ export function AssistantWorkspace() {
               <div className="shrink-0 border-t border-slate-200 bg-slate-100">
                 <div className="mx-auto w-full max-w-3xl px-5 py-4">
                   {workflow && (
-                    <div className="mb-2 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
+                    <div className="mb-2 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                       <Wand2 className="h-3.5 w-3.5" />
                       <span className="font-medium">Prompt:</span>
                       {workflow.name}
@@ -1049,7 +1049,7 @@ export function AssistantWorkspace() {
                       </button>
                     </div>
                   )}
-                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 shadow-sm transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+                  <div className="rounded-md border border-slate-300 bg-slate-100 px-4 py-3 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                     <textarea
                       rows={1}
                       placeholder="Ask a question about your documents…"
@@ -1121,10 +1121,10 @@ export function AssistantWorkspace() {
                       "group flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
                       on
                         ? t.kind === "redline"
-                          ? "bg-amber-100 text-amber-800"
+                          ? "bg-warning-subtle text-warning"
                           : t.kind === "draft"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-slate-100 text-slate-800 shadow-sm ring-1 ring-slate-200"
+                            ? "bg-success-subtle text-success"
+                            : "bg-slate-100 text-slate-800 ring-1 ring-slate-200"
                         : "text-slate-500 hover:bg-slate-200/60",
                     )}
                   >
@@ -1253,7 +1253,7 @@ export function AssistantWorkspace() {
                         <FileText className="h-3 w-3 text-slate-400" />
                       )}
                       {s.project_id && (
-                        <span className="inline-flex items-center gap-1 rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
+                        <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
                           <FolderKanban className="h-3 w-3" />
                           {projectName(s.project_id)}
                         </span>
@@ -1445,7 +1445,7 @@ function InlineEditReview({
 }) {
   const proposed = edits.filter((e) => e.status === "proposed").length;
   return (
-    <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+    <div className="space-y-2 rounded-md border border-warning/30 bg-warning-subtle p-3">
       <p className="text-sm font-semibold text-slate-800">
         Proposed changes{" "}
         <span className="font-normal text-slate-500">
@@ -1474,12 +1474,12 @@ function InlineEditReview({
               </Badge>
             </div>
             {e.original_text && (
-              <div className="max-h-28 overflow-y-auto rounded bg-red-50 p-2 text-xs text-red-800 line-through">
+              <div className="max-h-28 overflow-y-auto rounded bg-danger-subtle p-2 text-xs text-danger line-through">
                 {e.original_text}
               </div>
             )}
             {e.replacement_text && (
-              <div className="max-h-28 overflow-y-auto rounded bg-emerald-50 p-2 text-xs text-emerald-800">
+              <div className="max-h-28 overflow-y-auto rounded bg-success-subtle p-2 text-xs text-success">
                 {e.replacement_text}
               </div>
             )}
@@ -1554,7 +1554,7 @@ function PlaybookPicker({
   }
 
   return (
-    <div className="mb-2 rounded-xl border border-brand-200 bg-brand-50/60 p-3">
+    <div className="mb-2 rounded-md border border-brand-200 bg-brand-50/60 p-3">
       <p className="mb-2 text-sm font-semibold text-slate-800">
         Choose a playbook to redline against
       </p>
@@ -1633,7 +1633,7 @@ function TimelineStepCard({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-100">
+    <div className="rounded-md border border-slate-200 bg-slate-100">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-slate-600"
@@ -1656,8 +1656,8 @@ function TimelineStepCard({
             <li key={i} className="relative text-sm text-slate-600">
               <span
                 className={cn(
-                  "absolute -left-[1.05rem] top-1.5 h-2 w-2 rounded-full ring-4 ring-white",
-                  t.status === "error" ? "bg-red-500" : "bg-emerald-500",
+                  "absolute -left-[1.05rem] top-1.5 h-2 w-2 rounded-full ring-4 ring-slate-100",
+                  t.status === "error" ? "bg-danger" : "bg-success",
                 )}
               />
               {i < tools.length - 1 && (
@@ -1709,7 +1709,7 @@ function AssistantTimeline({
       )}
       {item.citations && item.citations.length > 0 && (
         <div className="space-y-1.5 pt-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Sources
           </p>
           {item.citations.map((c, i) => {
@@ -1741,7 +1741,7 @@ function StepTrace({ steps }: { steps: ChatItem[] }) {
     (s) => s.tool && s.tool.status === "running",
   );
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50/60">
+    <div className="rounded-md border border-slate-200 bg-slate-50/60">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-600"
@@ -1774,10 +1774,10 @@ function StepTrace({ steps }: { steps: ChatItem[] }) {
                 className={cn(
                   "h-1.5 w-1.5 shrink-0 rounded-full",
                   s.tool?.status === "error"
-                    ? "bg-red-500"
+                    ? "bg-danger"
                     : s.tool?.status === "running"
-                      ? "bg-amber-500"
-                      : "bg-emerald-500",
+                      ? "bg-warning"
+                      : "bg-success",
                 )}
               />
               <span className="truncate">
@@ -1814,12 +1814,12 @@ function ChatBubble({
         </span>
         {item.tool?.status === "running" && <Spinner className="h-3 w-3" />}
         {item.tool?.status === "done" && (
-          <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 font-medium text-emerald-600">
+          <span className="rounded-full bg-success-subtle px-1.5 py-0.5 font-medium text-success">
             done
           </span>
         )}
         {item.tool?.status === "error" && (
-          <span className="rounded-full bg-red-50 px-1.5 py-0.5 font-medium text-red-600">
+          <span className="rounded-full bg-danger-subtle px-1.5 py-0.5 font-medium text-danger">
             error
           </span>
         )}
@@ -1870,7 +1870,7 @@ function ChatBubble({
       )}
       {item.citations && item.citations.length > 0 && (
         <div className="space-y-1.5 pt-1">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Sources
           </p>
           {item.citations.map((c, i) => {
@@ -2149,7 +2149,7 @@ function WorkflowModal({
             )}
             {groups.map((g) => (
               <div key={g.label} className="space-y-1.5">
-                <p className="px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                <p className="px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                   {g.label} · {g.items.length}
                 </p>
                 {g.items.map((w) => (
@@ -2194,7 +2194,7 @@ function WorkflowModal({
                     )}
                     {prompt ? (
                       <>
-                        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                           What it does
                         </p>
                         <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
@@ -2203,7 +2203,7 @@ function WorkflowModal({
                       </>
                     ) : cols.length ? (
                       <>
-                        <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
                           Extracts {cols.length} field
                           {cols.length === 1 ? "" : "s"}
                         </p>

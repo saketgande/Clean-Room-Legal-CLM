@@ -157,8 +157,9 @@ class IntakeRequest(
     description = Column(Text, nullable=False, default="")
     field_values = Column(JSON, nullable=True)  # {field.key: value}
     priority = Column(String(20), nullable=False, default="Medium")  # Critical|High|Medium|Low
-    # status ∈ awaiting_triage|in_review|escalated|approved|closed  (NO 'rejected' — Part 0.8)
-    status = Column(String(40), nullable=False, default="awaiting_triage")
+    # status ∈ open|escalated|approved|closed  (triage removed — a filed request is
+    # 'open' and flows straight to its workflow; 'approved'/'closed' are terminal)
+    status = Column(String(40), nullable=False, default="open")
     stage = Column(String(60), nullable=False, default="new")
     work_status = Column(String(40), nullable=True)  # not_started|in_progress|blocked|delivered
     assigned_to_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
@@ -169,19 +170,19 @@ class IntakeRequest(
     paused_ms_total = Column(BigInteger, nullable=False, default=0)
     submitted_at = Column(DateTime(timezone=True), nullable=False)
     closed_at = Column(DateTime(timezone=True), nullable=True)  # stamped once on terminal (Part 0.10)
+    # Last request-management action (reassign|manual_close|snoozed|escalate) + who did it.
     triaged_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
     triaged_at = Column(DateTime(timezone=True), nullable=True)
-    triage_action = Column(String(30), nullable=True)  # approved|edited_approved|rejected|reassigned|manual_close|snoozed
+    triage_action = Column(String(30), nullable=True)  # reassigned|manual_close|snoozed|escalate
     snoozed_until = Column(DateTime(timezone=True), nullable=True)
-    agent_processed_at = Column(DateTime(timezone=True), nullable=True)
-    agent_outcome = Column(String(20), nullable=True)  # matched|no_match
+    # ai_triage holds the Tier-0 gate matrix + flow suggestion (feeds the approval
+    # ladder + workflow routing). Not the removed recommendation.
     ai_triage = Column(JSON, nullable=True)
     fired_rules = Column(JSON, nullable=True)
     stage_timestamps = Column(JSON, nullable=True)  # [{stage, at}]
     conversation = Column(JSON, nullable=True)  # copilot transcript
-    handoff_holder = Column(String(10), nullable=True)  # agent|human|queue
+    handoff_holder = Column(String(10), nullable=True)  # human|queue
     handoff_user_id = Column(String(36), nullable=True)
-    handoff_updated_at = Column(DateTime(timezone=True), nullable=True)
     external_message_id = Column(String(200), nullable=True)
     screening = Column(JSON, nullable=True)  # {counterparty, sanctions, conflicts, relationship}
     parties = Column(JSON, nullable=True)  # [{name, role, is_person}] — counterparty + adverse/related
@@ -190,33 +191,6 @@ class IntakeRequest(
         String(36), ForeignKey("contract.id", ondelete="SET NULL"), nullable=True
     )
 
-
-class IntakeAgentRecommendation(
-    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
-):
-    """The AI review artifact — the thing a human approves/edits/rejects. Model /
-    prompt / telemetry evidence lives on the linked AISkillRun; the human-gate
-    verdict lives on status + the linked AIConfirmation."""
-
-    request_id = Column(
-        String(36), ForeignKey("intake_request.id", ondelete="CASCADE"), nullable=False
-    )
-    agent_id = Column(String(60), nullable=False)  # nda_agent, faq_agent, ...
-    confidence = Column(Float, nullable=False, default=0)  # 0..1
-    suggested_action = Column(String(40), nullable=False, default="flag_for_review")
-    drafted_response = Column(Text, nullable=False, default="")
-    reasoning = Column(Text, nullable=False, default="")
-    concerns = Column(JSON, nullable=True)  # string[]
-    citations = Column(JSON, nullable=True)  # [{id,title}]
-    short_form_reply = Column(Text, nullable=True)
-    degraded = Column(Boolean, nullable=False, default=False)
-    status = Column(String(20), nullable=False, default="pending")  # pending|approved|edited|rejected
-    reviewed_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    override_reason = Column(String(300), nullable=True)
-    edited_at = Column(DateTime(timezone=True), nullable=True)
-    skill_run_id = Column(String(36), nullable=True)
-    confirmation_id = Column(String(36), nullable=True)
 
 
 class IntakeHandoff(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
@@ -230,10 +204,7 @@ class IntakeHandoff(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, 
     to_holder = Column(String(10), nullable=False)  # agent|human|queue
     to_user_id = Column(String(36), nullable=True)  # required when to_holder=human
     reason = Column(String(300), nullable=True)
-    actor_type = Column(String(10), nullable=False, default="user")  # user|agent|system
-    recommendation_id = Column(
-        String(36), ForeignKey("intake_agent_recommendation.id", ondelete="SET NULL"), nullable=True
-    )
+    actor_type = Column(String(10), nullable=False, default="user")  # user|system
 
 
 class IntakeTask(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

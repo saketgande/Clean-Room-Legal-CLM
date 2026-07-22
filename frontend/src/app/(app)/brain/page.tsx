@@ -111,14 +111,14 @@ export default function BrainPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-4">
       {/* ---- Hero + unified console ---------------------------------- */}
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md bg-brand-50 text-brand-600">
           <BrainIcon className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+          <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.01em] text-slate-900">
             Contract Brain
           </h1>
           <p className="mt-0.5 text-sm text-slate-500">
@@ -129,11 +129,11 @@ export default function BrainPage() {
       </div>
 
       <div className="space-y-3">
-        <div className="flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-slate-100 p-1.5 shadow-sm transition-colors focus-within:border-brand-400 focus-within:ring-1 focus-within:ring-brand-400">
+        <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-100 p-1.5 transition-colors focus-within:border-brand-400 focus-within:ring-1 focus-within:ring-brand-400">
           <select
             value={scope}
             onChange={(e) => setScope(e.target.value as BrainScope)}
-            className="shrink-0 rounded-xl bg-transparent px-2 py-2 text-sm font-medium text-slate-600 focus:outline-none"
+            className="shrink-0 rounded bg-transparent px-2 py-2 text-sm font-medium text-slate-600 focus:outline-none"
             aria-label="Scope"
           >
             <option value="portfolio">Portfolio</option>
@@ -152,7 +152,7 @@ export default function BrainPage() {
             onClick={() => ask()}
             loading={busy}
             disabled={findBusy}
-            className="shrink-0 rounded-xl"
+            className="shrink-0 rounded"
           >
             <Send className="h-4 w-4" />
             Ask
@@ -164,7 +164,7 @@ export default function BrainPage() {
           <select
             value={projectId}
             onChange={(e) => setProjectId(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            className="w-full rounded border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
           >
             <option value="">Select a project…</option>
             {(projects ?? []).map((p) => (
@@ -178,7 +178,7 @@ export default function BrainPage() {
           <select
             value={contractId}
             onChange={(e) => setContractId(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            className="w-full rounded border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-slate-700 focus:border-brand-400 focus:outline-none focus:ring-1 focus:ring-brand-400"
           >
             <option value="">Select a contract…</option>
             {(contracts ?? []).map((c) => (
@@ -220,9 +220,9 @@ export default function BrainPage() {
 
       {/* ---- Idle: suggestions + recent ------------------------------ */}
       {idle && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           <div className="space-y-2">
-            <p className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="flex items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               <Sparkles className="h-3.5 w-3.5" />
               Try asking
             </p>
@@ -240,7 +240,7 @@ export default function BrainPage() {
           </div>
 
           <div className="space-y-2">
-            <p className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <p className="flex items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
               <History className="h-3.5 w-3.5" />
               Recent questions
             </p>
@@ -267,7 +267,7 @@ export default function BrainPage() {
                           setScope(q.query_scope);
                           window.scrollTo({ top: 0, behavior: "smooth" });
                         }}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/60"
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-100"
                       >
                         <span className="flex-1 text-sm text-slate-800">
                           {q.question}
@@ -321,7 +321,7 @@ function SourceRow({
     </>
   );
   const base =
-    "group block rounded-xl border border-slate-200 bg-slate-100 p-3 transition-colors";
+    "group block rounded-md border border-slate-200 bg-slate-100 p-3 transition-colors";
   return contractId ? (
     <Link
       href={`/contracts/${contractId}`}
@@ -359,7 +359,7 @@ function AnswerCard({ query }: { query: BrainQuery }) {
         <CardBody className="space-y-4">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brand-50 text-brand-600">
+              <div className="flex h-7 w-7 items-center justify-center rounded bg-brand-50 text-brand-600">
                 <Sparkles className="h-4 w-4" />
               </div>
               Answer
@@ -381,12 +381,12 @@ function AnswerCard({ query }: { query: BrainQuery }) {
             </div>
           </div>
 
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-slate-800">
+          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-slate-800">
             {query.answer}
           </p>
 
           {m.limitations && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+            <div className="rounded-md border border-warning/30 bg-warning-subtle px-3 py-2.5 text-sm text-warning">
               {m.limitations}
             </div>
           )}
@@ -404,7 +404,7 @@ function AnswerCard({ query }: { query: BrainQuery }) {
           "Find sources only" returns for the same query. */}
       {hasSources ? (
         <div className="space-y-2">
-          <p className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="flex items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             <Quote className="h-3.5 w-3.5" />
             Sources · the answer is built from these
           </p>
@@ -412,7 +412,7 @@ function AnswerCard({ query }: { query: BrainQuery }) {
         </div>
       ) : cites.length > 0 ? (
         <div className="space-y-2">
-          <p className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          <p className="flex items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             <Quote className="h-3.5 w-3.5" />
             Sources ({cites.length})
           </p>
@@ -521,7 +521,7 @@ function Section({
 }) {
   return (
     <div className="space-y-2">
-      <p className="flex items-center gap-1.5 px-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+      <p className="flex items-center gap-1.5 px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
         {icon}
         {title}
         <span className="font-normal normal-case text-slate-300">· {hint}</span>

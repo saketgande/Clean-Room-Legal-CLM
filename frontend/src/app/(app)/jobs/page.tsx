@@ -68,7 +68,7 @@ export default function JobsPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Background jobs"
         description="Async processing — extraction, embeddings, reminders and more."
@@ -160,7 +160,7 @@ export default function JobsPage() {
                       {job.status === "failed" && job.error_message && (
                         <p
                           title={job.error_message}
-                          className="mt-1 max-w-[16rem] truncate text-xs text-red-600"
+                          className="mt-1 max-w-[16rem] truncate text-xs text-danger"
                         >
                           {job.error_message}
                         </p>

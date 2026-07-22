@@ -28,7 +28,7 @@ export default function TabularReviewsPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Tabular Reviews"
         description="Run column-based questions across many contracts at once."

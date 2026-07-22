@@ -2,8 +2,7 @@ import type { IntakeRequest, IntakeSlaPosture, IntakeStatus, UserResponse } from
 
 // Presentation labels live here, NOT in the wire types (Part 0.19).
 export const STATUS_LABEL: Record<IntakeStatus, string> = {
-  awaiting_triage: "Awaiting triage",
-  in_review: "In review",
+  open: "Open",
   escalated: "Escalated",
   approved: "Approved",
   closed: "Closed",
@@ -11,8 +10,7 @@ export const STATUS_LABEL: Record<IntakeStatus, string> = {
 
 // Badge tones available in ui.tsx: slate | blue | green | amber | red | violet | cyan
 export const STATUS_TONE: Record<IntakeStatus, string> = {
-  awaiting_triage: "slate",
-  in_review: "blue",
+  open: "blue",
   escalated: "violet",
   approved: "green",
   closed: "slate",

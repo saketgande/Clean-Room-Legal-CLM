@@ -57,7 +57,7 @@ export default function ProjectsPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <PageHeader
         title="Projects"
         description="Organize contracts into matters, deal rooms and review workspaces."

@@ -91,7 +91,12 @@ class ApprovalRoutingStep(
 
 
 class ApprovalRequest(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
-    contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
+    # A request hangs off EITHER a contract or an intake request (exactly one).
+    # contract_id is nullable since the ladder generalised beyond contracts.
+    contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=True)
+    intake_request_id = Column(
+        String(36), ForeignKey("intake_request.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     contract_version_id = Column(String(36), ForeignKey("contract_version.id"), nullable=True)
     status = Column(String(80), index=True, nullable=False, default=ApprovalStatus.PENDING)
     requested_by_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
@@ -103,6 +108,10 @@ class ApprovalRequest(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin
     approver_group_id = Column(String(36), ForeignKey("approver_group.id"), index=True, nullable=True)
     routing_rule_id = Column(String(36), ForeignKey("approval_routing_rule.id"), nullable=True)
     step_order = Column(Integer, nullable=False, default=1)
+    # "any" = one member's approval clears the rung (default); "all" = every
+    # member of the group must approve before it advances (quorum). The rung
+    # stays PENDING, accumulating decisions, until the quorum is met.
+    mode = Column(String(20), nullable=False, default="any")
     due_at = Column(DateTime(timezone=True), nullable=True)
     metadata_json = Column(JSON, nullable=False, default=dict)
 

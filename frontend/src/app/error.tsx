@@ -24,7 +24,7 @@ export default function Error({
       <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
         Something went wrong
       </p>
-      <h1 className="mt-4 font-serif text-[32px] font-medium tracking-tight text-slate-900">
+      <h1 className="mt-4 font-sans text-[32px] font-medium tracking-tight text-slate-900">
         This page hit an error
       </h1>
       <p className="mt-3 max-w-md text-[15px] leading-relaxed text-slate-500">
