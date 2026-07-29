@@ -24,6 +24,7 @@ from __future__ import annotations
 import email
 import email.utils
 import imaplib
+import logging
 import re
 from email.header import decode_header
 from email.message import Message
@@ -35,6 +36,8 @@ from app.core.config import settings
 from app.intake import email_triage_agent, service
 from app.intake.ingest import _resolve_requester, ingest_message
 from app.intake.models import IntakeRequest
+
+logger = logging.getLogger(__name__)
 
 _IMAP_HOST = "imap.gmail.com"
 _THRID_RE = re.compile(rb"X-GM-THRID\s+(\d+)")
@@ -62,6 +65,7 @@ def _plain_text_body(msg: Message) -> str:
                     payload = part.get_payload(decode=True) or b""
                     return payload.decode(part.get_content_charset() or "utf-8", errors="replace")
                 except Exception:
+                    logger.debug("failed to decode text/plain part; skipping", exc_info=True)
                     continue
         return ""
     if msg.get_content_type() == "text/plain":
@@ -69,6 +73,7 @@ def _plain_text_body(msg: Message) -> str:
             payload = msg.get_payload(decode=True) or b""
             return payload.decode(msg.get_content_charset() or "utf-8", errors="replace")
         except Exception:
+            logger.debug("failed to decode message body", exc_info=True)
             return ""
     return ""
 
@@ -85,6 +90,7 @@ def _attachments(msg: Message) -> list[tuple[str, str, bytes]]:
         try:
             content = part.get_payload(decode=True) or b""
         except Exception:
+            logger.debug("failed to decode attachment part; skipping", exc_info=True)
             continue
         if not content:
             continue
@@ -186,14 +192,15 @@ def sync_gmail_inbox(db: Session) -> dict:
 
                     if excerpts:
                         combined = "\n\n".join(e for e in [body, *excerpts] if e)[:20000]
-                        triage = email_triage_agent.classify_email(subject, combined)
+                        triage = email_triage_agent.classify_email(db, thread_request.org_id, subject, combined)
                         if triage.get("category") != "General":
                             thread_request.ai_triage = {
                                 **(thread_request.ai_triage or {}),
-                                **{k: v for k, v in triage.items() if k != "type_label"},
+                                **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")},
                             }
                         if triage.get("type_label"):
                             thread_request.type_label = triage["type_label"]
+                            thread_request.request_type_id = triage.get("request_type_id")
                         write_audit_log(
                             db, action="intake.ingest.gmail_email.thread_followup",
                             resource_type="intake_request", resource_id=thread_request.id,
@@ -208,7 +215,7 @@ def sync_gmail_inbox(db: Session) -> dict:
                 # Email Intake Triage Agent: only file messages that actually
                 # look like a Legal/CLM matter — everything else (newsletters,
                 # personal mail, receipts…) is left in the inbox, untouched.
-                if not email_triage_agent.is_clm_related(subject, body, [a[0] for a in attachments]):
+                if not email_triage_agent.is_clm_related(db, requester.org_id, subject, body, [a[0] for a in attachments]):
                     skipped.append({"uid": uid.decode(), "subject": subject, "reason": "not CLM-related"})
                     continue
 
@@ -235,17 +242,24 @@ def sync_gmail_inbox(db: Session) -> dict:
                             skipped.append({"uid": uid.decode(), "reason": f"attachment {filename}: {exc}"})
 
                     combined = "\n\n".join(e for e in excerpts if e)[:20000]
-                    triage = email_triage_agent.classify_email(subject, combined)
+                    triage = email_triage_agent.classify_email(db, requester.org_id, subject, combined)
                     r = db.query(IntakeRequest).filter(IntakeRequest.id == out["id"]).first()
                     if r:
                         if triage.get("category") != "General":
                             r.ai_triage = {**(r.ai_triage or {}),
-                                           **{k: v for k, v in triage.items() if k != "type_label"}}
+                                           **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")}}
                         if triage.get("type_label"):
                             r.type_label = triage["type_label"]
+                            r.request_type_id = triage.get("request_type_id")
                         if thread_id:
                             r.field_values = {**(r.field_values or {}), "gmail_thread_id": thread_id}
                         db.commit()
+                        db.refresh(r)
+                        # out was serialized right after creation, before the
+                        # reclassification above — re-serialize so the sync
+                        # response reflects the final type_label/ai_triage,
+                        # not the pre-classification snapshot.
+                        out = service.serialize_request(db, r)
 
                 filed.append(out)
             except Exception as exc:
@@ -257,4 +271,4 @@ def sync_gmail_inbox(db: Session) -> dict:
         try:
             imap.logout()
         except Exception:
-            pass
+            logger.debug("IMAP logout failed", exc_info=True)

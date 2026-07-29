@@ -54,7 +54,11 @@ class ClauseRiskOutput(BaseModel):
     clause_type: str
     risk: Literal["low", "medium", "high"] = "low"
     rationale: str = Field(min_length=1)
-    quote: str | None = None
+    # Required, not optional: an eval scorecard's LLM judge found "low" risk
+    # calls shipping with no quote at all, so a lawyer had no way to verify
+    # they weren't invented. Every risk call — including "low" — must now
+    # point to real supporting text.
+    quote: str = Field(min_length=1)
 
 
 class ContractRiskOutput(BaseModel):
@@ -207,6 +211,24 @@ class TabularCellOutput(BaseModel):
 class TabularChatOutput(BaseModel):
     answer: str = Field(min_length=1)
     citations: list[CitationInput] = Field(default_factory=list)
+
+
+class PrivacyIncidentAssessmentOutput(BaseModel):
+    severity: Literal["low", "medium", "high", "critical"] = "medium"
+    notification_required: bool = False
+    # Hours from discovery, e.g. 72 for a DPDP-style breach clock — null when no
+    # statutory notification clock applies.
+    notification_deadline_hours: int | None = None
+    affected_data_categories: list[str] = Field(default_factory=list)
+    estimated_affected_count: str | None = None
+    recommended_immediate_actions: list[str] = Field(default_factory=list)
+    rationale: str = Field(min_length=1)
+    # Numeric, not high/medium/low — this feeds the flow engine's
+    # escalate_below_confidence gate directly, unlike this file's other skills.
+    # No default: this is the one field the whole gate depends on, so a model
+    # response that omits it must fail loudly (a validation error), not silently
+    # pass as an unearned "medium confidence" verdict.
+    confidence: float = Field(ge=0.0, le=1.0)
 
 
 class AssistantAnswerOutput(BaseModel):

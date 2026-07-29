@@ -48,13 +48,6 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "answer": "Mock Claude mode is enabled, so no live tabular-review answer was generated.",
             "citations": [],
         },
-        "return_contract_brain_query_parse": {
-            "query_scope": "portfolio",
-            "target_clause_types": [],
-            "needs_vector_search": True,
-            "needs_graph_search": True,
-            "needs_full_text_search": True,
-        },
         "return_contract_brain_answer": {
             "answer": "Mock Claude mode is enabled, so no live Contract Brain answer was generated.",
             "citations": [],

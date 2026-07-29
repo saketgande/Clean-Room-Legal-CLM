@@ -258,6 +258,25 @@ def set_user_clearance(db: Session, actor: User, user_id: str, payload) -> dict:
     return as_user_response(target)
 
 
+def _assert_actor_can_grant(actor: User, roles: list[Role]) -> None:
+    """Privilege-escalation guard: `user:update_role` is a narrower permission
+    than `admin_panel:access` (role CRUD), so an actor could hold the former
+    without the latter. Without this check they could still grant ANY
+    role — including admin — to anyone (including themselves), regardless
+    of their own permission set. Only allow granting permissions the actor
+    already holds themselves."""
+    from app.core.rbac import has_permission
+
+    granted_permissions = {p.value for r in roles for p in r.permissions}
+    actor_permissions = actor.permission_values
+    ungranted = {p for p in granted_permissions if not has_permission(actor_permissions, p)}
+    if ungranted:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Cannot assign permission(s) you do not hold yourself: {', '.join(sorted(ungranted))}",
+        )
+
+
 def set_user_roles(db: Session, actor: User, user_id: str, payload) -> dict:
     from app.auth.service import as_user_response  # reuse the canonical UserResponse
 
@@ -271,6 +290,8 @@ def set_user_roles(db: Session, actor: User, user_id: str, payload) -> dict:
     ).all()
     if len(roles) != len(role_ids):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "One or more roles not found")
+
+    _assert_actor_can_grant(actor, roles)
 
     # Lockout guard: never remove the last admin's admin role.
     had_admin = any(r.name == ADMIN_ROLE_NAME for r in target.roles)

@@ -1,6 +1,0 @@
-[2026-06-11 15:28:21,334: INFO/MainProcess] Connected to redis://localhost:6379/0
-[2026-06-11 15:28:21,348: INFO/MainProcess] mingle: searching for neighbors
-[2026-06-11 15:28:22,384: INFO/MainProcess] mingle: all alone
-[2026-06-11 15:28:22,405: INFO/MainProcess] celery@XW5CG6031D8Q ready.
-[2026-06-11 15:30:00,069: INFO/MainProcess] Task app.jobs.tasks.prune_expired_tokens[47d9e748-48b2-4a0f-8ff4-f1487cea6fd1] received
-[2026-06-11 15:30:00,470: INFO/MainProcess] Task app.jobs.tasks.prune_expired_tokens[47d9e748-48b2-4a0f-8ff4-f1487cea6fd1] succeeded in 0.3985318999912124s: {'deleted': {'refresh_token': 0, 'revoked_access_token': 2, 'password_reset_token': 0, 'approval_token': 0}}

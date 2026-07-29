@@ -6,7 +6,6 @@ import {
   Building2,
   Check,
   Copy,
-  KeyRound,
   Lock,
   Mail,
   Pencil,
@@ -53,6 +52,7 @@ import {
   TR,
   Tabs,
   Textarea,
+  useConfirm,
 } from "@/components/ui";
 import { cn, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
@@ -60,7 +60,6 @@ import { can } from "@/lib/intake";
 import { useToast } from "@/components/toast";
 import type {
   ConfigStatus,
-  OrgJoinRequestResponse,
   PermissionInfo,
   RoleResponse,
   UserInvitationResponse,
@@ -196,7 +195,6 @@ function UsersTab() {
     <div className="space-y-4">
       <PendingUsersSection />
       <InvitationsSection />
-      <JoinRequestsSection />
     </div>
   );
 }
@@ -566,111 +564,6 @@ function InviteModal({
   );
 }
 
-function JoinRequestsSection() {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["join-requests"],
-    queryFn: usersApi.listJoinRequests,
-  });
-
-  async function decide(
-    req: OrgJoinRequestResponse,
-    decision: "approve" | "reject",
-  ) {
-    setBusyId(req.id);
-    try {
-      await usersApi.decideJoinRequest(req.id, decision);
-      qc.invalidateQueries({ queryKey: ["join-requests"] });
-      notify(
-        decision === "approve" ? "Request approved" : "Request rejected",
-        "success",
-      );
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Decision failed", "error");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Join requests</CardTitle>
-        <KeyRound className="h-4 w-4 text-slate-400" />
-      </CardHeader>
-      <CardBody className="p-0">
-        {isLoading ? (
-          <CenterSpinner label="Loading join requests…" />
-        ) : error ? (
-          <div className="p-5">
-            <ErrorState error={error} />
-          </div>
-        ) : (data ?? []).length === 0 ? (
-          <div className="p-5">
-            <EmptyState
-              icon={<KeyRound className="h-6 w-6" />}
-              title="No join requests"
-              description="Pending requests to join your organization appear here."
-            />
-          </div>
-        ) : (
-          <Table>
-            <THead>
-              <tr>
-                <TH>Email</TH>
-                <TH>Full name</TH>
-                <TH>Requested domain</TH>
-                <TH>Status</TH>
-                <TH className="text-right">Actions</TH>
-              </tr>
-            </THead>
-            <tbody>
-              {(data ?? []).map((req) => (
-                <TR key={req.id}>
-                  <TD className="font-medium text-slate-900">{req.email}</TD>
-                  <TD>{req.full_name}</TD>
-                  <TD>{req.requested_domain ?? "—"}</TD>
-                  <TD>
-                    <Badge tone={statusTone(req.status)}>
-                      {titleCase(req.status)}
-                    </Badge>
-                  </TD>
-                  <TD className="text-right">
-                    {req.status === "pending" ? (
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          loading={busyId === req.id}
-                          onClick={() => decide(req, "approve")}
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          loading={busyId === req.id}
-                          onClick={() => decide(req, "reject")}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-slate-400">—</span>
-                    )}
-                  </TD>
-                </TR>
-              ))}
-            </tbody>
-          </Table>
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
 // ---- Settings ------------------------------------------------------------
 function SettingsTab() {
   const qc = useQueryClient();
@@ -924,9 +817,16 @@ function RolesTab() {
     role?: RoleResponse;
   } | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   async function remove(role: RoleResponse) {
-    if (!window.confirm(`Delete the "${titleCase(role.name)}" role?`)) return;
+    const ok = await confirm({
+      title: "Delete role",
+      message: `Delete the "${titleCase(role.name)}" role? This cannot be undone.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(role.id);
     try {
       await rolesApi.remove(role.id);
@@ -1035,6 +935,7 @@ function RolesTab() {
           }}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }
@@ -1378,6 +1279,7 @@ function EthicalWallsTab() {
   } = useQuery({ queryKey: ["ethical-walls"], queryFn: wallsApi.list });
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ["ethical-walls"] });
@@ -1397,8 +1299,13 @@ function EthicalWallsTab() {
   }
 
   async function remove(w: WallResponse) {
-    if (!window.confirm(`Delete the "${w.name}" ethical wall? This cannot be undone.`))
-      return;
+    const ok = await confirm({
+      title: "Delete ethical wall",
+      message: `Delete the "${w.name}" ethical wall? This cannot be undone.`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(w.id);
     try {
       await wallsApi.remove(w.id);
@@ -1522,6 +1429,7 @@ function EthicalWallsTab() {
           }}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }
@@ -1716,13 +1624,20 @@ function AuthorityTab() {
   } = useQuery({ queryKey: ["authority-grants"], queryFn: authorityApi.list });
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const { confirm, dialog: confirmDialog } = useConfirm();
 
   function refresh() {
     qc.invalidateQueries({ queryKey: ["authority-grants"] });
   }
 
   async function revoke(g: AuthorityGrantResponse) {
-    if (!window.confirm(`Revoke this authority for ${g.principal_label}?`)) return;
+    const ok = await confirm({
+      title: "Revoke authority",
+      message: `Revoke this authority for ${g.principal_label}?`,
+      confirmLabel: "Revoke",
+      tone: "danger",
+    });
+    if (!ok) return;
     setBusyId(g.id);
     try {
       await authorityApi.revoke(g.id);
@@ -1849,6 +1764,7 @@ function AuthorityTab() {
           }}
         />
       )}
+      {confirmDialog}
     </div>
   );
 }

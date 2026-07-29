@@ -24,7 +24,6 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import Role, User
 from app.contracts.models import Contract
-from app.core.access import is_org_admin
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
 from app.projects.models import Project, ProjectContract

@@ -10,6 +10,7 @@ from app.playbooks.routes import decide_deviation, get_playbook_run, list_playbo
 from app.playbooks.service import (
     _build_playbook_redline_docx,
     evaluate_rules_against_text,
+    execute_playbook_run,
     generated_default_rules,
 )
 
@@ -108,9 +109,35 @@ def test_phase5_rest_paths_enforce_contract_access_and_redline_permission():
     assert '_require_permission(current_user, "contract:redline")' in run_source
 
 
+def test_execute_playbook_run_trusts_a_genuine_zero_deviation_ai_verdict():
+    """A real Claude review that finds nothing wrong must not be silently
+    replaced by the deterministic keyword engine — only an actual AI failure
+    (ai_output is None) should trigger that fallback."""
+    source = inspect.getsource(execute_playbook_run)
+
+    assert "if ai_output is not None:" in source
+    deviation_source_branch = source.split("if ai_output is not None:", 1)[1]
+    assert 'deviation_source = "claude"' in deviation_source_branch.split("else:")[0]
+    assert 'deviation_source = "deterministic"' in deviation_source_branch.split("else:")[1]
+
+
 def test_phase5_assistant_tool_runtime_enforces_dual_permissions():
     source = inspect.getsource(tool_runtime._run_playbook_review)
 
     assert 'has_permission(user.permission_values, "contract:read")' in source
     assert 'has_permission(user.permission_values, "playbook:run")' in source
     assert 'has_permission(user.permission_values, "contract:redline")' in source
+
+
+def test_assistant_playbook_review_tool_attempts_a_real_ai_review():
+    """This tool previously called execute_playbook_run with no ai_output/
+    ai_error at all, so asking the assistant to review or redline against a
+    playbook always silently used the deterministic engine — never Claude,
+    regardless of what the user asked for. Pin that it now attempts the real
+    skill first, same as the /run route and auto_review_contract."""
+    source = inspect.getsource(tool_runtime._run_playbook_review)
+
+    assert 'skill_name="playbook_review"' in source
+    assert "run_structured_skill" in source
+    assert "ai_output=ai_output" in source
+    assert "ai_error=ai_error" in source

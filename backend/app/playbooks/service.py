@@ -533,9 +533,13 @@ def execute_playbook_run(
     )
     db.add(run)
     db.flush()
+    # Key the fallback off whether Claude actually ran, not off whether it found
+    # anything — a genuine "0 deviations" verdict is a real answer, not a reason
+    # to discard it in favor of the deterministic engine.
     evaluated = ai_deviations_to_evaluated(ai_output=ai_output, rules=rules)
-    deviation_source = "claude"
-    if not evaluated:
+    if ai_output is not None:
+        deviation_source = "claude"
+    else:
         evaluated = evaluate_rules_against_text(rules=rules, text=snapshot.text)
         deviation_source = "deterministic"
     run_validation = "valid"

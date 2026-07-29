@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citation
@@ -88,6 +88,7 @@ def list_sessions(
     project_id: str | None = None,
     contract_id: str | None = None,
     status_filter: str = "active",
+    q: str | None = None,
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
@@ -104,6 +105,19 @@ def list_sessions(
     if contract_id:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
         query = query.where(AssistantSession.contract_id == contract_id)
+    if q and q.strip():
+        # Title-only search would be useless here: many sessions share an
+        # identical auto-generated title (e.g. every "Edit · <contract>"
+        # chat opened against the same contract), so also match on the
+        # actual conversation content.
+        needle = f"%{q.strip()}%"
+        matching_session_ids = select(AssistantMessage.session_id).where(
+            AssistantMessage.org_id == current_user.org_id,
+            AssistantMessage.content.ilike(needle),
+        )
+        query = query.where(
+            or_(AssistantSession.title.ilike(needle), AssistantSession.id.in_(matching_session_ids))
+        )
     return db.scalars(query.order_by(AssistantSession.updated_at.desc()).limit(min(limit, 100))).all()
 
 
@@ -337,44 +351,32 @@ async def stream_session(
                 )
                 return
             if client_disconnected:
+                _persist_assistant_answer(
+                    db,
+                    org_id=current_user.org_id,
+                    session_id=session.id,
+                    run=assistant_run,
+                    answer_parts=answer_parts,
+                    citations=citations,
+                    blocks=blocks,
+                    current_user=current_user,
+                    extra_metadata={"interrupted": True},
+                )
                 assistant_run.status = AssistantRunStatus.INTERRUPTED
                 assistant_run.error_message = "Assistant stream interrupted before completion"
                 db.commit()
                 finalized = True
                 return
-            answer = "".join(answer_parts)
-            if answer:
-                citations = _validate_and_store_assistant_citations(
-                    db,
-                    org_id=current_user.org_id,
-                    assistant_run_id=assistant_run.id,
-                    current_user=current_user,
-                    raw_citations=citations,
-                )
-                assistant_message = AssistantMessage(
-                    org_id=current_user.org_id,
-                    session_id=session.id,
-                    role="assistant",
-                    content=answer,
-                    citations=citations,
-                    metadata_json={
-                        "assistant_run_id": assistant_run.id,
-                        "blocks": blocks,
-                    },
-                    created_by_user_id=current_user.id,
-                    updated_by_user_id=current_user.id,
-                )
-                db.add(assistant_message)
-                db.flush()
-                assistant_run.assistant_message_id = assistant_message.id
-                for call in db.scalars(
-                    select(AssistantToolCall).where(
-                        AssistantToolCall.org_id == current_user.org_id,
-                        AssistantToolCall.assistant_run_id == assistant_run.id,
-                        AssistantToolCall.message_id.is_(None),
-                    )
-                ):
-                    call.message_id = assistant_message.id
+            _persist_assistant_answer(
+                db,
+                org_id=current_user.org_id,
+                session_id=session.id,
+                run=assistant_run,
+                answer_parts=answer_parts,
+                citations=citations,
+                blocks=blocks,
+                current_user=current_user,
+            )
             assistant_run.status = AssistantRunStatus.SUCCEEDED
             db.commit()
             finalized = True
@@ -383,6 +385,20 @@ async def stream_session(
                 {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
             )
         except Exception as exc:
+            try:
+                _persist_assistant_answer(
+                    db,
+                    org_id=current_user.org_id,
+                    session_id=session.id,
+                    run=assistant_run,
+                    answer_parts=answer_parts,
+                    citations=citations,
+                    blocks=blocks,
+                    current_user=current_user,
+                    extra_metadata={"interrupted": True},
+                )
+            except Exception:
+                db.rollback()
             assistant_run.status = AssistantRunStatus.FAILED
             assistant_run.error_message = str(exc)
             db.commit()
@@ -444,49 +460,56 @@ async def resume_run(
                     client_disconnected = True
                     break
             if client_disconnected:
+                _persist_assistant_answer(
+                    db,
+                    org_id=current_user.org_id,
+                    session_id=run.session_id,
+                    run=run,
+                    answer_parts=answer_parts,
+                    citations=citations,
+                    blocks=blocks,
+                    current_user=current_user,
+                    extra_metadata={"resumed": True, "interrupted": True},
+                )
                 run.status = AssistantRunStatus.INTERRUPTED
                 run.error_message = "Assistant stream interrupted before completion"
                 db.commit()
                 finalized = True
                 return
-            answer = "".join(answer_parts)
-            if answer:
-                citations = _validate_and_store_assistant_citations(
-                    db,
-                    org_id=current_user.org_id,
-                    assistant_run_id=run.id,
-                    current_user=current_user,
-                    raw_citations=citations,
-                )
-                assistant_message = AssistantMessage(
-                    org_id=current_user.org_id,
-                    session_id=run.session_id,
-                    role="assistant",
-                    content=answer,
-                    citations=citations,
-                    metadata_json={
-                        "assistant_run_id": run.id,
-                        "resumed": True,
-                        "blocks": blocks,
-                    },
-                    created_by_user_id=current_user.id,
-                    updated_by_user_id=current_user.id,
-                )
-                db.add(assistant_message)
-                db.flush()
-                run.assistant_message_id = assistant_message.id
-                for call in db.scalars(
-                    select(AssistantToolCall).where(
-                        AssistantToolCall.org_id == current_user.org_id,
-                        AssistantToolCall.assistant_run_id == run.id,
-                        AssistantToolCall.message_id.is_(None),
-                    )
-                ):
-                    call.message_id = assistant_message.id
-                db.commit()
+            _persist_assistant_answer(
+                db,
+                org_id=current_user.org_id,
+                session_id=run.session_id,
+                run=run,
+                answer_parts=answer_parts,
+                citations=citations,
+                blocks=blocks,
+                current_user=current_user,
+                extra_metadata={"resumed": True},
+            )
+            # Was previously never set on the success path (only the
+            # message/tool-call linking was committed), leaving a resumed run
+            # stuck at whatever status it had before resuming (typically
+            # WAITING_CONFIRMATION) forever.
+            run.status = AssistantRunStatus.SUCCEEDED
+            db.commit()
             finalized = True
             yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
         except Exception as exc:
+            try:
+                _persist_assistant_answer(
+                    db,
+                    org_id=current_user.org_id,
+                    session_id=run.session_id,
+                    run=run,
+                    answer_parts=answer_parts,
+                    citations=citations,
+                    blocks=blocks,
+                    current_user=current_user,
+                    extra_metadata={"resumed": True, "interrupted": True},
+                )
+            except Exception:
+                db.rollback()
             run.status = AssistantRunStatus.FAILED
             run.error_message = str(exc)
             db.commit()
@@ -757,6 +780,66 @@ def _validate_and_store_assistant_citations(
             }
         )
     return enriched
+
+
+def _persist_assistant_answer(
+    db: Session,
+    *,
+    org_id: str,
+    session_id: str,
+    run: AssistantRun,
+    answer_parts: list[str],
+    citations: list[dict],
+    blocks: list[dict],
+    current_user,
+    extra_metadata: dict | None = None,
+) -> None:
+    """Persist whatever answer text was generated as an AssistantMessage, linking
+    it to the run and any tool calls made during it.
+
+    Called on success AND on interruption/failure: a stream that gets cut off
+    after Claude already generated a real, useful partial answer must not throw
+    that content away — the previous behavior silently discarded answer_parts
+    whenever client_disconnected fired, leaving the user's question in history
+    with no reply and no way to tell whether the assistant had said anything at
+    all. Does not commit or touch run.status — callers set those to reflect
+    why persistence happened (success vs. interrupted vs. failed).
+    """
+    answer = "".join(answer_parts)
+    if not answer:
+        return
+    citations = _validate_and_store_assistant_citations(
+        db,
+        org_id=org_id,
+        assistant_run_id=run.id,
+        current_user=current_user,
+        raw_citations=citations,
+    )
+    assistant_message = AssistantMessage(
+        org_id=org_id,
+        session_id=session_id,
+        role="assistant",
+        content=answer,
+        citations=citations,
+        metadata_json={
+            "assistant_run_id": run.id,
+            "blocks": blocks,
+            **(extra_metadata or {}),
+        },
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(assistant_message)
+    db.flush()
+    run.assistant_message_id = assistant_message.id
+    for call in db.scalars(
+        select(AssistantToolCall).where(
+            AssistantToolCall.org_id == org_id,
+            AssistantToolCall.assistant_run_id == run.id,
+            AssistantToolCall.message_id.is_(None),
+        )
+    ):
+        call.message_id = assistant_message.id
 
 
 def _accumulate_block(blocks: list[dict], event: dict) -> None:

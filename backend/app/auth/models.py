@@ -71,7 +71,7 @@ class User(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Timestamp
 
 class RefreshToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
     user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
-    token_hash = Column(String(255), nullable=False)
+    token_hash = Column(String(255), nullable=False, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -102,7 +102,7 @@ class PasswordResetToken(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin
 class ApiKey(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
     name = Column(String(255), nullable=False)
-    key_hash = Column(String(255), nullable=False)
+    key_hash = Column(String(255), nullable=False, index=True)
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
@@ -114,17 +114,6 @@ class UserInvitation(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin,
     expires_at = Column(DateTime(timezone=True), nullable=False)
     accepted_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-
-
-class OrgJoinRequest(TableNameMixin, IdMixin, TimestampMixin, Base):
-    org_id = Column(String(36), ForeignKey("organization.id"), index=True, nullable=True)
-    email = Column(String(320), index=True, nullable=False)
-    full_name = Column(String(255), nullable=False)
-    requested_domain = Column(String(255), index=True, nullable=True)
-    message = Column(Text, nullable=True)
-    status = Column(String(40), index=True, nullable=False, default="pending")
-    decided_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    decision_reason = Column(Text, nullable=True)
 
 
 class UserApprovalDecision(

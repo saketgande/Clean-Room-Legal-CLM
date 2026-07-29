@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db, require_permission
+from app.core.deps import get_db, require_permission
 from app.flows import service
 from app.flows.builtin import seed_builtin_flows
 from app.flows.models import Flow, FlowRun
+from app.contracts.service import get_contract_for_user
 from app.intake.models import IntakeRequest
 
 router = APIRouter(prefix="/flows", tags=["flows"])
@@ -40,7 +41,12 @@ def _get_flow(db: Session, org_id: str, flow_id: str) -> Flow:
 
 
 def _get_run(db: Session, org_id: str, run_id: str) -> FlowRun:
-    r = db.get(FlowRun, run_id)
+    # Lock the run row FOR UPDATE (M3): the frontend pump and a manual
+    # refresh/complete-step can fire near-simultaneously; without this both read
+    # the same current_index and execute the step twice (e.g. two contracts
+    # drafted). The second caller blocks until the first commits, then sees the
+    # advanced state. Only the mutating routes (complete-step, refresh) use this.
+    r = db.get(FlowRun, run_id, with_for_update=True)
     if r is None or r.org_id != org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow run not found")
     return r
@@ -97,6 +103,17 @@ async def start(payload: StartPayload, db: Session = Depends(get_db),
 def run_for_request(request_id: str, db: Session = Depends(get_db),
                     current_user=Depends(require_permission("intake:read"))):
     run = service.get_run_for_request(db, request_id=request_id, org_id=current_user.org_id)
+    return service.serialize_run(db, run) if run else None
+
+
+@router.get("/runs/by-contract/{contract_id}")
+def run_for_contract(contract_id: str, db: Session = Depends(get_db),
+                     current_user=Depends(require_permission("contract:read"))):
+    # Row-level access gate (M1): ethical walls + MAC clearance, parity with every
+    # other contract-derived read — the capability + org scope alone let a walled/
+    # under-cleared user read a matter's governance run. Raises 404 if barred.
+    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    run = service.get_run_for_contract(db, contract_id=contract_id, org_id=current_user.org_id)
     return service.serialize_run(db, run) if run else None
 
 

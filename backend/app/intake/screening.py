@@ -14,7 +14,7 @@ import re
 from datetime import timedelta
 
 import httpx
-from sqlalchemy import Text, cast, func, or_
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.contracts.models import Contract, ContractParty

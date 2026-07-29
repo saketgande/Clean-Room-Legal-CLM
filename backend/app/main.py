@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
@@ -73,6 +74,17 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     configure_logging()
     validate_runtime_settings(settings)
+
+    # Optional retrieval-quality features are silent when off — no error, no
+    # UI indicator, nothing short of reading the source told an operator
+    # whether they were active. One line at boot closes that gap.
+    from app.contract_brain.rerank import rerank_enabled
+
+    logging.getLogger(__name__).info(
+        "AI retrieval quality: embedding_provider=%s reranker=%s",
+        settings.embedding_provider,
+        f"{settings.rerank_provider} (active)" if rerank_enabled() else f"{settings.rerank_provider} (inactive — no API key configured)",
+    )
 
     # Error reporting. Initialised before anything else so startup failures are
     # captured. No-op when the DSN is unset or sentry-sdk isn't installed.

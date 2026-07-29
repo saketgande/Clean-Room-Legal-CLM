@@ -9,7 +9,6 @@ from app.assistant.models import (
 )
 from app.auth.models import (
     ApiKey,
-    OrgJoinRequest,
     PasswordResetToken,
     Permission,
     RefreshToken,
@@ -29,7 +28,6 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
-from app.contracts.comments_models import ContractComment
 from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
 from app.jobs.models import JobRun
 from app.notifications.models import Notification
@@ -125,7 +123,6 @@ __all__ = [
     "Obligation",
     "ObligationReminder",
     "Organization",
-    "OrgJoinRequest",
     "PasswordResetToken",
     "Permission",
     "Playbook",

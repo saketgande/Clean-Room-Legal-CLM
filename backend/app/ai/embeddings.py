@@ -90,6 +90,15 @@ def _embed_local(texts: list[str]) -> list[list[float]]:
         model = TextEmbedding(model_name=EMBEDDING_MODEL)
         return [list(vector) for vector in model.embed(texts)]
     except Exception:
+        # M9: this fallback returns random (seeded) vectors with no semantic
+        # meaning — every retrieval/RAG result becomes noise. It was silent;
+        # log loudly so an operator can see semantic search is degraded.
+        logger.warning(
+            "local embeddings (fastembed) unavailable — falling back to "
+            "DETERMINISTIC MOCK vectors; semantic search / RAG results will be "
+            "meaningless until this is fixed",
+            exc_info=True,
+        )
         return [_deterministic_mock_vector(text) for text in texts]
 
 

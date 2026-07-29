@@ -65,6 +65,18 @@ def build_contract_context(
             "text_snapshot_id": snapshot.id if snapshot else None,
             "text_length": len(text),
             "text_was_truncated": len(text) > len(truncated_text),
+            # Real deal facts already computed elsewhere in the app (metadata
+            # extraction, risk assessment) — without these, a skill has nothing
+            # to reason from but the raw clause text, so it defaults to generic
+            # textbook explanations instead of judgment grounded in this deal.
+            "title": contract.title,
+            "contract_type": contract.contract_type,
+            "counterparty_name": contract.counterparty_name,
+            "jurisdiction": contract.jurisdiction,
+            "value_amount": contract.value_amount,
+            "currency": contract.currency,
+            "risk_band": contract.risk_band,
+            "risk_summary": (contract.risk_summary or {}).get("summary"),
         },
     )
 

@@ -129,10 +129,15 @@ async def _maybe_auto_review(db, *, job) -> None:
 async def _run_ai_job(job_id: str) -> dict:
     db = SessionLocal()
     try:
-        job = db.get(JobRun, job_id)
+        # Locked read + immediate status flip to RUNNING (committed below) is the
+        # guard: a redelivered/duplicate task (worker died mid-job, broker
+        # requeued) blocks on the lock, then sees RUNNING/SUCCEEDED/CANCELLED and
+        # short-circuits instead of re-running the skill and double-spending AI
+        # calls / duplicating writes.
+        job = db.scalar(select(JobRun).where(JobRun.id == job_id).with_for_update())
         if job is None:
             raise RuntimeError(f"Job not found: {job_id}")
-        if job.status == JobStatus.CANCELLED:
+        if job.status in (JobStatus.CANCELLED, JobStatus.RUNNING, JobStatus.SUCCEEDED):
             return {"job_id": job_id, "status": job.status}
         job.status = JobStatus.RUNNING
         job.started_at = utcnow()
@@ -914,6 +919,29 @@ def _prune_older_than(model, *, days: int) -> int:
         result = db.execute(delete(model).where(model.created_at < cutoff))
         db.commit()
         return result.rowcount or 0
+    finally:
+        db.close()
+
+
+@celery_app.task
+def verify_audit_integrity() -> dict:
+    """Daily: verify the audit_log hash chain hasn't been tampered with.
+
+    verify_audit_hash_chain() is a real, working tamper-evidence check, but
+    nothing called it — it was protecting nothing. A broken chain means a row
+    was altered or deleted outside the ORM (the immutability trigger only
+    blocks UPDATE/DELETE through normal app code paths), so this is logged at
+    CRITICAL rather than merely returned, since Sentry's default logging
+    integration escalates ERROR+ log records into alerts.
+    """
+    from app.core.audit import verify_audit_hash_chain
+
+    db = SessionLocal()
+    try:
+        intact = verify_audit_hash_chain(db)
+        if not intact:
+            logger.critical("audit_log hash chain verification FAILED — possible tampering")
+        return {"intact": intact}
     finally:
         db.close()
 

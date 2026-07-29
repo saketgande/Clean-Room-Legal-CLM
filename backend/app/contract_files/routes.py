@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re as _re
 import secrets
 
 from fastapi import (
@@ -15,6 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
 from sqlalchemy import select
@@ -197,7 +199,9 @@ async def log_counterparty_revision(
                 request_id=req_id,
             )
         except Exception:  # noqa: BLE001 - re-open is best-effort
-            pass
+            logger.warning(
+                "auto re-open to REVIEW failed for contract %s", contract.id, exc_info=True
+            )
     meta = dict(contract.metadata_json or {})
     meta["auto_review_pending"] = True
     contract.metadata_json = meta
@@ -253,7 +257,7 @@ def download_contract_version(
     try:
         path = storage_service.path_for_read(storage_object.storage_key)
     except (FileNotFoundError, ValueError):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found") from None
     # Force a download rather than letting the browser render the bytes inline:
     # an inline HTML/SVG masquerading as an allowed type would otherwise execute
     # in our origin (stored-XSS / phishing surface).
@@ -262,6 +266,7 @@ def download_contract_version(
         media_type=storage_object.mime_type,
         filename=storage_object.filename,
         content_disposition_type="attachment",
+        background=BackgroundTask(storage_service.cleanup_read_path, path),
     )
 
 
@@ -693,7 +698,11 @@ def export_contract_docx(
         subtitle=f"Current text · V{version.version_number}",
         text=snapshot.text,
     )
-    filename = f"{contract.title[:60]}-v{version.version_number}.docx"
+    # Sanitize the user-controlled title before putting it in the
+    # Content-Disposition header — a raw double-quote or control char would
+    # corrupt the header/filename for the client.
+    safe_stem = _re.sub(r"[^A-Za-z0-9._ -]+", "_", (contract.title or ""))[:60].strip() or "contract"
+    filename = f"{safe_stem}-v{version.version_number}.docx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1149,7 +1158,7 @@ def download_external_share(
     try:
         path = storage_service.path_for_read(storage_object.storage_key)
     except (FileNotFoundError, ValueError):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found") from None
     write_audit_log(
         db,
         action="contract.external_share_downloaded",
@@ -1166,6 +1175,7 @@ def download_external_share(
         media_type=storage_object.mime_type,
         filename=storage_object.filename,
         content_disposition_type="attachment",
+        background=BackgroundTask(storage_service.cleanup_read_path, path),
     )
 
 
@@ -1254,7 +1264,7 @@ def _clear_share_passcode_failures(token: str, ip: str) -> None:
     try:
         client.delete(fail_key, lock_key)
     except Exception:  # pragma: no cover - non-critical cleanup
-        pass
+        logger.debug("share passcode lockout cleanup failed", exc_info=True)
 
 
 def _get_active_share(
@@ -1309,7 +1319,15 @@ def _share_version(db: Session, *, share: ContractShare, contract: Contract) -> 
 
 
 def _get_contract_edit(db: Session, *, contract_id: str, edit_id: str, org_id: str) -> ContractEdit:
-    edit = db.get(ContractEdit, edit_id)
+    # Locked read: both callers (accept, reject) check edit.status == "proposed"
+    # then mutate it. Without the lock, two concurrent decisions on the same
+    # edit (or a concurrent accept + reject) can both pass that check before
+    # either commits, silently overwriting one decision with the other.
+    edit = db.scalar(
+        select(ContractEdit)
+        .where(ContractEdit.id == edit_id)
+        .with_for_update()
+    )
     if edit is None or edit.org_id != org_id or edit.contract_id != contract_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract edit not found")
     return edit

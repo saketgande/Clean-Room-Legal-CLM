@@ -21,12 +21,13 @@ def test_contract_update_accepts_metadata_fields_used_by_ai_extraction():
 
 
 def test_lifecycle_state_machine_exposes_allowed_transitions():
+    # Lean 7-stage flow: INTAKE fans out to DRAFTING or REVIEW (sorted by value).
     assert allowed_transitions_for(ContractLifecycleStage.INTAKE) == [
-        ContractLifecycleStage.ACTIVE,
-        ContractLifecycleStage.AI_REVIEW,
         ContractLifecycleStage.DRAFTING,
+        ContractLifecycleStage.REVIEW,
     ]
-    assert ContractLifecycleStage.ARCHIVED not in allowed_transitions_for(
+    # DRAFTING only advances to REVIEW — the terminal stage is not reachable.
+    assert ContractLifecycleStage.CLOSED not in allowed_transitions_for(
         ContractLifecycleStage.DRAFTING
     )
 

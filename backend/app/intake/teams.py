@@ -100,7 +100,9 @@ def pick_from_pool(db: Session, *, team_id: str) -> PoolPick | None:
         if not elig:
             continue
         # Deterministic tie-breaks. last_assigned_at NULLS FIRST → never-picked wins.
-        def key(m: IntakeTeamMember):
+        # Bind loop vars (t, counts) as defaults so the closure can't drift if this
+        # is ever refactored to defer evaluation past the current iteration.
+        def key(m: IntakeTeamMember, t=t, counts=counts):
             never = m.last_assigned_at is None
             la = m.last_assigned_at or utcnow()
             if t.strategy == "round_robin":

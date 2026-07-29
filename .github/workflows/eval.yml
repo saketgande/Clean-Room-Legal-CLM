@@ -1,0 +1,99 @@
+name: AI Quality Eval
+
+# Manual only — this hits the real Claude API (real cost, ~10 calls per run:
+# 2 to seed the golden fixture + 8 for --faithfulness) and seeds a real
+# contract to score against. Unlike ci.yml, it is NOT wired to push/pull_request
+# so it never runs, or costs anything, without someone explicitly asking for a
+# scorecard. Add a `schedule:` trigger here if you want it to run automatically
+# (e.g. weekly) — deliberately left out until that's an explicit choice.
+on:
+  workflow_dispatch:
+
+jobs:
+  eval:
+    name: seed golden fixture + run quality scorecard
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: legal_clm
+          POSTGRES_USER: legal_clm
+          POSTGRES_PASSWORD: legal_clm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U legal_clm -d legal_clm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      ENVIRONMENT: test
+      DEBUG: "true"
+      DATABASE_URL: postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm
+      REDIS_URL: redis://localhost:6379/0
+      STORAGE_ROOT: /tmp/contracts
+      SETUP_TOKEN: eval-setup-token
+      # The one thing that's the opposite of ci.yml: this job's entire point is
+      # exercising the REAL model.
+      MOCK_CLAUDE: "false"
+      CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
+      # Unrelated integrations stay mocked — this job is scoped to AI quality.
+      MOCK_REDUCTO: "true"
+      MOCK_RESEND: "true"
+      MOCK_DOCUSIGN: "true"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require CLAUDE_API_KEY
+        run: |
+          if [ -z "$CLAUDE_API_KEY" ]; then
+            echo "::error::CLAUDE_API_KEY secret is not set. Add a real Anthropic API key as a repo secret (Settings > Secrets and variables > Actions) to run this workflow."
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install system libs (libmagic for python-magic)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[dev]"
+
+      - name: Apply migrations
+        run: alembic upgrade head
+
+      - name: Bootstrap admin org/user
+        run: python -m app.devtools seed
+
+      - name: Seed golden fixture contract (real Claude calls)
+        run: python eval/seed_golden_fixtures.py
+
+      - name: Run AI quality scorecard
+        run: |
+          {
+            echo '### AI Quality Scorecard'
+            echo '```'
+            python eval/run_eval.py --faithfulness
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"

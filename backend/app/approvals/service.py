@@ -19,6 +19,7 @@ from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
+from app.core.database import new_uuid
 from app.core.enums import ApprovalStatus, ContractLifecycleStage
 from app.core.security import create_token_secret, hash_token
 from app.integrations.resend import resend_client
@@ -579,6 +580,11 @@ async def submit_subject_for_approval(
 
     due_at = datetime.now(UTC) + timedelta(days=max(1, settings.approval_default_due_days))
     is_contract = subject.kind == "contract"
+    # Stable identifier shared by every step this submission creates, so the
+    # chain-progress view (approval_chain in routes.py) can group by an exact
+    # ID instead of a "created within 10 seconds" heuristic that can conflate
+    # two chains submitted close together.
+    submission_batch_id = new_uuid()
     requests: list[ApprovalRequest] = []
     for target in chain:
         # Validate referenced approver/group belong to this org.
@@ -612,6 +618,7 @@ async def submit_subject_for_approval(
             mode=target.get("mode", "any"),
             status=ApprovalStatus.PENDING if is_first else ApprovalStatus.WAITING,
             due_at=due_at,
+            metadata_json={"submission_batch_id": submission_batch_id},
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -953,6 +960,26 @@ async def redeem_token_decision(
     )
     if approver is not None and approver.id == approval.requested_by_user_id:
         raise _reject("requester_cannot_approve_own_request")
+    # Phase 4 ABAC gate — parity with the in-app decide route: approving via the
+    # emailed token must still respect the approver's delegated authority
+    # (value/type/jurisdiction/risk ceilings). Without this an approver over their
+    # cap could bypass it by clicking the email link. Rejections are never gated.
+    if decision == "approve" and approver is not None:
+        from app.authority.service import enforce_authority
+        from app.contracts.models import Contract
+
+        gate_subject = None
+        if approval.contract_id:
+            gate_subject = db.get(Contract, approval.contract_id)
+        elif approval.intake_request_id:
+            from app.intake.approval_bridge import build_intake_subject
+
+            gate_subject = build_intake_subject(db, approval.intake_request_id, org_id=approval.org_id)
+        if gate_subject is not None:
+            enforce_authority(
+                db, user=approver, action="contract:approve", contract=gate_subject,
+                resource_type="approval_request", resource_id=approval.id, request_id=request_id,
+            )
     subject = _subject_for(db, approval)
     return await _apply_decision(
         db,

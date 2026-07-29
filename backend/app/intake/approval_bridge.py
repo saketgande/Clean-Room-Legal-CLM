@@ -131,11 +131,14 @@ class IntakeApprovalSubject:
         _transition(db, request=self.request, actor=actor, request_id=request_id, **kwargs)
 
     def on_submit(self, db: Session, *, actor_user_id: str | None, request_id: str | None) -> None:
+        # M6: no to_stage. "approval" is not a stage on the intake spine
+        # (new → assigned → review → complete); writing it reset the governance
+        # tracker to step 0. Submitting for approval keeps the current stage and
+        # records the transition in the audit + timeline only.
         self._transition(
             db,
             actor_user_id=actor_user_id,
             request_id=request_id,
-            to_stage="approval",
             audit_action="intake.submitted_for_approval",
             timeline_title="Submitted for approval",
         )
@@ -143,12 +146,14 @@ class IntakeApprovalSubject:
     def on_reject(
         self, db: Session, *, actor_user_id: str | None, comment: str | None, request_id: str | None
     ) -> None:
+        # M6: to_status only, no to_stage. "triage" is not a stage on the intake
+        # spine — resetting the stage on reject bounced the governance tracker to
+        # step 0. Reopen the request (status) and keep it on its current stage.
         self._transition(
             db,
             actor_user_id=actor_user_id,
             request_id=request_id,
             to_status="open",
-            to_stage="triage",
             audit_action="intake.approval_rejected",
             after={"comment": comment},
             timeline_title="Approval rejected — back to queue",

@@ -19,7 +19,6 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     full_name: str = Field(min_length=2, max_length=255)
     password: str = Field(min_length=10)
-    message: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -104,25 +103,6 @@ class AcceptInvitationRequest(BaseModel):
     token: str
     full_name: str = Field(min_length=2, max_length=255)
     password: str = Field(min_length=10)
-
-
-class JoinRequestDecision(BaseModel):
-    decision: str = Field(pattern="^(approve|reject)$")
-    role_name: str = "member"
-    reason: str | None = None
-    invitation_expires_in_days: int = Field(default=7, ge=1, le=30)
-
-
-class OrgJoinRequestResponse(BaseModel):
-    id: str
-    org_id: str | None
-    email: EmailStr
-    full_name: str
-    requested_domain: str | None
-    message: str | None
-    status: str
-    decision_reason: str | None = None
-    invitation_token: str | None = None
 
 
 class PasswordResetRequest(BaseModel):

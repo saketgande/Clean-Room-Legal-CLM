@@ -1,13 +1,11 @@
 import asyncio
 import inspect
-from io import BytesIO
-from zipfile import ZipFile
 
 from app.ai import confirmations
 from app.ai.controller import INTERNAL_RESULT_KEYS, _clamp_max_tokens, ai_controller
 from app.ai.redaction import redact_ai_payload
 from app.ai.tool_registry import ExternalShareInput, tool_registry
-from app.ai.tool_runtime import _build_edit_docx, tool_runtime
+from app.ai.tool_runtime import tool_runtime
 from app.assistant.routes import (
     _citations_from_tool_result,
     _events_from_tool_result,
@@ -143,26 +141,6 @@ def test_assistant_generated_contract_flushes_jobs_before_dispatch_ids():
     assert source.index("db.flush()", source.index("queued_jobs = _queue_initial_contract_jobs")) < source.index(
         "queued_job_ids = [job.id for job in queued_jobs]"
     )
-
-
-def test_assistant_edit_docx_contains_native_word_revision_markup():
-    content = _build_edit_docx(
-        contract_title="Vendor Agreement",
-        base_version_number=1,
-        instructions="Add a 30-day termination notice requirement.",
-        source_text="Either party may terminate this agreement immediately.",
-    )
-
-    with ZipFile(BytesIO(content)) as archive:
-        document_xml = archive.read("word/document.xml").decode("utf-8")
-        settings_xml = archive.read("word/settings.xml").decode("utf-8")
-
-    assert "<w:trackRevisions" in settings_xml
-    assert "<w:del " in document_xml
-    assert "<w:delText" in document_xml
-    assert "<w:ins " in document_xml
-    assert "Either party may terminate this agreement immediately." in document_xml
-    assert "Add a 30-day termination notice requirement." in document_xml
 
 
 def test_confirmation_reject_and_expiry_paths_are_explicit():

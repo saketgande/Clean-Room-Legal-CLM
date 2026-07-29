@@ -1,3 +1,4 @@
+import logging
 from io import BytesIO
 
 from sqlalchemy import select
@@ -12,6 +13,8 @@ from app.tabular_review.models import (
     TabularReviewCell,
     TabularReviewColumn,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def dispatch_cells(
@@ -51,7 +54,7 @@ def dispatch_cells(
             try:
                 dispatch_job(db, job=job)
             except Exception:
-                pass
+                logger.warning("failed to dispatch job %s", job_id, exc_info=True)
     db.commit()
 
 

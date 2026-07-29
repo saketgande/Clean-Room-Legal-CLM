@@ -9,15 +9,19 @@ detecting the contract's stage change (`refresh_run`).
 
 from __future__ import annotations
 
+import logging
+import re
 import uuid
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.audit import write_timeline_event
-from app.core.database import Session
 from app.flows.models import STEP_TYPES, Flow, FlowRun, FlowStepRun
 from app.intake.models import IntakeRequest
+
+logger = logging.getLogger(__name__)
 
 # Contract lifecycle order — walk one edge at a time to respect the engine.
 _STAGE_ORDER = ["intake", "drafting", "review", "approval", "signature", "active", "closed"]
@@ -67,7 +71,11 @@ def _matches(criteria: dict | None, request: IntakeRequest) -> bool:
     mt = (c.get("match_type") or "").strip().lower()
     if mt:
         hay = " ".join([_type_token(request), (request.type_label or ""), (request.description or "")]).lower()
-        if mt not in hay:
+        # Word-boundary, not plain substring: "nda" as a bare `in` check also
+        # matches inside "ANDA" (Abbreviated New Drug Application), a real
+        # patent-litigation term — that misrouted genuine ANDA/Para IV matters
+        # into the NDA Fast-Track flow.
+        if not re.search(rf"\b{re.escape(mt)}\b", hay):
             return False
     mp = (c.get("match_priority") or "").strip().lower()
     if mp and (request.priority or "").lower() != mp:
@@ -76,7 +84,7 @@ def _matches(criteria: dict | None, request: IntakeRequest) -> bool:
     if md and (request.department or "").lower() != md:
         return False
     mk = (c.get("match_keyword") or "").strip().lower()
-    if mk and mk not in (request.description or "").lower():
+    if mk and not re.search(rf"\b{re.escape(mk)}\b", (request.description or "").lower()):
         return False
     # Field condition (used by step skip_when): {field, op, value} against the
     # request's structured answers. An absent field is treated as not-equal.
@@ -110,6 +118,16 @@ def select_flow(db: Session, *, request: IntakeRequest) -> Flow | None:
 def get_run_for_request(db: Session, *, request_id: str, org_id: str) -> FlowRun | None:
     return db.scalars(
         select(FlowRun).where(FlowRun.request_id == request_id, FlowRun.org_id == org_id)
+        .order_by(FlowRun.created_at.desc())
+    ).first()
+
+
+def get_run_for_contract(db: Session, *, contract_id: str, org_id: str) -> FlowRun | None:
+    """The governance ladder driving a drafted contract (a clm_draft step sets
+    run.contract_id). Lets the contract page surface the same workflow the ticket
+    shows, instead of only the contract's own lifecycle stage."""
+    return db.scalars(
+        select(FlowRun).where(FlowRun.contract_id == contract_id, FlowRun.org_id == org_id)
         .order_by(FlowRun.created_at.desc())
     ).first()
 
@@ -208,12 +226,40 @@ def _finalize_intake_if_approved(db: Session, *, run: FlowRun, actor) -> None:
     finalize through the contract lifecycle instead, so skip those. Idempotent."""
     if run.contract_id:
         return
-    if not any((s or {}).get("type") == "approval" for s in (run.steps or [])):
+    # M2: only finalize when an approval step actually RAN and cleared. Checking
+    # the flow *definition* for an approval step (the old behavior) let a
+    # `skip_when` rule that skips the approval step auto-approve the request — but
+    # a skipped step never created its Tier-0 gate rungs (litigation, sensitive-
+    # data, …), so that would approve with zero sign-off, bypassing a mandatory
+    # gate. Require a real, cleared (or no-rungs-needed) approval step-run.
+    approval_srs = [s for s in _step_runs(db, run) if s.step_type == "approval"]
+    if not approval_srs:
+        return
+    if not any(s.status in ("done", "complete") for s in approval_srs):
+        logger.warning(
+            "intake flow completed with its approval step skipped/unresolved — NOT "
+            "auto-approving (a skip_when rule likely bypassed a Tier-0 gate)",
+            extra={"flow_run_id": run.id, "request_id": run.request_id},
+        )
         return
     from app.intake.approval_bridge import build_intake_subject
 
     subject = build_intake_subject(db, run.request_id, org_id=run.org_id)
     subject.finalize_approved(db, actor_user_id=actor.id if actor else None)
+
+
+def _ai_agent_failed(sr: FlowStepRun | None, exc: Exception, label: str) -> str:
+    """The single place every ai_task branch's failure handling converges. A
+    genuine agent-call error must stop for a human, not disappear into a plain
+    'Done' — the step previously kept `conf = None` and fell through to
+    `return "advance"`, which `advance_run` then marks done since it "wasn't
+    already done/skipped." Escalating to waiting_human reuses the exact same
+    unblock path as a low-confidence escalation (complete_human_step doesn't
+    care which step type it's completing), so this needs no new UI."""
+    if sr:
+        sr.status = "waiting_human"
+        sr.note = f"{label} failed: {str(exc)[:180]} — needs manual review"
+    return "wait"
 
 
 async def _execute_step(db: Session, *, run: FlowRun, step: dict, sr: FlowStepRun | None, actor) -> str:
@@ -261,17 +307,153 @@ async def _execute_step(db: Session, *, run: FlowRun, step: dict, sr: FlowStepRu
         agent_val = (cfg.get("agent") or cfg.get("skill") or "").strip()
         mapped = _AGENT_KEY_MAP.get(agent_val.lower())
         conf = None
-        if mapped:
+        if mapped == "contract_review_agent" and run.contract_id:
+            # The weighted risk score (contracts/risk.py) is genuinely real — but
+            # it depends on clause extraction having already run, and both that
+            # and the risk assessment itself happen in a background job after
+            # drafting, so it isn't ready the instant this step starts. Keep
+            # yielding (bounded) rather than settle for a regex guess the moment
+            # we're asked; only fall back once the job clearly isn't landing in
+            # a reasonable time — that's still better than staying stuck forever.
+            from app.core.database import utcnow
+
+            try:
+                contract = _get_contract(db, run.contract_id)
+                if contract.risk_score is not None:
+                    band = contract.risk_band or "medium"
+                    # Confidence here means "safe to auto-advance without a human
+                    # pausing on this step" — inversely related to risk, not a
+                    # restatement of it.
+                    conf = {"low": 0.95, "medium": 0.65, "high": 0.3}.get(band, 0.5)
+                    if sr:
+                        sr.result = {
+                            "agent": mapped, "source": "ai", "confidence": conf,
+                            "risk_score": contract.risk_score, "risk_band": band,
+                            "summary": (contract.risk_summary or {}).get("summary"),
+                            "top_drivers": (contract.risk_summary or {}).get("drivers", [])[:3],
+                        }
+                elif sr and sr.updated_at and (utcnow() - sr.updated_at).total_seconds() < 60:
+                    return "yield"  # still waiting on the background clause/risk job
+                else:
+                    from app.intake import agents as intake_agents
+                    request = db.get(IntakeRequest, run.request_id)
+                    cls = intake_agents.classify(request.type_label or "", request.description or "")
+                    conf = cls.get("confidence")
+                    if sr:
+                        sr.result = {
+                            "agent": mapped, "category": cls.get("category"), "confidence": conf,
+                            "source": cls.get("source", "regex"),
+                            "note": "risk score not ready in time — used the fallback classifier",
+                        }
+            except Exception as exc:
+                return _ai_agent_failed(sr, exc, "Contract review agent")
+        elif mapped:
             try:
                 from app.intake import agents as intake_agents
                 request = db.get(IntakeRequest, run.request_id)
-                cls = intake_agents.classify(request.type_label or "", request.description or "")
-                conf = cls.get("confidence")
-                if sr:
-                    sr.result = {"agent": mapped, "category": cls.get("category"), "confidence": conf}
+                # (confidence, result) once a domain has a real, already-computed
+                # result to reuse — never re-derive a worse one from scratch.
+                real: tuple[float | None, dict] | None = None
+                if mapped == "litigation_agent":
+                    # A real Claude-backed litigation assessment (matter type,
+                    # statutory deadlines, hold/counsel signals) already ran at
+                    # intake time (intake/service.py:_compute_intake_analysis)
+                    # and is sitting on the request — use it instead of paying
+                    # for (and settling for) another regex pass here.
+                    assessment = (request.ai_triage or {}).get("litigation_assessment")
+                    if assessment:
+                        fs = (request.ai_triage or {}).get("flow_suggestion") or {}
+                        # assessment_confidence measures trust in the extracted FACTS
+                        # (matter type, deadlines, hold/counsel calls) given how much
+                        # detail the request actually provided — a distinct judgment
+                        # from flow_suggestion.confidence, which only measures "which
+                        # workflow bucket fits." A live scorecard proved these can
+                        # diverge: a genuine model call was fully confident about the
+                        # bucket on a deliberately vague ticket while the facts behind
+                        # it were thin — only fact confidence tells us whether a human
+                        # needs to double-check this specific assessment. Still only
+                        # trust the raw number when a real model call produced it;
+                        # the heuristic fallback (source != "llm") gets capped low
+                        # regardless, since litigation_agent._heuristic's facts are
+                        # keyword-guessed and defaulted, not genuine extraction.
+                        ac = assessment.get("assessment_confidence")
+                        conf = ac if (isinstance(ac, (int, float)) and fs.get("source") == "llm") else min(ac or 0.0, 0.3)
+                        real = (conf, {
+                            "agent": mapped, "source": fs.get("source", "unknown"),
+                            "confidence": conf,
+                            "matter_type": assessment.get("matter_type"),
+                            "statutory_deadlines": assessment.get("statutory_deadlines"),
+                            "legal_hold_required": assessment.get("legal_hold_required"),
+                            "outside_counsel_likely": assessment.get("outside_counsel_likely"),
+                            "summary": assessment.get("summary"),
+                        })
+                elif mapped == "vendor_agent":
+                    # Sanctions/conflict screening (intake/screening.py) is a real
+                    # watchlist + relationship check, not an LLM judgment call — an
+                    # LLM guessing at sanctions hits would be the wrong tool here.
+                    # It already ran synchronously at intake time and is sitting on
+                    # the request; reuse it rather than replace it with a regex
+                    # category guess that never looked at any of this.
+                    screening = request.screening if isinstance(request.screening, dict) else None
+                    if screening and screening.get("status") == "done":
+                        sanctions = screening.get("sanctions") or {}
+                        conflicts = screening.get("conflicts") or []
+                        s_status = sanctions.get("status")
+                        high_conflict = any(c.get("severity") == "high" for c in conflicts)
+                        if s_status == "hit" or high_conflict:
+                            vconf = 0.1  # a real hit or high-severity conflict always escalates
+                        elif s_status == "unavailable":
+                            vconf = 0.2  # unscreened is never "clear" — escalate, don't guess
+                        else:
+                            vconf = 0.95
+                        real = (vconf, {
+                            "agent": mapped, "source": "screening", "confidence": vconf,
+                            "counterparty": screening.get("counterparty"),
+                            "sanctions_status": s_status,
+                            "sanctions_matches": sanctions.get("matches"),
+                            "conflicts": conflicts[:5],
+                        })
+                elif mapped == "privacy_agent":
+                    # Unlike litigation/vendor, there's no pre-computed signal to
+                    # reuse here — this domain gets a genuine, purpose-built skill
+                    # call. No inner try/except: a failure must propagate to the
+                    # shared except below and escalate to a human, not quietly
+                    # degrade to a regex category guess with no privacy judgment
+                    # behind it at all.
+                    from app.ai.controller import ai_controller
+                    out = await ai_controller.run_structured_skill(
+                        db, skill_name="privacy_incident_assessment", org_id=run.org_id,
+                        created_by_user_id=actor.id,
+                        input_payload={
+                            "type_label": request.type_label, "priority": request.priority,
+                            "description": request.description, "field_values": request.field_values,
+                        },
+                        resource_type="intake_request", resource_id=request.id,
+                    )
+                    real = (out.confidence, {
+                        "agent": mapped, "source": "ai", "confidence": out.confidence,
+                        "severity": out.severity, "notification_required": out.notification_required,
+                        "notification_deadline_hours": out.notification_deadline_hours,
+                        "affected_data_categories": out.affected_data_categories,
+                        "estimated_affected_count": out.estimated_affected_count,
+                        "recommended_immediate_actions": out.recommended_immediate_actions,
+                        "rationale": out.rationale,
+                    })
+                if real:
+                    conf, result = real
+                    if sr:
+                        sr.result = result
+                else:
+                    # No real data on this request (e.g. it reached this flow
+                    # without the matching intake-time enrichment ever running) —
+                    # fall back to the regex classifier rather than stall.
+                    cls = intake_agents.classify(request.type_label or "", request.description or "")
+                    conf = cls.get("confidence")
+                    if sr:
+                        sr.result = {"agent": mapped, "category": cls.get("category"),
+                                     "confidence": conf, "source": cls.get("source", "regex")}
             except Exception as exc:
-                if sr:
-                    sr.note = f"agent skipped: {str(exc)[:180]}"
+                return _ai_agent_failed(sr, exc, "Agent")
         elif agent_val:
             try:
                 from app.ai.controller import ai_controller
@@ -284,13 +466,17 @@ async def _execute_step(db: Session, *, run: FlowRun, step: dict, sr: FlowStepRu
                 if sr:
                     sr.result = data or {"ran": True}
             except Exception as exc:
-                if sr:
-                    sr.note = f"AI step skipped: {str(exc)[:200]}"
+                return _ai_agent_failed(sr, exc, "AI skill")
         thr = cfg.get("escalate_below_confidence")
         if thr is not None and conf is not None and conf < thr:
             if sr:
                 sr.status = "waiting_human"
-                sr.note = f"AI confidence {conf} < {thr} — escalated to {cfg.get('escalate_role') or 'a human'}"
+                base = f"AI confidence {conf} < {thr} — escalated to {cfg.get('escalate_role') or 'a human'}"
+                # A branch may have already left a more specific explanation in
+                # sr.result (e.g. "risk score not ready in time" for the contract
+                # review fallback) — surface it instead of only the generic number.
+                detail = (sr.result or {}).get("note") if isinstance(sr.result, dict) else None
+                sr.note = f"{base} ({detail})" if detail else base
             return "wait"
         return "advance"
 
@@ -442,6 +628,10 @@ async def refresh_run(db: Session, *, run: FlowRun, actor) -> FlowRun:
                         sr.note = "Approval rejected — returned to queue."
                     run.status = "failed"
                     run.error = "Approval rejected"
+                    # M4: persist the failed run. Every other branch commits via
+                    # advance_run; get_db never commits on success, so without this
+                    # the rejection rolls back and the run stays 'waiting' forever.
+                    db.commit()
         return run
 
     contract = _get_contract(db, run.contract_id)
@@ -491,7 +681,10 @@ def advance_flow_for_contract(db: Session, *, contract, actor_user_id: str | Non
     run.current_index += 1
     run.status = "running"
     _run_sync_steps(db, run=run, contract=contract, actor_user_id=actor_user_id)
-    db.commit()
+    # M11: no commit here. This runs inside a stage-entry trigger whose enclosing
+    # transaction is owned by the caller (transition_contract_stage) — the same
+    # commit that lands the queued AI jobs also lands these flow mutations. An
+    # internal commit here would break the transition's atomicity.
 
 
 def _run_sync_steps(db: Session, *, run: FlowRun, contract, actor_user_id: str | None) -> None:
@@ -530,7 +723,10 @@ def _run_sync_steps(db: Session, *, run: FlowRun, contract, actor_user_id: str |
                     transition_contract_stage(db, contract=contract, to_stage="signature",
                         actor_user_id=actor_user_id or run.created_by_user_id, reason=f"workflow: {run.flow_name}")
                 except Exception:
-                    pass
+                    logger.warning(
+                        "workflow %s: transition to signature failed for contract %s",
+                        run.flow_name, contract.id, exc_info=True,
+                    )
             if sr:
                 sr.status = "waiting_job"
             run.status = "waiting"; break
@@ -639,6 +835,7 @@ def serialize_run(db: Session, run: FlowRun) -> dict:
             {
                 "idx": s.idx, "type": s.step_type, "name": s.step_name, "status": s.status,
                 "assignee_user_id": s.assignee_user_id, "note": s.note, "result": s.result,
+                "updated_at": s.updated_at.isoformat() if s.updated_at else None,
             }
             for s in srs
         ],

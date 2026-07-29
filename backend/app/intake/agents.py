@@ -10,10 +10,38 @@ from __future__ import annotations
 
 import re
 
+# The fixed "extra" categories on the New Request form
+# (frontend/src/app/(app)/intake/page.tsx BUILTIN_EXTRAS) for request types
+# that don't map to a configured IntakeRequestType. Every request filed
+# anywhere — form, email, Teams, M365 — must carry a type_label that is
+# either a real, active IntakeRequestType.name for the org, or one of these
+# exact strings; never arbitrary free text (e.g. a raw email subject line).
+BUILTIN_EXTRA_TYPES = (
+    "IP Question",
+    "Vendor Due Diligence",
+    "Contract Question",
+    "Legal Question — General",
+    "Other",
+)
+DEFAULT_BUILTIN_EXTRA = "Other"
+
+# category (from classify() below) -> the closest BUILTIN_EXTRA_TYPES bucket,
+# used when no configured IntakeRequestType matches the category by name.
+CATEGORY_TO_BUILTIN_EXTRA = {
+    "NDA": "Contract Question",
+    "Litigation": "Legal Question — General",
+    "Privacy": "Legal Question — General",
+    "Trademark": "IP Question",
+    "Vendor": "Vendor Due Diligence",
+    "Contract Review": "Contract Question",
+    "Policy/FAQ": "Legal Question — General",
+    "General": DEFAULT_BUILTIN_EXTRA,
+}
+
 # (pattern, category, agent_id, base_confidence, complexity, risk)
 _RULES = [
     (r"\bnda\b|non-disclosure|mutual nda|confidential", "NDA", "nda_agent", 0.94, "simple", "low"),
-    (r"litig|dispute|lawsuit|claim|hold\b", "Litigation", "litigation_agent", 0.55, "complex", "high"),
+    (r"litig|dispute|lawsuit|claim|\blegal hold\b", "Litigation", "litigation_agent", 0.55, "complex", "high"),
     (r"privacy|dpa\b|dpia|gdpr|data process|personal data", "Privacy", "privacy_agent", 0.82, "standard", "medium"),
     (r"trademark|™|brand clearance|uspto", "Trademark", "trademark_agent", 0.80, "standard", "medium"),
     (r"vendor|supplier|due diligence|onboard", "Vendor", "vendor_agent", 0.79, "standard", "low"),
@@ -76,6 +104,29 @@ def is_agent_active(agent_id: str | None) -> bool:
 
 _PRIORITY_BY_RISK = {"high": "High", "medium": "Medium", "low": "Medium"}
 
+# category -> (agent_id, complexity, risk_flag), derived from _RULES so any
+# classifier that already knows the category (not just the regex below — e.g.
+# email_triage_agent's LLM classifier) can still build the standard ai_triage
+# shape via result_for_category() without re-deriving this mapping.
+_CATEGORY_METADATA = {cat: (agent, cx, risk) for _, cat, agent, _conf, cx, risk in _RULES}
+
+
+def result_for_category(category: str, confidence: float, *, source: str) -> dict:
+    """The standard ai_triage shape for an already-decided category — shared by
+    classify() (regex) and any other classifier that determines the category by
+    a different method, so gates/routing (which read agent_id/complexity/
+    risk_flag) behave identically regardless of how the category was picked."""
+    if category not in _CATEGORY_METADATA:
+        return {"category": "General", "agent_id": None, "confidence": confidence,
+                "complexity": "standard", "risk_flag": "low", "source": source}
+    agent, cx, risk = _CATEGORY_METADATA[category]
+    if not is_agent_active(agent):
+        # category still classifies; the non-ready agent stays silent
+        return {"category": category, "agent_id": None, "confidence": confidence,
+                "complexity": cx, "risk_flag": risk, "source": source, "agent_gated": agent}
+    return {"category": category, "agent_id": agent, "confidence": confidence,
+            "complexity": cx, "risk_flag": risk, "source": source}
+
 
 def classify(type_label: str, description: str) -> dict:
     text = f"{type_label} {description}".lower()
@@ -83,17 +134,8 @@ def classify(type_label: str, description: str) -> dict:
         if re.search(pat, text):
             # a longer, non-standard-looking description dents confidence a touch
             adj = conf - (0.07 if len(description) > 400 else 0.0)
-            if not is_agent_active(agent):
-                # category still classifies; the non-ready agent stays silent
-                return {"category": cat, "agent_id": None, "confidence": round(adj, 2),
-                        "complexity": cx, "risk_flag": risk, "source": "regex",
-                        "agent_gated": agent}
-            return {
-                "category": cat, "agent_id": agent, "confidence": round(adj, 2),
-                "complexity": cx, "risk_flag": risk, "source": "regex",
-            }
-    return {"category": "General", "agent_id": None, "confidence": 0.4,
-            "complexity": "standard", "risk_flag": "low", "source": "regex"}
+            return result_for_category(cat, round(adj, 2), source="regex")
+    return result_for_category("General", 0.4, source="regex")
 
 
 def priority_hint(risk: str) -> str:

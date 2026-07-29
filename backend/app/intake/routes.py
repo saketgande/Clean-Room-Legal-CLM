@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db, require_permission
+from app.core.deps import get_db, require_permission
 from app.intake import copilot as copilot_mod
 from app.intake import routing as routing_mod
 from app.intake import service
@@ -587,7 +587,7 @@ def upload_document(request_id: str, payload: dict = Body(...),
         content = _b64.b64decode(str(payload.get("content_b64") or ""), validate=True)
     except Exception:
         from fastapi import HTTPException
-        raise HTTPException(422, "content_b64 is not valid base64")
+        raise HTTPException(422, "content_b64 is not valid base64") from None
     return service.add_document(
         db, actor=current_user, request_id=request_id,
         filename=str(payload.get("filename") or "attachment"),

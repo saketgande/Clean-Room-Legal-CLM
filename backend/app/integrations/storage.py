@@ -68,6 +68,9 @@ class StorageService:
     def path_for_read(self, storage_key: str) -> Path:
         return self._resolve_storage_key(storage_key, must_exist=True)
 
+    def cleanup_read_path(self, path: Path) -> None:
+        """No-op: the local backend's path IS the permanent stored file."""
+
     def read_bytes(self, storage_key: str) -> bytes:
         return self.path_for_read(storage_key).read_bytes()
 
@@ -162,6 +165,15 @@ class S3Storage:
         finally:
             tmp.close()
         return Path(tmp.name)
+
+    def cleanup_read_path(self, path: Path) -> None:
+        """Unlink the NamedTemporaryFile created by path_for_read.
+
+        Every S3 download materializes bytes to disk with delete=False (so the
+        Path stays valid for FileResponse to stream); without this, each
+        download leaked one temp file forever. Callers should invoke this as a
+        FileResponse background task, once the response has been sent."""
+        path.unlink(missing_ok=True)
 
     def delete_bytes_permanently(self, storage_key: str) -> None:
         self._guard_key(storage_key)

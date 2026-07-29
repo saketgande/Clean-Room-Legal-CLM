@@ -269,6 +269,15 @@ export function ContractDocument({
     ? (redlineBase as ContractTextSnapshotResponse).text
     : resolved?.snap?.text;
 
+  // buildSegments re-scans the whole document against every edit's original
+  // text (findSpan) — memoized so it only re-runs when the text or edit set
+  // actually changes, not on every render of this component (e.g. typing in
+  // an unrelated comment box).
+  const redlineSegments = useMemo(
+    () => (redlineMode && docText && edits ? buildSegments(docText, edits) : null),
+    [redlineMode, docText, edits],
+  );
+
   const scrollRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!highlightQuote) return;
@@ -570,8 +579,8 @@ export function ContractDocument({
           </div>
         ) : (
           <article className="w-full whitespace-pre-wrap px-12 py-10 font-sans text-[15px] leading-7 text-slate-800">
-            {redlineMode && edits
-              ? buildSegments(docText, edits).map((seg, i) => {
+            {redlineSegments
+              ? redlineSegments.map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;
                   const e = seg.edit;
                   const active = activeEditId === e.id;

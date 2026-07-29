@@ -40,7 +40,6 @@ def _heuristic(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict
     from app.flows.service import select_flow
 
     desc = (request.description or "").lower()
-    hold = any(w in desc for w in ("hold", "preserve", "spoliation", "litigation hold"))
     matter = ("Legal notice / demand" if "notice" in desc or "demand" in desc
               else "Patent / ANDA (Para IV)" if "ande" in desc or "anda" in desc or "para iv" in desc or "patent" in desc
               else "Employment matter" if "employ" in desc or "posh" in desc
@@ -63,11 +62,18 @@ def _heuristic(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict
     return {
         "matter_type": matter,
         "statutory_deadlines": [],
-        "legal_hold_required": hold or True,   # litigation almost always needs a hold
+        # Conservative default while the real model is unavailable: a missed
+        # legal hold is a genuine spoliation/sanctions risk, an unneeded one is
+        # just a badge a lawyer dismisses — always flag it here rather than gate
+        # on a handful of keywords that could easily be absent from the text.
+        "legal_hold_required": True,
         "outside_counsel_likely": True,        # default to yes for a real dispute
         "settlement_posture": "none",
         "key_parties": parties,
         "summary": (request.description or "").split("\n")[0][:280],
+        # A keyword guess, never a real analysis — fixed, honest, low value
+        # regardless of how confident the flow pick above happens to be.
+        "assessment_confidence": 0.3,
         "flow_suggestion": fs,
     }
 
@@ -85,12 +91,19 @@ _SCHEMA = {
         "settlement_posture": {"type": "string", "enum": ["none", "proposed", "likely"]},
         "key_parties": {"type": "array", "items": {"type": "string"}},
         "summary": {"type": "string"},
+        "assessment_confidence": {
+            "type": "number",
+            "description": "0-1: confidence in the EXTRACTED FACTS above (matter type, deadlines, "
+                           "hold/counsel calls), by how much concrete detail the request gives — "
+                           "distinct from flow_confidence, which is only about the workflow pick.",
+        },
         "flow_id": {"type": ["string", "null"], "description": "best-fit flow id from the catalog"},
         "flow_confidence": {"type": "number"},
         "flow_reasoning": {"type": "string"},
     },
     "required": ["matter_type", "legal_hold_required", "outside_counsel_likely",
-                 "settlement_posture", "summary", "flow_id", "flow_confidence", "flow_reasoning"],
+                 "settlement_posture", "summary", "assessment_confidence",
+                 "flow_id", "flow_confidence", "flow_reasoning"],
 }
 
 
@@ -115,26 +128,24 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
     if settings.mock_claude or not catalog:
         return baseline
 
-    import asyncio
-
-    from app.integrations.claude import ClaudeClient
+    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+    from app.ai.cost_guard import enforce_daily_token_cap
+    from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
+    bundle = get_agent_prompt(db, agent_id="litigation_intake_agent", org_id=request.org_id)
+    user_prompt = _prompt(request, catalog)
     try:
-        resp = asyncio.run(ClaudeClient().complete_structured(
-            system_prompt=(
-                "You are the Litigation Intake Agent for an in-house legal team. From the request, "
-                "extract: the matter type; every statutory or response deadline with the source of each; "
-                "whether a legal hold is required; whether outside counsel is likely needed; the settlement "
-                "posture (none/proposed/likely); and the key parties. Then pick the single best-fit "
-                "governance workflow from the catalog — strongly prefer litigation, dispute, notice, "
-                "regulatory, investigation, or employment workflows over generic contract ladders. Only "
-                "return a flow_id that appears in the catalog. Be concise; never invent facts or workflows."),
-            user_prompt=_prompt(request, catalog),
+        enforce_daily_token_cap(request.org_id)
+        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
+            user_prompt=user_prompt,
             tool_name="assess_litigation", input_schema=_SCHEMA,
-            max_tokens=900, temperature=0.0,
+            max_tokens=900, temperature=0.0, model=bundle.model_name,
         ))
+        log_agent_call(db, org_id=request.org_id, agent_id="litigation_intake_agent", prompt_bundle=bundle,
+                        input_payload={"user_prompt": user_prompt}, response=resp)
         blocks = getattr(resp, "tool_use_blocks", None) or []
         data = (blocks[0].get("input") if blocks else None)
         if not isinstance(data, dict):
@@ -145,6 +156,10 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
             fid = None
         conf = data.get("flow_confidence")
         conf = max(0.0, min(1.0, float(conf))) if isinstance(conf, (int, float)) else baseline["flow_suggestion"]["confidence"]
+        ac = data.get("assessment_confidence")
+        assessment_confidence = (
+            max(0.0, min(1.0, float(ac))) if isinstance(ac, (int, float)) else baseline["assessment_confidence"]
+        )
         parties = [str(p) for p in (data.get("key_parties") or []) if p] or baseline["key_parties"]
         return {
             "matter_type": str(data.get("matter_type") or baseline["matter_type"])[:120],
@@ -154,6 +169,7 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
             "settlement_posture": str(data.get("settlement_posture") or "none").lower(),
             "key_parties": parties[:8],
             "summary": str(data.get("summary") or baseline["summary"])[:400],
+            "assessment_confidence": assessment_confidence,
             "flow_suggestion": {
                 "flow_id": fid,
                 "flow_name": names.get(fid) if fid else None,

@@ -20,7 +20,11 @@ class Settings(BaseSettings):
     # Pinned CORS — '*' is rejected when allow_credentials is true anyway, but
     # we also keep the verb/header lists explicit so we can audit the surface.
     cors_allow_methods: str = "GET,POST,PATCH,PUT,DELETE,OPTIONS"
-    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID,X-CSRF-Token"
+    # CSRF is already handled by the refresh cookie's SameSite attribute (see
+    # refresh_cookie_samesite below) — no X-CSRF-Token header is generated or
+    # checked anywhere, so advertising one here would be decorative and
+    # misleading about what actually protects this app.
+    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID"
     allowed_hosts: str = "*"
     force_https: bool = False
 

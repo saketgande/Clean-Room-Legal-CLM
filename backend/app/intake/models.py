@@ -154,6 +154,7 @@ class IntakeRequest(
         String(36), ForeignKey("intake_request_type.id", ondelete="SET NULL"), nullable=True
     )
     type_label = Column(String(120), nullable=False)
+    subject = Column(String(200), nullable=True)  # short human title; falls back to description line 1
     description = Column(Text, nullable=False, default="")
     field_values = Column(JSON, nullable=True)  # {field.key: value}
     priority = Column(String(20), nullable=False, default="Medium")  # Critical|High|Medium|Low

@@ -77,6 +77,19 @@ def _sniff_mime_type(content: bytes, claimed: str) -> str:
     return claimed
 
 
+def validate_upload_mime(content: bytes, claimed: str | None) -> str:
+    """Shared upload gate: enforce the MIME allowlist AND verify the declared
+    type against the file's magic bytes. Returns the canonical mime type; raises
+    HTTPException(415) on an unsupported type or a bytes/header mismatch. Reuse
+    this on every upload entry point — the client's content-type is untrusted."""
+    mime_type = claimed or "application/octet-stream"
+    if mime_type not in settings.allowed_mime_types:
+        raise HTTPException(
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+        )
+    return _sniff_mime_type(content, mime_type)
+
+
 def _scan_for_malware(content: bytes) -> None:
     """Scan ``content`` with ClamAV when ``settings.enable_clamav`` is on.
 
@@ -564,7 +577,7 @@ def queue_activation_ai_jobs(
             try:
                 dispatch_job(db, job=job)
             except Exception:
-                pass
+                logger.warning("failed to dispatch job %s", job_id, exc_info=True)
     db.commit()
 
 
@@ -616,7 +629,7 @@ def requeue_contract_ai_jobs(
             try:
                 dispatch_job(db, job=job)
             except Exception:
-                pass
+                logger.warning("failed to dispatch job %s", job_id, exc_info=True)
     db.commit()
 
 

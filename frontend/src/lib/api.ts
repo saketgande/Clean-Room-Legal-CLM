@@ -139,6 +139,15 @@ export async function apiFetch<T>(
       (init.headers as Record<string, string>)["Content-Type"] =
         "application/json";
     }
+    // A GET/HEAD request can't carry a body — fetch() throws synchronously
+    // ("Request with GET/HEAD method cannot have body") before any network
+    // activity happens, which callers only see as a silently swallowed
+    // rejection. Default to POST whenever a body is present and the caller
+    // didn't specify a method, so forgetting `method: "POST"` can't produce
+    // that failure mode again.
+    if (init.body !== undefined && !init.method) {
+      init.method = "POST";
+    }
     return fetch(`${API_BASE}${path}`, init);
   };
 

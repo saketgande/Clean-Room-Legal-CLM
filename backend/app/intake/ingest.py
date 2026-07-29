@@ -26,7 +26,7 @@ from app.core.audit import write_audit_log
 from app.core.config import settings
 from app.core.models import AdminSetting
 from app.intake.models import IntakeRequest
-from app.intake import service
+from app.intake import agents, service
 
 WATERMARK_KEY = "intake.mailbox_watermark"
 _GRAPH = "https://graph.microsoft.com/v1.0"
@@ -109,7 +109,13 @@ def ingest_message(
     payload = SimpleNamespace(
         source=source, requester_name=from_email or requester.email,
         department=None, request_type_id=None,
-        type_label=(subject or "General request").strip()[:120] or "General request",
+        # Not the raw subject line (that's `subject`, below) — a channel
+        # message's category isn't known yet at ingest time, so it starts in
+        # the same generic bucket the New Request form itself offers, and
+        # gets refined to a real configured type where a caller re-classifies
+        # (see email_triage_agent.classify_email for the Gmail channel).
+        type_label=agents.DEFAULT_BUILTIN_EXTRA,
+        subject=(subject or "").strip()[:200] or None,
         description=body or "", field_values=fv, priority="Medium",
     )
     out = service.create_request(db, actor=requester, payload=payload)

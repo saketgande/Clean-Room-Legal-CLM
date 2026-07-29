@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
@@ -34,6 +36,8 @@ from app.contracts.service import (
     update_contract_metadata,
 )
 from app.core.deps import get_db, require_permission
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
 
@@ -132,18 +136,6 @@ def get_contract_deviations(
     return [PlaybookDeviationResponse.model_validate(d).model_dump() for d in rows]
 
 
-_PLAIN_SUMMARY_SYSTEM = (
-    "You explain a contract's AI legal review to a NON-LAWYER — a colleague in sales, "
-    "procurement or product who just needs to know where things stand. Write in plain, "
-    "everyday English with no legal jargon; if a legal term is unavoidable, explain it in "
-    "a few words. Keep it short: start with ONE bottom-line sentence (is it safe to proceed "
-    "and the overall risk), then 2 to 4 short bullet points ('• ' each) for the things "
-    "actually worth knowing — each phrased as what it means for the business, not the clause "
-    "name. End with one line on what to do next. Be calm and reassuring where the risk is "
-    "low. Never invent issues or numbers."
-)
-
-
 @router.get("/{contract_id}/plain-summary")
 async def contract_plain_summary(
     contract_id: str,
@@ -154,6 +146,8 @@ async def contract_plain_summary(
     deviations). Best-effort — degrades to a deterministic summary; never raises."""
     from sqlalchemy import select as _select
 
+    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+    from app.ai.cost_guard import enforce_daily_token_cap
     from app.core.config import settings
     from app.integrations.claude import claude_client
     from app.playbooks.models import PlaybookDeviation
@@ -192,14 +186,24 @@ async def contract_plain_summary(
             + (f" (suggested fix: {d.suggested_fix})" if d.suggested_fix else "")
             for d in devs[:12]
         )
+        user_prompt = f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}"
+        bundle = get_agent_prompt(db, agent_id="plain_language_summary", org_id=current_user.org_id)
+        enforce_daily_token_cap(current_user.org_id)
         resp = await claude_client.complete_text(
-            system_prompt=_PLAIN_SUMMARY_SYSTEM,
-            user_prompt=f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}",
-            max_tokens=500, temperature=0.3,
+            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
+            user_prompt=user_prompt,
+            max_tokens=500, temperature=0.3, model=bundle.model_name,
         )
+        log_agent_call(db, org_id=current_user.org_id, agent_id="plain_language_summary", prompt_bundle=bundle,
+                        input_payload={"contract_id": contract_id}, response=resp)
         answer = "".join(b.get("text", "") for b in resp.content_blocks if b.get("type") == "text").strip()
         return {"summary": answer or _fallback(), "generated": bool(answer)}
     except Exception:
+        # Degrading to the deterministic summary is intentional (never block a
+        # lawyer from seeing risk info over an AI hiccup) — but doing so
+        # silently meant an expired key or an outage was indistinguishable from
+        # normal operation in the logs. Log loudly; still never raise.
+        logger.warning("plain-language contract summary failed for %s — using fallback", contract_id, exc_info=True)
         return {"summary": _fallback(), "generated": False}
 
 

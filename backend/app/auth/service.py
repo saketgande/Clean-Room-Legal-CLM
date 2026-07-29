@@ -1,3 +1,4 @@
+import secrets
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
@@ -6,7 +7,6 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import (
     ApiKey,
-    OrgJoinRequest,
     PasswordResetToken,
     Permission,
     RefreshToken,
@@ -19,7 +19,6 @@ from app.auth.models import (
 from app.auth.schemas import (
     AcceptInvitationRequest,
     ApiKeyCreate,
-    JoinRequestDecision,
     PasswordResetConfirmRequest,
     RegisterRequest,
     SetupAdminRequest,
@@ -115,7 +114,15 @@ def _find_refresh_token(db: Session, raw_token: str | None) -> RefreshToken:
     # in hash_token with a TypeError; surface a 401 the client can handle.
     if not raw_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
-    row = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == hash_token(raw_token)))
+    # Locked read: both callers (refresh, logout) revoke this row right after
+    # fetching it. Without the lock, two concurrent replays of the same stolen
+    # refresh token can both pass the revoked_at check before either commits,
+    # so both succeed — defeating rotation-based theft detection.
+    row = db.scalar(
+        select(RefreshToken)
+        .where(RefreshToken.token_hash == hash_token(raw_token))
+        .with_for_update()
+    )
     if row is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid refresh token")
     now = utcnow()
@@ -133,20 +140,6 @@ def _public_invitation(row: UserInvitation, token: str | None = None) -> dict:
         "accepted_at": row.accepted_at,
         "revoked_at": row.revoked_at,
         "token": token,
-    }
-
-
-def _public_join_request(row: OrgJoinRequest, invitation_token: str | None = None) -> dict:
-    return {
-        "id": row.id,
-        "org_id": row.org_id,
-        "email": row.email,
-        "full_name": row.full_name,
-        "requested_domain": row.requested_domain,
-        "message": row.message,
-        "status": row.status,
-        "decision_reason": row.decision_reason,
-        "invitation_token": invitation_token,
     }
 
 
@@ -189,7 +182,9 @@ def bootstrap_roles(db: Session, org_id: str, actor_user_id: str | None = None) 
 
 
 def create_first_admin(db: Session, payload: SetupAdminRequest, request_id: str | None = None) -> User:
-    if payload.setup_token != settings.setup_token:
+    # Constant-time compare: a plain != leaks timing info a network attacker
+    # could use to brute-force the token character-by-character.
+    if not secrets.compare_digest(payload.setup_token, settings.setup_token):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid setup token")
 
     existing_org = db.scalar(select(Organization))
@@ -410,7 +405,10 @@ def is_access_token_revoked(
         return False
     if token_issued_at is None:
         return True
-    return any(row.created_at.replace(microsecond=0) > token_issued_at for row in wildcard_rows)
+    # >= (not >): a token minted in the same whole second as a wildcard
+    # "sign out everywhere" revocation must also be treated as revoked, since
+    # the JWT `iat` claim is only second-granular.
+    return any(row.created_at.replace(microsecond=0) >= token_issued_at for row in wildcard_rows)
 
 
 def revoke_refresh_token(
@@ -714,62 +712,6 @@ def accept_user_invitation(
     )
     db.commit()
     return token_response
-
-
-def list_join_requests(db: Session, *, actor: User) -> list[dict]:
-    rows = db.scalars(
-        select(OrgJoinRequest)
-        .where(OrgJoinRequest.org_id == actor.org_id)
-        .order_by(OrgJoinRequest.created_at.desc())
-        .limit(100)
-    ).all()
-    return [_public_join_request(row) for row in rows]
-
-
-def decide_join_request(
-    db: Session,
-    *,
-    join_request_id: str,
-    payload: JoinRequestDecision,
-    actor: User,
-    request_id: str | None = None,
-) -> dict:
-    join_request = db.get(OrgJoinRequest, join_request_id)
-    if join_request is None or join_request.org_id != actor.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Join request not found")
-    if join_request.status != "pending":
-        raise HTTPException(status.HTTP_409_CONFLICT, "Join request already decided")
-    invitation_token = None
-    if payload.decision == "approve":
-        invitation = create_user_invitation(
-            db,
-            payload=UserInvitationCreate(
-                email=join_request.email,
-                role_name=payload.role_name,
-                expires_in_days=payload.invitation_expires_in_days,
-            ),
-            actor=actor,
-            request_id=request_id,
-        )
-        invitation_token = invitation["token"]
-        join_request.status = "approved"
-    else:
-        join_request.status = "rejected"
-    join_request.decided_by_user_id = actor.id
-    join_request.decision_reason = payload.reason
-    write_audit_log(
-        db,
-        action=f"org_join_request.{join_request.status}",
-        resource_type="org_join_request",
-        resource_id=join_request.id,
-        org_id=actor.org_id,
-        actor_user_id=actor.id,
-        request_id=request_id,
-        metadata={"role_name": payload.role_name, "reason": payload.reason},
-    )
-    db.commit()
-    db.refresh(join_request)
-    return _public_join_request(join_request, invitation_token=invitation_token)
 
 
 def request_password_reset(

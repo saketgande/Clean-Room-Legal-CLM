@@ -4,6 +4,7 @@ from typing import Any
 
 from app.ai.context import ContractAIContext
 from app.ai.prompt_versions import PromptBundle
+from app.ai.redaction import SENSITIVE_KEYS
 from app.ai.skill import SkillSpec
 
 
@@ -51,9 +52,17 @@ class PromptBuilder:
 
 
 def _redacted_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Placeholder-out raw document bodies the model doesn't need duplicated
+    (already covered by `contract_context.text` when present) — NOT a filter
+    on what the model receives generally. Must match `SENSITIVE_KEYS` exactly:
+    a substring check like `"text" in key.lower()` also matches keys such as
+    `retrieved_context` or `table_context` — a skill's actual retrieved
+    content — and silently replaces it with a length-only placeholder in the
+    real prompt, leaving the model to answer with no context at all.
+    """
     redacted = dict(payload)
     for key in list(redacted.keys()):
-        if "text" in key.lower() and isinstance(redacted[key], str) and len(redacted[key]) > 500:
+        if key.lower() in SENSITIVE_KEYS and isinstance(redacted[key], str) and len(redacted[key]) > 500:
             redacted[key] = f"<redacted text length={len(redacted[key])}>"
     return redacted
 

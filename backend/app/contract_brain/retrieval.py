@@ -47,7 +47,10 @@ def hybrid_sources(
         return {"semantic": [], "clauses": [], "text": []}
     titles = dict(
         db.execute(
-            select(Contract.id, Contract.title).where(Contract.id.in_(contract_ids))
+            select(Contract.id, Contract.title).where(
+                Contract.id.in_(contract_ids),
+                Contract.org_id == org_id,
+            )
         ).all()
     )
     ids = list(titles)
@@ -71,6 +74,7 @@ def hybrid_sources(
             )
             .join(Contract, Contract.id == ContractEmbedding.contract_id)
             .where(
+                ContractEmbedding.org_id == org_id,
                 ContractEmbedding.contract_id.in_(ids),
                 ContractEmbedding.contract_version_id
                 == Contract.current_authoritative_version_id,

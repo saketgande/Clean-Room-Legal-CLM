@@ -498,7 +498,11 @@ function GroupsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          Named sets of people who <strong className="text-slate-700">sign off</strong> approval steps (any-one or all-members).
+          For load-balanced <em>work assignment</em>, use Teams / pools under Legal Intake — those are a different thing.
+        </p>
         <Button onClick={() => setNewOpen(true)}>
           <Plus className="h-4 w-4" />
           New group

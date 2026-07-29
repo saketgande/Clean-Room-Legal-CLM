@@ -43,7 +43,6 @@ import type {
   Notification,
   Obligation,
   OrganizationResponse,
-  OrgJoinRequestResponse,
   BuildChatResponse,
   ExtractedDoc,
   PlaybookDraftRule,
@@ -280,18 +279,6 @@ export const usersApi = {
   revokeInvitation: (id: string) =>
     apiFetch<UserInvitationResponse>(`/users/invitations/${id}/revoke`, {
       method: "POST",
-    }),
-  listJoinRequests: () =>
-    apiFetch<OrgJoinRequestResponse[]>("/users/join-requests"),
-  decideJoinRequest: (
-    id: string,
-    decision: "approve" | "reject",
-    role_name = "member",
-    reason?: string,
-  ) =>
-    apiFetch<OrgJoinRequestResponse>(`/users/join-requests/${id}/decision`, {
-      method: "POST",
-      body: { decision, role_name, reason },
     }),
 };
 
@@ -539,6 +526,11 @@ export const assistantApi = {
     apiFetch<{ session: AssistantSession; contract_handles: unknown[] }>(
       `/assistant/sessions/${id}`,
     ),
+  updateSession: (id: string, payload: { title?: string; status?: string }) =>
+    apiFetch<AssistantSession>(`/assistant/sessions/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
   messages: (id: string, limit = 100) =>
     apiFetch<AssistantMessage[]>(
       `/assistant/sessions/${id}/messages${qs({ limit })}`,
@@ -635,6 +627,8 @@ export const flowsApi = {
     }),
   runForRequest: (request_id: string) =>
     apiFetch<FlowRun | null>(`/flows/runs/by-request/${request_id}`),
+  runForContract: (contract_id: string) =>
+    apiFetch<FlowRun | null>(`/flows/runs/by-contract/${contract_id}`),
   completeStep: (run_id: string, note?: string) =>
     apiFetch<FlowRun>(`/flows/runs/${run_id}/complete-step`, {
       method: "POST",

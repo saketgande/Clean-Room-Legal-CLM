@@ -34,6 +34,7 @@ _ALIASES: dict[str, str] = {
     # Governing law / jurisdiction
     "governing_law": "governing_law",
     "governing_law_jurisdiction": "governing_law",
+    "governing_law_and_disputes": "governing_law",
     "choice_of_law": "governing_law",
     "jurisdiction": "governing_law",
     # Liability

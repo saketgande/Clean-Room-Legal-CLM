@@ -1,8 +1,8 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, MetaData, String, create_engine, text
-from sqlalchemy.orm import DeclarativeBase, Session, declared_attr, sessionmaker
+from sqlalchemy import Boolean, Column, DateTime, MetaData, String, create_engine
+from sqlalchemy.orm import DeclarativeBase, declared_attr, sessionmaker
 
 from app.core.config import settings
 

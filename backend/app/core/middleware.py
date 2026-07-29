@@ -57,6 +57,13 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
 
             user_id = _attr(current_user, "id")
             org_id = _attr(current_user, "org_id")
+            # Log the matched route TEMPLATE (e.g. "/external-shares/{token}"),
+            # not the materialized path — otherwise secret path segments such as
+            # external-share tokens land in plaintext in the app log and the
+            # RequestLog table. Query-string redaction never touches path
+            # segments, so this is the only place those secrets are stripped.
+            matched_route = request.scope.get("route")
+            route_label = getattr(matched_route, "path", None) or str(request.url.path)
             logger.info(
                 "request.completed",
                 extra={
@@ -65,7 +72,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                     "user_id": user_id,
                     "org_id": org_id,
                     "method": request.method,
-                    "route": str(request.url.path),
+                    "route": route_label,
                     "status_code": status_code,
                     "latency_ms": round(latency_ms, 2),
                     "error_class": error_class,
@@ -87,7 +94,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                     "user_id": user_id,
                     "org_id": org_id,
                     "method": request.method,
-                    "route": str(request.url.path),
+                    "route": route_label,
                     "status_code": status_code,
                     "latency_ms": latency_ms,
                     "error_class": error_class,
