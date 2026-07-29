@@ -21,13 +21,16 @@ No mocking: when configured, this always talks to the real Gmail account.
 
 from __future__ import annotations
 
+import asyncio
 import email
 import email.utils
 import imaplib
+import io
 import logging
 import re
 from email.header import decode_header
 from email.message import Message
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -41,6 +44,7 @@ logger = logging.getLogger(__name__)
 
 _IMAP_HOST = "imap.gmail.com"
 _THRID_RE = re.compile(rb"X-GM-THRID\s+(\d+)")
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def _decode(value: str | None) -> str:
@@ -96,6 +100,55 @@ def _attachments(msg: Message) -> list[tuple[str, str, bytes]]:
             continue
         found.append((_decode(filename), part.get_content_type() or "application/octet-stream", content))
     return found
+
+
+def _ocr_to_docx(filename: str, mime_type: str, content: bytes) -> tuple[str, bytes] | None:
+    """OCRs an attachment that needs it (an image, or a scanned/unreadable
+    PDF or DOCX) via the same Reducto OCR provider the main contract-upload
+    path uses, and copies the recognized text into a new .docx so it reads
+    like any other attached document. Returns None when native extraction was
+    already good enough (no OCR needed) or OCR produced nothing — e.g. Reducto
+    is mocked (MOCK_REDUCTO=true) in local/dev, so this is a no-op there."""
+    from app.contract_files.text_extraction import extract_text as native_extract_text
+    from app.integrations.reducto import reducto_client
+
+    native = native_extract_text(content, mime_type=mime_type, filename=filename)
+    if not native.needs_ocr:
+        return None
+    try:
+        ocr = asyncio.run(reducto_client.extract_text(filename=filename, mime_type=mime_type, content=content))
+    except Exception:
+        return None
+    if not ocr.text.strip():
+        return None
+
+    from docx import Document
+
+    out = Document()
+    out.add_heading(f"OCR: {filename}", level=2)
+    for line in ocr.text.splitlines() or [""]:
+        out.add_paragraph(line)
+    buf = io.BytesIO()
+    out.save(buf)
+    stem = Path(filename).stem or "attachment"
+    return f"{stem}_OCR.docx", buf.getvalue()
+
+
+def _ingest_attachment(db: Session, *, requester, request_id: str,
+                        filename: str, mime_type: str, content: bytes) -> str:
+    """Attaches `content` to the request and, when it needed OCR, also
+    attaches a companion .docx holding the OCR'd text to the same request.
+    Returns the combined extracted text for downstream classification."""
+    doc = service.add_document(db, actor=requester, request_id=request_id,
+                                filename=filename, mime_type=mime_type, content=content)
+    text = doc.get("extracted_text") or ""
+    ocr_result = _ocr_to_docx(filename, mime_type, content)
+    if ocr_result:
+        ocr_filename, ocr_bytes = ocr_result
+        ocr_doc = service.add_document(db, actor=requester, request_id=request_id,
+                                        filename=ocr_filename, mime_type=_DOCX_MIME, content=ocr_bytes)
+        text = "\n\n".join(t for t in (text, ocr_doc.get("extracted_text") or "") if t)
+    return text
 
 
 def sync_gmail_inbox(db: Session) -> dict:
@@ -180,11 +233,10 @@ def sync_gmail_inbox(db: Session) -> dict:
                         if (filename, len(content)) in existing_docs:
                             continue
                         try:
-                            doc = service.add_document(
-                                db, actor=requester, request_id=thread_request.id,
+                            excerpts.append(_ingest_attachment(
+                                db, requester=requester, request_id=thread_request.id,
                                 filename=filename, mime_type=mime_type, content=content,
-                            )
-                            excerpts.append(doc.get("extracted_text") or "")
+                            ))
                             added.append(filename)
                         except Exception as exc:
                             db.rollback()
@@ -228,11 +280,10 @@ def sync_gmail_inbox(db: Session) -> dict:
                     excerpts = [body]
                     for filename, mime_type, content in attachments:
                         try:
-                            doc = service.add_document(
-                                db, actor=requester, request_id=out["id"],
+                            excerpts.append(_ingest_attachment(
+                                db, requester=requester, request_id=out["id"],
                                 filename=filename, mime_type=mime_type, content=content,
-                            )
-                            excerpts.append(doc.get("extracted_text") or "")
+                            ))
                         except Exception as exc:
                             # A failed insert leaves the session's transaction
                             # unusable until rolled back — without this, one
