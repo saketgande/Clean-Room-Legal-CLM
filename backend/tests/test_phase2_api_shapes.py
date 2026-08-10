@@ -8,7 +8,7 @@ from app.core.enums import ShareAccessMode
 from app.integrations.storage import StorageService
 from app.projects.access import PROJECT_SHARE_SHARE_LEVELS, PROJECT_UPDATE_SHARE_LEVELS
 from app.projects.schemas import ProjectFolderUpdate, ProjectShareCreate
-from app.search.routes import _text_matches
+from app.search.fts import text_matches
 
 
 def test_external_share_secret_hashing_is_deterministic_and_non_plaintext():
@@ -72,7 +72,7 @@ def test_project_share_schema_restricts_access_levels():
 def test_text_matches_returns_limited_case_insensitive_excerpts():
     text = "Alpha beta. " * 10
 
-    matches = _text_matches(text, "BETA")
+    matches = text_matches(text, "BETA")
 
     assert len(matches) == 5
     assert matches[0]["start_char"] == 6
