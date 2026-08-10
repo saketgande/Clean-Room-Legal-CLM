@@ -225,6 +225,35 @@ class Settings(BaseSettings):
     # CORS preflight cache lifetime (seconds) sent as Access-Control-Max-Age.
     cors_max_age_seconds: int = 600
 
+    # Trademarks module — external similarity-search providers. All optional;
+    # search-similar degrades a source to "not_configured" rather than failing
+    # the whole request when a key is absent (see app/trademarks/providers/).
+    signa_api_key: str | None = None
+    signa_base_url: str = "https://api.signa.so/v1/trademarks"
+    signa_offices: str = ""
+    signa_timeout_seconds: float = 5.0
+    mock_signa: bool = True
+
+    tmsearch_api_key: str | None = None
+    tmsearch_base_url: str = "https://tmsearch.ai/api/search/"
+    tmsearch_timeout_seconds: float = 10.0
+    mock_tmsearch: bool = True
+
+    search_provider: str = "serper_dev"
+    search_provider_api_key: str | None = None
+    search_provider_timeout_seconds: float = 5.0
+    mock_serper: bool = True
+
+    trademark_internal_search_top_k: int = 10
+    trademark_internal_search_timeout_seconds: float = 5.0
+    trademark_risk_threshold_high: float = 0.85
+    trademark_risk_threshold_medium: float = 0.60
+
+    # ip_india_journal vision extraction template — renders a PDF page to a
+    # PNG and asks Claude (via app.integrations.claude.ClaudeClient) to read
+    # it. Degrades gracefully (empty entries) when mock_claude is on / no key.
+    trademark_vision_render_dpi: int = 200
+
     @field_validator("allowed_mime_types", mode="before")
     @classmethod
     def parse_mime_types(cls, value: str | list[str]) -> list[str]:
@@ -261,6 +290,9 @@ def validate_runtime_settings(settings: Settings) -> None:
             ("MOCK_DOCUSIGN", settings.mock_docusign),
             ("MOCK_REDUCTO", settings.mock_reducto),
             ("MOCK_RESEND", settings.mock_resend),
+            ("MOCK_SIGNA", settings.mock_signa),
+            ("MOCK_TMSEARCH", settings.mock_tmsearch),
+            ("MOCK_SERPER", settings.mock_serper),
         )
         if on
     ]

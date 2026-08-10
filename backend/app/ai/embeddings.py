@@ -67,6 +67,12 @@ def generate_embeddings_for_snapshot(
     return rows
 
 
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Public entry point for other modules (e.g. app.trademarks) that need
+    embeddings but aren't part of the contract-embedding pipeline above."""
+    return _embed(texts)
+
+
 def _embed(texts: list[str]) -> list[list[float]]:
     """Embed texts with the configured provider. Default is the local
     bge-small model (384-dim, no key). Set embedding_provider="voyage" +

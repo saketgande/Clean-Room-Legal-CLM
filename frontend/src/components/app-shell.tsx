@@ -28,6 +28,7 @@ import {
   Menu,
   PanelLeftClose,
   X,
+  Stamp,
  Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { can } from "@/lib/intake";
@@ -65,6 +66,7 @@ const NAV: {
       { href: "/signatures", label: "Signatures", icon: Signature },
       { href: "/obligations", label: "Obligations", icon: ListChecks },
       { href: "/renewals", label: "Renewals", icon: RefreshCw },
+      { href: "/trademarks", label: "Trademarks", icon: Stamp },
     ],
   },
   // Jobs & Admin live in the sidebar-footer account menu; Notifications lives

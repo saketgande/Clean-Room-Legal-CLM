@@ -47,6 +47,7 @@ from app.observability.routes import router as observability_router
 from app.search.routes import router as search_router
 from app.signatures.routes import router as signatures_router
 from app.tabular_review.routes import router as tabular_review_router
+from app.trademarks.routes import router as trademarks_router
 from app.word_addin.routes import router as word_addin_router
 from app.workflows.routes import router as workflows_router
 from app.flows.routes import router as flows_router
@@ -154,6 +155,7 @@ def create_app() -> FastAPI:
     app.include_router(signatures_router, prefix=prefix)
     app.include_router(obligations_router, prefix=prefix)
     app.include_router(renewals_router, prefix=prefix)
+    app.include_router(trademarks_router, prefix=prefix)
     app.include_router(tabular_review_router, prefix=prefix)
     app.include_router(search_router, prefix=prefix)
     app.include_router(observability_router, prefix=prefix)

@@ -202,3 +202,51 @@ class RenewalDecision(StrEnum):
     RENEW = "renew"
     TERMINATE = "terminate"
     RENEGOTIATE = "renegotiate"
+
+
+class TrademarkStatus(StrEnum):
+    DRAFT = "draft"
+    FILED = "filed"
+    REGISTERED = "registered"
+    OPPOSED = "opposed"
+    ABANDONED = "abandoned"
+    RENEWED = "renewed"
+
+
+class TrademarkType(StrEnum):
+    WORD_MARK = "word_mark"
+    DEVICE_MARK = "device_mark"
+    COMBINATION = "combination"
+    SOUND = "sound"
+    COLLECTIVE = "collective"
+
+
+class TrademarkWorkflowState(StrEnum):
+    INTAKE = "intake"
+    EXTRACTION = "extraction"
+    REVIEW = "review"
+    ACTIVE = "active"
+
+
+class TrademarkSource(StrEnum):
+    INTAKE = "intake"
+    EXTRACTION = "extraction"
+
+
+class DocumentExtractTemplate(StrEnum):
+    GENERIC = "generic"
+    IP_INDIA_JOURNAL = "ip_india_journal"
+
+
+class SourceStatus(StrEnum):
+    COMPLETE = "complete"
+    ERROR = "error"
+    TIMEOUT = "timeout"
+    NOT_CONFIGURED = "not_configured"
+
+
+class TrademarkRiskLevel(StrEnum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    CONTEXT_ONLY = "context_only"

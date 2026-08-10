@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 import time
 import weakref
@@ -85,6 +86,67 @@ class ClaudeClient:
                 "temperature": temperature,
                 "system": system_prompt,
                 "messages": [{"role": "user", "content": user_prompt}],
+                "tools": [
+                    {
+                        "name": tool_name,
+                        "description": f"Return structured data for {tool_name}.",
+                        "input_schema": input_schema,
+                    }
+                ],
+                "tool_choice": {"type": "tool", "name": tool_name},
+            }
+        )
+        return self._to_provider_response(
+            response_json,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            provider_request_id=request_id,
+            model=model or settings.claude_model,
+        )
+
+    async def complete_vision_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        image_bytes: bytes,
+        image_media_type: str,
+        tool_name: str,
+        input_schema: dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> ClaudeProviderResponse:
+        """Same shape as complete_structured, but the user turn includes an
+        inline base64 image block (Claude's native vision support). Used by
+        the trademarks module's ip_india_journal document-extraction template
+        to read a rendered PDF page directly, the way a human would."""
+        if settings.mock_claude:
+            return self._mock_structured_response(tool_name=tool_name, model=model or settings.claude_model)
+
+        started = time.perf_counter()
+        image_b64 = base64.b64encode(image_bytes).decode("ascii")
+        response_json, request_id = await self._post_messages(
+            json_payload={
+                "model": model or settings.claude_model,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": user_prompt},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": image_media_type,
+                                    "data": image_b64,
+                                },
+                            },
+                        ],
+                    }
+                ],
                 "tools": [
                     {
                         "name": tool_name,

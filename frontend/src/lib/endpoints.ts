@@ -91,6 +91,21 @@ import type {
   IntakePoolOps,
   IntakeDocument,
   CopilotTurn,
+  Trademark,
+  TrademarkCreatePayload,
+  TrademarkUpdatePayload,
+  IntakeSubmitPayload,
+  TrademarkDashboardMetrics,
+  RenewalCalendarEntry,
+  SearchSimilarRequest,
+  SearchSimilarResponse,
+  UploadDocumentResponse,
+  ExtractRequest,
+  ExtractResponse,
+  IngestRequest,
+  IngestResponse,
+  IntegrationStatusResponse,
+  IntegrationTestResponse,
 } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
@@ -877,6 +892,44 @@ export const renewalsApi = {
       "/renewals/run-window-check",
       { method: "POST" },
     ),
+};
+
+// ---- Trademarks -----------------------------------------------------------
+export const trademarksApi = {
+  list: () => apiFetch<Trademark[]>("/trademarks"),
+  get: (id: string) => apiFetch<Trademark>(`/trademarks/${id}`),
+  create: (payload: TrademarkCreatePayload) =>
+    apiFetch<Trademark>("/trademarks", { method: "POST", body: payload }),
+  update: (id: string, payload: TrademarkUpdatePayload) =>
+    apiFetch<Trademark>(`/trademarks/${id}`, { method: "PATCH", body: payload }),
+  intake: (payload: IntakeSubmitPayload) =>
+    apiFetch<Trademark>("/trademarks/intake", { method: "POST", body: payload }),
+  dashboard: () => apiFetch<TrademarkDashboardMetrics>("/trademarks/dashboard"),
+  calendar: (within_days?: number) =>
+    apiFetch<RenewalCalendarEntry[]>(`/trademarks/calendar${qs({ within_days })}`),
+  searchSimilar: (payload: SearchSimilarRequest) =>
+    apiFetch<SearchSimilarResponse>("/trademarks/search-similar", {
+      method: "POST",
+      body: payload,
+    }),
+  uploadDocument: (form: FormData) =>
+    apiFetch<UploadDocumentResponse>("/trademarks/documents/upload", { form }),
+  extractFields: (payload: ExtractRequest) =>
+    apiFetch<ExtractResponse>("/trademarks/documents/extract", {
+      method: "POST",
+      body: payload,
+    }),
+  ingest: (payload: IngestRequest) =>
+    apiFetch<IngestResponse>("/trademarks/documents/ingest", {
+      method: "POST",
+      body: payload,
+    }),
+  integrationsStatus: () =>
+    apiFetch<IntegrationStatusResponse>("/trademarks/integrations/status"),
+  testIntegration: (service: string) =>
+    apiFetch<IntegrationTestResponse>(`/trademarks/integrations/test/${service}`, {
+      method: "POST",
+    }),
 };
 
 // ---- Contract Brain ------------------------------------------------------
