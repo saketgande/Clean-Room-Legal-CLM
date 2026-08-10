@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.ai.embeddings import embed_texts
 from app.auth.models import User
 from app.core.audit import write_audit_log
-from app.core.config import Settings, settings as default_settings
+from app.core.config import Settings
+from app.core.config import settings as default_settings
 from app.core.database import new_uuid
 from app.core.enums import (
     DocumentExtractTemplate,
@@ -249,8 +250,9 @@ async def save_uploaded_document(db: Session, *, user: User, file: UploadFile) -
     if not content:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
 
-    from pypdf import PdfReader
     from io import BytesIO
+
+    from pypdf import PdfReader
 
     try:
         total_pages = len(PdfReader(BytesIO(content)).pages)
@@ -273,7 +275,7 @@ async def extract_fields(db: Session, *, user: User, request: ExtractRequest) ->
         for page_number in range(request.page_start, request.page_end + 1):
             try:
                 entries = await extract_journal_page(content, page_number)
-            except Exception as exc:  # noqa: BLE001 - one bad page shouldn't fail the whole extract
+            except Exception as exc:
                 warnings.append(f"Page {page_number}: vision extraction failed ({exc})")
                 continue
             for entry_index, entry in enumerate(entries):
@@ -432,7 +434,7 @@ def get_integration_status(db: Session, *, settings: Settings) -> IntegrationSta
     try:
         db.execute(text("SELECT 1"))
         postgres = IntegrationStatusEntry(configured=True, status="connected")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         postgres = IntegrationStatusEntry(configured=True, status="error", detail=str(exc))
     return IntegrationStatusResponse(signa=signa, serper=serper, postgres=postgres)
 
@@ -447,7 +449,7 @@ def test_integration(db: Session, *, service_name: str, settings: Settings) -> I
             return IntegrationTestResponse(
                 status="ok", detail="Connected", latency_ms=(time.perf_counter() - started) * 1000
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return IntegrationTestResponse(status="error", detail=str(exc))
 
     if service_name == "signa":
@@ -465,7 +467,7 @@ def test_integration(db: Session, *, service_name: str, settings: Settings) -> I
                 limit=1,
             )
             return IntegrationTestResponse(status="ok", latency_ms=(time.perf_counter() - started) * 1000)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return IntegrationTestResponse(status="error", detail=str(exc))
 
     if service_name == "serper":
@@ -479,7 +481,7 @@ def test_integration(db: Session, *, service_name: str, settings: Settings) -> I
                 timeout_seconds=settings.search_provider_timeout_seconds, num=1,
             )
             return IntegrationTestResponse(status="ok", latency_ms=(time.perf_counter() - started) * 1000)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return IntegrationTestResponse(status="error", detail=str(exc))
 
     raise HTTPException(status.HTTP_404_NOT_FOUND, f"Unknown integration service: {service_name}")

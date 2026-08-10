@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, JSON, String
+from sqlalchemy import JSON, Boolean, Column, String
 
 from app.core.database import Base, IdMixin, TableNameMixin, TimestampMixin
 

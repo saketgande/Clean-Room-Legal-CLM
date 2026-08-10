@@ -1,9 +1,9 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
 
 try:
     from pgvector.sqlalchemy import Vector
 except Exception:  # pragma: no cover - used only if pgvector is missing in a dev shell
-    Vector = lambda dimensions: JSON  # noqa: E731
+    Vector = lambda dimensions: JSON
 
 from app.core.database import (
     ActorTrackedMixin,

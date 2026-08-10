@@ -19,7 +19,6 @@ from app.approvals.service import redeem_token_decision
 from app.contracts import access as access_module
 from app.contracts.access import accessible_contract_filter
 
-
 # --- F-03: accessible_contract_filter must always be org-scoped -------------
 
 

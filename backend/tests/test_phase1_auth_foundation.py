@@ -2,12 +2,17 @@ from datetime import UTC, datetime
 
 import pytest
 
-from app.core.audit import compute_audit_row_hash
-from app.core.models import AuditLog, _prevent_audit_log_delete, _prevent_audit_log_update
 from app.auth.models import Permission, Role, User
+from app.core.audit import compute_audit_row_hash
 from app.core.config import Settings, validate_runtime_settings
 from app.core.enums import UserStatus
-from app.core.security import create_access_token, create_token_secret, decode_access_token, hash_token
+from app.core.models import AuditLog, _prevent_audit_log_delete, _prevent_audit_log_update
+from app.core.security import (
+    create_access_token,
+    create_token_secret,
+    decode_access_token,
+    hash_token,
+)
 
 
 def test_access_token_includes_type_and_jti():

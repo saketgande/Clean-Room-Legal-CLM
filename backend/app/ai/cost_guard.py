@@ -62,7 +62,7 @@ def enforce_daily_token_cap(org_id: str) -> None:
             spent_raw = client.get(_daily_key(org_id))
         finally:
             client.close()
-    except Exception:  # noqa: BLE001 — fail open: never let Redis break AI
+    except Exception:
         logger.warning("ai token cap check skipped (redis unavailable)", exc_info=True)
         return
     spent = int(spent_raw) if spent_raw is not None else 0
@@ -91,5 +91,5 @@ def record_token_usage(org_id: str, total_tokens: int | None) -> None:
             client.expire(key, _KEY_TTL_SECONDS)
         finally:
             client.close()
-    except Exception:  # noqa: BLE001 — fail open: accounting is best-effort
+    except Exception:
         logger.warning("ai token cap accounting skipped (redis unavailable)", exc_info=True)

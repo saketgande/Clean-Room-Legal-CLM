@@ -25,8 +25,8 @@ from app.auth.models import User
 from app.core.audit import write_audit_log
 from app.core.config import settings
 from app.core.models import AdminSetting
-from app.intake.models import IntakeRequest
 from app.intake import service
+from app.intake.models import IntakeRequest
 
 WATERMARK_KEY = "intake.mailbox_watermark"
 _GRAPH = "https://graph.microsoft.com/v1.0"
@@ -226,6 +226,6 @@ def handle_teams_activity(db: Session, activity: dict) -> dict:
 
     out = ingest_message(db, source="teams", from_email=None,
                          subject=text[:120], body=f"(via Teams, from {sender})\n\n{text}",
-                         external_message_id=f"teams:{activity.get('id', '')}" or f"teams:{time.time()}")
+                         external_message_id=f"teams:{activity.get('id') or time.time()}")
     verb = "already filed as" if out["deduped"] else "filed as"
     return {"type": "message", "text": f"Request {verb} **{out['ref']}** — triaged and routed. ✔"}

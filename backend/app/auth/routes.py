@@ -16,9 +16,9 @@ from app.auth.schemas import (
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
+    RefreshTokenRequest,
     RegisterRequest,
     RegistrationResponse,
-    RefreshTokenRequest,
     RoleSwitchRequest,
     SetupAdminRequest,
     TokenResponse,
@@ -26,8 +26,6 @@ from app.auth.schemas import (
     UserInvitationResponse,
     UserResponse,
 )
-from app.core.config import settings
-from app.core.rate_limit import limiter
 from app.auth.service import (
     accept_user_invitation,
     as_user_response,
@@ -35,8 +33,8 @@ from app.auth.service import (
     create_api_key,
     create_first_admin,
     create_user_invitation,
-    decide_user_approval,
     decide_join_request,
+    decide_user_approval,
     list_api_keys,
     list_join_requests,
     list_org_users,
@@ -50,7 +48,9 @@ from app.auth.service import (
     revoke_user_invitation,
     switch_active_role,
 )
+from app.core.config import settings
 from app.core.deps import get_current_user, get_db, require_permission
+from app.core.rate_limit import limiter
 from app.integrations.resend import resend_client
 
 logger = logging.getLogger(__name__)
@@ -343,7 +343,7 @@ async def _send_invitation_email(
             ),
         )
         return True
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("invitation email delivery failed")
         return False
 

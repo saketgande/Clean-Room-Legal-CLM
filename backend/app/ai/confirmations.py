@@ -13,7 +13,6 @@ from app.core.audit import write_audit_log
 from app.core.database import utcnow
 from app.core.enums import AIConfirmationStatus, AssistantToolCallStatus
 
-
 DEFAULT_CONFIRMATION_MINUTES = 30
 
 

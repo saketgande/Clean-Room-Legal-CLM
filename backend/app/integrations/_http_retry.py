@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import functools
 import logging
-from typing import Any, Awaitable, Callable, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import Any, TypeVar
 
 import httpx
 from tenacity import (
@@ -31,7 +32,6 @@ from tenacity import (
 )
 
 from app.core.config import settings
-
 
 logger = logging.getLogger(__name__)
 

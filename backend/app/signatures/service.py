@@ -20,13 +20,13 @@ from app.contract_files.service import (
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.enums import (
     ContractLifecycleStage,
     ContractVersionSource,
     SignatureStatus,
     StorageBackend,
 )
-from app.core.config import settings
 from app.integrations.docusign import docusign_client
 from app.integrations.storage import storage_service
 from app.signatures.models import SignatureEvent, SignatureRecipient, SignatureRequest

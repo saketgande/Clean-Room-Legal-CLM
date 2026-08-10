@@ -250,8 +250,11 @@ def seed_intake(db, org, admin) -> bool:
     # sample requests — run the real pipeline so they get classification, routing + a recommendation
     from datetime import timedelta
 
-    from app.intake import agents, routing as routing_mod, service as svc
     from sqlalchemy import func as _func
+
+    from app.intake import agents
+    from app.intake import routing as routing_mod
+    from app.intake import service as svc
 
     existing_markers = {
         (r.field_values or {}).get("_seed") for r in db.scalars(

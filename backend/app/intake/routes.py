@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db, require_permission
+from app.core.deps import get_db, require_permission
 from app.intake import copilot as copilot_mod
 from app.intake import routing as routing_mod
 from app.intake import service

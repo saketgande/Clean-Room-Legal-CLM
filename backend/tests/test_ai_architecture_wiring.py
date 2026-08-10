@@ -351,8 +351,8 @@ def test_cost_cap_enforced_before_every_claude_call():
 
 def test_cost_cap_fails_open_and_is_noop_when_unset():
     """Cap <= 0 is a no-op (no Redis touched) and any Redis error fails open."""
-    from app.core.config import settings
     from app.ai import cost_guard
+    from app.core.config import settings
 
     original_cap = settings.claude_daily_token_cap_per_org
     original_client = cost_guard._redis_client
@@ -384,8 +384,8 @@ def test_cost_cap_fails_open_and_is_noop_when_unset():
 def test_cost_cap_rejects_with_429_when_exceeded():
     from fastapi import HTTPException
 
-    from app.core.config import settings
     from app.ai import cost_guard
+    from app.core.config import settings
 
     class _FakeClient:
         def __init__(self, value):
@@ -417,9 +417,10 @@ def test_cost_cap_rejects_with_429_when_exceeded():
 
 
 def test_external_share_passcode_requires_at_least_eight_chars():
+    import pydantic
     import pytest
 
-    with pytest.raises(Exception):
+    with pytest.raises(pydantic.ValidationError):
         ExternalShareInput(contract_handle="contract-0", passcode="1234567")  # 7 chars
     ok = ExternalShareInput(contract_handle="contract-0", passcode="12345678")  # 8 chars
     assert ok.passcode == "12345678"

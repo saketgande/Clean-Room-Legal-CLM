@@ -108,7 +108,8 @@ def list_obligations(
     if status_filter:
         query = query.where(Obligation.status == status_filter)
     if due_within_days is not None:
-        from datetime import date as _date, timedelta as _timedelta
+        from datetime import date as _date
+        from datetime import timedelta as _timedelta
         _today = _date.today()
         query = query.where(
             Obligation.due_date.isnot(None),

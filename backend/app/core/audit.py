@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.core.database import new_uuid, utcnow
 from app.core.models import AuditLog, ResourceTimelineEvent
 
-
 # Postgres advisory lock key for the audit-log hash chain. Any writer that
 # wants to append a row takes this lock first, so two concurrent writers
 # cannot both read the same previous_hash and insert siblings — which would
@@ -47,39 +46,36 @@ def write_audit_log(
     # Audit rows must live in the same transaction as the business change they
     # describe. If the caller rolls back, this row rolls back too, avoiding
     # immutable phantom entries for actions that never actually committed.
-    try:
-        # Serialize append with a Postgres session-scoped advisory lock so
-        # two concurrent audit writers cannot both observe the same tail row
-        # and insert siblings that share a prev_hash. Without this the chain
-        # is not actually tamper-evident under concurrency. SQLite (used in
-        # tests) ignores the function — the test harness is single-writer.
-        dialect = getattr(getattr(db, "bind", None), "dialect", None)
-        if getattr(dialect, "name", None) == "postgresql":
-            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _AUDIT_CHAIN_LOCK_KEY})
-        previous_hash = db.scalar(
-            select(AuditLog.row_hash).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(1)
-        )
-        created_at = utcnow()
-        row = AuditLog(
-            id=new_uuid(),
-            action=action,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            org_id=org_id,
-            actor_user_id=actor_user_id,
-            request_id=request_id,
-            before=_json_safe(before),
-            after=_json_safe(after),
-            metadata_json=_json_safe(metadata),
-            prev_hash=previous_hash,
-            created_at=created_at,
-            updated_at=created_at,
-        )
-        row.row_hash = compute_audit_row_hash(row)
-        db.add(row)
-        db.flush()
-    except Exception:
-        raise
+    # Serialize append with a Postgres session-scoped advisory lock so
+    # two concurrent audit writers cannot both observe the same tail row
+    # and insert siblings that share a prev_hash. Without this the chain
+    # is not actually tamper-evident under concurrency. SQLite (used in
+    # tests) ignores the function — the test harness is single-writer.
+    dialect = getattr(getattr(db, "bind", None), "dialect", None)
+    if getattr(dialect, "name", None) == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _AUDIT_CHAIN_LOCK_KEY})
+    previous_hash = db.scalar(
+        select(AuditLog.row_hash).order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).limit(1)
+    )
+    created_at = utcnow()
+    row = AuditLog(
+        id=new_uuid(),
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        org_id=org_id,
+        actor_user_id=actor_user_id,
+        request_id=request_id,
+        before=_json_safe(before),
+        after=_json_safe(after),
+        metadata_json=_json_safe(metadata),
+        prev_hash=previous_hash,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    row.row_hash = compute_audit_row_hash(row)
+    db.add(row)
+    db.flush()
     return row
 
 

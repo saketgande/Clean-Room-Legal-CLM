@@ -31,7 +31,6 @@ from app.playbooks.models import (
     PlaybookVersion,
 )
 
-
 GENERATED_RULE_TEMPLATES = [
     {
         "clause_type": "confidentiality",
@@ -997,7 +996,7 @@ def _append_revision_runs(parent: Any, text: str, *, text_tag: str, OxmlElement:
 
 
 def _proposed_text(source_text: str, instructions: str) -> str:
-    return "\n\n".join([source_text, "[Playbook redline suggestions]", instructions]).strip()
+    return f"{source_text}\n\n[Playbook redline suggestions]\n\n{instructions}".strip()
 
 
 def _redline_instructions(deviations: list[PlaybookDeviation]) -> str:

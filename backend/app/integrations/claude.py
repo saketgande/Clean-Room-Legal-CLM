@@ -3,15 +3,15 @@ import base64
 import logging
 import time
 import weakref
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from typing import Any
 
 import httpx
 
 from app.core.config import settings
 from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
 from app.integrations._http_retry import resilient_call
-
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +273,7 @@ class ClaudeClient:
                 body = ""
                 try:
                     body = response.text[:1500]
-                except Exception:  # noqa: BLE001
+                except Exception:
                     body = "<unreadable body>"
                 logger.error(
                     "Anthropic /v1/messages %s (model=%s, max_tokens=%s): %s",

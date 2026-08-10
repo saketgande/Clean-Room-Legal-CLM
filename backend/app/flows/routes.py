@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db, require_permission
+from app.core.deps import get_db, require_permission
 from app.flows import service
 from app.flows.builtin import seed_builtin_flows
 from app.flows.models import Flow, FlowRun

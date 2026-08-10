@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, JSON, String, Table, Text, UniqueConstraint
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Table, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.core.database import (
@@ -10,7 +10,6 @@ from app.core.database import (
     TimestampMixin,
 )
 from app.core.enums import UserStatus
-
 
 user_role_table = Table(
     "user_role",

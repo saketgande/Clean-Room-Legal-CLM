@@ -9,10 +9,10 @@ from sqlalchemy import delete, select
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AISkillRun
+from app.ai.schemas import TabularCellOutput
 from app.contract_brain.ingestion import ingest_contract_brain
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.models import Contract
-from app.ai.schemas import TabularCellOutput
 from app.core.database import SessionLocal, utcnow
 from app.core.enums import AISkillRunStatus, JobStatus, ObligationStatus, TabularCellStatus
 from app.jobs.celery_app import celery_app
@@ -102,14 +102,14 @@ async def _maybe_auto_review(db, *, job) -> None:
     try:
         if user is not None:
             await compute_contract_risk(db, contract=contract, user=user, request_id=None)
-    except Exception as exc:  # noqa: BLE001 - best-effort
+    except Exception as exc:
         logger.warning("auto risk failed for %s: %s", contract.id, exc)
     try:
         res = await auto_review_contract(
             db, contract=contract, actor_user_id=job.created_by_user_id, create_redline=True
         )
         logger.info("auto playbook review for %s: %s", contract.id, res)
-    except Exception as exc:  # noqa: BLE001 - best-effort
+    except Exception as exc:
         logger.warning("auto playbook review failed for %s: %s", contract.id, exc)
 
     contract = db.get(Contract, job.resource_id)
@@ -522,12 +522,13 @@ def check_stage_slas() -> dict:
     later -> escalate to org admins. Exact-day matching keeps this
     naturally idempotent for a once-daily schedule (no dedupe table needed).
     """
+    from sqlalchemy import func
+
     from app.auth.models import Role, User
     from app.contracts.lifecycle import parse_stage_slas
     from app.contracts.models import Contract, ContractStageHistory
     from app.core.config import settings
     from app.notifications.models import Notification
-    from sqlalchemy import func
 
     sla_map = parse_stage_slas(settings.stage_sla_days)
     if not sla_map:

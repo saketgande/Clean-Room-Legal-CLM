@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.models import Contract
 
-
 MAX_FULL_TEXT_CHARS = 25_000
 
 

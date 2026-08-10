@@ -44,9 +44,7 @@ def _matches(r: IntakeRoutingRule, w: _WS) -> bool:
         return False
     if r.match_keyword and r.match_keyword.lower() not in (w.description or "").lower():
         return False
-    if r.match_complexity and r.match_complexity != w.complexity:
-        return False
-    return True
+    return not (r.match_complexity and r.match_complexity != w.complexity)
 
 
 def apply_routing(db: Session, request: IntakeRequest) -> None:

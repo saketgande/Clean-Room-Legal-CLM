@@ -14,15 +14,12 @@ from app.approvals.routes import router as approvals_router
 from app.assistant.routes import router as assistant_router
 from app.auth.routes import router as auth_router
 from app.auth.routes import users_router
-from app.roles.routes import router as roles_router
-from app.grants.routes import router as grants_router
-from app.walls.routes import router as walls_router
 from app.authority.routes import router as authority_router
-from app.intake.routes import router as intake_router
 from app.contract_brain.routes import router as contract_brain_router
-from app.contract_files.routes import external_share_router, router as contract_files_router
-from app.contracts.routes import router as contracts_router
+from app.contract_files.routes import external_share_router
+from app.contract_files.routes import router as contract_files_router
 from app.contracts.comments_routes import router as contract_comments_router
+from app.contracts.routes import router as contracts_router
 from app.core.config import settings, validate_runtime_settings
 from app.core.deps import get_db
 from app.core.exceptions import register_exception_handlers
@@ -33,24 +30,28 @@ from app.core.request_log_queue import start_writer as start_request_log_writer
 from app.core.request_log_queue import stop_writer as stop_request_log_writer
 from app.debug.routes import check_readiness
 from app.debug.routes import router as debug_router
+from app.flows.routes import router as flows_router
+from app.grants.routes import router as grants_router
+from app.intake.routes import router as intake_router
 from app.integrations.claude import aclose_claude_client
 from app.integrations.docusign import aclose_docusign_client
 from app.integrations.resend import aclose_resend_client
 from app.jobs.routes import router as jobs_router
 from app.notifications.routes import router as notifications_router
 from app.obligations.routes import router as obligations_router
+from app.observability.routes import router as observability_router
 from app.organizations.routes import router as organizations_router
 from app.playbooks.routes import router as playbooks_router
 from app.projects.routes import router as projects_router
 from app.renewals.routes import router as renewals_router
-from app.observability.routes import router as observability_router
+from app.roles.routes import router as roles_router
 from app.search.routes import router as search_router
 from app.signatures.routes import router as signatures_router
 from app.tabular_review.routes import router as tabular_review_router
 from app.trademarks.routes import router as trademarks_router
+from app.walls.routes import router as walls_router
 from app.word_addin.routes import router as word_addin_router
 from app.workflows.routes import router as workflows_router
-from app.flows.routes import router as flows_router
 
 
 @asynccontextmanager

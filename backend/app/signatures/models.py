@@ -1,6 +1,13 @@
-from sqlalchemy import Column, DateTime, ForeignKey, JSON, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text
 
-from app.core.database import ActorTrackedMixin, Base, IdMixin, OrgScopedMixin, TableNameMixin, TimestampMixin
+from app.core.database import (
+    ActorTrackedMixin,
+    Base,
+    IdMixin,
+    OrgScopedMixin,
+    TableNameMixin,
+    TimestampMixin,
+)
 from app.core.enums import SignatureStatus
 
 

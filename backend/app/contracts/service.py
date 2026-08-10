@@ -6,7 +6,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.playbooks.models import PlaybookDeviation, PlaybookRun
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import (
     ContractEdit,
@@ -22,6 +21,7 @@ from app.core.enums import (
     UserStatus,
 )
 from app.core.models import ResourceTimelineEvent
+from app.playbooks.models import PlaybookDeviation, PlaybookRun
 
 
 def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contract:
@@ -229,7 +229,6 @@ def compute_review_status(db: Session, *, contract: Contract) -> dict:
     # comments are surfaced as ADVISORY signals (see checklist) but don't block —
     # high risk is handled by routing to a senior approver, not by a wall. This
     # matches how Ironclad / Juro gate the move into approval.
-    blockers = pending_redlines
     ready_for_approval = stage in _PRE_APPROVAL_STAGES and pending_redlines == 0
 
     def _item(key, label, status, count=0, detail=None):

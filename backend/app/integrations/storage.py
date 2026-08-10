@@ -155,12 +155,9 @@ class S3Storage:
         """
         data = self.read_bytes(storage_key)
         suffix = Path(storage_key).suffix
-        tmp = tempfile.NamedTemporaryFile(prefix="aegis_s3_", suffix=suffix, delete=False)
-        try:
+        with tempfile.NamedTemporaryFile(prefix="aegis_s3_", suffix=suffix, delete=False) as tmp:
             tmp.write(data)
             tmp.flush()
-        finally:
-            tmp.close()
         return Path(tmp.name)
 
     def delete_bytes_permanently(self, storage_key: str) -> None:

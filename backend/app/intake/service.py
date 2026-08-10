@@ -13,8 +13,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from fastapi import HTTPException, status as httpstatus
-from sqlalchemy import func, or_, select
+from fastapi import HTTPException
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -22,6 +22,18 @@ from app.core.access import is_org_admin
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.intake import agents, routing
+
+# --- status / stage constants (shared, see constants.py) -------------------
+from app.intake.constants import (
+    AT_RISK,
+    OPEN_STATUSES,
+    OVERDUE,
+    SPINE_DEFAULT_MID,
+    SPINE_HEAD,
+    SPINE_TAIL,
+    STAGE_LABELS,
+    TERMINAL_STATUSES,
+)
 from app.intake.models import (
     IntakeHandoff,
     IntakeKbArticle,
@@ -31,13 +43,6 @@ from app.intake.models import (
     IntakeRoutingRule,
     IntakeTask,
     IntakeTeam,
-    IntakeTeamMember,
-)
-
-# --- status / stage constants (shared, see constants.py) -------------------
-from app.intake.constants import (  # noqa: E402
-    AT_RISK, OVERDUE, OPEN_STATUSES, PRIORITIES, SPINE_DEFAULT_MID, SPINE_HEAD,
-    SPINE_TAIL, STAGE_LABELS, STATUSES, TERMINAL_STATUSES,
 )
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -82,7 +87,7 @@ def sla_pct(r: IntakeRequest, now=None) -> int:
     elapsed, window = _elapsed_and_window_ms(r, now)
     if window <= 0:
         return 0
-    return int(round(elapsed / window * 100))
+    return round(elapsed / window * 100)
 
 
 def posture(r: IntakeRequest, now=None) -> str:
@@ -716,7 +721,7 @@ def record_triage_action(db: Session, *, actor: User, request_id: str, payload,
         r.triage_action = "snoozed"
         if payload.snoozed_until:
             try:
-                r.snoozed_until = datetime.fromisoformat(payload.snoozed_until.replace("Z", "+00:00"))
+                r.snoozed_until = datetime.fromisoformat(payload.snoozed_until)
             except ValueError:
                 raise HTTPException(422, "Invalid snoozed_until")
         write_audit_log(db, action="intake.snoozed", resource_type="intake_request",
@@ -1035,7 +1040,7 @@ def build_sla_legs(db: Session, *, request: IntakeRequest, now=None) -> dict:
         return {
             "holder": cur["holder"], "holder_user_id": cur["uid"], "holder_label": cur["label"],
             "start_ts": cur["start"], "end_ts": end_ts, "elapsed_ms": elapsed,
-            "pct_of_sla": int(round(elapsed / sla_ms * 100)) if sla_ms else 0,
+            "pct_of_sla": round(elapsed / sla_ms * 100) if sla_ms else 0,
             "breached_during_leg": bool(sla_ms > 0 and cur["start"] <= breach_ts < end_ts),
         }
 

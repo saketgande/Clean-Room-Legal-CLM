@@ -9,7 +9,6 @@ from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import ContractLifecycleStage, ContractVersionSource
 
-
 # Lean 7-stage flow. Most forward hops are auto-advanced by events (approval
 # completing → SIGNATURE, signing completing → ACTIVE), so users rarely drive
 # these by hand. Backward hops (e.g. APPROVAL/SIGNATURE → REVIEW) cover

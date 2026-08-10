@@ -3,6 +3,7 @@ import argparse
 from fastapi import HTTPException
 from sqlalchemy import select
 
+import app.models  # noqa: F401
 from app.approvals.service import ensure_default_approver_groups
 from app.auth.models import Role, User
 from app.auth.schemas import SetupAdminRequest
@@ -12,8 +13,6 @@ from app.core.database import Base, SessionLocal, engine
 from app.core.enums import UserStatus
 from app.core.security import hash_password
 from app.organizations.models import Organization
-import app.models  # noqa: F401
-
 
 # Two demo users per role, for local RBAC / multi-user testing. Seeded the same
 # way as the admin (same org, password hashing, active status) but for the

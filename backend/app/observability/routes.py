@@ -51,4 +51,3 @@ async def ingest_client_log(
             "request_id": request_id,
         },
     )
-    return None

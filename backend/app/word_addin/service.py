@@ -79,11 +79,15 @@ def _system_prompt(party: str | None, playbook: str | None) -> str:
     lines = [
         "You are a senior commercial-contracts attorney reviewing a contract for risk.",
         "Surface the issues a careful lawyer would redline, ordered by severity.",
-        "When there is concrete text to change, copy the EXACT original wording verbatim into "
-        "original_text (so an editor can locate it) and put your proposal in suggested_text with "
-        "action='replace'.",
-        "For a clause that is missing entirely, use action='insert' with suggested_text and leave "
-        "original_text empty.",
+        (
+            "When there is concrete text to change, copy the EXACT original wording verbatim into "
+            "original_text (so an editor can locate it) and put your proposal in suggested_text with "
+            "action='replace'."
+        ),
+        (
+            "For a clause that is missing entirely, use action='insert' with suggested_text and leave "
+            "original_text empty."
+        ),
         "Use action='flag' only when raising a concern with no specific edit.",
         "Never invent text for original_text that is not present verbatim in the contract.",
     ]
@@ -128,7 +132,7 @@ async def run_contract_review(req: ReviewRequest) -> ReviewResponse:
     for item in (payload.get("findings") or [])[: req.max_findings]:
         try:
             findings.append(Finding(**item))
-        except Exception:  # noqa: BLE001 — drop a malformed finding rather than 500 the whole review
+        except Exception:
             logger.warning("word_addin: dropping malformed finding: %s", item)
 
     return ReviewResponse(

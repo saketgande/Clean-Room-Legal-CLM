@@ -22,7 +22,6 @@ from app.search.fts import (
     text_matches,
 )
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -240,12 +239,12 @@ _FILLER = (
 _COUNT_RE = re.compile(
     rf"^\s*(how many|the number of|number of|count(\s+of)?|total(\s+number\s+of)?)\s+"
     rf"(contracts?|agreements?)\b\s*(?:{_FILLER})?\s*[?.]?\s*$",
-    re.I,
+    re.IGNORECASE,
 )
 _LIST_RE = re.compile(
     rf"^\s*(list|show(\s+me)?|what|which)\s+(all\s+|my\s+|the\s+|our\s+)?"
     rf"(contracts?|agreements?)\b\s*(?:{_FILLER}|do (i|we) have)?\s*[?.]?\s*$",
-    re.I,
+    re.IGNORECASE,
 )
 
 

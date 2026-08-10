@@ -8,13 +8,15 @@ the 3 external HTTP calls run in a small thread pool so they still overlap.
 """
 
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.embeddings import embed_texts
 from app.core.config import Settings
+from app.core.enums import SourceStatus, TrademarkRiskLevel
 from app.trademarks.models import Trademark
 from app.trademarks.providers import signa as signa_provider
 from app.trademarks.providers import tmsearch as tmsearch_provider
@@ -29,7 +31,6 @@ from app.trademarks.schemas import (
     TmSearchResult,
     WebSearchResult,
 )
-from app.core.enums import SourceStatus, TrademarkRiskLevel
 
 # Order is deliberate - Signa, TM Search, Serper web, then internal Postgres -
 # the frontend's source cards and the PDF export mirror this insertion order.
@@ -77,14 +78,14 @@ def _safe_result(future: Future, timeout: float) -> SourceResult:
         return future.result(timeout=timeout)
     except FutureTimeoutError:
         return SourceResult(status=SourceStatus.TIMEOUT, results=[])
-    except Exception as exc:  # noqa: BLE001 - isolates one source's failure from the rest
+    except Exception as exc:
         return SourceResult(status=SourceStatus.ERROR, error_message=str(exc), results=[])
 
 
 def _safe_call(fn) -> SourceResult:
     try:
         return fn()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return SourceResult(status=SourceStatus.ERROR, error_message=str(exc), results=[])
 
 

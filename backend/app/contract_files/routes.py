@@ -29,9 +29,9 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contract_files.schemas import (
-    ContractFileResponse,
     ContractEditDecisionRequest,
     ContractEditResponse,
+    ContractFileResponse,
     ContractShareCreate,
     ContractShareCreateResponse,
     ContractShareResponse,
@@ -46,9 +46,9 @@ from app.contract_files.service import (
     next_version_number,
     requeue_contract_ai_jobs,
 )
+from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
-from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -196,7 +196,7 @@ async def log_counterparty_revision(
                 override_authorized=True,
                 request_id=req_id,
             )
-        except Exception:  # noqa: BLE001 - re-open is best-effort
+        except Exception:
             pass
     meta = dict(contract.metadata_json or {})
     meta["auto_review_pending"] = True

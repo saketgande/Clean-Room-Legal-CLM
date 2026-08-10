@@ -1,6 +1,5 @@
 from collections.abc import Iterable
 
-
 CONTRACT_PERMISSIONS = {
     "contract:read",
     "contract:create",

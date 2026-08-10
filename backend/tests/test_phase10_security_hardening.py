@@ -21,7 +21,6 @@ from app.core.security import (
     verify_password,
 )
 
-
 # --- bcrypt pre-hashing (#11) ---------------------------------------------
 
 
@@ -49,8 +48,10 @@ def test_create_access_token_returns_payload_with_jti():
 
 def test_decode_access_token_requires_jti():
     """A token without a jti must be rejected — we use jti for revocation."""
-    import jwt
     from datetime import UTC, datetime, timedelta
+
+    import jwt
+
     from app.core.config import settings as live_settings
 
     forged = jwt.encode(

@@ -1,6 +1,13 @@
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Text
 
-from app.core.database import ActorTrackedMixin, Base, IdMixin, OrgScopedMixin, TableNameMixin, TimestampMixin
+from app.core.database import (
+    ActorTrackedMixin,
+    Base,
+    IdMixin,
+    OrgScopedMixin,
+    TableNameMixin,
+    TimestampMixin,
+)
 
 
 class KnowledgeNode(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

@@ -64,6 +64,15 @@ include = ["app*"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+ignore = [
+  "B008",   # FastAPI Depends() in defaults is the standard DI pattern
+  "BLE001", # deliberate broad excepts around optional deps / defensive fallbacks
+  "S110",   # deliberate try/except/pass (best-effort, already commented)
+  "S112",   # deliberate try/except/continue (same)
+  "DTZ011", # pre-existing naive-datetime usage; out of scope here
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

@@ -1,4 +1,14 @@
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -8,7 +18,12 @@ from app.core.database import (
     TableNameMixin,
     TimestampMixin,
 )
-from app.core.enums import AssistantRunStatus, AssistantSessionType, AssistantToolCallStatus, AssistantToolCategory
+from app.core.enums import (
+    AssistantRunStatus,
+    AssistantSessionType,
+    AssistantToolCallStatus,
+    AssistantToolCategory,
+)
 
 
 class AssistantSession(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

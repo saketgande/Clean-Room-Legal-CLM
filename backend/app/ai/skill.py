@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Type
 
 from pydantic import BaseModel
 
@@ -12,8 +11,8 @@ class SkillSpec:
     execution_mode: str
     prompt_key: str
     prompt_version: str
-    input_model: Type[BaseModel] | None
-    output_model: Type[BaseModel]
+    input_model: type[BaseModel] | None
+    output_model: type[BaseModel]
     required_permission: str | None
     resource_type: str | None
     requires_citations: bool
