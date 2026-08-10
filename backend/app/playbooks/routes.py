@@ -8,11 +8,11 @@ from app.ai.schemas import PlaybookReviewOutput
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contract_files.service import validate_upload_mime
 from app.contract_files.text_extraction import extract_text
-from app.core.config import settings
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log
+from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import PlaybookStatus

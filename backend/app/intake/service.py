@@ -45,12 +45,6 @@ from app.intake.models import (
     IntakeTeam,
 )
 
-# --- status / stage constants (shared, see constants.py) -------------------
-from app.intake.constants import (  # noqa: E402
-    AT_RISK, OVERDUE, OPEN_STATUSES, SPINE_DEFAULT_MID, SPINE_HEAD,
-    SPINE_TAIL, STAGE_LABELS, TERMINAL_STATUSES,
-)
-
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 

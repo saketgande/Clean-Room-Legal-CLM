@@ -25,8 +25,8 @@ from app.auth.models import User
 from app.core.audit import write_audit_log
 from app.core.config import settings
 from app.core.models import AdminSetting
-from app.intake.models import IntakeRequest
 from app.intake import agents, service
+from app.intake.models import IntakeRequest
 
 WATERMARK_KEY = "intake.mailbox_watermark"
 _GRAPH = "https://graph.microsoft.com/v1.0"

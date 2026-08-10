@@ -5,11 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
 from app.flows import service
 from app.flows.builtin import seed_builtin_flows
 from app.flows.models import Flow, FlowRun
-from app.contracts.service import get_contract_for_user
 from app.intake.models import IntakeRequest
 
 router = APIRouter(prefix="/flows", tags=["flows"])

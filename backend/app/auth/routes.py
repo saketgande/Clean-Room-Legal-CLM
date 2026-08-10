@@ -31,7 +31,6 @@ from app.auth.service import (
     create_api_key,
     create_first_admin,
     create_user_invitation,
-    decide_join_request,
     decide_user_approval,
     list_api_keys,
     list_org_users,

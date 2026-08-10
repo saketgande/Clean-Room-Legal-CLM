@@ -16,11 +16,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.contract_files.models import (
     ContractEdit,

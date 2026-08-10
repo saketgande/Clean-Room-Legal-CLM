@@ -34,18 +34,13 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
-from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
-from app.jobs.models import JobRun
-from app.notifications.models import Notification
-from app.obligations.models import Obligation, ObligationReminder
-from app.organizations.models import Organization
-from app.playbooks.models import (
-    Playbook,
-    PlaybookDecision,
-    PlaybookDeviation,
-    PlaybookRule,
-    PlaybookRun,
-    PlaybookVersion,
+from app.core.models import (
+    AdminSetting,
+    AICallLog,
+    AuditLog,
+    RequestLog,
+    ResourceTimelineEvent,
+    UsageRecord,
 )
 from app.flows.models import Flow, FlowRun, FlowStepRun
 from app.grants.models import ResourceGrant
@@ -144,7 +139,6 @@ __all__ = [
     "Notification",
     "Obligation",
     "ObligationReminder",
-    "OrgJoinRequest",
     "Organization",
     "PasswordResetToken",
     "Permission",
