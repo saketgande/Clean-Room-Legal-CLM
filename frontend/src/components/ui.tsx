@@ -22,7 +22,16 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Info,
+  Loader2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ---- Button --------------------------------------------------------------
@@ -477,6 +486,47 @@ export function ErrorState({ error }: { error: unknown }) {
       className="rounded-md border border-danger/30 bg-danger-subtle p-4 text-[13px] text-danger"
     >
       {message}
+    </div>
+  );
+}
+
+// ---- MessageBar ------------------------------------------------------------
+type MessageBarIntent = "info" | "success" | "warning" | "error";
+
+const messageBarStyles: Record<MessageBarIntent, string> = {
+  info: "border-info/30 bg-info-subtle text-info",
+  success: "border-success/30 bg-success-subtle text-success",
+  warning: "border-warning/30 bg-warning-subtle text-warning",
+  error: "border-danger/30 bg-danger-subtle text-danger",
+};
+
+const messageBarIcons: Record<MessageBarIntent, ReactNode> = {
+  info: <Info className="h-4 w-4 shrink-0" />,
+  success: <CheckCircle2 className="h-4 w-4 shrink-0" />,
+  warning: <AlertTriangle className="h-4 w-4 shrink-0" />,
+  error: <XCircle className="h-4 w-4 shrink-0" />,
+};
+
+export function MessageBar({
+  intent = "info",
+  className,
+  children,
+}: {
+  intent?: MessageBarIntent;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role={intent === "error" ? "alert" : "status"}
+      className={cn(
+        "flex items-start gap-2 rounded-md border p-3 text-[13px] leading-5",
+        messageBarStyles[intent],
+        className,
+      )}
+    >
+      {messageBarIcons[intent]}
+      <div className="min-w-0 flex-1">{children}</div>
     </div>
   );
 }
