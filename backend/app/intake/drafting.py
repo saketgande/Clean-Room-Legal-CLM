@@ -276,13 +276,13 @@ def resolve_doc_type(request: IntakeRequest) -> str | None:
     text = f"{request.type_label} {request.description or ''}".lower()
     category = (classify(request.type_label, request.description or "").get("category") or "").lower()
 
-    if "nda" in text or "non-disclosure" in text or "non disclosure" in text or category == "nda":
+    if re.search(r"\b(nda|non-disclosure|non disclosure)\b", text) or category == "nda":
         return "nda"
     if re.search(r"\b(dpa|data processing|data protection|gdpr)\b", text) or category == "privacy":
         return "dpa"
     if re.search(r"\b(msa|master service|master services|services agreement|statement of work|sow)\b", text):
         return "msa"
-    if "vendor" in text or "supplier" in text or "procurement" in text or category == "vendor":
+    if re.search(r"\b(vendor|supplier|procurement)\b", text) or category == "vendor":
         return "vendor"
     return None
 

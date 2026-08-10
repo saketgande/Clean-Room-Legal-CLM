@@ -271,7 +271,7 @@ class ToolRuntime:
         if tool_name == "replicate_contract_version":
             return self._replicate_contract_version(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "run_playbook_review":
-            return self._run_playbook_review(
+            return await self._run_playbook_review(
                 db,
                 payload=payload,
                 user=user,
@@ -279,7 +279,7 @@ class ToolRuntime:
                 create_redline=False,
             )
         if tool_name == "redline_against_playbook":
-            return self._run_playbook_review(
+            return await self._run_playbook_review(
                 db,
                 payload=payload,
                 user=user,
@@ -465,7 +465,7 @@ class ToolRuntime:
                         "reason": "Awaiting signature", "due_date": None, "urgency": "medium",
                     })
         except Exception:  # pragma: no cover - never let one source break the worklist
-            pass
+            logging.getLogger(__name__).debug("worklist source failed; skipping", exc_info=True)
         rank = {"overdue": 0, "high": 1, "medium": 2}
         items.sort(key=lambda x: (rank.get(x["urgency"], 3), x["due_date"] or "9999-12-31"))
         return {"window_days": payload.window_days, "count": len(items), "items": items[:40]}
@@ -1342,7 +1342,7 @@ class ToolRuntime:
             "contract_version_id": replicated.id,
         }
 
-    def _run_playbook_review(
+    async def _run_playbook_review(
         self,
         db: Session,
         *,
@@ -1366,6 +1366,29 @@ class ToolRuntime:
             version_id=payload.playbook_version_id,
             test_mode=payload.test_mode,
         )
+        # This tool previously never attempted a real review at all — it always
+        # fell straight to execute_playbook_run's deterministic engine. Match the
+        # real skill call already used by the /run route and auto_review_contract.
+        from app.ai.controller import ai_controller
+        from app.ai.schemas import PlaybookReviewOutput
+        from app.playbooks.service import _auto_rule_payloads
+
+        rules = _auto_rule_payloads(db, org_id=user.org_id, playbook_version_id=version.id)
+        ai_output = None
+        ai_error = None
+        try:
+            raw = await ai_controller.run_structured_skill(
+                db, skill_name="playbook_review", org_id=user.org_id, created_by_user_id=user.id,
+                input_payload={
+                    "contract_id": contract.id,
+                    "contract_version_id": contract.current_authoritative_version_id,
+                    "playbook_id": playbook.id, "playbook_version_id": version.id, "rules": rules,
+                },
+                resource_type="contract", resource_id=contract.id,
+            )
+            ai_output = PlaybookReviewOutput.model_validate(raw)
+        except Exception as exc:
+            ai_error = f"{exc.__class__.__name__}: {exc}"
         artifacts = execute_playbook_run(
             db,
             user=user,
@@ -1373,11 +1396,15 @@ class ToolRuntime:
             version=version,
             contract=contract,
             create_redline=create_redline,
+            ai_output=ai_output,
+            ai_error=ai_error,
         )
         db.flush()
         result = {
             "status": artifacts.run.status,
             "artifact_type": "playbook_redline" if artifacts.redline_version else "playbook_review",
+            "model_name": artifacts.run.model_name,
+            "ai_error": ai_error,
             "contract_id": contract.id,
             "playbook_id": playbook.id,
             "playbook_version_id": version.id,
@@ -1903,33 +1930,6 @@ def _render_structured_contract_docx(
     return "\n\n".join(text_parts), buffer.getvalue()
 
 
-def _build_generated_contract_docx(*, title: str, instructions: str) -> tuple[str, bytes]:
-    from docx import Document
-
-    sections = [
-        ("Parties", "Identify the contracting parties and fill in any missing legal names."),
-        ("Purpose", "Describe the commercial purpose of this contract."),
-        ("Key Terms", instructions),
-        ("Obligations", "List each party's main obligations clearly and separately."),
-        ("Payment and Fees", "State payment amounts, timing, taxes, and invoicing rules if applicable."),
-        ("Confidentiality", "Include confidentiality duties, exclusions, and survival period."),
-        ("Term and Termination", "State effective date, renewal, termination rights, and notice periods."),
-        ("Governing Law", "State governing law and dispute forum."),
-        ("Open Issues", "Confirm all bracketed or business-specific terms before signature."),
-    ]
-    text_parts = [title]
-    document = Document()
-    document.add_heading(title, level=1)
-    document.add_paragraph("Assistant-generated working draft. Review before use.")
-    for heading, body in sections:
-        document.add_heading(heading, level=2)
-        document.add_paragraph(body)
-        text_parts.extend([heading, body])
-    buffer = BytesIO()
-    document.save(buffer)
-    return "\n\n".join(text_parts), buffer.getvalue()
-
-
 def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
     """Locate needle in haystack. Exact match first; then a whitespace-tolerant
     match (the model may quote across reflowed line breaks)."""
@@ -2081,50 +2081,6 @@ def _build_redline_docx(
             )
             revision_id += 1
 
-    buffer = BytesIO()
-    document.save(buffer)
-    return buffer.getvalue()
-
-
-def _build_edit_docx(
-    *,
-    contract_title: str,
-    base_version_number: int,
-    instructions: str,
-    source_text: str,
-) -> bytes:
-    from docx import Document
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-
-    document = Document()
-    _enable_word_track_revisions(document, OxmlElement=OxmlElement, qn=qn)
-    document.add_heading(f"{contract_title} - Assistant Redline Proposal", level=1)
-    document.add_paragraph(f"Base version: V{base_version_number}")
-    document.add_heading("Requested Change", level=2)
-    document.add_paragraph(instructions)
-    document.add_heading("Native Word Tracked Changes", level=2)
-    document.add_paragraph(
-        "This version contains native Word revision markup. "
-        "Use accept/reject endpoints to make the proposal authoritative or close it."
-    )
-    revision_paragraph = document.add_paragraph()
-    _append_deleted_text(
-        revision_paragraph,
-        source_text or "No source text snapshot was available.",
-        author="Legal AI Assistant",
-        revision_id="1",
-        OxmlElement=OxmlElement,
-        qn=qn,
-    )
-    _append_inserted_text(
-        revision_paragraph,
-        _assistant_edit_text(source_text=source_text, instructions=instructions),
-        author="Legal AI Assistant",
-        revision_id="2",
-        OxmlElement=OxmlElement,
-        qn=qn,
-    )
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()

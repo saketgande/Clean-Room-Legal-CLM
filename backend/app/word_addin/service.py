@@ -4,7 +4,10 @@ from typing import Any
 
 from fastapi import UploadFile
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
+from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+from app.ai.cost_guard import enforce_daily_token_cap
 from app.contract_files.models import ContractVersion, StorageObject
 from app.contract_files.service import _read_upload_with_limit, create_contract_from_upload
 from app.contracts.models import Contract
@@ -75,30 +78,17 @@ _INPUT_SCHEMA: dict[str, Any] = {
 }
 
 
-def _system_prompt(party: str | None, playbook: str | None) -> str:
-    lines = [
-        "You are a senior commercial-contracts attorney reviewing a contract for risk.",
-        "Surface the issues a careful lawyer would redline, ordered by severity.",
-        (
-            "When there is concrete text to change, copy the EXACT original wording verbatim into "
-            "original_text (so an editor can locate it) and put your proposal in suggested_text with "
-            "action='replace'."
-        ),
-        (
-            "For a clause that is missing entirely, use action='insert' with suggested_text and leave "
-            "original_text empty."
-        ),
-        "Use action='flag' only when raising a concern with no specific edit.",
-        "Never invent text for original_text that is not present verbatim in the contract.",
-    ]
+def _system_prompt(base: str, party: str | None, playbook: str | None) -> str:
+    lines = [base]
     if party:
         lines.append(f"Represent this party's interests: {party}.")
     if playbook:
         lines.append("Apply this negotiation playbook / house positions:\n" + playbook.strip())
+    lines.append(UNTRUSTED_INPUT_GUARD)
     return "\n".join(lines)
 
 
-async def run_contract_review(req: ReviewRequest) -> ReviewResponse:
+async def run_contract_review(req: ReviewRequest, db: Session, *, org_id: str) -> ReviewResponse:
     text = req.text or ""
     truncated = len(text) > _MAX_TEXT_CHARS
     if truncated:
@@ -115,14 +105,19 @@ async def run_contract_review(req: ReviewRequest) -> ReviewResponse:
     # dozen findings with quoted clauses.
     max_tokens = min(settings.claude_max_tokens_ceiling, 4000)
 
+    bundle = get_agent_prompt(db, agent_id="word_addin_review", org_id=org_id)
+    enforce_daily_token_cap(org_id)
     response = await claude_client.complete_structured(
-        system_prompt=_system_prompt(req.party, req.playbook),
+        system_prompt=_system_prompt(bundle.skill_prompt, req.party, req.playbook),
         user_prompt=user_prompt,
         tool_name=_REVIEW_TOOL,
         input_schema=_INPUT_SCHEMA,
         max_tokens=max_tokens,
         temperature=settings.ai_default_temperature,
+        model=bundle.model_name,
     )
+    log_agent_call(db, org_id=org_id, agent_id="word_addin_review", prompt_bundle=bundle,
+                    input_payload={"title": req.title, "party": req.party}, response=response)
 
     payload: dict[str, Any] = {}
     if response.tool_use_blocks:
@@ -143,15 +138,7 @@ async def run_contract_review(req: ReviewRequest) -> ReviewResponse:
     )
 
 
-_ASK_SYSTEM = (
-    "You are Aegis, a senior commercial-contracts attorney embedded in Microsoft Word. "
-    "Answer the user's question about the open contract precisely and concisely. Quote the "
-    "relevant clause text when it helps. If the contract doesn't address the question, say so "
-    "plainly. Use short paragraphs and bullet points where useful. This is not legal advice."
-)
-
-
-async def run_contract_question(req: AskRequest) -> AskResponse:
+async def run_contract_question(req: AskRequest, db: Session, *, org_id: str) -> AskResponse:
     text = req.text or ""
     truncated = len(text) > _MAX_TEXT_CHARS
     if truncated:
@@ -162,12 +149,17 @@ async def run_contract_question(req: AskRequest) -> AskResponse:
         + f"QUESTION:\n{req.question.strip()}\n\nCONTRACT TEXT:\n{text}"
     )
 
+    bundle = get_agent_prompt(db, agent_id="word_addin_ask", org_id=org_id)
+    enforce_daily_token_cap(org_id)
     response = await claude_client.complete_text(
-        system_prompt=_ASK_SYSTEM,
+        system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
         user_prompt=user_prompt,
         max_tokens=min(settings.claude_max_tokens_ceiling, 2000),
         temperature=settings.ai_default_temperature,
+        model=bundle.model_name,
     )
+    log_agent_call(db, org_id=org_id, agent_id="word_addin_ask", prompt_bundle=bundle,
+                    input_payload={"title": req.title, "question": req.question}, response=response)
 
     answer = "".join(
         block.get("text", "")

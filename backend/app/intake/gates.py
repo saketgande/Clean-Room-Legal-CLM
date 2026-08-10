@@ -71,16 +71,16 @@ def detect_keyword(text: str) -> list[dict]:
     return out
 
 
-def _classify_ai(text: str) -> list[dict] | None:
+def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
     """One structured Claude pass — mirrors intake/agents._live_draft. Returns
     None when mocked/degraded/error so the caller falls back to keywords."""
     from app.core.config import settings
 
     if settings.mock_claude:
         return None
-    import asyncio
-
-    from app.integrations.claude import ClaudeClient
+    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+    from app.ai.cost_guard import enforce_daily_token_cap
+    from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     schema = {
         "type": "object",
@@ -101,17 +101,18 @@ def _classify_ai(text: str) -> list[dict] | None:
         "required": ["gates"],
     }
     catalog = "\n".join(f"- {g.key}: {g.label}" for g in GATES)
+    bundle = get_agent_prompt(db, agent_id="intake_gate_classifier", org_id=org_id)
+    user_prompt = text[:4000]
     try:
-        resp = asyncio.run(ClaudeClient().complete_structured(
-            system_prompt=(
-                "You screen an in-house legal intake request for mandatory "
-                "senior-approval gates. Return ONLY gates that clearly apply, each "
-                "with a 0-1 confidence and the phrase that triggered it. When "
-                "unsure, omit the gate.\nGates:\n" + catalog),
-            user_prompt=text[:4000],
+        enforce_daily_token_cap(org_id)
+        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            system_prompt=bundle.skill_prompt + "\nGates:\n" + catalog + "\n\n" + UNTRUSTED_INPUT_GUARD,
+            user_prompt=user_prompt,
             tool_name="intake_gate_classifier", input_schema=schema,
-            max_tokens=500, temperature=0.0,
+            max_tokens=500, temperature=0.0, model=bundle.model_name,
         ))
+        log_agent_call(db, org_id=org_id, agent_id="intake_gate_classifier", prompt_bundle=bundle,
+                        input_payload={"user_prompt": user_prompt}, response=resp)
         blocks = getattr(resp, "tool_use_blocks", None) or []
         data = blocks[0].get("input") if blocks else None
         if not isinstance(data, dict):
@@ -132,10 +133,15 @@ def _classify_ai(text: str) -> list[dict] | None:
         return None
 
 
-def classify_gates(request) -> list[dict]:
+def classify_gates(db, request) -> list[dict]:
     """AI classifier with a deterministic keyword fallback."""
     text = _request_text(request)
-    return _classify_ai(text) or detect_keyword(text)
+    # M5: `_classify_ai(...) or detect_keyword(...)` treated a *successful* empty
+    # result (AI ran, found no gates → []) as a failure and fell through to the
+    # keyword detector, over-gating cleared requests. _classify_ai returns None
+    # ONLY on mock/degraded/error; an empty list means "no gates apply".
+    ai = _classify_ai(db, request.org_id, text)
+    return ai if ai is not None else detect_keyword(text)
 
 
 def effective_gate_keys(ai_triage: dict | None) -> list[str]:

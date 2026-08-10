@@ -49,6 +49,7 @@ class RequestTypeResponse(BaseModel):
 
 class RequestCreate(BaseModel):
     type_label: str
+    subject: str | None = None
     request_type_id: str | None = None
     department: str | None = None
     priority: str = Field(default="Medium", pattern="^(Critical|High|Medium|Low)$")
@@ -325,6 +326,7 @@ class RequestResponse(BaseModel):
     department: str | None = None
     request_type_id: str | None = None
     type_label: str
+    subject: str | None = None
     description: str
     field_values: dict | None = None
     priority: str

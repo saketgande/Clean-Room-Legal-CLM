@@ -4,13 +4,23 @@
 # is still ./start.sh — the two are independent, switch whenever you like.
 #
 # Quick start:
-#   cp .env.docker.example .env.docker
+#   cp backend/.env.example backend/.env   # then edit backend/.env
 #   docker compose up -d --build
 #   open http://localhost:3000     (API: http://localhost:8000)
 #
-# All backend app config comes from .env.docker. The three networking/storage
+# All backend app config comes from backend/.env. The three networking/storage
 # vars below are pinned here (they point at the compose service names + the
 # contracts volume) so they're always correct regardless of the env file.
+#
+#   make dev  (docker compose up, this file + docker-compose.override.yml)  -> DEVELOPMENT
+#   make prod (docker compose -f docker-compose.yml up, this file ALONE)    -> PRODUCTION
+#
+# ENVIRONMENT is pinned to "production" below so that running this file
+# without the dev override ALWAYS gets validate_runtime_settings()'s
+# production hardening checks (rejects default secrets, wildcard CORS/hosts,
+# mock integrations left on, insecure cookies, etc.) — regardless of whatever
+# ENVIRONMENT= backend/.env itself happens to say. docker-compose.override.yml
+# overrides this back to "development" for the dev path.
 
 name: aegis
 
@@ -22,12 +32,14 @@ x-backend: &backend
   # the host, so it works in both dev and prod modes.
   env_file:
     - ./backend/.env
-  # Container-only overrides: point at the in-stack services + volume. These
-  # take precedence over whatever backend/.env says for these three keys.
+  # Container-only overrides: point at the in-stack services + volume, and
+  # force production mode by default (see header comment). These take
+  # precedence over whatever backend/.env itself says for these four keys.
   environment:
     DATABASE_URL: postgresql+psycopg://legal_clm:legal_clm@postgres:5432/legal_clm
     REDIS_URL: redis://redis:6379/0
     STORAGE_ROOT: /data/contracts
+    ENVIRONMENT: production
   restart: unless-stopped
 
 services:

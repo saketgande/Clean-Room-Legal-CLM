@@ -28,17 +28,19 @@ import {
   Menu,
   PanelLeftClose,
   X,
+  Timer,
   Stamp,
  Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { can } from "@/lib/intake";
 import { useLayout } from "@/lib/layout";
-import { cn, initials } from "@/lib/utils";
+import { cn, initials, titleCase } from "@/lib/utils";
+import { Breadcrumbs } from "@/components/ui";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV: {
   section: string;
-  items: { href: string; label: string; icon: React.ElementType }[];
+  items: { href: string; label: string; icon: React.ElementType; perm?: string }[];
 }[] = [
   {
     section: "Workspace",
@@ -61,8 +63,9 @@ const NAV: {
   {
     section: "Lifecycle",
     items: [
-      { href: "/workflow-builder", label: "Workflows", icon: WorkflowIcon },
+      { href: "/workflow-builder", label: "Workflows", icon: WorkflowIcon, perm: "admin_panel:access" },
       { href: "/approvals", label: "Approvals", icon: ClipboardCheck },
+      { href: "/sla", label: "SLA", icon: Timer },
       { href: "/signatures", label: "Signatures", icon: Signature },
       { href: "/obligations", label: "Obligations", icon: ListChecks },
       { href: "/renewals", label: "Renewals", icon: RefreshCw },
@@ -72,6 +75,27 @@ const NAV: {
   // Jobs & Admin live in the sidebar-footer account menu; Notifications lives
   // in the top-right of the header — none belong in the primary nav.
 ];
+
+// Auto-breadcrumb support: map known routes to labels (primary nav + a few
+// account-menu / nested roots) so the shell renders "Home / Section" on
+// top-level pages. Detail routes ([id]) render their own richer breadcrumb.
+const ROUTE_LABELS: Record<string, string> = {
+  ...Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.href, i.label]))),
+  "/admin": "Admin",
+  "/jobs": "Jobs",
+  "/notifications": "Notifications",
+  "/contracts": "Contracts",
+};
+
+function buildCrumbs(pathname: string): { label: string; href?: string }[] | null {
+  const segs = pathname.split("/").filter(Boolean);
+  if (segs.length !== 1) return null; // root + detail routes are handled elsewhere
+  const href = `/${segs[0]}`;
+  return [
+    { label: "Home", href: "/" },
+    { label: ROUTE_LABELS[href] ?? titleCase(segs[0].replace(/-/g, " ")) },
+  ];
+}
 
 /** Unread in-app notifications — drives the bell badges. Polled lightly so the
  * badge stays fresh without a websocket. */
@@ -230,7 +254,10 @@ function SidebarNav({
 
       {/* Primary navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-2">
-        {NAV.map((group) => (
+        {NAV.map((group) => {
+          const items = group.items.filter((item) => !item.perm || can(user, item.perm));
+          if (items.length === 0) return null;
+          return (
           <div key={group.section} className="mb-5">
             {!collapsed && (
               <p className="px-2.5 pb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
@@ -238,7 +265,7 @@ function SidebarNav({
               </p>
             )}
             <div className="space-y-0.5">
-              {group.items.map((item) => {
+              {items.map((item) => {
                 const Icon = item.icon;
                 const active = isActive(item.href);
                 return (
@@ -272,7 +299,8 @@ function SidebarNav({
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Notifications — relocated here from the removed top bar */}
@@ -432,6 +460,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname === "/" ||
     pathname.startsWith("/assistant") ||
     pathname.startsWith("/contracts/");
+  const crumbs = fullBleed ? null : buildCrumbs(pathname);
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -513,6 +542,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             children
           ) : (
             <div className="mx-auto max-w-[1400px] px-5 py-4 sm:px-6">
+              {crumbs && <Breadcrumbs items={crumbs} />}
               {children}
             </div>
           )}

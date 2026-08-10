@@ -4,7 +4,7 @@
 // [id] is "new" (blank create) or a flow id (edit, loaded via getFlow).
 // Left column: settings + criteria + at-a-glance. Right column: the ladder.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -39,23 +39,10 @@ import {
   Input,
   Select,
 } from "@/components/ui";
-import { flowsApi, approvalsApi } from "@/lib/endpoints";
+import { flowsApi, approvalsApi, rolesApi } from "@/lib/endpoints";
 import { titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { ApprovalRoutingRule, Flow, FlowStepType } from "@/lib/types";
-
-const ROLE_OPTIONS = [
-  "requester",
-  "legal_ops",
-  "paralegal",
-  "attorney",
-  "legal_counsel",
-  "gc",
-  "cfo",
-  "ciso",
-  "privacy",
-  "procurement",
-];
 
 const AGENT_OPTIONS: { label: string; value: string }[] = [
   { label: "NDA agent", value: "nda-agent" },
@@ -67,6 +54,9 @@ const AGENT_OPTIONS: { label: string; value: string }[] = [
   { label: "Trademark agent", value: "trademark-agent" },
   { label: "Policy / FAQ agent", value: "faq-agent" },
 ];
+
+// Common request-category keywords for the match-type dropdown (substring match).
+const MATCH_TYPES = ["nda", "msa", "dpa", "vendor", "privacy", "trademark", "litigation"];
 
 
 // Node accent + icon per step type. Classes are static so Tailwind keeps them.
@@ -367,19 +357,21 @@ function Editor({ flow }: { flow: Flow | null }) {
             </CardHeader>
             <CardBody className="space-y-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Request type">
-                  <Input
-                    value={matchType ?? ""}
-                    placeholder="Any"
-                    onChange={(e) => setMatchType(e.target.value)}
-                  />
+                <Field label="Request type" hint="Matches the request category / label.">
+                  <Select value={matchType ?? ""} onChange={(e) => setMatchType(e.target.value)}>
+                    <option value="">Any</option>
+                    {(matchType && !MATCH_TYPES.includes(matchType) ? [matchType, ...MATCH_TYPES] : MATCH_TYPES).map((t) => (
+                      <option key={t} value={t}>{titleCase(t)}</option>
+                    ))}
+                  </Select>
                 </Field>
                 <Field label="Priority">
-                  <Input
-                    value={matchPriority ?? ""}
-                    placeholder="Any"
-                    onChange={(e) => setMatchPriority(e.target.value)}
-                  />
+                  <Select value={matchPriority ?? ""} onChange={(e) => setMatchPriority(e.target.value)}>
+                    <option value="">Any</option>
+                    {["Critical", "High", "Medium", "Low"].map((p) => (
+                      <option key={p} value={p}>{p}</option>
+                    ))}
+                  </Select>
                 </Field>
               </div>
               <Field label="Keyword">
@@ -457,11 +449,36 @@ function Editor({ flow }: { flow: Flow | null }) {
 }
 
 function formatSla(hours: number): string {
-  if (hours >= 24) {
-    const days = Math.round((hours / 24) * 10) / 10;
-    return `≈ ${days} day${days === 1 ? "" : "s"}`;
-  }
-  return `≈ ${hours}h`;
+  const days = Math.round((hours / 24) * 10) / 10;
+  return `≈ ${days} day${days === 1 ? "" : "s"}`;
+}
+
+// SLA is entered in DAYS (what users think in) but stored as hours on the step
+// config, so the engine's hour-based clocks are unchanged. Convert at the edge.
+function SlaDaysField({
+  hours,
+  onConfig,
+}: {
+  hours: unknown;
+  onConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const h = Number(hours);
+  const days = Number.isFinite(h) && h > 0 ? Math.round((h / 24) * 100) / 100 : "";
+  return (
+    <Field label="SLA (days)" hint="Time allowed for this step.">
+      <Input
+        type="number"
+        min={0}
+        step="0.5"
+        value={days === "" ? "" : String(days)}
+        onChange={(e) =>
+          onConfig({
+            sla_hours: e.target.value === "" ? undefined : Math.round(Number(e.target.value) * 24),
+          })
+        }
+      />
+    </Field>
+  );
 }
 
 function Stat({ label, value }: { label: string; value: string }) {
@@ -548,12 +565,17 @@ function AddRow({ addStep }: { addStep: (s: StepRow) => void }) {
 }
 
 function RoleSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  // Roles come from the roles master (RBAC), not a hardcoded list. The current
+  // value is kept selectable even if it predates the master (legacy configs).
+  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
+  const names = (roles ?? []).map((r) => r.name);
+  const options = value && !names.includes(value) ? [value, ...names] : names;
   return (
     <Select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">Select role…</option>
-      {ROLE_OPTIONS.map((r) => (
+      {options.map((r) => (
         <option key={r} value={r}>
-          {titleCase(r.replace("_", " "))}
+          {titleCase(r.replace(/_/g, " "))}
         </option>
       ))}
     </Select>
@@ -775,15 +797,7 @@ function LadderStep({
                   onChange={(v) => onConfig({ approver_role: v || undefined })}
                 />
               </Field>
-              <Field label="SLA hours">
-                <Input
-                  type="number"
-                  value={str(step.config.sla_hours)}
-                  onChange={(e) =>
-                    onConfig({ sla_hours: e.target.value === "" ? undefined : Number(e.target.value) })
-                  }
-                />
-              </Field>
+              <SlaDaysField hours={step.config.sla_hours} onConfig={onConfig} />
               <div className="sm:col-span-2">
                 <ApprovalRoutingHint pinnedId={str(step.config.routing_rule_id) || undefined} />
               </div>
@@ -824,15 +838,7 @@ function LadderStep({
                   ))}
                 </Select>
               </Field>
-              <Field label="SLA hours">
-                <Input
-                  type="number"
-                  value={str(step.config.sla_hours)}
-                  onChange={(e) =>
-                    onConfig({ sla_hours: e.target.value === "" ? undefined : Number(e.target.value) })
-                  }
-                />
-              </Field>
+              <SlaDaysField hours={step.config.sla_hours} onConfig={onConfig} />
               <Field label="Escalates to role">
                 <RoleSelect
                   value={str(step.config.escalate_role)}
@@ -867,15 +873,7 @@ function LadderStep({
                   onChange={(v) => onConfig({ approver_role: v || undefined })}
                 />
               </Field>
-              <Field label="SLA hours">
-                <Input
-                  type="number"
-                  value={str(step.config.sla_hours)}
-                  onChange={(e) =>
-                    onConfig({ sla_hours: e.target.value === "" ? undefined : Number(e.target.value) })
-                  }
-                />
-              </Field>
+              <SlaDaysField hours={step.config.sla_hours} onConfig={onConfig} />
             </div>
           )}
           {isToggle && <SkipWhen config={step.config} onConfig={onConfig} />}

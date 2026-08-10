@@ -78,8 +78,13 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.check_stage_slas",
         "schedule": crontab(hour=7, minute=40),  # daily, before the other sweeps
     },
-    # Retention sweepers. audit_log is intentionally excluded — it is immutable
-    # and kept forever for compliance.
+    "verify-audit-integrity": {
+        "task": "app.jobs.tasks.verify_audit_integrity",
+        "schedule": crontab(hour=2, minute=45),  # daily, before the retention sweepers
+    },
+    # Retention sweepers. audit_log is intentionally excluded from pruning — it
+    # is immutable and kept forever for compliance (its integrity is instead
+    # checked by verify-audit-integrity above).
     "prune-request-log": {
         "task": "app.jobs.tasks.prune_request_log",
         "schedule": crontab(hour=3, minute=0),  # daily; retention > 90d

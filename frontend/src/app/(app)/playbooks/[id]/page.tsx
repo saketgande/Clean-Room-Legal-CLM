@@ -749,7 +749,13 @@ function RunsTab({ playbookId }: { playbookId: string }) {
                       "—"
                     )}
                   </TD>
-                  <TD>{run.model_name ?? "—"}</TD>
+                  <TD>
+                    {run.model_name === "claude"
+                      ? "AI"
+                      : run.model_name
+                        ? "Keyword scan"
+                        : "—"}
+                  </TD>
                 </TR>
               ))}
               {data?.length === 0 && (
@@ -938,7 +944,11 @@ function RunDetailContent({ run }: { run: PlaybookRunDetailResponse }) {
             {titleCase(run.validation_status)}
           </Badge>
         )}
-        {run.model_name && <Badge tone="slate">{run.model_name}</Badge>}
+        {run.model_name === "claude" ? (
+          <Badge tone="slate">AI</Badge>
+        ) : run.model_name ? (
+          <Badge tone="amber">Keyword scan{run.error_message ? " · AI unavailable" : ""}</Badge>
+        ) : null}
       </div>
       {run.error_message && (
         <div className="rounded-md border border-danger/30 bg-danger-subtle p-3 text-[13px] text-danger">

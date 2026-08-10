@@ -38,13 +38,14 @@ async def review(
     payload: ReviewRequest,
     request: Request,
     response: Response,
+    db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     # ``request``/``response`` are required by slowapi's @limiter.limit so it
     # can read the client key and inject X-RateLimit-* headers — they're unused
     # in the body otherwise.
     _ = (request, response)
-    return await run_contract_review(payload)
+    return await run_contract_review(payload, db, org_id=current_user.org_id)
 
 
 @router.post("/ask", response_model=AskResponse)
@@ -53,10 +54,11 @@ async def ask(
     payload: AskRequest,
     request: Request,
     response: Response,
+    db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     _ = (request, response)
-    return await run_contract_question(payload)
+    return await run_contract_question(payload, db, org_id=current_user.org_id)
 
 
 @router.post("/link", response_model=LinkResponse)

@@ -26,6 +26,8 @@ import {
   ListChecks,
   PanelLeft,
   Upload,
+  Search,
+  Pencil,
 } from "lucide-react";
 import {
   assistantApi,
@@ -266,11 +268,32 @@ export function AssistantWorkspace() {
     }, 2500);
   }
 
+  const [chatSearch, setChatSearch] = useState("");
+  const [debouncedChatSearch, setDebouncedChatSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedChatSearch(chatSearch.trim()), 250);
+    return () => clearTimeout(t);
+  }, [chatSearch]);
+
   const { data: sessions, isLoading } = useQuery({
-    queryKey: ["assistant-sessions", projectParam],
+    queryKey: ["assistant-sessions", projectParam, debouncedChatSearch],
     queryFn: () =>
-      assistantApi.sessions(projectParam ? { project_id: projectParam } : {}),
+      assistantApi.sessions({
+        ...(projectParam ? { project_id: projectParam } : {}),
+        ...(debouncedChatSearch ? { q: debouncedChatSearch } : {}),
+      }),
   });
+
+  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  async function commitRename(id: string) {
+    const value = renameValue.trim();
+    setRenamingSessionId(null);
+    if (!value) return;
+    await assistantApi.updateSession(id, { title: value });
+    qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
+  }
   const { data: projects } = useQuery({
     queryKey: ["projects"],
     queryFn: projectsApi.list,
@@ -448,7 +471,9 @@ export function AssistantWorkspace() {
       assistantApi
         .session(sessionParam)
         .then((res) => selectSession(res.session))
-        .catch(() => {});
+        .catch((e) =>
+          notify(e instanceof Error ? e.message : "Could not load this chat", "error"),
+        );
     } else if (contractParam) {
       assistantApi
         .createSession({
@@ -461,7 +486,9 @@ export function AssistantWorkspace() {
           qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
           void selectSession(s);
         })
-        .catch(() => {});
+        .catch((e) =>
+          notify(e instanceof Error ? e.message : "Could not start assistant", "error"),
+        );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionParam, contractParam, projectParam]);
@@ -892,6 +919,13 @@ export function AssistantWorkspace() {
             <>
               <div className="flex-1 overflow-y-auto">
                 <div className="mx-auto w-full max-w-3xl space-y-8 px-5 py-10">
+                  {items.length === 0 && !streaming && (
+                    <div className="flex items-center gap-2 text-sm text-slate-400">
+                      <Sparkles className="h-4 w-4" />
+                      No messages in this chat yet — ask a question below to
+                      get started.
+                    </div>
+                  )}
                   {groupItems(items).map((g) => {
                     if (g.kind === "steps")
                       return (
@@ -1226,43 +1260,80 @@ export function AssistantWorkspace() {
                   ))}
                 </Select>
               )}
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <Input
+                  value={chatSearch}
+                  onChange={(e) => setChatSearch(e.target.value)}
+                  placeholder="Search chats..."
+                  className="h-8 pl-8 text-xs"
+                />
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto p-2">
               {isLoading ? (
                 <CenterSpinner />
               ) : sessions?.length ? (
                 uniqById(sessions).map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      void selectSession(s);
-                      setRailOpen(false);
-                    }}
-                    className={cn(
-                      "mb-1 w-full rounded-lg px-3 py-2 text-left transition-colors",
-                      activeSession?.id === s.id
-                        ? "bg-brand-50"
-                        : "hover:bg-slate-50",
+                  <div key={s.id} className="group relative mb-1">
+                    {renamingSessionId === s.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onBlur={() => void commitRename(s.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") e.currentTarget.blur();
+                          if (e.key === "Escape") setRenamingSessionId(null);
+                        }}
+                        className="w-full rounded-lg border border-brand-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 outline-none"
+                      />
+                    ) : (
+                      <button
+                        onClick={() => {
+                          void selectSession(s);
+                          setRailOpen(false);
+                        }}
+                        className={cn(
+                          "w-full rounded-lg px-3 py-2 pr-8 text-left transition-colors",
+                          activeSession?.id === s.id
+                            ? "bg-brand-50"
+                            : "hover:bg-slate-50",
+                        )}
+                      >
+                        <p className="truncate text-sm font-medium text-slate-800">
+                          {s.title ?? "Untitled"}
+                        </p>
+                        <div className="mt-0.5 flex items-center gap-1.5">
+                          {s.contract_id && (
+                            <FileText className="h-3 w-3 text-slate-400" />
+                          )}
+                          {s.project_id && (
+                            <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
+                              <FolderKanban className="h-3 w-3" />
+                              {projectName(s.project_id)}
+                            </span>
+                          )}
+                          <span className="text-xs text-slate-400">
+                            {fmtRelative(s.updated_at)}
+                          </span>
+                        </div>
+                      </button>
                     )}
-                  >
-                    <p className="truncate text-sm font-medium text-slate-800">
-                      {s.title ?? "Untitled"}
-                    </p>
-                    <div className="mt-0.5 flex items-center gap-1.5">
-                      {s.contract_id && (
-                        <FileText className="h-3 w-3 text-slate-400" />
-                      )}
-                      {s.project_id && (
-                        <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
-                          <FolderKanban className="h-3 w-3" />
-                          {projectName(s.project_id)}
-                        </span>
-                      )}
-                      <span className="text-xs text-slate-400">
-                        {fmtRelative(s.updated_at)}
-                      </span>
-                    </div>
-                  </button>
+                    {renamingSessionId !== s.id && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenameValue(s.title ?? "");
+                          setRenamingSessionId(s.id);
+                        }}
+                        title="Rename chat"
+                        className="absolute right-1.5 top-1.5 rounded p-1 text-slate-300 opacity-0 hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
                 ))
               ) : (
                 <p className="p-4 text-center text-sm text-slate-400">

@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 import type { CopilotTurn, IntakeKbArticle } from "@/lib/types";
 
 // ======================= SELF-SERVICE =======================
-// Reference "Ask before you ticket" deflection surface: 4 KPIs, an Ask-Aurora
+// Reference "Ask before you ticket" deflection surface: 4 KPIs, an Ask-Aegis
 // FAQ box (best-match over the KB — resolve it without a ticket), a searchable
 // knowledge base with category chips, and a list → article-detail split view.
 
@@ -24,24 +24,24 @@ function kbScore(a: IntakeKbArticle, query: string): number {
   return words.reduce((s, w) => s + (hay.includes(w) ? 1 : 0), 0);
 }
 
-type AuroraMsg = { role: "user" | "aurora"; text: string; source?: string; decline?: boolean; draft?: string };
+type AegisMsg = { role: "user" | "aegis"; text: string; source?: string; decline?: boolean; draft?: string };
 
-// Ask Aurora — a best-match FAQ over the KB the page already loaded. No ticket,
+// Ask Aegis — a best-match FAQ over the KB the page already loaded. No ticket,
 // no round-trip: it reads the query and returns the closest playbook answer, or
 // declines to a ticket when nothing scores.
-function AskAurora({ articles, onFileTopic }: { articles: IntakeKbArticle[]; onFileTopic: (t: string) => void }) {
+function AskAegis({ articles, onFileTopic }: { articles: IntakeKbArticle[]; onFileTopic: (t: string) => void }) {
   const [input, setInput] = useState("");
-  const [msgs, setMsgs] = useState<AuroraMsg[]>([]);
+  const [msgs, setMsgs] = useState<AegisMsg[]>([]);
 
   function send() {
     const query = input.trim();
     if (!query) return;
     setInput("");
     const best = articles.map((a) => ({ a, s: kbScore(a, query) })).sort((x, y) => y.s - x.s)[0];
-    const user: AuroraMsg = { role: "user", text: query };
-    const reply: AuroraMsg = !best || best.s === 0
-      ? { role: "aurora", text: "I couldn't find a playbook answer for that one — file a ticket and an attorney will pick it up.", decline: true, draft: query }
-      : { role: "aurora", text: best.a.body, source: best.a.source_ref };
+    const user: AegisMsg = { role: "user", text: query };
+    const reply: AegisMsg = !best || best.s === 0
+      ? { role: "aegis", text: "I couldn't find a playbook answer for that one — file a ticket and an attorney will pick it up.", decline: true, draft: query }
+      : { role: "aegis", text: best.a.body, source: best.a.source_ref };
     setMsgs((m) => [...m, user, reply]);
   }
 
@@ -49,7 +49,7 @@ function AskAurora({ articles, onFileTopic }: { articles: IntakeKbArticle[]; onF
     <div className="rounded-xl border border-brand-200 bg-brand-50/40 px-4 py-3.5">
       <div className="mb-2.5 flex items-center gap-2">
         <span className="rounded border border-brand-300 px-1.5 py-0.5 font-mono text-[8.5px] font-bold uppercase tracking-[0.12em] text-brand-600">◎ AI</span>
-        <span className="text-[13.5px] text-slate-700">Have a quick legal question? <span className="font-medium text-brand-700">Ask Aurora.</span></span>
+        <span className="text-[13.5px] text-slate-700">Have a quick legal question? <span className="font-medium text-brand-700">Ask Aegis.</span></span>
       </div>
       {msgs.length > 0 && (
         <div className="mb-2.5 max-h-72 space-y-2 overflow-y-auto rounded-lg bg-slate-100 p-2.5">
@@ -104,8 +104,8 @@ export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) =
         <StatCard label="Categories" value={String(cats.length)} hint="coverage areas" tone="violet" />
       </div>
 
-      {/* Ask Aurora — quick FAQ, no ticket */}
-      <AskAurora articles={articles} onFileTopic={onFileTopic} />
+      {/* Ask Aegis — quick FAQ, no ticket */}
+      <AskAegis articles={articles} onFileTopic={onFileTopic} />
 
       {/* Ask before you ticket — search + category chips */}
       <Card>
@@ -119,7 +119,7 @@ export function SelfServiceTab({ onFileTopic }: { onFileTopic: (topic: string) =
             <button onClick={() => setCat(null)} className={chip(cat === null)}>All</button>
             {cats.map((c) => <button key={c} onClick={() => setCat(cat === c ? null : c)} className={chip(cat === c)}>{c}</button>)}
           </div>
-          <p className="font-mono text-[10.5px] text-slate-400">{shown.length} article{shown.length === 1 ? "" : "s"} · Aurora reads your query and returns the best match</p>
+          <p className="font-mono text-[10.5px] text-slate-400">{shown.length} article{shown.length === 1 ? "" : "s"} · Aegis reads your query and returns the best match</p>
         </CardBody>
       </Card>
 

@@ -9,10 +9,8 @@ from app.auth.schemas import (
     ApiKeyCreate,
     ApiKeyResponse,
     ApprovalRequest,
-    JoinRequestDecision,
     LoginRequest,
     LogoutRequest,
-    OrgJoinRequestResponse,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
     PasswordResetRequestResponse,
@@ -36,7 +34,6 @@ from app.auth.service import (
     decide_join_request,
     decide_user_approval,
     list_api_keys,
-    list_join_requests,
     list_org_users,
     list_user_invitations,
     login_user,
@@ -386,31 +383,6 @@ def revoke_invitation(
     return revoke_user_invitation(
         db,
         invitation_id=invitation_id,
-        actor=current_user,
-        request_id=getattr(request.state, "request_id", None),
-    )
-
-
-@users_router.get("/join-requests", response_model=list[OrgJoinRequestResponse])
-def join_requests(
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("user:approve")),
-):
-    return list_join_requests(db, actor=current_user)
-
-
-@users_router.post("/join-requests/{join_request_id}/decision", response_model=OrgJoinRequestResponse)
-def decide_join(
-    join_request_id: str,
-    payload: JoinRequestDecision,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user=Depends(require_permission("user:approve")),
-):
-    return decide_join_request(
-        db,
-        join_request_id=join_request_id,
-        payload=payload,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
     )

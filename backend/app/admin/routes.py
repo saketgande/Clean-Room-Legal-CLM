@@ -16,12 +16,29 @@ class AdminSettingUpsert(BaseModel):
     is_secret: bool = False
 
 
+def _serialize_setting(setting: AdminSetting) -> dict:
+    # Never return a secret value over the wire — the client masks it in the UI
+    # anyway, and shipping the cleartext lets anyone with API access read it.
+    return {
+        "id": setting.id,
+        "org_id": setting.org_id,
+        "key": setting.key,
+        "value": None if setting.is_secret else setting.value,
+        "is_secret": setting.is_secret,
+        "created_at": setting.created_at,
+        "updated_at": setting.updated_at,
+    }
+
+
 @router.get("/settings")
 def list_settings(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
 ):
-    return db.scalars(select(AdminSetting).where(AdminSetting.org_id == current_user.org_id)).all()
+    rows = db.scalars(
+        select(AdminSetting).where(AdminSetting.org_id == current_user.org_id)
+    ).all()
+    return [_serialize_setting(s) for s in rows]
 
 
 @router.put("/settings")
@@ -65,7 +82,7 @@ def upsert_setting(
     )
     db.commit()
     db.refresh(setting)
-    return setting
+    return _serialize_setting(setting)
 
 
 def _audit_setting_value(value, is_secret: bool):

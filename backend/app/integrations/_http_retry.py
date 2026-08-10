@@ -22,6 +22,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
+import anthropic
 import httpx
 from tenacity import (
     AsyncRetrying,
@@ -47,6 +48,14 @@ def is_transient_error(exc: BaseException) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         status = exc.response.status_code
         return status == 429 or 500 <= status < 600
+    # The anthropic SDK wraps httpx errors in its own exception hierarchy
+    # instead of raising httpx's directly, so the checks above never match a
+    # Claude-side failure — mirror them here for anthropic.APIStatusError /
+    # APIConnectionError (which also covers APITimeoutError, a subclass).
+    if isinstance(exc, anthropic.APIStatusError):
+        return exc.status_code == 429 or 500 <= exc.status_code < 600
+    if isinstance(exc, anthropic.APIConnectionError):
+        return True
     # httpx.TimeoutException is a subclass of httpx.TransportError, but list it
     # explicitly for clarity. ConnectionError covers non-httpx callers.
     return isinstance(exc, (httpx.TransportError, httpx.TimeoutException, ConnectionError))

@@ -5,6 +5,9 @@ mike/
 .DS_Store
 **/.DS_Store
 
+# Local dev-server logs (start.sh "without Docker" path writes these to repo root)
+*.log
+
 # Secrets & environment (never commit)
 backend/.env
 backend/.env.*

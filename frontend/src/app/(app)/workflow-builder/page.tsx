@@ -2,6 +2,7 @@
 
 // Workflow-engine builder — list org flows. Editing happens on a dedicated
 // full-page route (/workflow-builder/[id]); this page is the list + seed.
+// Admin-only: workflow definitions are a privileged configuration surface.
 
 import { useState } from "react";
 import { Plus, Workflow } from "lucide-react";
@@ -23,26 +24,61 @@ import {
 } from "@/components/ui";
 import { flowsApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
+import { useAuth } from "@/lib/auth";
+import { can } from "@/lib/intake";
+import { cn } from "@/lib/utils";
 import type { Flow } from "@/lib/types";
 
-function criteriaSummary(c: Flow["criteria"]): string {
-  const parts: string[] = [];
-  if (c.match_type) parts.push(`type=${c.match_type}`);
-  if (c.match_priority) parts.push(`priority=${c.match_priority}`);
-  if (c.match_department) parts.push(`dept=${c.match_department}`);
-  if (c.match_keyword) parts.push(`keyword="${c.match_keyword}"`);
-  return parts.length ? parts.join(", ") : "Any request";
+// Short label per step type; approval/signature are the "ladder" rungs and get
+// emphasised so the tagged approval ladder reads at a glance.
+const STEP_SHORT: Record<string, string> = {
+  start: "Start",
+  ai_task: "AI",
+  human_task: "Human",
+  clm_draft: "Draft",
+  counterparty: "Counterparty",
+  approval: "Approval",
+  signature: "Signature",
+  notify: "Notify",
+  end: "End",
+};
+const isRung = (t: string) => t === "approval" || t === "signature";
+
+function LadderCell({ steps }: { steps: Flow["steps"] }) {
+  if (!steps.length) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      {steps.map((s, i) => (
+        <span key={s.id ?? i} className="inline-flex items-center gap-1">
+          {i > 0 && <span className="text-slate-300">→</span>}
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[11px] font-medium",
+              isRung(s.type)
+                ? "bg-brand-50 text-brand-700 ring-1 ring-brand-200"
+                : "bg-slate-100 text-slate-600",
+            )}
+          >
+            {STEP_SHORT[s.type] ?? s.type}
+          </span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 export default function WorkflowBuilderPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const { notify } = useToast();
+  const { user } = useAuth();
+  const isAdmin = can(user, "admin_panel:access");
   const [seeding, setSeeding] = useState(false);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["flows"],
     queryFn: flowsApi.listFlows,
+    enabled: isAdmin,
   });
 
   const flows = data ?? [];
@@ -58,6 +94,15 @@ export default function WorkflowBuilderPage() {
     } finally {
       setSeeding(false);
     }
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Workflows" description="Automated routing of legal requests through AI tasks, approvals, and signature." />
+        <EmptyState title="Access restricted" description="Workflow definitions can only be viewed and edited by administrators." />
+      </div>
+    );
   }
 
   return (
@@ -98,9 +143,8 @@ export default function WorkflowBuilderPage() {
             <THead>
               <tr>
                 <TH>Name</TH>
-                <TH>Criteria</TH>
+                <TH>Approval ladder</TH>
                 <TH>Steps</TH>
-                <TH>Order</TH>
                 <TH>Enabled</TH>
                 <TH></TH>
               </tr>
@@ -121,9 +165,8 @@ export default function WorkflowBuilderPage() {
                       <div className="text-xs text-slate-500">{f.description}</div>
                     )}
                   </TD>
-                  <TD className="text-slate-700">{criteriaSummary(f.criteria)}</TD>
+                  <TD className="text-slate-700"><LadderCell steps={f.steps} /></TD>
                   <TD>{f.steps.length}</TD>
-                  <TD>{f.eval_order}</TD>
                   <TD>
                     <Badge tone={f.enabled ? "green" : "slate"}>
                       {f.enabled ? "Enabled" : "Disabled"}

@@ -116,24 +116,24 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
     if settings.mock_claude:
         return baseline
 
-    import asyncio
-
-    from app.integrations.claude import ClaudeClient
+    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+    from app.ai.cost_guard import enforce_daily_token_cap
+    from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
+    bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
+    user_prompt = _prompt_for(request, catalog)
     try:
-        resp = asyncio.run(ClaudeClient().complete_structured(
-            system_prompt=(
-                "You are the Flow Router for an in-house legal team. Given an intake request and a "
-                "catalog of governance workflows, choose the single workflow the request should ride. "
-                "Only ever return a flow_id that appears in the catalog. If nothing fits, or the request "
-                "is ambiguous or high-stakes enough to warrant a human's call, set flow_id to null and "
-                "needs_human to true. Be concise and never invent workflows or facts."),
-            user_prompt=_prompt_for(request, catalog),
+        enforce_daily_token_cap(request.org_id)
+        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
+            user_prompt=user_prompt,
             tool_name="suggest_flow", input_schema=_SCHEMA,
-            max_tokens=600, temperature=0.0,
+            max_tokens=600, temperature=0.0, model=bundle.model_name,
         ))
+        log_agent_call(db, org_id=request.org_id, agent_id="flow_router", prompt_bundle=bundle,
+                        input_payload={"user_prompt": user_prompt}, response=resp)
         blocks = getattr(resp, "tool_use_blocks", None) or []
         data = (blocks[0].get("input") if blocks else None)
         if not isinstance(data, dict):

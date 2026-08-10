@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -107,7 +108,13 @@ async def ask_contract_brain(
         contract_id=payload.contract_id,
         project_id=payload.project_id,
     )
-    sources = hybrid_sources(
+    # hybrid_sources does a sync DB query plus a CPU/HTTP-bound embedding call
+    # (_embed) — this is the one Contract Brain route that's `async def`, so
+    # calling it directly would block the whole event loop for every question.
+    # Sibling routes below (brain_search, get_precedents) are plain `def` and
+    # FastAPI already threadpools those; this one needs an explicit hand-off.
+    sources = await asyncio.to_thread(
+        hybrid_sources,
         db,
         org_id=current_user.org_id,
         contract_ids=contract_ids,
@@ -168,6 +175,25 @@ async def ask_contract_brain(
     elif grounding < 0.8 and confidence == "high":
         confidence = "medium"
 
+    # Zero validated citations means nothing in the answer text is backed by a
+    # verified quote from the retrieved context — per the prompt, that should
+    # only happen for a genuine "not found" response. The model doesn't always
+    # honor that: it can still write specific-sounding facts with no citation
+    # behind them at all, alongside a `limitations` note admitting the context
+    # didn't support them. Confidence already drops to "low" for this case, but
+    # a reader skimming the bolded answer over a caveat box below it can still
+    # walk away trusting fabricated specifics. Since this is the one thing the
+    # answer text has zero server-verified support for, replace it outright
+    # with a deterministic message instead of the model's prose — the
+    # `limitations` field (often the one honest part of a bad answer) is kept.
+    display_answer = answer.answer
+    if total_cites == 0:
+        display_answer = (
+            "I couldn't find contract text in the retrieved sources that directly "
+            "supports a specific answer to this question."
+            + (f" {answer.limitations}" if answer.limitations else "")
+        )
+
     n_sem, n_cl, n_tx = len(sources["semantic"]), len(sources["clauses"]), len(sources["text"])
     query = BrainQuery(
         org_id=current_user.org_id,
@@ -175,7 +201,7 @@ async def ask_contract_brain(
         question=payload.question,
         contract_id=payload.contract_id,
         project_id=payload.project_id,
-        answer=answer.answer,
+        answer=display_answer,
         citations=validated_citations,
         retrieval_metadata={
             "scope": payload.query_scope,

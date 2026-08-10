@@ -587,7 +587,7 @@ def upload_document(request_id: str, payload: dict = Body(...),
         content = _b64.b64decode(str(payload.get("content_b64") or ""), validate=True)
     except Exception:
         from fastapi import HTTPException
-        raise HTTPException(422, "content_b64 is not valid base64")
+        raise HTTPException(422, "content_b64 is not valid base64") from None
     return service.add_document(
         db, actor=current_user, request_id=request_id,
         filename=str(payload.get("filename") or "attachment"),

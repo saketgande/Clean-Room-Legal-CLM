@@ -27,7 +27,6 @@ export default function PlaybooksPage() {
   const qc = useQueryClient();
   const { notify } = useToast();
 
-  const [createOpen, setCreateOpen] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
 
   const { data, isLoading, error } = useQuery({
@@ -53,10 +52,6 @@ export default function PlaybooksPage() {
               Build with AI
             </Button>
             <Button variant="outline" onClick={() => setGenerateOpen(true)}>
-              <Sparkles className="h-4 w-4" />
-              Quick generate
-            </Button>
-            <Button variant="outline" onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" />
               New playbook
             </Button>
@@ -74,7 +69,7 @@ export default function PlaybooksPage() {
           title="No playbooks yet"
           description="Create a playbook manually or generate one with AI to start reviewing contracts against your standards."
           action={
-            <Button onClick={() => setCreateOpen(true)}>
+            <Button onClick={() => setGenerateOpen(true)}>
               <Plus className="h-4 w-4" />
               New playbook
             </Button>
@@ -111,86 +106,12 @@ export default function PlaybooksPage() {
         </div>
       )}
 
-      <CreatePlaybookModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onCreated={onCreated}
-      />
       <GeneratePlaybookModal
         open={generateOpen}
         onClose={() => setGenerateOpen(false)}
         onCreated={onCreated}
       />
     </div>
-  );
-}
-
-function CreatePlaybookModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}) {
-  const { notify } = useToast();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      const res = await playbooksApi.create(
-        name.trim(),
-        description.trim() || undefined,
-      );
-      onCreated(res.id);
-      setName("");
-      setDescription("");
-      onClose();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Create failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="New playbook"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} loading={busy} disabled={!name.trim()}>
-            Create
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Name">
-          <Input
-            placeholder="e.g. Standard SaaS Playbook"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <Field label="Description" hint="Optional">
-          <Textarea
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </Field>
-      </div>
-    </Modal>
   );
 }
 

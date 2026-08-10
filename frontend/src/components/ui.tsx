@@ -15,12 +15,14 @@ import {
   cloneElement,
   forwardRef,
   isValidElement,
+  useCallback,
   useEffect,
   useId,
   useRef,
+  useState,
 } from "react";
 import Link from "next/link";
-import { ChevronRight, Loader2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // ---- Button --------------------------------------------------------------
@@ -168,50 +170,6 @@ export function Badge({
     >
       {children}
     </span>
-  );
-}
-
-// ---- MessageBar (Fluent inline notification) -----------------------------
-type MessageIntent = "info" | "success" | "warning" | "error";
-
-const messageIntents: Record<MessageIntent, string> = {
-  info: "bg-info-subtle border-info/30 text-info",
-  success: "bg-success-subtle border-success/30 text-success",
-  warning: "bg-warning-subtle border-warning/30 text-warning",
-  error: "bg-danger-subtle border-danger/30 text-danger",
-};
-
-const messageIcons: Record<MessageIntent, string> = {
-  info: "ⓘ",
-  success: "✓",
-  warning: "⚠",
-  error: "✕",
-};
-
-/** Fluent 2 MessageBar â a tinted inline banner for page-level status. */
-export function MessageBar({
-  intent = "info",
-  children,
-  className,
-}: {
-  intent?: MessageIntent;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <div
-      role={intent === "error" ? "alert" : "status"}
-      className={cn(
-        "flex items-start gap-2.5 rounded-md border px-3 py-2 text-sm",
-        messageIntents[intent],
-        className,
-      )}
-    >
-      <span aria-hidden="true" className="mt-px flex-none font-semibold">
-        {messageIcons[intent]}
-      </span>
-      <div className="min-w-0">{children}</div>
-    </div>
   );
 }
 
@@ -375,6 +333,85 @@ export function TD({
       className={cn("px-3 py-2 text-slate-600 align-middle", className)}
       {...props}
     />
+  );
+}
+
+// ---- Pagination ------------------------------------------------------------
+// Client-side page bar: caller owns the current page + slices its own
+// already-fetched rows; this just renders the numbered controls.
+function pageNumbers(current: number, total: number): (number | "…")[] {
+  const delta = 1;
+  const start = Math.max(2, current - delta);
+  const end = Math.min(total - 1, current + delta);
+  const range: (number | "…")[] = [1];
+  if (start > 2) range.push("…");
+  for (let i = start; i <= end; i++) range.push(i);
+  if (end < total - 1) range.push("…");
+  if (total > 1) range.push(total);
+  return range;
+}
+
+export function Pagination({
+  page,
+  pageCount,
+  onPageChange,
+  totalItems,
+  pageSize,
+}: {
+  page: number;
+  pageCount: number;
+  onPageChange: (page: number) => void;
+  totalItems?: number;
+  pageSize?: number;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="flex flex-col gap-2 border-t border-slate-100 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+      {totalItems != null && pageSize != null && (
+        <div className="text-[11px] text-slate-400">
+          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, totalItems)} of {totalItems}
+        </div>
+      )}
+      <div className="flex items-center gap-1 sm:ml-auto">
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+          aria-label="Previous page"
+          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        {pageNumbers(page, pageCount).map((p, i) =>
+          p === "…" ? (
+            <span key={`ellipsis-${i}`} className="px-1 text-[11px] text-slate-400">…</span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onPageChange(p)}
+              className={cn(
+                "min-w-[1.75rem] rounded-md px-1.5 py-1 text-[11px] font-medium tabular-nums transition-colors",
+                p === page
+                  ? "bg-brand-50 text-brand-700 ring-1 ring-brand-200"
+                  : "text-slate-500 hover:bg-slate-100",
+              )}
+            >
+              {p}
+            </button>
+          ),
+        )}
+        <button
+          type="button"
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+          aria-label="Next page"
+          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -661,6 +698,63 @@ export function Modal({
       </div>
     </div>
   );
+}
+
+// ---- Confirm dialog --------------------------------------------------------
+// An in-app replacement for `window.confirm()` — a destructive action gated
+// only by the native dialog silently fails closed for any session with
+// native dialogs suppressed (locked-down browsers, some extensions), with no
+// visible error. `confirm()` is a drop-in swap for `window.confirm()` at each
+// call site (same `if (!(await confirm(...))) return;` shape); render
+// `dialog` once per component to mount it.
+export function useConfirm() {
+  const [state, setState] = useState<{
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    tone?: "danger" | "primary";
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+
+  const confirm = useCallback(
+    (opts: {
+      title: string;
+      message: string;
+      confirmLabel?: string;
+      tone?: "danger" | "primary";
+    }) => new Promise<boolean>((resolve) => setState({ ...opts, resolve })),
+    [],
+  );
+
+  const settle = (ok: boolean) => {
+    state?.resolve(ok);
+    setState(null);
+  };
+
+  const dialog = state && (
+    <Modal
+      open
+      onClose={() => settle(false)}
+      title={state.title}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => settle(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant={state.tone === "danger" ? "danger" : "primary"}
+            onClick={() => settle(true)}
+          >
+            {state.confirmLabel ?? "Confirm"}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-slate-600">{state.message}</p>
+    </Modal>
+  );
+
+  return { confirm, dialog };
 }
 
 // ---- Stat card -----------------------------------------------------------

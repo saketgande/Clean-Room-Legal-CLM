@@ -2,14 +2,14 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, Check, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users, Mail, MessageSquare, } from "lucide-react";
+import { Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users, Mail, MessageSquare, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
-  ErrorState, Field, Input, Modal, Select, StatCard, Table, TD, TH, THead,
+  ErrorState, Field, Input, Modal, Pagination, Select, Table, TD, TH, THead,
   TR, Textarea,
 } from "@/components/ui";
-import { intakeApi, projectsApi, contractsApi, approvalsApi, aiApi, playbooksApi, flowsApi } from "@/lib/endpoints";
+import { intakeApi, contractsApi, approvalsApi, aiApi, playbooksApi, flowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Markdown } from "@/components/markdown";
@@ -21,10 +21,11 @@ import {
 import type {
   ContractResponse, FlowRun, FlowRunStep, FlowSuggestion, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
 } from "@/lib/types";
-import { SlaDashboardTab, SlaLegsBar, TeamsTab } from "./_phase1";
+import { SlaLegsBar, TeamsTab } from "./_phase1";
 import { CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
 import { RulesTab } from "../approvals/_rules-builder";
 import { WorkflowPanel } from "./_workflow-panel";
+import { GovernanceLadderSteps } from "./_governance-ladder";
 
 // Keep the queue live: React Query re-fetches on this cadence (paused while the
 // tab is backgrounded), so SLA postures advance and triage/escalation changes
@@ -121,6 +122,7 @@ export default function IntakePage() {
     if (!isStaff)
       return [[
         { id: "new", label: "New Request" },
+        { id: "self", label: "Self-Service" },
         { id: "mywork", label: "My Work" },
       ]];
     return [
@@ -130,10 +132,10 @@ export default function IntakePage() {
       ],
       [
         { id: "new", label: "New Request" },
+        { id: "self", label: "Self-Service" },
       ],
       [
         { id: "workflows", label: "Workflows" },
-        { id: "sla", label: "SLA" },
         { id: "ops", label: "Operations" },
       ],
     ];
@@ -141,6 +143,7 @@ export default function IntakePage() {
 
   const [section, setSection] = useState(isStaff ? "queue" : "new");
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [newRequestSeed, setNewRequestSeed] = useState("");
 
   const { data: listData, dataUpdatedAt } = useQuery({
     queryKey: ["intake-list"], queryFn: () => intakeApi.list(), enabled: isStaff, ...LIVE_POLL,
@@ -167,11 +170,6 @@ export default function IntakePage() {
           {isStaff && openCount > 0 && (
             <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700">
               ◆ {openCount} open
-            </span>
-          )}
-          {isStaff && (
-            <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-wide text-emerald-600">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />AI triage · live
             </span>
           )}
           {isStaff && (
@@ -221,8 +219,8 @@ export default function IntakePage() {
         <>
           {section === "queue" && <InboxCockpit onOpen={setDetailId} />}
           {section === "mywork" && <MyWorkView isStaff={isStaff} onOpen={setDetailId} />}
-          {section === "new" && <NewRequestTab onFiled={setDetailId} />}
-          {section === "sla" && isStaff && <SlaDashboardTab isAdmin={isAdmin} />}
+          {section === "new" && <NewRequestTab onFiled={setDetailId} seed={newRequestSeed} />}
+          {section === "self" && <SelfServiceTab onFileTopic={(t) => { setNewRequestSeed(`Re: ${t}\n\n`); setSection("new"); }} />}
           {section === "workflows" && isStaff && <WorkflowsBuilderTab />}
           {section === "ops" && isStaff && <OperationsView isAdmin={isAdmin} />}
         </>
@@ -309,8 +307,8 @@ function RequestRow({ r, onOpen, showStatus = true, selectable = false, checked 
       )}
       <TD className="whitespace-nowrap font-medium text-slate-900">{r.type_label}</TD>
       {showDescription && (
-        <TD className="max-w-[16rem] truncate text-slate-600" title={r.description || undefined}>
-          {r.description || <span className="text-slate-400">—</span>}
+        <TD className="max-w-[16rem] truncate text-slate-600" title={r.subject || r.description || undefined}>
+          {r.subject || r.description || <span className="text-slate-400">—</span>}
         </TD>
       )}
       <TD><Badge tone={PRIORITY_TONE[r.priority] as never}>{r.priority}</Badge></TD>
@@ -349,21 +347,22 @@ function fileToB64(file: File): Promise<string> {
   });
 }
 
-function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
+function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; seed?: string }) {
   const { data: types } = useQuery({ queryKey: ["intake-types"], queryFn: () => intakeApi.listTypes() });
-  const [mode, setMode] = useState<"form" | "chat" | "self">("form");
-  const [seedDesc, setSeedDesc] = useState("");
+  const [mode, setMode] = useState<"form" | "chat">("form");
+  const [seedDesc, setSeedDesc] = useState(seed);
+  // A topic handed over from the Self-Service tab seeds the structured form.
+  useEffect(() => { if (seed) { setSeedDesc(seed); setMode("form"); } }, [seed]);
 
-  const MODES: { id: "form" | "chat" | "self"; label: string; hint: string }[] = [
+  const MODES: { id: "form" | "chat"; label: string; hint: string }[] = [
     { id: "form", label: "Structured form", hint: "Fast · route to agent" },
     { id: "chat", label: "Copilot chat", hint: "Describe it in a conversation" },
-    { id: "self", label: "Self-service", hint: "Resolve it without a ticket" },
   ];
 
   return (
     <div className="space-y-5">
-      {/* segmented switch — merges New Request + Self-Service on one page */}
-      <div className="mx-auto grid max-w-3xl grid-cols-3 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5">
+      {/* file a request — structured form or a guided copilot chat */}
+      <div className="mx-auto grid max-w-3xl grid-cols-2 gap-1.5 rounded-xl border border-slate-200 bg-slate-100 p-1.5">
         {MODES.map((m) => {
           const active = mode === m.id;
           return (
@@ -377,9 +376,8 @@ function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
         })}
       </div>
 
-      {mode === "form" && <div className="mx-auto max-w-3xl"><RequestForm types={types ?? []} onFiled={onFiled} initialDesc={seedDesc} /></div>}
+      {mode === "form" && <RequestForm types={types ?? []} onFiled={onFiled} initialDesc={seedDesc} />}
       {mode === "chat" && <div className="mx-auto max-w-3xl"><CopilotChat onFiled={onFiled} /></div>}
-      {mode === "self" && <SelfServiceTab onFileTopic={(t) => { setSeedDesc(`Re: ${t}\n\n`); setMode("form"); }} />}
     </div>
   );
 }
@@ -388,7 +386,7 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
-  const [name, setName] = useState(user?.full_name ?? "");
+  const [subject, setSubject] = useState("");
   const [department, setDepartment] = useState("Product");
   const [urgency, setUrgency] = useState("Standard");
   const [typeSel, setTypeSel] = useState<string>("");
@@ -408,17 +406,18 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
 
   const missingRequired = (selType?.fields ?? []).filter((f) => f.required && !String(values[f.key] ?? "").trim());
   const preview = derivePreview(description, selType ?? undefined);
-  const canSubmit = !!name.trim() && (description.trim().length >= 10 || !!file) && missingRequired.length === 0;
+  const canSubmit = !!subject.trim() && (description.trim().length >= 10 || !!file) && missingRequired.length === 0;
 
   async function submit() {
     setBusy(true);
     try {
       const r = await intakeApi.create({
         type_label: selType ? selType.name + " Request" : (selected ? selected.label : "General request"),
+        subject: subject.trim() || null,
         request_type_id: selType?.id ?? null,
         priority: urgencyToPriority(urgency),
         department: department || null,
-        requester_name: name.trim() || null,
+        requester_name: user?.full_name ?? null,
         description,
         field_values: Object.keys(values).length ? values : null,
       });
@@ -439,8 +438,8 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
   return (
     <Card>
       <CardBody className="space-y-5">
-        <Field label="Your name *">
-          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Smith" />
+        <Field label="Subject *" hint="A short title for this request.">
+          <Input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Mutual NDA with Acme Corp" />
         </Field>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -457,7 +456,7 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
         </div>
 
         <Field label="Request type *">
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
             {gridItems.map((g) => {
               const active = typeSel === g.key;
               return (
@@ -481,32 +480,38 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
           )}
         </Field>
 
-        {(selType?.fields ?? []).map((f) => (
-          <DynamicField key={f.key} f={f} value={values[f.key] ?? ""}
-            onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
-        ))}
-
-        <Field label="Describe your request *" hint="Be specific — regex + Claude triage and agent routing use this.">
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5}
-            placeholder="E.g. Mutual NDA for discussions with Acme Corp — 2-year term, Delaware law." />
-        </Field>
-
-        <Field label="Attach a document" hint="Word (.docx), text (.txt), or PDF — e.g. an NDA / MSA to review. The agent reads the extracted text. (Scanned / image-only PDFs can't be read — paste the text instead.)">
-          <div className="flex items-center gap-3">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-100 px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700 hover:border-brand-400">
-              <Paperclip className="h-3.5 w-3.5" /> Choose file
-              <input type="file" accept=".docx,.txt,.text,.md,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="hidden" />
-            </label>
-            <span className="text-[11px] text-slate-400">Max 3 MB</span>
+        {(selType?.fields ?? []).length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(selType?.fields ?? []).map((f) => (
+              <DynamicField key={f.key} f={f} value={values[f.key] ?? ""}
+                onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
+            ))}
           </div>
-          {file && (
-            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border-l-2 border-l-success bg-success-subtle/40 px-3 py-2 text-[12px]">
-              <span className="truncate text-slate-700">📄 {file.name} <span className="text-slate-400">· {(file.size / 1024).toFixed(0)} KB</span></span>
-              <button type="button" onClick={() => setFile(null)} className="shrink-0 text-slate-400 hover:text-danger">✕</button>
+        )}
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Field label="Describe your request *" hint="Be specific — triage and agent routing use this.">
+            <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={7}
+              placeholder="E.g. Mutual NDA for discussions with Acme Corp — 2-year term, Delaware law." />
+          </Field>
+
+          <Field label="Attach a document" hint="Word (.docx), text (.txt), or PDF. Scanned / image-only PDFs can't be read — paste the text instead.">
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-slate-100 px-3.5 py-2 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700 hover:border-brand-400">
+                <Paperclip className="h-3.5 w-3.5" /> Choose file
+                <input type="file" accept=".docx,.txt,.text,.md,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="hidden" />
+              </label>
+              <span className="text-[11px] text-slate-400">Max 3 MB</span>
             </div>
-          )}
-        </Field>
+            {file && (
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-md border-l-2 border-l-success bg-success-subtle/40 px-3 py-2 text-[12px]">
+                <span className="truncate text-slate-700">📄 {file.name} <span className="text-slate-400">· {(file.size / 1024).toFixed(0)} KB</span></span>
+                <button type="button" onClick={() => setFile(null)} className="shrink-0 text-slate-400 hover:text-danger">✕</button>
+              </div>
+            )}
+          </Field>
+        </div>
 
         {preview && (
           <div className="rounded-md border border-brand-200 bg-brand-50 px-3 py-2 text-xs text-brand-700">
@@ -519,11 +524,6 @@ function RequestForm({ types, onFiled, initialDesc }: { types: IntakeRequestType
           {missingRequired.length > 0 && (
             <span className="text-xs text-warning">Required: {missingRequired.map((f) => f.label).join(", ")}</span>
           )}
-        </div>
-
-        <div className="rounded-md border-l-2 border-l-brand-600 bg-slate-100/50 px-3.5 py-2.5 text-[11.5px] leading-relaxed text-slate-500">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-brand-600">Flow</span>
-          <p className="mt-0.5">On submit: the request is saved, screened, and routed → it lands in the intake queue open for a reviewer to pick up and start a workflow.</p>
         </div>
       </CardBody>
     </Card>
@@ -560,20 +560,28 @@ function derivePreview(desc: string, type?: IntakeRequestType): string | null {
 
 // ---- My Requests (requester portal) --------------------------------------
 
+const MY_REQUESTS_PAGE_SIZE = 25;
+
 function MyRequestsTab({ onOpen }: { onOpen: (id: string) => void }) {
   const { data, isLoading, error } = useQuery({ queryKey: ["intake-mine"], queryFn: intakeApi.mine });
+  const [page, setPage] = useState(1);
   if (isLoading) return <CenterSpinner label="Loading your requests…" />;
   if (error) return <ErrorState error={error} />;
   const rows = data ?? [];
   if (!rows.length)
     return <EmptyState icon={<DoorOpen className="h-5 w-5" />} title="No requests yet"
       description="File your first request from the New Request tab." />;
+  const pageCount = Math.max(1, Math.ceil(rows.length / MY_REQUESTS_PAGE_SIZE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = rows.slice((currentPage - 1) * MY_REQUESTS_PAGE_SIZE, currentPage * MY_REQUESTS_PAGE_SIZE);
   return (
     <Card>
       <Table>
         <THead><TR><TH>Ref</TH><TH>Request</TH><TH>Priority</TH><TH>SLA</TH><TH>Status</TH><TH>Assignee</TH></TR></THead>
-        <tbody>{rows.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} />)}</tbody>
+        <tbody>{pageRows.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} />)}</tbody>
       </Table>
+      <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage}
+        totalItems={rows.length} pageSize={MY_REQUESTS_PAGE_SIZE} />
     </Card>
   );
 }
@@ -594,7 +602,36 @@ function buildFilters(myId: string | null): { id: string; label: string; match: 
 }
 
 // ---- Operations Cockpit (Inbox landing) -----------------------------------
-const INBOX_PAGE = 60;
+const INBOX_PAGE = 25;
+
+type InboxSortKey = "ref" | "requester" | "type" | "description" | "priority" | "sla" | "status" | "assignee";
+
+const INBOX_COLUMNS: { key: InboxSortKey; label: string }[] = [
+  { key: "ref", label: "ID" },
+  { key: "requester", label: "Requester" },
+  { key: "type", label: "Type" },
+  { key: "description", label: "Description" },
+  { key: "priority", label: "Priority" },
+  { key: "sla", label: "SLA" },
+  { key: "status", label: "Status" },
+  { key: "assignee", label: "Assignee" },
+];
+
+const PRIORITY_RANK: Record<string, number> = { Low: 0, Medium: 1, High: 2, Critical: 3 };
+const STATUS_RANK: Record<string, number> = Object.fromEntries(Object.keys(STATUS_LABEL).map((s, i) => [s, i]));
+
+function inboxSortValue(r: IntakeRequest, key: InboxSortKey): number | string {
+  switch (key) {
+    case "ref": return parseInt(r.ref.replace(/\D/g, ""), 10) || 0;
+    case "requester": return (r.requester_name ?? "").toLowerCase();
+    case "type": return (r.type_label ?? "").toLowerCase();
+    case "description": return (r.subject || r.description || r.type_label || "").toLowerCase();
+    case "priority": return PRIORITY_RANK[r.priority] ?? -1;
+    case "sla": return r.sla_pct ?? 0;
+    case "status": return STATUS_RANK[r.status] ?? -1;
+    case "assignee": return (r.assigned_to_label ?? "").toLowerCase();
+  }
+}
 
 // Inbox — the reference "Legal Mission Control" list: a KPI strip, filter chips,
 // and ONE dense full-width table (ID · Requester · Type · Description · Priority
@@ -606,19 +643,18 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
   const { data, isLoading, error } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), ...LIVE_POLL });
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [visibleCount, setVisibleCount] = useState(INBOX_PAGE);
-  useEffect(() => setVisibleCount(INBOX_PAGE), [filter, search]);
+  const [page, setPage] = useState(1);
+  const [sortKey, setSortKey] = useState<InboxSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  useEffect(() => setPage(1), [filter, search, sortKey, sortDir]);
+
+  function toggleSort(key: InboxSortKey) {
+    if (sortKey !== key) { setSortKey(key); setSortDir("asc"); return; }
+    if (sortDir === "asc") { setSortDir("desc"); return; }
+    setSortKey(null); // third click on the same column: back to the default queue order
+  }
 
   const rows = useMemo(() => data ?? [], [data]);
-  const open = rows.filter((r) => r.status !== "closed" && r.status !== "approved");
-  const kpi = {
-    open: rows.filter((r) => r.status === "open").length,
-    unassigned: rows.filter((r) => r.status !== "closed" && !r.assigned_to_user_id).length,
-    escalated: rows.filter((r) => r.status === "escalated").length,
-    breached: rows.filter((r) => r.sla_status === "overdue" && r.status !== "closed").length,
-    atRisk: rows.filter((r) => r.sla_status === "at_risk" && r.status !== "closed").length,
-    approved: rows.length ? Math.round((rows.filter((r) => r.status === "approved").length / rows.length) * 100) : 0,
-  };
 
   const FILTERS = buildFilters(user?.id ?? null);
   const q = search.trim().toLowerCase();
@@ -631,47 +667,50 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
   const doneAt = (r: IntakeRequest) => r.closed_at ?? created(r);
   const tier = (r: IntakeRequest) =>
     r.status === "open" ? 0 : r.status === "approved" || r.status === "closed" ? 2 : 1;
-  const shown = [...rows.filter(activeMatch).filter((r) =>
-    !q || `${r.ref} ${r.requester_name ?? ""} ${r.type_label} ${r.description ?? ""}`.toLowerCase().includes(q))]
-    .sort((a, b) => {
-      const ta = tier(a), tb = tier(b);
-      if (ta !== tb) return ta - tb;
-      if (ta === 0) return created(b).localeCompare(created(a)); // open: newest first
-      if (ta === 2) return doneAt(b).localeCompare(doneAt(a));   // done: most recently closed first
-      return sortBySla(a, b);                                     // active: SLA pressure
-    });
-  const page = shown.slice(0, visibleCount);
+  const filtered = rows.filter(activeMatch).filter((r) =>
+    !q || `${r.ref} ${r.requester_name ?? ""} ${r.type_label} ${r.description ?? ""}`.toLowerCase().includes(q));
+  const shown = sortKey
+    ? [...filtered].sort((a, b) => {
+        const va = inboxSortValue(a, sortKey), vb = inboxSortValue(b, sortKey);
+        const cmp = typeof va === "string" ? va.localeCompare(vb as string) : (va as number) - (vb as number);
+        return sortDir === "asc" ? cmp : -cmp;
+      })
+    : [...filtered].sort((a, b) => {
+        const ta = tier(a), tb = tier(b);
+        if (ta !== tb) return ta - tb;
+        if (ta === 0) return created(b).localeCompare(created(a)); // open: newest first
+        if (ta === 2) return doneAt(b).localeCompare(doneAt(a));   // done: most recently closed first
+        return sortBySla(a, b);                                     // active: SLA pressure
+      });
+  const pageCount = Math.max(1, Math.ceil(shown.length / INBOX_PAGE));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = shown.slice((currentPage - 1) * INBOX_PAGE, currentPage * INBOX_PAGE);
 
   if (isLoading) return <CenterSpinner label="Loading the queue…" />;
   if (error) return <ErrorState error={error} />;
 
   return (
     <div className="space-y-4">
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <StatCard label="Open" value={String(kpi.open)} hint={`${kpi.unassigned} unassigned`} tone="blue" />
-        <StatCard label="Escalated" value={String(kpi.escalated)} hint="needs senior review" tone="slate" />
-        <StatCard label="SLA breached" value={String(kpi.breached)} hint={`${kpi.atRisk} at risk`} tone="red" />
-        <StatCard label="Approved" value={`${kpi.approved}%`} hint="of total" tone="green" />
-        <StatCard label="In queue" value={String(open.length)} hint="active total" tone="slate" />
-      </div>
-
-      {/* filter chips + search */}
-      <div className="flex flex-wrap items-center gap-1.5">
-        {FILTERS.map((f) => {
-          const n = rows.filter(f.match).length;
-          const active = filter === f.id;
-          return (
-            <button key={f.id} onClick={() => setFilter(f.id)}
-              className={cn("inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 font-mono text-[10.5px] font-medium uppercase tracking-[0.06em] transition-colors",
-                active ? "border-brand-200 bg-brand-50 text-brand-700" : "border-slate-200 bg-slate-100 text-slate-500 hover:text-slate-800")}>
-              {f.label}<span className="tabular-nums text-slate-400">{n}</span>
-            </button>
-          );
-        })}
-        <div className="relative ml-auto w-56">
+      {/* filter cards — the only filter control; click a card to filter the queue */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-stretch">
+        <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+          {FILTERS.map((f) => {
+            const n = rows.filter(f.match).length;
+            const active = filter === f.id;
+            return (
+              <button key={f.id} type="button" onClick={() => setFilter(f.id)}
+                className={cn("rounded-xl border px-3 py-2.5 text-left transition",
+                  active ? "border-brand-500 bg-brand-50 ring-1 ring-brand-200"
+                    : "border-slate-200 bg-slate-100 hover:border-slate-300 hover:bg-slate-200/50")}>
+                <div className={cn("text-xl font-semibold tabular-nums", active ? "text-brand-700" : "text-slate-900")}>{n}</div>
+                <div className={cn("mt-0.5 text-[11px] font-medium uppercase tracking-[0.05em]", active ? "text-brand-600" : "text-slate-500")}>{f.label}</div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative lg:w-56 lg:self-center">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search id / requester / text…" className="h-8 pl-8 text-[13px]" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search id / requester / text…" className="h-9 pl-8 text-[13px]" />
         </div>
       </div>
 
@@ -683,11 +722,24 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
           <div className="overflow-x-auto"><div className="min-w-[920px]">
             <Table>
               <THead><TR>
-                <TH>ID</TH><TH>Requester</TH><TH>Type</TH><TH>Description</TH><TH>Priority</TH><TH>SLA</TH><TH>Status</TH><TH>Assignee</TH>
+                {INBOX_COLUMNS.map((c) => {
+                  const active = sortKey === c.key;
+                  return (
+                    <TH key={c.key} className="cursor-pointer select-none hover:text-slate-700"
+                      onClick={() => toggleSort(c.key)}>
+                      <span className="inline-flex items-center gap-1">
+                        {c.label}
+                        {active && (sortDir === "asc"
+                          ? <ChevronUp className="h-3 w-3" />
+                          : <ChevronDown className="h-3 w-3" />)}
+                      </span>
+                    </TH>
+                  );
+                })}
               </TR></THead>
-              <tbody>{page.map((r) => {
+              <tbody>{pageRows.map((r) => {
                 const dotCls = r.sla_status === "overdue" ? "bg-danger" : r.sla_status === "at_risk" ? "bg-warning" : "bg-success";
-                const desc = (r.description ?? "").split("\n")[0].trim() || r.type_label;
+                const desc = (r.subject || r.description || "").split("\n")[0].trim() || r.type_label;
                 const tint = r.sla_status === "overdue" ? "bg-danger-subtle/40" : r.sla_status === "at_risk" ? "bg-warning-subtle/40" : "";
                 return (
                   <TR key={r.id} className={cn("cursor-pointer", tint)} onClick={() => onOpen(r.id)}>
@@ -726,12 +778,8 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
                 );
               })}</tbody>
             </Table>
-            {shown.length > visibleCount && (
-              <button onClick={() => setVisibleCount((c) => c + INBOX_PAGE)}
-                className="w-full border-t border-slate-100 py-3 text-center font-mono text-[10.5px] font-medium uppercase tracking-[0.1em] text-brand-700 hover:bg-slate-50">
-                ▾ Show more · {shown.length - visibleCount} remaining
-              </button>
-            )}
+            <Pagination page={currentPage} pageCount={pageCount} onPageChange={setPage}
+              totalItems={shown.length} pageSize={INBOX_PAGE} />
           </div></div>
         )}
       </Card>
@@ -1311,127 +1359,6 @@ function ContractLifecycleTracker({ contractId }: { contractId: string }) {
   );
 }
 
-// The mission-control "next step" bar, driven by the contract's review-status.
-// Simple transitions run inline; anything needing the redline cards, counterparty
-// passcode, or signer picker deep-links to the full contract workspace.
-function ContractNextStep({ contractId, onRefresh }: { contractId: string; onRefresh: () => void }) {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const { data: rs } = useQuery({ queryKey: ["contract-review", contractId], queryFn: () => contractsApi.reviewStatus(contractId) });
-  const { data: contract } = useQuery({ queryKey: ["contract-obj", contractId], queryFn: () => contractsApi.get(contractId) });
-  const { data: playbooks } = useQuery({ queryKey: ["playbooks"], queryFn: () => playbooksApi.list() });
-  const [busy, setBusy] = useState(false);
-
-  function done() {
-    qc.invalidateQueries({ queryKey: ["contract-review", contractId] });
-    qc.invalidateQueries({ queryKey: ["contract-obj", contractId] });
-    onRefresh();
-  }
-  async function run(fn: () => Promise<unknown>, msg: string) {
-    setBusy(true);
-    try { await fn(); done(); notify(msg, "success"); }
-    catch (e) { notify(e instanceof Error ? e.message : "Action failed", "error"); }
-    finally { setBusy(false); }
-  }
-  async function runRedline() {
-    setBusy(true);
-    try {
-      await contractsApi.computeRisk(contractId);
-      const ct = (contract?.contract_type ?? "").toLowerCase();
-      const pbType = (p: { contract_type?: string | null }) => (p.contract_type ?? "").toLowerCase();
-      const pb = (playbooks ?? []).find((p) => ct && pbType(p) === ct) ?? (playbooks ?? [])[0];
-      if (pb) await playbooksApi.createRun(pb.id, { contract_id: contractId, create_redline: true, use_ai: true });
-      done();
-      notify(pb ? "Redline review run — risk + deviations updated" : "Risk scored (no playbook configured)", "success");
-    } catch (e) { notify(e instanceof Error ? e.message : "Redline review failed", "error"); }
-    finally { setBusy(false); }
-  }
-  async function logRevision(file: File) {
-    setBusy(true);
-    try {
-      await contractsApi.logCounterpartyRevision(contractId, file);
-      done();
-      notify("Counterparty revision logged — re-review runs automatically", "success");
-    } catch (e) { notify(e instanceof Error ? e.message : "Upload failed", "error"); }
-    finally { setBusy(false); }
-  }
-
-  if (!rs) return <Card><CardBody><CenterSpinner /></CardBody></Card>;
-  const stage = rs.lifecycle_stage;
-  const NA = rs.next_action;
-
-  let primary: React.ReactNode = null;
-  if (NA === "run_ai")
-    primary = <Button size="sm" loading={busy} onClick={() => run(async () => { await aiApi.rerunMetadata(contractId); await aiApi.rerunClauses(contractId); }, "AI analysis started")}>Run AI analysis</Button>;
-  else if (NA === "move_to_drafting")
-    primary = <Button size="sm" loading={busy} onClick={() => run(() => contractsApi.transition(contractId, "drafting", { reason: "From intake" }), "Advanced to drafting")}>Advance to drafting</Button>;
-  else if (NA === "move_to_review")
-    primary = <Button size="sm" loading={busy} onClick={() => run(() => contractsApi.transition(contractId, "review", { reason: "From intake" }), "Advanced to review")}>Advance to review</Button>;
-  else if (NA === "submit_approval")
-    primary = <Button size="sm" loading={busy} disabled={!rs.ready_for_approval} onClick={() => run(() => approvalsApi.submit({ contract_id: contractId }), "Submitted for approval")}>Submit for approval</Button>;
-  else if (NA === "resolve_issues" || NA === "resolve_redlines" || NA === "resolve_comments")
-    primary = <Button size="sm" onClick={() => goToWorkspace(contractId)}>Resolve in workspace →</Button>;
-
-  return (
-    <Card className="border-2 border-brand-600">
-      <CardHeader className="bg-brand-50"><CardTitle>Next step</CardTitle>
-        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-500">{stage}</span></CardHeader>
-      <CardBody className="space-y-3">
-        <p className="text-sm text-slate-700">{rs.next_step}</p>
-
-        {stage === "review" && (
-          <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5">
-            <p className="mb-2 text-xs text-slate-500">
-              {rs.high_severity_issues > 0
-                ? `${rs.high_severity_issues} high-severity issue${rs.high_severity_issues > 1 ? "s" : ""} — recommend a lawyer reviews before it moves on.`
-                : "No high-severity issues — safe to move it forward yourself."}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant={rs.high_severity_issues > 0 ? undefined : "outline"} loading={busy}
-                onClick={() => run(() => approvalsApi.submit({ contract_id: contractId }), "Sent to legal — approval requested")}>Send to legal</Button>
-              {_NEXT_STAGE[stage] && (
-                <Button size="sm" variant={rs.high_severity_issues > 0 ? "outline" : undefined} loading={busy}
-                  onClick={() => run(() => contractsApi.transition(contractId, _NEXT_STAGE[stage] as never, { reason: "Advanced from review" }), `Advanced to ${_NEXT_STAGE[stage]}`)}>Advance to next step</Button>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="flex flex-wrap gap-2">
-          {primary}
-          {stage === "review" && (
-            <Button size="sm" variant="outline" loading={busy} onClick={runRedline}>Run redline review</Button>
-          )}
-          {(stage === "drafting" || stage === "review") && (
-            <Button size="sm" variant="outline" onClick={() => goToWorkspace(contractId)}>Send to counterparty →</Button>
-          )}
-          {(stage === "review" || stage === "approval") && (
-            <label className={cn("inline-flex cursor-pointer items-center rounded-md border border-slate-200 bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200", busy && "pointer-events-none opacity-60")}>
-              {busy ? "Uploading…" : "Log counterparty redlines"}
-              <input type="file" className="hidden" accept=".txt,.docx,.pdf,.doc" disabled={busy}
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) logRevision(f); e.target.value = ""; }} />
-            </label>
-          )}
-          {stage === "signature" && (
-            <Button size="sm" variant="outline" onClick={() => goToWorkspace(contractId)}>Send for signature →</Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => goToWorkspace(contractId)}>Open full workspace →</Button>
-        </div>
-        {(rs.open_issues > 0 || rs.pending_redlines > 0 || rs.high_severity_issues > 0) && (
-          <div className="flex flex-wrap gap-3 text-xs text-slate-500">
-            {rs.open_issues > 0 && <span>{rs.open_issues} open issues</span>}
-            {rs.pending_redlines > 0 && <span>{rs.pending_redlines} pending redlines</span>}
-            {rs.high_severity_issues > 0 && <span className="font-medium text-danger">{rs.high_severity_issues} high severity</span>}
-          </div>
-        )}
-        {!rs.ready_for_approval && stage === "review" && (
-          <p className="text-xs text-slate-400">Approval unlocks once the AI redline review is done and open issues are cleared.</p>
-        )}
-      </CardBody>
-    </Card>
-  );
-}
-
 // The AI analysis surfaced on the ticket once a contract exists: weighted risk
 // + the playbook deviations, severity-ranked, so a reviewer can act without
 // leaving the ticket.
@@ -1670,14 +1597,46 @@ function LitigationCard({ a }: { a: LitigationAssessment }) {
   );
 }
 
+// Owner picker for the ticket assignment card: a selectable list of assignable
+// staff (initials avatar + name), replacing the old bare dropdown. The current
+// owner is flagged; clicking a row toggles the pending selection.
+function OwnerPicker({
+  assignees, selected, onSelect, currentOwnerId,
+}: {
+  assignees: { id: string; name: string }[];
+  selected: string;
+  onSelect: (id: string) => void;
+  currentOwnerId: string | null;
+}) {
+  if (assignees.length === 0) return <p className="text-xs text-slate-400">No assignable staff.</p>;
+  return (
+    <div className="max-h-60 space-y-1 overflow-y-auto pr-0.5">
+      {assignees.map((a) => {
+        const initials = a.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
+        const active = selected === a.id;
+        const isCurrent = currentOwnerId === a.id;
+        return (
+          <button key={a.id} type="button" onClick={() => onSelect(active ? "" : a.id)}
+            className={cn("flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition",
+              active ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:bg-slate-50")}>
+            <span className={cn("grid h-8 w-8 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
+              active ? "bg-brand-600 text-white" : "bg-slate-200 text-slate-600")}>{initials || "—"}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-slate-900">{a.name}</span>
+            {isCurrent && <Badge tone="slate">Current</Badge>}
+            {active && <Check className="h-4 w-4 shrink-0 text-brand-600" />}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: string; onBack: () => void; canTriage: boolean; inPane?: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
   const { data: r, isLoading } = useQuery({ queryKey: ["intake-req", id], queryFn: () => intakeApi.get(id) });
-  const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canTriage });
-  const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: projectsApi.list, enabled: canTriage });
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list, enabled: canTriage });
   const { data: legs } = useQuery({ queryKey: ["intake-sla", id], queryFn: () => intakeApi.slaLegs(id) });
   const { data: ticketDocs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
@@ -1694,24 +1653,14 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
       return run.status === "running" || working ? 1500 : false;
     },
   });
-  const hasRun = !!flowRun && ["running", "waiting", "complete"].includes(flowRun.status);
+  const hasRun = !!flowRun && ["running", "waiting", "complete", "failed", "cancelled"].includes(flowRun.status);
   const hasAttachment = (ticketDocs ?? []).some((d) => d.extracted_chars > 0);
   const [busy, setBusy] = useState(false);
   const [reassignTo, setReassignTo] = useState("");
-  const [snoozeUntil, setSnoozeUntil] = useState("");
-  const [promoteKind, setPromoteKind] = useState<"project" | "contract">("project");
-  const [promoteTarget, setPromoteTarget] = useState("");
-  const [showLegs, setShowLegs] = useState(false);
-  const [tab, setTab] = useState("overview");
-  const promoteOptions =
-    promoteKind === "project"
-      ? (projects ?? []).map((p) => ({ id: p.id, label: p.name }))
-      : (contracts ?? []).map((c) => ({ id: c.id, label: c.title }));
 
   function refresh() {
     ["intake-list", "intake-mywork", "intake-mine"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
     qc.invalidateQueries({ queryKey: ["intake-req", id] });
-    qc.invalidateQueries({ queryKey: ["intake-handoffs", id] });
     qc.invalidateQueries({ queryKey: ["intake-sla", id] });
     qc.invalidateQueries({ queryKey: ["flow-run", id] });
   }
@@ -1756,7 +1705,7 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const postureText = posture === "overdue" ? "text-danger" : posture === "at_risk" ? "text-warning" : "text-success";
   // A short header title — descriptions can be long (pasted text, folded
   // attachments). Take the first line, capped; the full text lives in Overview.
-  const firstLine = (r.description || r.type_label).trim().split("\n")[0].trim();
+  const firstLine = (r.subject || r.description || r.type_label).trim().split("\n")[0].trim();
   const shortTitle = firstLine.length > 140 ? `${firstLine.slice(0, 137).trimEnd()}…` : (firstLine || r.type_label);
 
   // Dispatch-desk detail (reference "Legal Mission Control" layout, in the light
@@ -1764,13 +1713,10 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   // governance ladder, request brief, AI analysis, assignment, custody legs, and
   // a tamper-evident timeline. A render helper draws the mono-caps section heads.
   const youCreated = !!user && r.requester_user_id === user.id;
-  // A running governance ladder IS direction — count it as dispatched even if no
-  // owner is assigned yet, so the banner doesn't contradict the ladder below it.
-  const dispatched = hasRun || !!r.assigned_to_user_id || r.status !== "open";
   const owner = r.assigned_to_label;
   const flowSteps = flowRun?.steps ?? [];
   const current = flowRun ? flowSteps[flowRun.current_index] : undefined;
-  const doneCount = flowSteps.filter((s) => s.status === "done" || s.status === "complete").length;
+  const doneCount = flowSteps.filter((s) => ["done", "complete", "skipped"].includes(s.status)).length;
   // Click any ladder step to inspect it; defaults to (and follows) the current step.
   const selIdx = selectedIdx ?? flowRun?.current_index ?? 0;
   const selStep = flowSteps[selIdx];
@@ -1828,24 +1774,6 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         </div>
       </Card>
 
-      {/* ===== dispatch banner ===== */}
-      {canTriage && (
-        <div className={cn("flex items-start gap-2.5 rounded-xl border border-l-[3px] px-4 py-3 text-[13px]",
-          dispatched ? "border-success/30 border-l-success bg-success-subtle" : "border-warning/30 border-l-warning bg-warning-subtle")}>
-          <span className={cn("mt-0.5 font-semibold", dispatched ? "text-success" : "text-warning")}>{dispatched ? "✓" : "◆"}</span>
-          <div>
-            <p className={cn("font-mono text-[10px] font-semibold uppercase tracking-[0.1em]", dispatched ? "text-success" : "text-warning")}>
-              {dispatched ? "Dispatched → in the working queue" : "Not dispatched yet"}
-            </p>
-            <p className="mt-0.5 text-slate-600">
-              {dispatched
-                ? owner ? <>Assigned to <span className="font-medium text-slate-900">{owner}</span> — it now appears in their queue.</> : "A governance ladder is running on this request."
-                : "This request has no direction — start a governance ladder or assign an owner below."}
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* ===== governance ladder ===== */}
       <Card className="p-5">
         {hasRun && flowRun ? (
@@ -1855,39 +1783,13 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
             <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-slate-200">
               <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${flowSteps.length ? Math.round((doneCount / flowSteps.length) * 100) : 0}%` }} />
             </div>
-            <div className="flex items-start overflow-x-auto pb-1">
-              {flowSteps.map((s, i) => {
-                const m = stepMeta(s.type);
-                const done = s.status === "done" || s.status === "complete";
-                const active = s.idx === flowRun.current_index && flowRun.status !== "complete";
-                // Two distinct live states: "working" = a subsystem is actively
-                // running (ai_task mid-beat, approval/signature in flight) → spin;
-                // "needsYou" = the step is parked waiting on the user → attention pulse.
-                const working = s.status === "running" || s.status === "waiting_job";
-                const needsYou = s.status === "waiting_human";
-                const StepIcon = working ? RotateCw : m.icon;
-                const isSel = s.idx === selIdx;
-                return (
-                  <Fragment key={s.idx}>
-                    <button type="button" onClick={() => setSelectedIdx(s.idx)}
-                      className={cn("flex min-w-[86px] max-w-[116px] shrink-0 flex-col items-center gap-1.5 rounded-lg px-1 py-1.5 text-center transition hover:bg-slate-50", isSel && "bg-slate-100 ring-1 ring-slate-200")}>
-                      <span className={cn("grid h-9 w-9 place-items-center rounded-full ring-2 transition",
-                        done ? "bg-success-subtle text-success ring-success/40"
-                          : active ? cn("bg-brand-50 text-brand-700 ring-brand-300", (working || needsYou) && "animate-pulse")
-                            : "bg-slate-100 text-slate-400 ring-slate-200")}>
-                        {done ? <Check className="h-4 w-4" /> : <StepIcon className={cn("h-4 w-4", working && "animate-spin")} />}
-                      </span>
-                      <span className={cn("text-[11px] leading-tight", active ? "font-semibold text-slate-900" : done ? "text-slate-600" : "text-slate-400")}>{s.name}</span>
-                      <span className={cn("font-mono text-[8.5px] uppercase tracking-wide",
-                        done ? "text-success" : active ? (needsYou ? "text-warning" : "text-brand-600") : "text-slate-400")}>
-                        {done ? "Done" : active ? (needsYou ? m.wait : m.running) : m.label}
-                      </span>
-                    </button>
-                    {i < flowSteps.length - 1 && <span className={cn("mt-4 h-0.5 min-w-[12px] flex-1 rounded", done ? "bg-success/40" : "bg-slate-200")} />}
-                  </Fragment>
-                );
-              })}
-            </div>
+            <GovernanceLadderSteps
+              steps={flowSteps}
+              currentIndex={flowRun.current_index}
+              complete={flowRun.status === "complete"}
+              selectedIdx={selIdx}
+              onSelect={setSelectedIdx}
+            />
             {selStep && (
               <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-700">
@@ -1908,6 +1810,12 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
                 <Check className="h-4 w-4" /> Workflow complete — every step is done.
               </div>
             )}
+            {(flowRun.status === "failed" || flowRun.status === "cancelled") && (
+              <div className="mt-4 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger-subtle px-3 py-2 text-[13px] text-danger">
+                <X className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>Workflow {flowRun.status === "cancelled" ? "cancelled" : "failed"}{flowRun.error ? ` — ${flowRun.error}` : "."} The ladder stopped here; resolve the step or restart the workflow.</span>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
               {current?.status === "waiting_human" && (
                 <Button size="sm" loading={busy} onClick={() => act(() => flowsApi.completeStep(flowRun.id), `“${current.name}” completed`)}><Check className="h-4 w-4" /> Complete this step</Button>
@@ -1918,7 +1826,6 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
               {r.contract_id && (
                 <a href={`/contracts/${r.contract_id}`} className="ml-auto inline-flex items-center gap-1 text-[13px] font-semibold text-brand-700 hover:underline">Open the drafted contract →</a>
               )}
-              {flowRun.error && <p className="text-xs text-danger">{flowRun.error}</p>}
             </div>
           </>
         ) : r.contract_id ? (
@@ -1935,7 +1842,10 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         )}
       </Card>
 
-      {la && <LitigationCard a={la} />}
+      {/* ===== detail grid: substance (left) · status & actions (right) ===== */}
+      <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,1.75fr)_minmax(0,1fr)]">
+        <div className="grid gap-3">
+          {la && <LitigationCard a={la} />}
 
       {/* ===== request brief ===== */}
       <Card className="p-5">
@@ -1980,6 +1890,9 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         ) : null}
       </Card>
 
+      {/* ===== documents (kept with the brief, not at the end) ===== */}
+      <Card className="p-5">{head("Documents")}<DocumentsPanel requestId={r.id} /></Card>
+
       {/* ===== AI analysis ===== */}
       {r.contract_id && <Card className="p-5">{head("Playbook Deviations · Risk")}<AiAnalysisCard contractId={r.contract_id} /></Card>}
 
@@ -1987,38 +1900,24 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
       <Card className="p-5">{head("Counterparty & Screening")}
         <div className="space-y-4"><PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} /><ScreeningPanel r={r} canTriage={canTriage} onRefreshed={refresh} /></div>
       </Card>
-      <Card className="p-5">{head("Documents")}<DocumentsPanel requestId={r.id} /></Card>
+        </div>
 
-      {/* ===== assignment & dispatch ===== */}
+        <div className="grid gap-3">
+      {/* ===== assignment · owner ===== */}
       {canTriage && open && (
-        <Card className="p-5">
-          {head("Assignment · Direction & Ownership", owner ? <>Owned by <span className="text-slate-600">{owner}</span></> : "Unassigned")}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex items-end gap-2">
-              <Field label="Reassign owner" className="flex-1">
-                <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)}>
-                  <option value="">Select…</option>{(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </Select>
-              </Field>
-              <Button size="sm" variant="outline" loading={busy} disabled={!reassignTo} onClick={() => act(async () => { await intakeApi.triage(id, { action: "reassigned", assignee_user_id: reassignTo }); setReassignTo(""); }, "Reassigned")}>Go</Button>
-            </div>
-            <div className="flex items-end gap-2">
-              <Field label="Snooze until" className="flex-1"><Input type="date" value={snoozeUntil} onChange={(e) => setSnoozeUntil(e.target.value)} /></Field>
-              <Button size="sm" variant="outline" loading={busy} disabled={!snoozeUntil} onClick={() => act(async () => { await intakeApi.triage(id, { action: "snoozed", snoozed_until: snoozeUntil }); setSnoozeUntil(""); }, "Snoozed")}>Go</Button>
-            </div>
-            <div className="flex items-end gap-2 sm:col-span-2">
-              <Field label="Promote to" className="flex-1">
-                <div className="flex gap-1">
-                  <Select value={promoteKind} onChange={(e) => { setPromoteKind(e.target.value as "project" | "contract"); setPromoteTarget(""); }}><option value="project">Project</option><option value="contract">Contract</option></Select>
-                  <Select value={promoteTarget} onChange={(e) => setPromoteTarget(e.target.value)}><option value="">Select…</option>{promoteOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}</Select>
-                </div>
-              </Field>
-              <Button size="sm" variant="outline" loading={busy} disabled={!promoteTarget} onClick={() => act(async () => { await intakeApi.promote(id, promoteKind, promoteTarget); setPromoteTarget(""); }, `Promoted to ${promoteKind}`)}>Go</Button>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-            {r.status !== "escalated" && <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "escalate" }), "Escalated")}>⚡ Escalate</Button>}
-            <Button size="sm" variant="outline" loading={busy} onClick={() => act(() => intakeApi.triage(id, { action: "manual_close" }), "Closed")}>✓ Mark complete</Button>
+        <Card id="assignment" className="p-5">
+          {head("Assignment · Owner", owner ? <>Owned by <span className="text-slate-600">{owner}</span></> : "Unassigned")}
+          <OwnerPicker
+            assignees={assignees ?? []}
+            selected={reassignTo}
+            onSelect={setReassignTo}
+            currentOwnerId={r.assigned_to_user_id ?? null}
+          />
+          <div className="mt-3 flex justify-end border-t border-slate-100 pt-3">
+            <Button size="sm" loading={busy} disabled={!reassignTo}
+              onClick={() => act(async () => { await intakeApi.triage(id, { action: "reassigned", assignee_user_id: reassignTo }); setReassignTo(""); }, "Owner reassigned")}>
+              Reassign owner
+            </Button>
           </div>
         </Card>
       )}
@@ -2034,29 +1933,8 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
         </Card>
       )}
 
-      {/* ===== timeline ===== */}
-      <Card className="p-5">
-        {head(`Timeline (${(handoffs ?? []).length})`, "Chain-sealed · tamper-evident")}
-        {(handoffs ?? []).length === 0 ? <p className="text-xs text-slate-400">Still in the intake queue — no hand-offs yet.</p> : (
-          <ol className="space-y-3">
-            {(handoffs ?? []).map((h) => (
-              <li key={h.id} className="flex gap-3 text-xs">
-                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-brand-400" />
-                <div className="min-w-0">
-                  <span className="capitalize text-slate-500">{h.from_holder ?? "queue"}</span>
-                  <span className="text-slate-400"> → </span>
-                  <span className="font-medium capitalize text-slate-900">{h.to_label ?? h.to_holder}</span>
-                  {h.reason && <span className="text-slate-400"> · {h.reason}</span>}
-                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-slate-400">
-                    {h.created_at && <span>{new Date(h.created_at).toLocaleString()}</span>}
-                    <span className="font-mono">#{String(h.id).slice(0, 8)}</span>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2151,6 +2029,9 @@ function ScreeningPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTr
               <span key={i} className="text-danger">{m.name}{m.programs ? ` · ${m.programs}` : ""}</span>
             ))}
           </div>
+          {sc.sanctions?.note && (
+            <p className="text-slate-500">{sc.sanctions.note}</p>
+          )}
           <div>
             <div className="mb-1 flex items-center gap-2">
               <span className="text-slate-500">Conflicts:</span>

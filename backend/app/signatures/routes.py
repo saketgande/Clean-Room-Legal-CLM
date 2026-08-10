@@ -254,7 +254,7 @@ async def docusign_connect_webhook(
     try:
         event = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Malformed webhook payload")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Malformed webhook payload") from None
     if not isinstance(event, dict):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Malformed webhook payload")
     data = event.get("data") if isinstance(event.get("data"), dict) else event

@@ -18,7 +18,6 @@ from app.ai.registry import skill_registry
 from app.ai.schemas import (
     CitationInput,
     ClauseExtractionOutput,
-    ContractEditSuggestionsOutput,
     ContractMetadataOutput,
     ObligationExtractionOutput,
     RenewalExtractionOutput,
@@ -35,7 +34,6 @@ from app.assistant.models import (
 )
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
-from app.contract_files.models import ContractEdit
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
@@ -124,15 +122,26 @@ class AIController:
         replayed: the assistant's text answer already summarises them, and
         partial tool_use/tool_result blocks would break the provider contract.
         """
-        rows = db.scalars(
-            select(AssistantMessage)
-            .where(
-                AssistantMessage.session_id == session_id,
-                AssistantMessage.role.in_(["user", "assistant"]),
-                AssistantMessage.id != exclude_message_id,
+        # Fetch only the most recent rows (DESC + LIMIT), then re-sort ASC for
+        # turn-building below — without the LIMIT, a long-running session
+        # re-pulled and re-processed its ENTIRE message history every single
+        # turn just to keep the last `max_messages`. Over-fetch 4x max_messages
+        # so same-role merges below still have enough rows to reach a full,
+        # validly-alternating window.
+        rows = list(
+            reversed(
+                db.scalars(
+                    select(AssistantMessage)
+                    .where(
+                        AssistantMessage.session_id == session_id,
+                        AssistantMessage.role.in_(["user", "assistant"]),
+                        AssistantMessage.id != exclude_message_id,
+                    )
+                    .order_by(AssistantMessage.created_at.desc())
+                    .limit(max_messages * 4)
+                ).all()
             )
-            .order_by(AssistantMessage.created_at.asc())
-        ).all()
+        )
 
         # Collapse consecutive same-role turns so the sequence strictly
         # alternates (the provider rejects two user or two assistant turns
@@ -257,14 +266,20 @@ class AIController:
         try:
             for iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(org_id)
-                provider_response = await claude_client.complete_with_tools(
+                provider_response = None
+                async for chunk in claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=tools,
                     max_tokens=_clamp_max_tokens(spec.max_tokens),
                     temperature=spec.temperature,
                     model=prompt_bundle.model_name,
-                )
+                ):
+                    if chunk["type"] == "text_delta":
+                        final_answer_parts.append(chunk["text"])
+                        yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
+                    else:
+                        provider_response = chunk["response"]
                 self._log_assistant_ai_call(
                     db,
                     org_id=org_id,
@@ -276,15 +291,7 @@ class AIController:
                     assistant_run_id=assistant_run_id,
                     session_id=session_id,
                 )
-                text_delta = "".join(
-                    block.get("text", "")
-                    for block in provider_response.content_blocks
-                    if block.get("type") == "text"
-                )
                 if not provider_response.tool_use_blocks:
-                    if text_delta:
-                        final_answer_parts.append(text_delta)
-                        yield {"event": "message_delta", "payload": {"text": text_delta}}
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
                     skill_run.output_payload = {
@@ -294,10 +301,6 @@ class AIController:
                     skill_run.finished_at = utcnow()
                     db.commit()
                     return
-
-                if text_delta:
-                    final_answer_parts.append(text_delta)
-                    yield {"event": "message_delta", "payload": {"text": text_delta}}
 
                 messages.append({"role": "assistant", "content": provider_response.content_blocks})
                 tool_result_blocks = []
@@ -536,14 +539,20 @@ class AIController:
         try:
             for _iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(user.org_id)
-                provider_response = await claude_client.complete_with_tools(
+                provider_response = None
+                async for chunk in claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
                     max_tokens=_clamp_max_tokens(spec.max_tokens),
                     temperature=spec.temperature,
                     model=prompt_bundle.model_name,
-                )
+                ):
+                    if chunk["type"] == "text_delta":
+                        final_answer_parts.append(chunk["text"])
+                        yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
+                    else:
+                        provider_response = chunk["response"]
                 self._log_assistant_ai_call(
                     db,
                     org_id=user.org_id,
@@ -555,15 +564,7 @@ class AIController:
                     assistant_run_id=assistant_run_id,
                     session_id=run.session_id,
                 )
-                text_delta = "".join(
-                    block.get("text", "")
-                    for block in provider_response.content_blocks
-                    if block.get("type") == "text"
-                )
                 if not provider_response.tool_use_blocks:
-                    if text_delta:
-                        final_answer_parts.append(text_delta)
-                        yield {"event": "message_delta", "payload": {"text": text_delta}}
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
                     skill_run.output_payload = {
@@ -576,9 +577,6 @@ class AIController:
                     run.completed_at = utcnow()
                     db.commit()
                     return
-                if text_delta:
-                    final_answer_parts.append(text_delta)
-                    yield {"event": "message_delta", "payload": {"text": text_delta}}
                 messages.append({"role": "assistant", "content": provider_response.content_blocks})
                 tool_result_blocks = []
                 for tool_use in provider_response.tool_use_blocks:
@@ -1487,34 +1485,6 @@ class AIController:
                     start_char=clause.start_char,
                     end_char=clause.end_char,
                     confidence=clause.confidence,
-                    created_by_user_id=created_by_user_id,
-                    updated_by_user_id=created_by_user_id,
-                )
-            )
-
-    def _persist_contract_edits(
-        self,
-        db: Session,
-        *,
-        output: BaseModel,
-        context: ContractAIContext,
-        created_by_user_id: str | None,
-    ) -> None:
-        edits = output if isinstance(output, ContractEditSuggestionsOutput) else ContractEditSuggestionsOutput.model_validate(output)
-        if context.version is None:
-            return
-        for edit in edits.edits:
-            db.add(
-                ContractEdit(
-                    org_id=context.contract.org_id,
-                    contract_id=context.contract.id,
-                    contract_version_id=context.version.id,
-                    edit_type=edit.edit_type,
-                    status="proposed",
-                    original_text=edit.original_text,
-                    replacement_text=edit.replacement_text,
-                    rationale=edit.rationale,
-                    citation=[citation.model_dump(mode="json") for citation in edit.citations],
                     created_by_user_id=created_by_user_id,
                     updated_by_user_id=created_by_user_id,
                 )

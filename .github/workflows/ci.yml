@@ -71,6 +71,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Pin runtime deps to the exact versions the Docker image ships
+          # (requirements.lock) before layering in dev/test tooling — CI was
+          # testing against pyproject.toml's unpinned ranges, which could
+          # silently diverge from what's actually deployed.
+          pip install --no-deps -r requirements.lock
           pip install ".[dev]"
 
       - name: Lint (ruff)

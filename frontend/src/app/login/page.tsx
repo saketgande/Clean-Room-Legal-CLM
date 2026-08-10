@@ -21,7 +21,7 @@ export default function LoginPage() {
   async function exploreDemo() {
     enableDemo();
     await refreshUser();
-    router.push("/command");
+    router.push("/intake");
   }
   const [mode, setMode] = useState<Mode>("login");
   const [loading, setLoading] = useState(false);
@@ -33,7 +33,7 @@ export default function LoginPage() {
   // setup
   const [orgName, setOrgName] = useState("");
   const [orgSlug, setOrgSlug] = useState("");
-  const [setupToken, setSetupToken] = useState("local-setup-token");
+  const [setupToken, setSetupToken] = useState("");
   const [allowedDomains, setAllowedDomains] = useState("");
 
   async function submit(e: React.FormEvent) {
@@ -61,7 +61,7 @@ export default function LoginPage() {
         const tokens = await authApi.login(email, password);
         tokenStore.set(tokens);
         notify("Organization created", "success");
-        router.push("/command");
+        router.push("/intake");
       }
     } catch (err) {
       notify(err instanceof Error ? err.message : "Request failed", "error");

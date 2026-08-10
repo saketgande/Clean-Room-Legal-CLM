@@ -137,7 +137,7 @@ export function RoutingTab({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">No-code when → then, evaluated in order inside the save chokepoint. Rules never override a human.</p>
+        <p className="text-xs text-slate-500">No-code <strong className="text-slate-700">when → then</strong> rules that route an incoming request the moment it&apos;s filed — set its priority, SLA, owner, or team. Evaluated in order; a rule never overrides a human decision.</p>
         {isAdmin && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New rule</Button>}
       </div>
       <Card>
@@ -261,7 +261,7 @@ export function TeamsTab({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">Load-balanced pools / tiers. Routing rules point at these; the engine balances the work.</p>
+        <p className="text-xs text-slate-500">Load-balanced pools / tiers for <strong className="text-slate-700">work assignment</strong>. Routing rules point at these; the engine balances the work. (Not approval sign-off groups — those are Approver groups.)</p>
         {isAdmin && <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New pool</Button>}
       </div>
       {(data ?? []).length === 0 ? <Card><CardBody><EmptyState title="No pools" description="Create a pool to route work to a tier." /></CardBody></Card> :

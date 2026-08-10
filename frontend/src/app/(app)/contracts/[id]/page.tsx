@@ -40,6 +40,7 @@ import {
   MoreHorizontal,
   Users,
   UserPlus,
+  Milestone,
 } from "lucide-react";
 import {
   aiApi,
@@ -47,6 +48,7 @@ import {
   assistantApi,
   brainApi,
   contractsApi,
+  flowsApi,
   grantsApi,
   obligationsApi,
   playbooksApi,
@@ -87,6 +89,7 @@ import { useLayout } from "@/lib/layout";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
 import { apiStream } from "@/lib/api";
+import { ContractGovernanceLadder } from "../../intake/_governance-ladder";
 import type {
   ApprovalChainStep,
   Citation,
@@ -102,6 +105,7 @@ import type {
 
 type PanelId =
   | "ask"
+  | "status"
   | "risk"
   | "redlines"
   | "comments"
@@ -121,6 +125,7 @@ function phaseForStage(stage: ContractLifecycleStage): WorkspacePhase {
 }
 const NEGOTIATE_PANELS: PanelId[] = [
   "ask",
+  "status",
   "redlines",
   "risk",
   "comments",
@@ -129,6 +134,7 @@ const NEGOTIATE_PANELS: PanelId[] = [
 ];
 const MANAGE_PANELS: PanelId[] = [
   "ask",
+  "status",
   "risk",
   "comments",
   "versions",
@@ -152,6 +158,7 @@ const PANELS: Record<
   { id: PanelId; label: string; hint: string; icon: typeof Wand2 }
 > = {
   ask: { id: "ask", label: "Ask", hint: "Edit & analyze", icon: Sparkles },
+  status: { id: "status", label: "Status", hint: "Governance & lifecycle", icon: Milestone },
   risk: { id: "risk", label: "Risk", hint: "Weighted risk score", icon: AlertTriangle },
   redlines: { id: "redlines", label: "Redlines", hint: "Tracked changes", icon: FileDiff },
   comments: { id: "comments", label: "Comments", hint: "Discussion", icon: MessageSquare },
@@ -1582,7 +1589,11 @@ export default function ContractDetailPage({
         </div>
       </div>
 
-      <OverviewBar contractId={id} collapsed={phase === "manage"} />
+      {/* The document is the focus, so the governance ladder + full lifecycle
+          tracker live in the Status tab (right rail) instead of stacking
+          above it. This slim bar is the only always-visible trace of them —
+          it already carries stage, "waiting on", and Advance stage. */}
+      <OverviewBar contractId={id} collapsed />
 
       {phase !== "manage" && (
         <NextStepHero
@@ -1676,6 +1687,7 @@ export default function ContractDetailPage({
           <div className="relative flex-1 overflow-hidden">
             {shownPanel !== "ask" && (
               <div className="h-full overflow-y-auto p-4">
+                {shownPanel === "status" && <StatusPanel contractId={id} />}
                 {shownPanel === "risk" && <RiskPanel contractId={id} />}
                 {shownPanel === "versions" && <Versions contractId={id} />}
                 {shownPanel === "comments" && <CommentsPanel contractId={id} />}
@@ -2269,7 +2281,7 @@ function OverviewBar({
               s === "approval" && preApproval && blockerParts.length > 0;
             const meta = stageMeta(s, i);
             return (
-              <li key={s} className="flex min-w-0 flex-1 items-start last:flex-none">
+              <li key={s} className="flex shrink-0 items-start">
                 <div className="flex shrink-0 flex-col items-center gap-1 px-1" style={{ minWidth: 70 }}>
                   <span
                     aria-current={current ? "step" : undefined}
@@ -2328,10 +2340,9 @@ function OverviewBar({
                 {i < LIFECYCLE_STAGES.length - 1 && (
                   <span
                     className={cn(
-                      "mt-3 h-0.5 flex-1",
+                      "mt-3 h-0.5 w-6 shrink-0",
                       i < currentIdx ? "bg-brand-500/70" : "bg-slate-200",
                     )}
-                    style={{ minWidth: 10 }}
                   />
                 )}
               </li>
@@ -2454,6 +2465,32 @@ function OverviewBar({
   );
 }
 
+// The governance ladder (workflow), relocated here so the document keeps the
+// top of the page — rendered as a vertical timeline with each step's detail
+// caption right under its name. The 7-stage lifecycle stays hidden; its slim
+// one-line summary (stage, waiting-on, Advance stage) already sits above the
+// document at all times, so it isn't duplicated here.
+function StatusPanel({ contractId }: { contractId: string }) {
+  const { data: run, isLoading } = useQuery({
+    queryKey: ["flow-run-contract", contractId],
+    queryFn: () => flowsApi.runForContract(contractId),
+  });
+  const hasLadder = !!run?.steps?.length;
+  return (
+    <div className="-m-4">
+      {hasLadder ? (
+        <ContractGovernanceLadder contractId={contractId} />
+      ) : !isLoading ? (
+        <div className="px-4 py-8 text-center text-sm text-slate-400">
+          No governance workflow drove this contract.
+          <br />
+          Stage and history are shown at the top of the page.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function TransitionModal({
   contractId,
   allowed,
@@ -2468,6 +2505,7 @@ function TransitionModal({
   const { notify } = useToast();
   const [stage, setStage] = useState(allowed[0]);
   const [reason, setReason] = useState("");
+  const [override, setOverride] = useState(false);
   const [signedConfirmation, setSignedConfirmation] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -2476,6 +2514,7 @@ function TransitionModal({
     try {
       await contractsApi.transition(contractId, stage as never, {
         reason: reason || undefined,
+        override,
         signed_confirmation: signedConfirmation,
       });
       onDone();
@@ -2512,13 +2551,25 @@ function TransitionModal({
             ))}
           </Select>
         </Field>
-        <Field label="Reason" hint="Optional">
+        <Field
+          label="Reason"
+          hint={override ? "Required — you're overriding a blocker" : "Optional"}
+        >
           <Textarea
             rows={2}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
         </Field>
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input
+            type="checkbox"
+            checked={override}
+            onChange={(e) => setOverride(e.target.checked)}
+          />
+          Override blockers (e.g. open redlines) — requires the lifecycle
+          override permission
+        </label>
         {stage === "active" && (
           <label className="flex items-center gap-2 text-sm text-slate-600">
             <input
@@ -3100,19 +3151,49 @@ function AskAIPanel({
   const [streaming, setStreaming] = useState(false);
   const [pending, setPending] = useState<AskPending | null>(null);
   const abortRef = useRef<(() => void) | null>(null);
-  const bootRef = useRef(false);
+  // Tracks which contract's session is currently booted (not a plain
+  // boolean) so navigating to a different contract without unmounting this
+  // panel re-boots for the new contractId instead of silently keeping the
+  // previous contract's session and messages on screen forever.
+  const bootedContractId = useRef<string | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (bootRef.current) return;
-    bootRef.current = true;
+    if (bootedContractId.current === contractId) return;
+    bootedContractId.current = contractId;
+    setSessionId(null);
+    setItems([]);
+    // Reuse this contract's most recent session instead of minting a new one
+    // on every visit — otherwise reopening the same contract's Ask panel a
+    // few times leaves a trail of empty, indistinguishable "Edit · <title>"
+    // sessions cluttering the chat history for anyone who never typed anything.
     assistantApi
-      .createSession({
-        session_type: "contract",
-        contract_id: contractId,
-        title: `Edit · ${contractTitle}`.slice(0, 60),
+      .sessions({ contract_id: contractId, limit: 1 })
+      .then((existing) =>
+        existing[0] ??
+        assistantApi.createSession({
+          session_type: "contract",
+          contract_id: contractId,
+          title: `Edit · ${contractTitle}`.slice(0, 60),
+        }),
+      )
+      .then(async (s) => {
+        setSessionId(s.id);
+        // A reused session may already carry real prior turns — load them so
+        // the visible transcript matches what the assistant actually
+        // remembers, instead of showing an empty panel over a non-empty one.
+        const msgs = await assistantApi.messages(s.id).catch(() => []);
+        if (msgs.length) {
+          setItems(
+            msgs.map((m) => ({
+              id: m.id,
+              role: m.role,
+              text: m.content,
+              citations: m.citations ?? undefined,
+            })),
+          );
+        }
       })
-      .then((s) => setSessionId(s.id))
       .catch((e) =>
         notify(
           e instanceof Error ? e.message : "Could not start assistant",
@@ -3563,6 +3644,21 @@ function RunPlaybookModal({
   const [pbId, setPbId] = useState("");
   const [createRedline, setCreateRedline] = useState(true);
   const [busy, setBusy] = useState(false);
+  // AI suggestion: same heuristic as the backend pick_playbook_for_contract —
+  // a published playbook whose name mentions the contract type, else the first.
+  // The user can override the pick in the dropdown.
+  const { data: contractObj } = useQuery({ queryKey: ["contract", contractId], queryFn: () => contractsApi.get(contractId), enabled: open });
+  const suggestedId = (() => {
+    if (published.length === 0) return "";
+    const ct = (contractObj?.contract_type ?? "").trim().toLowerCase();
+    if (ct) {
+      const toks = ct.replace(/_/g, " ").split(/\s+/).filter((t) => t.length > 2);
+      const named = published.find((p) => { const n = (p.name ?? "").toLowerCase(); return n.includes(ct) || toks.some((t) => n.includes(t)); });
+      if (named) return named.id;
+    }
+    return published[0].id;
+  })();
+  useEffect(() => { if (open && suggestedId) setPbId(suggestedId); }, [open, suggestedId]);
 
   async function run() {
     if (!pbId) return;
@@ -3635,7 +3731,7 @@ function RunPlaybookModal({
             <option value="">Select a playbook…</option>
             {published.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name}
+                {p.name}{p.id === suggestedId ? " · suggested" : ""}
               </option>
             ))}
           </Select>

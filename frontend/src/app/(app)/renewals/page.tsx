@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, RefreshCw } from "lucide-react";
-import { contractsApi, renewalsApi } from "@/lib/endpoints";
+import { renewalsApi } from "@/lib/endpoints";
 import {
   Badge,
   Button,
@@ -39,16 +39,6 @@ export default function RenewalsPage() {
     queryKey: ["renewals"],
     queryFn: () => renewalsApi.list(),
   });
-  const { data: contracts } = useQuery({
-    queryKey: ["contracts"],
-    queryFn: contractsApi.list,
-  });
-
-  const titleMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const c of contracts ?? []) m.set(c.id, c.title);
-    return m;
-  }, [contracts]);
 
   async function runWindowCheck() {
     setWindowBusy(true);
@@ -114,7 +104,7 @@ export default function RenewalsPage() {
               {(data ?? []).map((r) => (
                 <TR key={r.id}>
                   <TD className="font-medium text-slate-900">
-                    {titleMap.get(r.contract_id) ?? r.contract_id}
+                    {r.contract_title ?? "Untitled contract"}
                   </TD>
                   <TD>{fmtDate(r.expiration_date)}</TD>
                   <TD>{fmtDate(r.notice_date)}</TD>

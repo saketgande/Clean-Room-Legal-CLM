@@ -45,6 +45,12 @@ from app.intake.models import (
     IntakeTeam,
 )
 
+# --- status / stage constants (shared, see constants.py) -------------------
+from app.intake.constants import (  # noqa: E402
+    AT_RISK, OVERDUE, OPEN_STATUSES, SPINE_DEFAULT_MID, SPINE_HEAD,
+    SPINE_TAIL, STAGE_LABELS, TERMINAL_STATUSES,
+)
+
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 
@@ -140,6 +146,7 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "department": r.department,
         "request_type_id": r.request_type_id,
         "type_label": r.type_label,
+        "subject": r.subject,
         "description": r.description,
         "field_values": r.field_values,
         "priority": r.priority,
@@ -414,6 +421,17 @@ def resuggest_flow(db: Session, *, actor: User, request_id: str) -> dict:
     return serialize_request(db, r)
 
 
+def _derive_subject(subject: str | None, description: str | None, type_label: str) -> str:
+    """A short human title for a request: the explicit subject if given, else the
+    first non-empty line of the description, else the type label. Capped at 200."""
+    if subject and subject.strip():
+        return subject.strip()[:200]
+    for line in (description or "").splitlines():
+        if line.strip():
+            return line.strip()[:200]
+    return (type_label or "").strip()[:200]
+
+
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
                    conversation: list | None = None) -> dict:
     rtype = None
@@ -425,7 +443,9 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
         org_id=actor.org_id, ref=_next_ref(db), source=payload.source,
         requester_user_id=actor.id, requester_name=payload.requester_name,
         department=payload.department, request_type_id=(rtype.id if rtype else None),
-        type_label=payload.type_label.strip(), description=payload.description or "",
+        type_label=payload.type_label.strip(),
+        subject=_derive_subject(getattr(payload, "subject", None), payload.description, payload.type_label),
+        description=payload.description or "",
         field_values=payload.field_values, priority=payload.priority,
         status="open", stage="new", sla_hours=24,
         submitted_at=now, handoff_holder="queue", conversation=conversation,
@@ -443,7 +463,7 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     # the approval ladder; litigation/etc. also escalate here, before routing runs.
     from app.intake import gates as gates_mod
 
-    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(r), "gate_overrides": []}
+    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(db, r), "gate_overrides": []}
     gates_mod.apply_gate_side_effects(r)
     db.add(r)
     db.flush()
@@ -528,7 +548,10 @@ def _notify(db: Session, r: IntakeRequest, user_id: str | None, event_type: str,
         db.add(Notification(org_id=r.org_id, user_id=user_id, channel="in_app",
                             event_type=event_type, subject=subject, body=body, status="sent"))
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).debug(
+            "in-app notification failed for user %s", user_id, exc_info=True
+        )
 
 
 def _accessible(user: User):
@@ -549,7 +572,29 @@ def list_requests(db: Session, *, user: User, status_filter: str | None = None,
     if status_filter:
         q = q.where(IntakeRequest.status == status_filter)
     rows = db.scalars(q.order_by(IntakeRequest.submitted_at.desc())).all()
+    _prefetch_serialize_dependencies(db, rows)
     return [serialize_request(db, r) for r in rows]
+
+
+def _prefetch_serialize_dependencies(db: Session, rows: list[IntakeRequest]) -> None:
+    """Warm the session identity map so serialize_request's per-row db.get()
+    calls (request type, requester/assignee labels, contract title) hit the
+    map instead of issuing one query per row — this was an N+1 on the main
+    Legal Intake queue. Behavior-preserving: serialize_request is unchanged,
+    db.get() just becomes a cache hit for anything fetched here."""
+    from app.contracts.models import Contract
+
+    type_ids = {r.request_type_id for r in rows if r.request_type_id}
+    user_ids = {r.requester_user_id for r in rows if r.requester_user_id} | {
+        r.assigned_to_user_id for r in rows if r.assigned_to_user_id
+    }
+    contract_ids = {r.contract_id for r in rows if r.contract_id}
+    if type_ids:
+        db.scalars(select(IntakeRequestType).where(IntakeRequestType.id.in_(type_ids))).all()
+    if user_ids:
+        db.scalars(select(User).where(User.id.in_(user_ids))).all()
+    if contract_ids:
+        db.scalars(select(Contract).where(Contract.id.in_(contract_ids))).all()
 
 
 def get_request(db: Session, *, user: User, request_id: str) -> IntakeRequest:
@@ -723,7 +768,7 @@ def record_triage_action(db: Session, *, actor: User, request_id: str, payload,
             try:
                 r.snoozed_until = datetime.fromisoformat(payload.snoozed_until)
             except ValueError:
-                raise HTTPException(422, "Invalid snoozed_until")
+                raise HTTPException(422, "Invalid snoozed_until") from None
         write_audit_log(db, action="intake.snoozed", resource_type="intake_request",
                         resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                         after={"snoozed_until": payload.snoozed_until})
@@ -1357,11 +1402,14 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
         valid = stages_for(rtype)
         if payload.stage not in valid:
             raise HTTPException(422, f"Unknown stage '{payload.stage}'")
-        mapped = _STAGE_STATUS.get(payload.stage, "open")
+        # Only the head/tail stages carry a canonical status (new→open,
+        # complete→closed). Mid-stage moves must NOT change status — a default of
+        # "open" here silently de-escalated an `escalated` request on any advance.
+        mapped = _STAGE_STATUS.get(payload.stage)  # None ⇒ _transition preserves status
         _transition(
             db, request=r, actor=actor, to_status=mapped, to_stage=payload.stage,
             audit_action="intake.stage_advanced", before=before,
-            after={"stage": payload.stage, "status": mapped},
+            after={"stage": payload.stage, "status": mapped or r.status},
             timeline_title=f"Stage → {STAGE_LABELS.get(payload.stage, payload.stage)}",
             request_id=http_request_id,
         )
@@ -1384,11 +1432,15 @@ def add_document(db: Session, *, actor: User, request_id: str, filename: str,
                  mime_type: str, content: bytes) -> dict:
     """Attach a document; extract its text and fold a capped excerpt into the
     request description so triage agents read what the requester attached."""
+    from app.contract_files.service import validate_upload_mime
     from app.contract_files.text_extraction import extract_text
     from app.intake.models import IntakeDocument
 
     if len(content) > _DOC_MAX_BYTES:
         raise HTTPException(status_code=413, detail="Attachment over the 3 MB inline limit")
+    # Enforce the shared MIME allowlist + magic-byte check on every attachment —
+    # the caller's declared content-type (form upload or email) is untrusted.
+    mime_type = validate_upload_mime(content, mime_type)
     r = get_request(db, user=actor, request_id=request_id)
     extracted, quality = "", None
     try:

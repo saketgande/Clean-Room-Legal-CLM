@@ -1,7 +1,10 @@
+import logging
 import re
 from difflib import SequenceMatcher
 
 from app.ai.schemas import CitationInput, CitationValidationResult
+
+logger = logging.getLogger(__name__)
 
 try:
     from rapidfuzz import fuzz
@@ -53,7 +56,7 @@ def align_citation_to_source(quote: str, source_text: str) -> tuple[str, float]:
                 span = source_text[alignment.dest_start : alignment.dest_end].strip()
                 return (span or quote), float(alignment.score)
         except Exception:  # pragma: no cover - defensive
-            pass
+            logger.debug("citation alignment failed; falling back to similarity", exc_info=True)
     return quote, citation_similarity(quote, source_text)
 
 

@@ -1,13 +1,23 @@
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.contract_files.models import ContractVersion
+from app.contract_files.models import ContractEdit, ContractVersion
 from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import ContractLifecycleStage, ContractVersionSource
+
+# Mirrors service.py's _PRE_APPROVAL_STAGES: the stages before the document is
+# considered final. Duplicated locally (not imported) to avoid a cross-module
+# coupling for three enum values.
+_PRE_APPROVAL_STAGES = {
+    ContractLifecycleStage.INTAKE,
+    ContractLifecycleStage.DRAFTING,
+    ContractLifecycleStage.REVIEW,
+}
+
 
 # Lean 7-stage flow. Most forward hops are auto-advanced by events (approval
 # completing → SIGNATURE, signing completing → ACTIVE), so users rarely drive
@@ -73,6 +83,12 @@ def transition_contract_stage(
     signed_confirmation: bool = False,
     request_id: str | None = None,
 ) -> Contract:
+    # Row-lock the contract for the duration of this transition — the single
+    # most-contended state machine in the app (11+ call sites: approvals,
+    # signatures, flows, renewals). Without it, two concurrent transitions can
+    # both read the same from_stage and one silently overwrites the other,
+    # while both still commit audit/history rows that no longer match reality.
+    contract = db.scalar(select(Contract).where(Contract.id == contract.id).with_for_update())
     from_stage = contract.lifecycle_stage
     allowed = ALLOWED_TRANSITIONS.get(from_stage, set())
     if to_stage not in allowed:
@@ -87,6 +103,37 @@ def transition_contract_stage(
                 "Lifecycle override requires the contract:lifecycle_override permission",
             )
     authorized_override = override and override_authorized
+
+    # The ONE real gate on leaving Review: every proposed redline must be
+    # accepted or rejected first. The workspace already tells the user this
+    # explicitly ("N open redlines — override needs a reason"); this makes
+    # that copy true instead of decorative. Overriding needs both the
+    # contract:lifecycle_override permission AND a stated reason — the
+    # reason is what actually lands on the stage-history audit row.
+    if from_stage in _PRE_APPROVAL_STAGES and to_stage not in _PRE_APPROVAL_STAGES:
+        pending_redlines = (
+            db.scalar(
+                select(func.count(ContractEdit.id)).where(
+                    ContractEdit.contract_id == contract.id,
+                    ContractEdit.status == "proposed",
+                )
+            )
+            or 0
+        )
+        if pending_redlines > 0:
+            if not authorized_override:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"{pending_redlines} open redline(s) must be accepted or rejected before "
+                    "advancing past Review, or override with the contract:lifecycle_override "
+                    "permission.",
+                )
+            if not reason or not reason.strip():
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "Overriding open redlines requires a reason.",
+                )
+
     if to_stage == ContractLifecycleStage.ACTIVE and signed_confirmation and not authorized_override:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,

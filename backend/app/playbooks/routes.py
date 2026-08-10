@@ -6,7 +6,9 @@ from sqlalchemy.orm import Session
 from app.ai.controller import ai_controller
 from app.ai.schemas import PlaybookReviewOutput
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contract_files.service import validate_upload_mime
 from app.contract_files.text_extraction import extract_text
+from app.core.config import settings
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -129,11 +131,14 @@ async def _resolve_source_text(
         content = await file.read()
         if not content:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+        if len(content) > settings.max_upload_size_bytes:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "The uploaded file is too large")
         filename = file.filename or "document"
         mime = file.content_type or ""
         if not mime or mime == "application/octet-stream":
             ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
             mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
+        mime = validate_upload_mime(content, mime)
         result = extract_text(content, mime_type=mime, filename=filename)
         if not result.text or not result.text.strip():
             raise HTTPException(
@@ -287,11 +292,17 @@ async def build_extract_documents(
         content = await upload.read()
         if not content:
             continue
+        if len(content) > settings.max_upload_size_bytes:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                f"{upload.filename or 'A file'} is too large",
+            )
         filename = upload.filename or "document"
         mime = upload.content_type or ""
         if not mime or mime == "application/octet-stream":
             ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
             mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
+        mime = validate_upload_mime(content, mime)
         try:
             result = extract_text(content, mime_type=mime, filename=filename)
             text = result.text or ""

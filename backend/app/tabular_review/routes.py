@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.ai.citations import validate_citation
 from app.ai.controller import ai_controller
 from app.ai.schemas import CitationInput, TabularChatOutput
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
 from app.core.database import utcnow
@@ -139,7 +141,13 @@ def _get_review_for_user(db: Session, *, review_id: str, current_user) -> Tabula
     return review
 
 
-def _review_is_accessible(db: Session, *, review: TabularReview, current_user) -> bool:
+def _review_is_accessible(
+    db: Session,
+    *,
+    review: TabularReview,
+    current_user,
+    accessible_contract_ids: set[str] | None = None,
+) -> bool:
     if is_org_admin(current_user) or review.created_by_user_id == current_user.id:
         return True
     if review.project_id:
@@ -148,6 +156,13 @@ def _review_is_accessible(db: Session, *, review: TabularReview, current_user) -
         except HTTPException:
             return False
         return True
+    if accessible_contract_ids is not None:
+        # Batched fast path: caller already resolved the user's full
+        # accessible-contract set in one query (see list_reviews) instead of
+        # one get_contract_for_user() call per contract per review.
+        return bool(review.source_contract_ids) and set(
+            review.source_contract_ids
+        ).issubset(accessible_contract_ids)
     for contract_id in review.source_contract_ids or []:
         try:
             get_contract_for_user(db, contract_id=contract_id, user=current_user)
@@ -167,10 +182,25 @@ def list_reviews(
             TabularReview.deleted_at.is_(None),
         )
     ).all()
+    # Resolve the user's whole accessible-contract set ONCE (was previously
+    # re-derived per contract per review — O(reviews x contracts) queries).
+    accessible_contract_ids = set(
+        db.scalars(
+            select(Contract.id).where(
+                Contract.org_id == current_user.org_id,
+                accessible_contract_filter(current_user),
+            )
+        ).all()
+    )
     visible = [
         review
         for review in reviews
-        if _review_is_accessible(db, review=review, current_user=current_user)
+        if _review_is_accessible(
+            db,
+            review=review,
+            current_user=current_user,
+            accessible_contract_ids=accessible_contract_ids,
+        )
     ]
     mutated = [_reconcile_review_status(db, review=review) for review in visible]
     if any(mutated):

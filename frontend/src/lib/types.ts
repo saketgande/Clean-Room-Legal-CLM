@@ -49,7 +49,7 @@ export interface IntakeRequestType {
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
   requester_user_id: ID; requester_name: string | null; department: string | null;
-  request_type_id: ID | null; type_label: string; description: string;
+  request_type_id: ID | null; type_label: string; subject: string | null; description: string;
   field_values: Record<string, unknown> | null;
   priority: "Critical" | "High" | "Medium" | "Low";
   status: IntakeStatus; stage: string; work_status: string | null;
@@ -279,18 +279,6 @@ export interface UserInvitationResponse {
   revoked_at: ISODateTime | null;
   token: string | null;
   email_sent?: boolean | null;
-}
-
-export interface OrgJoinRequestResponse {
-  id: ID;
-  org_id: ID | null;
-  email: string;
-  full_name: string;
-  requested_domain: string | null;
-  message: string | null;
-  status: string;
-  decision_reason: string | null;
-  invitation_token: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -853,6 +841,7 @@ export interface FlowRunStep {
   assignee_user_id: ID | null;
   note: string | null;
   result: Record<string, unknown> | null;
+  updated_at: string | null;
 }
 
 export interface FlowRun {
@@ -1111,6 +1100,7 @@ export interface RenewalEvent {
   id: ID;
   org_id: ID;
   contract_id: ID;
+  contract_title?: string | null;
   contract_version_id: ID | null;
   expiration_date: ISODate | null;
   notice_date: ISODate | null;

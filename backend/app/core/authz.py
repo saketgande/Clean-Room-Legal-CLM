@@ -1,31 +1,24 @@
-"""Central authorization choke-point + access-decision logging.
+"""Access-decision logging (Method 8 audit baseline).
 
-This is the single seam the legal-RBAC pipeline plugs into. Today it wraps the
-existing additive RBAC (``has_permission``) plus an optional object-level
-predicate; later phases layer the deny-overrides (clearance / MAC, ethical
-walls) and the unified ``resource_grant`` ALLOW layer *here*, in one place, so
-every caller gets the same decision in the same order.
+Real enforcement lives in ``require_permission`` (core/deps.py) and each
+resource's own access predicate (e.g. ``user_can_access_contract`` in
+contracts/access.py) — they call ``has_permission``/RBAC directly and log
+through ``record_decision`` below. This module used to also define a
+``check``/``authorize`` chokepoint that nothing ever called into; it was
+removed rather than finished, since every real call site already does its own
+check-then-log and routing them through here would have been a rename, not a
+behavior change.
 
-Method 8 (audit) baseline: every DENY — and optionally every ALLOW — is written
-to the immutable, hash-chained audit log. Decision logging uses its OWN
-short-lived session so it is isolated from (and survives the rollback of) the
-request transaction that a 403 aborts.
+``record_decision`` writes on its OWN short-lived session so it is isolated
+from (and survives the rollback of) the request transaction that a 403
+aborts.
 """
 
 from __future__ import annotations
 
 import logging
 
-from fastapi import HTTPException, status
-
-from app.core.rbac import has_permission
-
 logger = logging.getLogger(__name__)
-
-
-def check(user, action: str) -> bool:
-    """Pure RBAC capability check (no side effects, no object context)."""
-    return has_permission(user.permission_values, action)
 
 
 def record_decision(
@@ -66,46 +59,3 @@ def record_decision(
         logger.warning("failed to record access decision", exc_info=True)
     finally:
         session.close()
-
-
-def authorize(
-    *,
-    user,
-    action: str,
-    resource_type: str | None = None,
-    resource_id: str | None = None,
-    allow: bool = True,
-    log_allow: bool = False,
-    request_id: str | None = None,
-):
-    """Enforce ``action`` for ``user``.
-
-    ``allow`` is an optional pre-computed object-level predicate (pass the result
-    of a row-access check; defaults to True for type-only checks). Raises 403 and
-    logs the denial when either the RBAC capability or the object predicate fails.
-    Returns ``user`` on success. This is the one function to grow the legal-RBAC
-    deny/grant pipeline in.
-    """
-    has_cap = check(user, action)
-    permitted = has_cap and bool(allow)
-    if not permitted:
-        record_decision(
-            user=user,
-            action=action,
-            outcome="denied",
-            resource_type=resource_type,
-            resource_id=resource_id,
-            reason="missing_permission" if not has_cap else "object_denied",
-            request_id=request_id,
-        )
-        raise HTTPException(status.HTTP_403_FORBIDDEN, f"Not authorized: {action}")
-    if log_allow:
-        record_decision(
-            user=user,
-            action=action,
-            outcome="allowed",
-            resource_type=resource_type,
-            resource_id=resource_id,
-            request_id=request_id,
-        )
-    return user

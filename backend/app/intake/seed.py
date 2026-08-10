@@ -4,6 +4,8 @@ Match-by-key/ref so re-running is a no-op. Local/dev only."""
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy import select
 
 from app.auth.models import User
@@ -290,7 +292,9 @@ def seed_intake(db, org, admin) -> bool:
         try:
             svc._compute_intake_analysis(db, r)
         except Exception:
-            pass
+            logging.getLogger(__name__).debug(
+                "seed: intake analysis failed for %s", r.id, exc_info=True
+            )
         if spec.get("overdue"):
             r.sla_status = "overdue"
         created = True

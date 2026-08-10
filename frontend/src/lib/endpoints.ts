@@ -43,7 +43,6 @@ import type {
   Notification,
   Obligation,
   OrganizationResponse,
-  OrgJoinRequestResponse,
   BuildChatResponse,
   ExtractedDoc,
   PlaybookDraftRule,
@@ -296,18 +295,6 @@ export const usersApi = {
     apiFetch<UserInvitationResponse>(`/users/invitations/${id}/revoke`, {
       method: "POST",
     }),
-  listJoinRequests: () =>
-    apiFetch<OrgJoinRequestResponse[]>("/users/join-requests"),
-  decideJoinRequest: (
-    id: string,
-    decision: "approve" | "reject",
-    role_name = "member",
-    reason?: string,
-  ) =>
-    apiFetch<OrgJoinRequestResponse>(`/users/join-requests/${id}/decision`, {
-      method: "POST",
-      body: { decision, role_name, reason },
-    }),
 };
 
 export const orgApi = {
@@ -554,6 +541,11 @@ export const assistantApi = {
     apiFetch<{ session: AssistantSession; contract_handles: unknown[] }>(
       `/assistant/sessions/${id}`,
     ),
+  updateSession: (id: string, payload: { title?: string; status?: string }) =>
+    apiFetch<AssistantSession>(`/assistant/sessions/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
   messages: (id: string, limit = 100) =>
     apiFetch<AssistantMessage[]>(
       `/assistant/sessions/${id}/messages${qs({ limit })}`,
@@ -650,6 +642,8 @@ export const flowsApi = {
     }),
   runForRequest: (request_id: string) =>
     apiFetch<FlowRun | null>(`/flows/runs/by-request/${request_id}`),
+  runForContract: (contract_id: string) =>
+    apiFetch<FlowRun | null>(`/flows/runs/by-contract/${contract_id}`),
   completeStep: (run_id: string, note?: string) =>
     apiFetch<FlowRun>(`/flows/runs/${run_id}/complete-step`, {
       method: "POST",
@@ -1118,19 +1112,12 @@ export const intakeApi = {
     apiFetch<{ request: IntakeRequest; chain: IntakeApprovalRung[] }>(
       `/intake/requests/${id}/submit-for-approval`, { method: "POST", body: body ?? {} }),
   overrideGate: (id: string, body: { gate_key: string; action: "add" | "remove"; reason?: string }) =>
-        apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
 
-    // channel sync
-    gmailSync: () =>
-        apiFetch<{ status: string; fetched?: number; filed?: unknown[]; skipped?: unknown[]; note?: string }>(
-            "/intake/gmail-sync", { method: "POST" }),
-
-    // recommendation / verdicts / promote
-    recommendation: (id: string) =>
-        apiFetch<IntakeRecommendation | null>(`/intake/requests/${id}/recommendation`),
-    bulkTriage: (ids: string[], action: string) =>
-        apiFetch<{ results: { id: string; ok: boolean; error?: string }[] }>(
-            "/intake/requests/bulk-triage", { method: "POST", body: { ids, action } }),
+  // channel sync — Gmail intake polling (email → request)
+  gmailSync: () =>
+    apiFetch<{ status: string; fetched?: number; filed?: unknown[]; skipped?: unknown[]; note?: string }>(
+      "/intake/gmail-sync", { method: "POST" }),
 
   // promote
   promote: (id: string, target: "project" | "contract", targetId: string) =>

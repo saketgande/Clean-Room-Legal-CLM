@@ -300,15 +300,30 @@ def approval_chain(
     if anchor is None:
         return {"steps": []}
     # All steps created by that same submission (they're inserted together).
-    requests = db.scalars(
+    # Grouped by the stable submission_batch_id stamped at creation time
+    # (see submit_for_approval in service.py) rather than a time window, which
+    # could conflate two chains submitted close together. Chains created
+    # before that field existed have no batch id on the anchor — fall back to
+    # the time-window heuristic for those.
+    candidates = db.scalars(
         select(ApprovalRequest)
         .where(
             ApprovalRequest.org_id == current_user.org_id,
             ApprovalRequest.contract_id == contract_id,
-            ApprovalRequest.created_at >= anchor.created_at - timedelta(seconds=10),
         )
         .order_by(ApprovalRequest.step_order.asc())
     ).all()
+    anchor_batch_id = (anchor.metadata_json or {}).get("submission_batch_id")
+    if anchor_batch_id:
+        requests = [
+            r for r in candidates
+            if (r.metadata_json or {}).get("submission_batch_id") == anchor_batch_id
+        ]
+    else:
+        requests = [
+            r for r in candidates
+            if r.created_at >= anchor.created_at - timedelta(seconds=10)
+        ]
 
     group_ids = {r.approver_group_id for r in requests if r.approver_group_id}
     user_ids = {r.approver_user_id for r in requests if r.approver_user_id}

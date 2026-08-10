@@ -15,8 +15,8 @@ by request type/keyword. Seeding is idempotent (by name)."""
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.core.database import Session
 from app.flows.models import Flow
 
 

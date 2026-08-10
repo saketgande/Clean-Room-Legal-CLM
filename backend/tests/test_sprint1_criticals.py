@@ -7,6 +7,7 @@ or TestClient harness is configured for this suite).
 
 from __future__ import annotations
 
+import asyncio
 import types
 from datetime import UTC, datetime, timedelta
 
@@ -109,21 +110,30 @@ def test_f04_flag_value_coercion_matrix():
 
 
 class _TokenStubDB:
-    """Session stand-in whose scalar() returns a preset ApprovalToken row (or None)."""
+    """Session stand-in for redeem_token_decision's two scalar() lookups: the
+    first (ApprovalToken) returns the preset row, the second (ApprovalRequest)
+    returns None — so a valid-but-unusable token exercises the 4th failure
+    branch (request_missing_or_org_mismatch) instead of falling through."""
 
     def __init__(self, row: object | None) -> None:
         self._row = row
+        self._calls = 0
 
     def scalar(self, *_args: object, **_kwargs: object) -> object | None:
-        return self._row
+        self._calls += 1
+        return self._row if self._calls == 1 else None
 
     def get(self, *_args: object, **_kwargs: object) -> None:  # pragma: no cover - unused here
         return None
 
 
 def _redeem(db: object) -> HTTPException:
+    # redeem_token_decision is async; every token-failure branch raises before
+    # the first await, so asyncio.run propagates the HTTPException unchanged.
     with pytest.raises(HTTPException) as exc_info:
-        redeem_token_decision(db, token="x" * 16, decision="approve", comment=None)
+        asyncio.run(
+            redeem_token_decision(db, token="x" * 16, decision="approve", comment=None)
+        )
     return exc_info.value
 
 

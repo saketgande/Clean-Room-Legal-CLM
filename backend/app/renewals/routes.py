@@ -28,6 +28,31 @@ class RenewalDecisionPayload(BaseModel):
     note: str | None = None
 
 
+def _serialize(row: RenewalEvent, *, contract_title: str | None = None) -> dict:
+    """Renewal JSON enriched with the contract title — so the portfolio list
+    never has to show a bare UUID or re-fetch a separately-paginated contract
+    list to resolve it (that list caps at 100 by default, so a renewal whose
+    contract falls outside that page silently lost its title before)."""
+    return {
+        "id": row.id,
+        "org_id": row.org_id,
+        "contract_id": row.contract_id,
+        "contract_title": contract_title,
+        "contract_version_id": row.contract_version_id,
+        "expiration_date": row.expiration_date.isoformat() if row.expiration_date else None,
+        "notice_date": row.notice_date.isoformat() if row.notice_date else None,
+        "renewal_window_starts_at": (
+            row.renewal_window_starts_at.isoformat() if row.renewal_window_starts_at else None
+        ),
+        "owner_user_id": row.owner_user_id,
+        "decision": row.decision,
+        "decision_note": row.decision_note,
+        "metadata_json": row.metadata_json or {},
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+
+
 def _get_renewal(db: Session, *, renewal_id: str, current_user: User) -> RenewalEvent:
     row = db.get(RenewalEvent, renewal_id)
     if row is None or row.org_id != current_user.org_id:
@@ -45,7 +70,7 @@ def list_renewals(
     offset: int = Query(default=0, ge=0),
 ):
     query = (
-        select(RenewalEvent)
+        select(RenewalEvent, Contract.title)
         .join(Contract, Contract.id == RenewalEvent.contract_id)
         .where(
             RenewalEvent.org_id == current_user.org_id,
@@ -68,9 +93,10 @@ def list_renewals(
                 RenewalEvent.renewal_window_starts_at.is_not(None),
             )
         )
-    return db.scalars(
+    rows = db.execute(
         query.order_by(RenewalEvent.notice_date.asc()).offset(offset).limit(limit)
     ).all()
+    return [_serialize(row, contract_title=title) for row, title in rows]
 
 
 @router.get("/{renewal_id}")

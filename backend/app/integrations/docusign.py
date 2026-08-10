@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import hmac
+import logging
 import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -11,6 +12,8 @@ import jwt
 
 from app.core.config import settings
 from app.integrations._http_retry import resilient_call
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -123,7 +126,7 @@ class DocuSignClient:
             await _void()
         except Exception:
             # Reconciliation job picks up orphaned envelopes; do not raise.
-            pass
+            logger.warning("failed to void envelope %s", envelope_id, exc_info=True)
 
     async def download_completed_document(self, *, envelope_id: str) -> bytes:
         """Download the completed envelope PDF from DocuSign."""
