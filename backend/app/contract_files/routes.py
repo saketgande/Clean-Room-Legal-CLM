@@ -16,11 +16,11 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from starlette.background import BackgroundTask
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.contract_files.models import (
     ContractEdit,
@@ -31,9 +31,9 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contract_files.schemas import (
-    ContractFileResponse,
     ContractEditDecisionRequest,
     ContractEditResponse,
+    ContractFileResponse,
     ContractShareCreate,
     ContractShareCreateResponse,
     ContractShareResponse,
@@ -48,9 +48,9 @@ from app.contract_files.service import (
     next_version_number,
     requeue_contract_ai_jobs,
 )
+from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
-from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
@@ -198,10 +198,8 @@ async def log_counterparty_revision(
                 override_authorized=True,
                 request_id=req_id,
             )
-        except Exception:  # noqa: BLE001 - re-open is best-effort
-            logger.warning(
-                "auto re-open to REVIEW failed for contract %s", contract.id, exc_info=True
-            )
+        except Exception:
+            pass
     meta = dict(contract.metadata_json or {})
     meta["auto_review_pending"] = True
     contract.metadata_json = meta

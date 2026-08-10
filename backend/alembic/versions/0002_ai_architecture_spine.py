@@ -5,8 +5,9 @@ Revises: 0001_initial_contract_platform
 Create Date: 2026-05-15
 """
 
-from alembic import context, op
 from sqlalchemy import text
+
+from alembic import context, op
 
 revision = "0002_ai_architecture_spine"
 down_revision = "0001_initial_contract_platform"

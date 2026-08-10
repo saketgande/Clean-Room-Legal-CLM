@@ -5,9 +5,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.core.rate_limit import limiter
-
 from app.approvals.models import (
     ApprovalDecision,
     ApprovalRequest,
@@ -24,11 +21,13 @@ from app.approvals.service import (
     submit_contract_for_approval,
 )
 from app.auth.models import User
-from app.contracts.models import Contract
 from app.contracts.access import user_can_access_contract
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import UserStatus
+from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])

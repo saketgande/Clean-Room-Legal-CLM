@@ -28,7 +28,7 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import UserStatus
-from app.core.rbac import ADMIN_ROLE_NAME, DEFAULT_ROLE_PERMISSIONS, ALL_PERMISSIONS
+from app.core.rbac import ADMIN_ROLE_NAME, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS
 from app.core.security import (
     create_access_token,
     create_token_secret,

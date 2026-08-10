@@ -371,6 +371,68 @@ export function getMock(
       { id: "rn-2", org_id: "org-1", contract_id: "c-2", contract_version_id: "v-5", expiration_date: date(275), notice_date: date(215), renewal_window_starts_at: date(210), owner_user_id: "u-1", decision: "renew", decision_note: "Auto-renew, good standing.", metadata_json: {}, created_at: iso(-90), updated_at: iso(-30) },
     ]);
 
+  // Trademarks
+  if (p === "/trademarks" && m === "GET")
+    return ok([
+      { id: "tm-1", org_id: "org-1", name: "ZOLPHERA", description: "Pharmaceutical preparations for cardiovascular treatment.", status: "registered", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN"], nice_class: "5", goods_services: "Pharmaceutical preparations.", filing_context: null, filed_on: iso(-400), renewal_due_on: iso(60), workflow_state: "active", source: "intake", source_document_extract_id: null, created_at: iso(-400), updated_at: iso(-10) },
+      { id: "tm-2", org_id: "org-1", name: "CARDIMAX", description: "Cardiac support supplement line.", status: "filed", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN", "US"], nice_class: "5", goods_services: "Nutritional supplements.", filing_context: null, filed_on: iso(-90), renewal_due_on: null, workflow_state: "review", source: "intake", source_document_extract_id: null, created_at: iso(-90), updated_at: iso(-5) },
+      { id: "tm-3", org_id: "org-1", name: "NEUROVITA", description: null, status: "opposed", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN"], nice_class: "5", goods_services: "Neurological wellness products.", filing_context: null, filed_on: iso(-600), renewal_due_on: iso(20), workflow_state: "review", source: "extraction", source_document_extract_id: "de-1", created_at: iso(-600), updated_at: iso(-2) },
+    ]);
+  if (p === "/trademarks/intake" && m === "POST")
+    return ok({ id: "tm-new", org_id: "org-1", name: (body as { name?: string })?.name ?? "New mark", description: null, status: "draft", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN"], nice_class: null, goods_services: null, filing_context: null, filed_on: null, renewal_due_on: null, workflow_state: "intake", source: "intake", source_document_extract_id: null, created_at: iso(0), updated_at: iso(0) });
+  if (p === "/trademarks/dashboard")
+    return ok({ total_trademarks: 3, active_prosecutions: 2, upcoming_renewals: 2, by_status: { registered: 1, filed: 1, opposed: 1 } });
+  if (p === "/trademarks/calendar")
+    return ok([
+      { id: "tm-1", name: "ZOLPHERA", status: "registered", jurisdiction: "IN", renewal_due_on: iso(60) },
+      { id: "tm-3", name: "NEUROVITA", status: "opposed", jurisdiction: "IN", renewal_due_on: iso(20) },
+    ]);
+  if (p === "/trademarks/search-similar")
+    return ok({
+      query_id: "srch-demo",
+      sources: {
+        signa: { status: "not_configured", results: [] },
+        tmsearch: { status: "not_configured", results: [] },
+        web_search: { status: "not_configured", provider: "serper_dev", results: [] },
+        internal_portfolio: {
+          status: "complete",
+          results: [
+            { trademark_id: "tm-1", name: "ZOLPHERA", similarity_score: 0.42, status: "registered", jurisdiction: "IN", nice_class: "5", filed_on: iso(-400), risk_level: "low" },
+          ],
+        },
+      },
+      summary: { high_risk_count: 0, medium_risk_count: 0, low_risk_count: 1, recommendation: "clear_to_proceed" },
+    });
+  if (p === "/trademarks/documents/upload")
+    return ok({ doc_id: "demo/trademark-sample.pdf", filename: "trademark-sample.pdf", total_pages: 3 });
+  if (p === "/trademarks/documents/extract")
+    return ok({
+      doc_id: (body as { doc_id?: string })?.doc_id ?? "demo/trademark-sample.pdf",
+      records: [
+        { page_number: 1, entry_index: 0, fields: { product_name: "DEMO MARK", jurisdiction: "MUMBAI" }, used_ocr: false, warnings: [] },
+      ],
+      warnings: [],
+    });
+  if (p === "/trademarks/documents/ingest")
+    return ok({ ingested_count: 1, record_ids: ["de-demo-1"], trademark_ids: ["tm-demo-1"] });
+  if (p === "/trademarks/integrations/status")
+    return ok({
+      signa: { configured: false, status: "not_configured" },
+      serper: { configured: false, status: "not_configured" },
+      postgres: { configured: true, status: "connected" },
+    });
+  if (/^\/trademarks\/integrations\/test\//.test(p))
+    return ok({ status: "not_configured", detail: "Demo mode — no live providers configured." });
+
+  // Single trademark record — must come after the more specific
+  // /trademarks/{dashboard,calendar,intake,...} literal-path checks above,
+  // since those all match this pattern too.
+  const tmMatch = /^\/trademarks\/([^/]+)$/.exec(p);
+  if (tmMatch && m === "GET")
+    return ok({ id: tmMatch[1], org_id: "org-1", name: "ZOLPHERA", description: "Pharmaceutical preparations for cardiovascular treatment.", status: "registered", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN"], nice_class: "5", goods_services: "Pharmaceutical preparations.", filing_context: { applicant_name: "Acme Pharma Pvt Ltd" }, filed_on: iso(-400), renewal_due_on: iso(60), workflow_state: "active", source: "intake", source_document_extract_id: null, created_at: iso(-400), updated_at: iso(-10) });
+  if (tmMatch && m === "PATCH")
+    return ok({ id: tmMatch[1], org_id: "org-1", name: "ZOLPHERA", description: "Pharmaceutical preparations for cardiovascular treatment.", status: (body as { status?: string })?.status ?? "registered", trademark_type: "word_mark", jurisdiction: "IN", jurisdictions: ["IN"], nice_class: "5", goods_services: "Pharmaceutical preparations.", filing_context: null, filed_on: iso(-400), renewal_due_on: iso(60), workflow_state: "active", source: "intake", source_document_extract_id: null, created_at: iso(-400), updated_at: iso(0) });
+
   // Contract Brain
   if (p === "/contract-brain/queries")
     return ok([

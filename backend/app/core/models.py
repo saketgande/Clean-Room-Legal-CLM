@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, JSON, String, Text, event
+from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, Text, event
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -30,12 +30,12 @@ class AuditLog(TableNameMixin, IdMixin, Base):
 
 
 @event.listens_for(AuditLog, "before_update", propagate=True)
-def _prevent_audit_log_update(mapper, connection, target) -> None:  # noqa: ANN001
+def _prevent_audit_log_update(mapper, connection, target) -> None:
     raise RuntimeError("Audit logs are immutable")
 
 
 @event.listens_for(AuditLog, "before_delete", propagate=True)
-def _prevent_audit_log_delete(mapper, connection, target) -> None:  # noqa: ANN001
+def _prevent_audit_log_delete(mapper, connection, target) -> None:
     raise RuntimeError("Audit logs are immutable")
 
 

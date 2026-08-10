@@ -16,6 +16,7 @@ dependencies = [
   "pgvector>=0.3.6",
   "psycopg[binary]>=3.2.3",
   "pyjwt[crypto]>=2.9.0",
+  "pymupdf>=1.24.0",
   "pypdf>=5.0.1",
   "pydantic>=2.9.2",
   "pydantic-settings>=2.5.2",
@@ -62,6 +63,15 @@ include = ["app*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+[tool.ruff.lint]
+ignore = [
+  "B008",   # FastAPI Depends() in defaults is the standard DI pattern
+  "BLE001", # deliberate broad excepts around optional deps / defensive fallbacks
+  "S110",   # deliberate try/except/pass (best-effort, already commented)
+  "S112",   # deliberate try/except/continue (same)
+  "DTZ011", # pre-existing naive-datetime usage; out of scope here
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

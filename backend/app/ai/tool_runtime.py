@@ -15,53 +15,49 @@ from sqlalchemy.orm import Session
 from app.ai.confirmations import create_confirmation
 from app.ai.models import AIConfirmation
 from app.ai.redaction import redact_ai_payload
+from app.ai.schemas import BrainQueryParseOutput
 from app.ai.tool_policy import is_tool_enabled
 from app.ai.tool_registry import (
     ApprovalSubmitInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
-    FindContractsInput,
-    ListObligationsInput,
     ContractHandleInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
+    FindContractsInput,
     FindInContractInput,
     GenerateContractInput,
+    ListObligationsInput,
     PlaybookToolInput,
-    RedraftContractInput,
     ProjectContractsInput,
     ReadTableCellsInput,
+    RedraftContractInput,
     SignatureSendInput,
     TabularReviewInput,
     WorkflowRunInput,
     tool_registry,
 )
-from app.ai.schemas import BrainQueryParseOutput
+from app.approvals.models import ApprovalRequest
+from app.approvals.service import submit_contract_for_approval
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
-from app.approvals.service import submit_contract_for_approval
 from app.contract_brain.retrieval import assemble_context
 from app.contract_files.models import (
-    ContractShare,
     ContractEdit,
     ContractFile,
+    ContractShare,
     ContractTextSnapshot,
     ContractVersion,
     StorageObject,
 )
 from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.access import accessible_contract_filter
-from app.contracts.models import Contract
 from app.contracts.lifecycle import transition_contract_stage
-from app.obligations.models import Obligation
-from app.approvals.models import ApprovalRequest
-from app.renewals.models import RenewalEvent
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
-from app.jobs.models import JobRun
-from app.jobs.service import create_job, dispatch_job
 from app.core.database import utcnow
 from app.core.enums import (
     AssistantToolCallStatus,
@@ -76,10 +72,14 @@ from app.core.rbac import has_permission
 from app.integrations.docusign import docusign_client
 from app.integrations.resend import resend_client
 from app.integrations.storage import storage_service
+from app.jobs.models import JobRun
+from app.jobs.service import create_job, dispatch_job
+from app.obligations.models import Obligation
 from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
+from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureRecipient, SignatureRequest
 from app.signatures.service import validate_signature_recipients
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
@@ -708,7 +708,7 @@ class ToolRuntime:
                 },
                 commit=False,
             )
-        except Exception:  # noqa: BLE001 — drafting must degrade, not crash
+        except Exception:
             logging.getLogger(__name__).warning(
                 "contract_docx_generation skill failed; using skeleton", exc_info=True
             )
@@ -908,7 +908,7 @@ class ToolRuntime:
                 anchored = _anchor_suggestions(
                     source_text, list(getattr(suggestion_out, "edits", []) or [])
                 )
-            except Exception:  # noqa: BLE001 — redline must degrade, not crash
+            except Exception:
                 logging.getLogger(__name__).warning(
                     "contract_edit_suggestions skill failed; using fallback",
                     exc_info=True,
@@ -1860,7 +1860,7 @@ class ToolRuntime:
 
 def _idempotency_key(tool_name: str, session_id: str, payload: dict[str, Any]) -> str:
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(f"{tool_name}:{session_id}:{canonical}".encode("utf-8")).hexdigest()
+    return hashlib.sha256(f"{tool_name}:{session_id}:{canonical}".encode()).hexdigest()
 
 
 def _hash_secret(value: str) -> str:
@@ -2141,6 +2141,10 @@ def _append_revision_runs(parent: Any, text: str, *, text_tag: str, OxmlElement:
         text_element.text = line
         run.append(text_element)
         parent.append(run)
+
+
+def _assistant_edit_text(*, source_text: str, instructions: str) -> str:
+    return f"{source_text}\n\n[Assistant proposed tracked change]\n\n{instructions}".strip()
 
 
 def _safe_filename(value: str) -> str:

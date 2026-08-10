@@ -29,7 +29,6 @@ from app.core.config import settings
 from app.core.database import SessionLocal, new_uuid, utcnow
 from app.core.models import RequestLog
 
-
 logger = logging.getLogger(__name__)
 
 

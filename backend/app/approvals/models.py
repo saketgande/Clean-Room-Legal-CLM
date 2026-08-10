@@ -1,10 +1,10 @@
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Table,
     Text,
@@ -21,7 +21,6 @@ from app.core.database import (
     TimestampMixin,
 )
 from app.core.enums import ApprovalStatus
-
 
 # Membership of users in an approver group (e.g. who counts as "Legal Counsel").
 # A user may belong to many groups, and a group has many members — this is the

@@ -170,9 +170,7 @@ async def ask_contract_brain(
     total_cites = len(answer.citations)
     grounding = (valid_cites / total_cites) if total_cites else 0.0
     confidence = answer.confidence
-    if total_cites == 0:
-        confidence = "low"
-    elif grounding < 0.5:
+    if total_cites == 0 or grounding < 0.5:
         confidence = "low"
     elif grounding < 0.8 and confidence == "high":
         confidence = "medium"

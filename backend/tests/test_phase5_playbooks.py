@@ -6,7 +6,12 @@ from app.ai.registry import skill_registry
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
 from app.playbooks.models import PlaybookRule
-from app.playbooks.routes import decide_deviation, get_playbook_run, list_playbook_runs, run_playbook
+from app.playbooks.routes import (
+    decide_deviation,
+    get_playbook_run,
+    list_playbook_runs,
+    run_playbook,
+)
 from app.playbooks.service import (
     _build_playbook_redline_docx,
     evaluate_rules_against_text,

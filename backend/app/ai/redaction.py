@@ -1,7 +1,6 @@
 import re
 from typing import Any
 
-
 # Keys whose string values are document/contract bodies — never persist these
 # verbatim in an audit/log row; replace with a length-only placeholder.
 SENSITIVE_KEYS = {"contract_text", "text", "raw_text", "document_text", "content"}

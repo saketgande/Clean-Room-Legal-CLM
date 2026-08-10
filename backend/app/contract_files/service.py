@@ -25,7 +25,6 @@ from app.jobs.service import create_job, dispatch_job
 from app.projects.access import get_project_for_user
 from app.projects.models import ProjectContract
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -456,7 +455,7 @@ async def create_contract_from_upload(
         storage_service.delete_bytes_permanently(stored.storage_key)
         raise
 
-    dispatched_job_types, dispatch_errors = _dispatch_initial_jobs(
+    _dispatched_job_types, dispatch_errors = _dispatch_initial_jobs(
         db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
     )
 

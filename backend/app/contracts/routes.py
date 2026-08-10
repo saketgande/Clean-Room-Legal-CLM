@@ -5,9 +5,6 @@ from sqlalchemy.orm import Session
 
 from app.contract_files.service import create_contract_from_upload
 from app.contracts.lifecycle import allowed_transitions_for, transition_contract_stage
-from app.core.config import settings
-from app.core.rate_limit import limiter
-from app.core.rbac import has_permission
 from app.contracts.schemas import (
     ContractActivityResponse,
     ContractPartyCreate,
@@ -35,7 +32,10 @@ from app.contracts.service import (
     list_signer_options,
     update_contract_metadata,
 )
+from app.core.config import settings
 from app.core.deps import get_db, require_permission
+from app.core.rate_limit import limiter
+from app.core.rbac import has_permission
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +281,8 @@ def get_lifecycle_options(
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     from datetime import UTC, datetime
 
-    from sqlalchemy import func as _func, select
+    from sqlalchemy import func as _func
+    from sqlalchemy import select
 
     from app.contracts.lifecycle import parse_stage_slas
     from app.contracts.models import ContractStageHistory

@@ -6,7 +6,7 @@ from app.ai.models import AISkillRun
 from app.assistant.models import AssistantRun
 from app.core.access import is_org_admin
 from app.core.config import settings
-from app.core.deps import get_db, get_current_user
+from app.core.deps import get_current_user, get_db
 from app.core.models import AICallLog, RequestLog, ResourceTimelineEvent
 from app.jobs.models import JobRun
 

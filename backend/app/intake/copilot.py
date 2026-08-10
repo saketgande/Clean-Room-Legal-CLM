@@ -43,7 +43,7 @@ def _extract_timing(text: str) -> str | None:
                 # urgency, but not when negated ("not urgent", "isn't urgent")
                 r"(?<!not )(?<!n't )\b(asap|urgent|emergency)\b",
                 r"(end of (?:the )?(?:week|month|quarter))"]:
-        m = re.search(pat, text, re.I)
+        m = re.search(pat, text, re.IGNORECASE)
         if m:
             return m.group(1)
     return None

@@ -10,8 +10,8 @@ Create Date: 2026-05-19
 """
 
 import sqlalchemy as sa
-from alembic import op
 
+from alembic import op
 
 revision = "0008_revoked_access_token"
 down_revision = "0007_drop_dead_contract_activity"

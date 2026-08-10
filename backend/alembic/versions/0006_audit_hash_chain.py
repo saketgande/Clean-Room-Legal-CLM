@@ -8,8 +8,9 @@ Create Date: 2026-05-15
 import hashlib
 import json
 
-from alembic import context, op
 from sqlalchemy import text
+
+from alembic import context, op
 
 revision = "0006_audit_hash_chain"
 down_revision = "0005_schema_project_share"
@@ -92,7 +93,7 @@ def _backfill_hash_chain() -> None:
         previous_hash = row_hash
 
 
-def _audit_hash(row, previous_hash: str | None) -> str:  # noqa: ANN001
+def _audit_hash(row, previous_hash: str | None) -> str:
     created_at = row["created_at"]
     payload = {
         "id": row["id"],

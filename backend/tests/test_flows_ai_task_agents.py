@@ -53,8 +53,11 @@ def test_ai_task_step_only_trusts_litigation_confidence_from_a_real_model_call()
 
     # Exercise the exact expression the branch evaluates, for both sources.
     ac = 0.9
-    llm_conf = ac if (isinstance(ac, (int, float)) and "llm" == "llm") else min(ac or 0.0, 0.3)
-    degraded_conf = ac if (isinstance(ac, (int, float)) and "deterministic" == "llm") else min(ac or 0.0, 0.3)
+    llm_source, deterministic_source = "llm", "deterministic"
+    llm_conf = ac if (isinstance(ac, (int, float)) and llm_source == "llm") else min(ac or 0.0, 0.3)
+    degraded_conf = (
+        ac if (isinstance(ac, (int, float)) and deterministic_source == "llm") else min(ac or 0.0, 0.3)
+    )
     assert llm_conf == 0.9
     assert degraded_conf == 0.3
     # Below both builtin litigation flows' escalate_below_confidence (0.7, 0.75).

@@ -1337,4 +1337,242 @@ export interface IntakeDocument {
   extraction_quality: number | null; created_at: string | null;
 }
 
+// ---------------------------------------------------------------------------
+// Trademarks
+// ---------------------------------------------------------------------------
+
+export type TrademarkStatus = "draft" | "filed" | "registered" | "opposed" | "abandoned" | "renewed";
+export type TrademarkType = "word_mark" | "device_mark" | "combination" | "sound" | "collective";
+export type TrademarkWorkflowState = "intake" | "extraction" | "review" | "active";
+export type TrademarkSource = "intake" | "extraction";
+
+export interface Trademark {
+  id: ID;
+  org_id: ID;
+  name: string;
+  description: string | null;
+  status: TrademarkStatus;
+  trademark_type: TrademarkType;
+  jurisdiction: string;
+  jurisdictions: string[] | null;
+  nice_class: string | null;
+  goods_services: string | null;
+  filing_context: Record<string, unknown> | null;
+  filed_on: ISODateTime | null;
+  renewal_due_on: ISODateTime | null;
+  workflow_state: TrademarkWorkflowState;
+  source: TrademarkSource;
+  source_document_extract_id: ID | null;
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+}
+
+export interface TrademarkCreatePayload {
+  name: string;
+  description?: string | null;
+  trademark_type?: TrademarkType;
+  jurisdiction: string;
+  jurisdictions?: string[];
+  nice_class?: string | null;
+  goods_services?: string | null;
+  filing_context?: Record<string, unknown> | null;
+  filed_on?: ISODateTime | null;
+  renewal_due_on?: ISODateTime | null;
+}
+
+export interface TrademarkUpdatePayload {
+  name?: string;
+  description?: string | null;
+  status?: TrademarkStatus;
+  trademark_type?: TrademarkType;
+  jurisdiction?: string;
+  jurisdictions?: string[];
+  nice_class?: string | null;
+  goods_services?: string | null;
+  filing_context?: Record<string, unknown> | null;
+  filed_on?: ISODateTime | null;
+  renewal_due_on?: ISODateTime | null;
+}
+
+export interface IntakeSubmitPayload {
+  name: string;
+  description?: string | null;
+  trademark_type?: TrademarkType;
+  nice_class?: string | null;
+  goods_services?: string | null;
+  jurisdictions?: string[];
+  filing_context?: Record<string, unknown> | null;
+  renewal_due_on?: ISODateTime | null;
+  search_query_id?: string | null;
+}
+
+export interface TrademarkDashboardMetrics {
+  total_trademarks: number;
+  active_prosecutions: number;
+  upcoming_renewals: number;
+  by_status: Record<string, number>;
+}
+
+export interface RenewalCalendarEntry {
+  id: ID;
+  name: string;
+  status: TrademarkStatus;
+  jurisdiction: string;
+  renewal_due_on: ISODateTime;
+}
+
+// -- Search-similar --
+
+export type TrademarkRiskLevel = "high" | "medium" | "low" | "context_only";
+export type SourceStatus = "complete" | "error" | "timeout" | "not_configured";
+
+export interface SearchSimilarRequest {
+  trademark_name: string;
+  description?: string;
+  trademark_type?: TrademarkType;
+  jurisdictions?: string[];
+  nice_class_hint?: string[];
+}
+
+export interface InternalPortfolioResult {
+  trademark_id: ID;
+  name: string;
+  similarity_score: number;
+  status: string;
+  jurisdiction: string;
+  nice_class?: string | null;
+  filed_on?: ISODateTime | null;
+  risk_level: TrademarkRiskLevel;
+}
+
+export interface WebSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+  relevance: TrademarkRiskLevel;
+}
+
+export interface SignaResult {
+  signa_id: string;
+  mark_text: string;
+  similarity_score: number;
+  status_primary?: string | null;
+  office_code?: string | null;
+  filing_date?: ISODateTime | null;
+  owner_name?: string | null;
+  nice_classes: number[];
+  risk_level: TrademarkRiskLevel;
+}
+
+export interface TmSearchResult {
+  tmsearch_id: string;
+  mark_text: string;
+  similarity_score: number;
+  status?: string | null;
+  office_code?: string | null;
+  application_number?: string | null;
+  registration_number?: string | null;
+  filed_date?: ISODateTime | null;
+  protection_countries: string[];
+  image_url?: string | null;
+  risk_level: TrademarkRiskLevel;
+}
+
+export interface SourceResult {
+  status: SourceStatus;
+  provider?: string | null;
+  results: Record<string, unknown>[];
+  error_message?: string | null;
+}
+
+export interface SearchSummary {
+  high_risk_count: number;
+  medium_risk_count: number;
+  low_risk_count: number;
+  recommendation: "proceed_with_caution" | "review_recommended" | "clear_to_proceed";
+}
+
+export interface SearchSimilarResponse {
+  query_id: string;
+  sources: Record<string, SourceResult>;
+  summary: SearchSummary;
+}
+
+// -- Document extraction --
+
+export type FieldDataType = "string" | "number" | "date" | "boolean";
+export type DocumentExtractTemplate = "generic" | "ip_india_journal";
+
+export interface FieldDefinition {
+  name: string;
+  data_type: FieldDataType;
+  order: number;
+  anchor: string;
+  regex_override?: string | null;
+}
+
+export interface UploadDocumentResponse {
+  doc_id: string;
+  filename: string;
+  total_pages: number;
+}
+
+export interface ExtractRequest {
+  doc_id: string;
+  page_start: number;
+  page_end: number;
+  template: DocumentExtractTemplate;
+  field_schema: FieldDefinition[];
+}
+
+export interface ExtractedRecord {
+  page_number: number;
+  entry_index: number;
+  fields: Record<string, unknown>;
+  used_ocr: boolean;
+  warnings: string[];
+}
+
+export interface ExtractResponse {
+  doc_id: string;
+  records: ExtractedRecord[];
+  warnings: string[];
+}
+
+export interface IngestRequest {
+  doc_id: string;
+  source_filename: string;
+  page_start: number;
+  page_end: number;
+  template: DocumentExtractTemplate;
+  field_schema: FieldDefinition[];
+  records: ExtractedRecord[];
+}
+
+export interface IngestResponse {
+  ingested_count: number;
+  record_ids: string[];
+  trademark_ids: string[];
+}
+
+// -- Integrations --
+
+export interface IntegrationStatusEntry {
+  configured: boolean;
+  status: string;
+  detail?: string | null;
+}
+
+export interface IntegrationStatusResponse {
+  signa: IntegrationStatusEntry;
+  serper: IntegrationStatusEntry;
+  postgres: IntegrationStatusEntry;
+}
+
+export interface IntegrationTestResponse {
+  status: string;
+  detail?: string | null;
+  latency_ms?: number | null;
+}
+
 export interface IntakeParty { name: string; role: string; is_person?: boolean; }

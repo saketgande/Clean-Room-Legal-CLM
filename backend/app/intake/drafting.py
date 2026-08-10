@@ -24,7 +24,6 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
 
-
 # Real, clause-rich templates so the contract's clause-extraction, risk-scoring
 # and playbook deviation analysis have genuine text to work on. All three
 # placeholders — {company}, {counterparty}, {effective_date} — are filled via

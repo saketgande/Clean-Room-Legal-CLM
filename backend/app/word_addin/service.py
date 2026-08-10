@@ -127,7 +127,7 @@ async def run_contract_review(req: ReviewRequest, db: Session, *, org_id: str) -
     for item in (payload.get("findings") or [])[: req.max_findings]:
         try:
             findings.append(Finding(**item))
-        except Exception:  # noqa: BLE001 — drop a malformed finding rather than 500 the whole review
+        except Exception:
             logger.warning("word_addin: dropping malformed finding: %s", item)
 
     return ReviewResponse(

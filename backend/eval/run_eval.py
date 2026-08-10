@@ -24,9 +24,9 @@ import json
 import sys
 from pathlib import Path
 
-import app.models  # noqa: F401  (registers all ORM models)
 from sqlalchemy import select
 
+import app.models  # noqa: F401  (registers all ORM models)
 from app.auth.models import User
 from app.contract_brain.clause_taxonomy import canonical_clause_type as _canonicalize
 from app.contract_brain.models import ClauseExtraction
@@ -132,7 +132,7 @@ async def run_faithfulness(db, user) -> dict:
                 },
             )
             ans = ans if isinstance(ans, BrainAnswerOutput) else BrainAnswerOutput.model_validate(ans)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             rows.append((q["id"], "ERROR", str(e)[:40]))
             continue
         n_valid = 0
@@ -175,7 +175,7 @@ def main() -> None:
             print(f"    {'ok ' if kw else 'MISS'} {qid:22} sources={n:2}  kw={'Y' if kw else 'n'}")
 
         t = run_taxonomy(db, user)
-        print(f"\nEXTRACTION TAXONOMY")
+        print("\nEXTRACTION TAXONOMY")
         print(f"  coverage        {t['coverage']*100:5.1f}%   ({len(t['covered'])}/{len(t['expected'])} canonical types present)")
         missing = [e for e in t["expected"] if e not in t["covered"]]
         if missing:
@@ -188,7 +188,7 @@ def main() -> None:
             print("  inconsistency   none — clause types are normalized")
 
         if args.faithfulness:
-            print(f"\nFAITHFULNESS  (generates answers — costs tokens)")
+            print("\nFAITHFULNESS  (generates answers — costs tokens)")
             f = asyncio.run(run_faithfulness(db, user))
             print(f"  valid_rate      {f['valid_rate']*100:5.1f}%   ({f['total_cites']} citations checked)")
             for qid, conf, detail in f["rows"]:

@@ -30,8 +30,9 @@ _CONFIDENT = 0.6
 
 def flow_catalog(db: Session, org_id: str) -> list[dict]:
     """The enabled flows this org can route to — the model's only menu."""
-    from app.flows.models import Flow
     from sqlalchemy import select
+
+    from app.flows.models import Flow
 
     flows = db.scalars(
         select(Flow).where(Flow.org_id == org_id, Flow.enabled.is_(True)).order_by(Flow.eval_order.asc())

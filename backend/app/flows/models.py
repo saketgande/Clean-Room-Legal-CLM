@@ -7,7 +7,7 @@ list, no separate step table). A **FlowRun** is one ticket walking one flow; a
 and the timeline.
 """
 
-from sqlalchemy import Boolean, Column, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Boolean, Column, ForeignKey, Integer, String, Text
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -17,7 +17,6 @@ from app.core.database import (
     TableNameMixin,
     TimestampMixin,
 )
-
 
 # Step types the executor understands. Kept as a plain tuple (validated in the
 # service) — no DB enum, matching house style.

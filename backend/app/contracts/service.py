@@ -6,7 +6,6 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.playbooks.models import PlaybookDeviation, PlaybookRun
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import (
     ContractEdit,
@@ -22,6 +21,7 @@ from app.core.enums import (
     UserStatus,
 )
 from app.core.models import ResourceTimelineEvent
+from app.playbooks.models import PlaybookDeviation, PlaybookRun
 
 
 def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contract:

@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Type
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -125,8 +124,8 @@ class ToolSpec:
     description: str
     category: str
     required_permission: str
-    input_model: Type[BaseModel]
-    output_model: Type[BaseModel]
+    input_model: type[BaseModel]
+    output_model: type[BaseModel]
     confirmation_policy: str
     feature_flag: str | None
     exposed_session_types: set[str]
@@ -172,7 +171,7 @@ def _register(
     description: str,
     category: str,
     permission: str,
-    input_model: Type[BaseModel],
+    input_model: type[BaseModel],
     *,
     confirmation_policy: str = "none",
     feature_flag: str | None = None,

@@ -1,16 +1,15 @@
 import base64
-from datetime import UTC, datetime, timedelta
 import hashlib
 import secrets
-from typing import Any
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import bcrypt
 import jwt
 from jwt import PyJWTError
 
 from app.core.config import settings
-
 
 ALGORITHM = "HS256"
 

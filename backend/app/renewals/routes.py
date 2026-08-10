@@ -1,5 +1,5 @@
-import logging
 import html
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field

@@ -1,6 +1,5 @@
 from collections.abc import Iterable
 
-
 CONTRACT_PERMISSIONS = {
     "contract:read",
     "contract:create",
@@ -65,6 +64,18 @@ INTAKE_PERMISSIONS = {
     "intake:update",
 }
 
+# Trademarks (IP portfolio) module. search/extract/integrations_manage are
+# split from read/create because they consume paid external API quota
+# (Signa, TMSearch.ai, Serper) - gated to reviewer+ by default.
+TRADEMARK_PERMISSIONS = {
+    "trademark:read",
+    "trademark:create",
+    "trademark:update",
+    "trademark:search",
+    "trademark:extract",
+    "trademark:integrations_manage",
+}
+
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
@@ -75,6 +86,7 @@ ALL_PERMISSIONS = (
     | APPROVAL_PERMISSIONS
     | OBLIGATION_PERMISSIONS
     | INTAKE_PERMISSIONS
+    | TRADEMARK_PERMISSIONS
     | ADMIN_PERMISSIONS
     | USER_PERMISSIONS
 )
@@ -97,6 +109,8 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "workflow:read",
         "obligation:read",
         "intake:create",  # any employee can file + track their own requests
+        "trademark:read",
+        "trademark:create",
     },
     LEGAL_REVIEWER_ROLE_NAME: {
         "contract:read",
@@ -114,6 +128,12 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "intake:create",
         "intake:read",
         "intake:update",
+        "trademark:read",
+        "trademark:create",
+        "trademark:update",
+        "trademark:search",
+        "trademark:extract",
+        "trademark:integrations_manage",
     },
     APPROVER_ROLE_NAME: {
         "contract:read",
