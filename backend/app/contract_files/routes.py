@@ -221,6 +221,91 @@ async def log_counterparty_revision(
     return version
 
 
+@router.post(
+    "/negotiation-revision",
+    response_model=ContractVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit(settings.rate_limit_contract_upload)
+async def log_negotiation_revision(
+    contract_id: str,
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    party: str = Form(default="counterparty"),
+    party_label: str | None = Form(default=None),
+    change_summary: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:update")),
+):
+    """Record ONE negotiation round — a revised version returned by a party. The
+    party decides the version source: an external counterparty, an internal
+    stakeholder, or our own counter. Powers the guided negotiation panel (works
+    for internal negotiation, not just the counterparty)."""
+    _ = response
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    req_id = getattr(request.state, "request_id", None)
+    p = (party or "").lower()
+    source = {
+        "counterparty": ContractVersionSource.COUNTERPARTY_REVISION,
+        "internal": ContractVersionSource.USER_REDLINE,
+        "us": ContractVersionSource.MANUAL_UPLOAD,
+    }.get(p, ContractVersionSource.USER_REDLINE)
+    who = party_label or {"counterparty": "Counterparty", "internal": "Internal party", "us": "Our side"}.get(p, "Party")
+    version = await add_version_from_upload(
+        db, contract=contract, upload=file, user=current_user,
+        change_summary=change_summary or f"{who} revision received",
+        source=source, request_id=req_id,
+    )
+    write_timeline_event(
+        db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+        event_type="contract.negotiation_revision", title=f"Negotiation round — {who} revision",
+        actor_user_id=current_user.id, request_id=req_id,
+        details={"contract_version_id": version.id, "party": p},
+    )
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+class NotifyTeamPayload(BaseModel):
+    team_id: str
+    message: str | None = None
+
+
+@router.post("/notify-team", status_code=status.HTTP_200_OK)
+def notify_team_for_review(
+    contract_id: str,
+    payload: NotifyTeamPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:read")),
+):
+    """Notify a team's active members (in-app) that their negotiation review /
+    redline is requested on this contract — the internal side of 'Send to party'."""
+    from app.intake.models import IntakeTeam, IntakeTeamMember
+    from app.notifications.models import Notification
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    team = db.get(IntakeTeam, payload.team_id)
+    if team is None or team.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
+    members = db.scalars(
+        select(IntakeTeamMember).where(
+            IntakeTeamMember.team_id == team.id, IntakeTeamMember.active.is_(True)
+        )
+    ).all()
+    subject = f"Negotiation review requested — {contract.title}"
+    body = payload.message or f'Please review and redline "{contract.title}" for the internal negotiation.'
+    for m in members:
+        db.add(Notification(
+            org_id=current_user.org_id, user_id=m.user_id, channel="in_app",
+            event_type="contract.negotiation_review", subject=subject, body=body, status="sent",
+            created_by_user_id=current_user.id, updated_by_user_id=current_user.id,
+        ))
+    db.commit()
+    return {"notified": len(members), "team": team.name}
+
+
 @router.get("/versions/{version_id}/text", response_model=ContractTextSnapshotResponse)
 def get_version_text_snapshot(
     contract_id: str,
@@ -549,6 +634,37 @@ def propose_contract_edit(
     db.commit()
     db.refresh(edit)
     return edit
+
+
+class AiRedlineRequest(BaseModel):
+    instructions: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/edits/ai-redline", status_code=status.HTTP_201_CREATED)
+async def ai_redline_contract(
+    contract_id: str,
+    payload: AiRedlineRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """AI tracked-changes from a natural-language instruction (e.g. a playbook
+    fix). Reuses the assistant's edit_contract generator so the CLM 'Draft fix'
+    buttons produce real, anchored redlines — not a chat answer. Raises 422 when
+    the model can't locate specific language to revise."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    from app.ai.tool_registry import EditContractInput
+    from app.ai.tool_runtime import tool_runtime
+
+    result = await tool_runtime._edit_contract(
+        db,
+        payload=EditContractInput(
+            contract_id=contract.id, instructions=payload.instructions
+        ),
+        user=current_user,
+        session_id=f"clm-redline:{contract.id}",
+    )
+    db.commit()
+    return result
 
 
 class ManualTextUpdate(BaseModel):

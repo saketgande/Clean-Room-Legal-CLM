@@ -665,7 +665,7 @@ def _citations_from_tool_result(result: dict | None) -> list[dict]:
         return []
     citations: list[dict] = []
     if result.get("text_snapshot_id"):
-        excerpt = (result.get("text_excerpt") or "")[:1200]
+        excerpt = (result.get("text_excerpt") or result.get("text") or "")[:1200]
         citations.append(
             {
                 "type": "text_snapshot",
@@ -842,6 +842,18 @@ def _persist_assistant_answer(
         call.message_id = assistant_message.id
 
 
+# Tools whose result is an intake request the user should be able to open. Their
+# result carries {id, ref}; we persist those on the tool block so the trace can
+# render an "Open REQ-…" link after reload (the live stream is replaced by these
+# persisted blocks once the answer lands).
+_REQUEST_LINK_TOOLS = {
+    "create_intake_request",
+    "get_intake_request",
+    "start_intake_workflow",
+    "advance_intake_workflow",
+}
+
+
 def _accumulate_block(blocks: list[dict], event: dict) -> None:
     """Build an ordered, persistable timeline of the assistant turn (content
     interleaved with tool steps) so the Mike-style trace survives reload."""
@@ -879,6 +891,13 @@ def _accumulate_block(blocks: list[dict], event: dict) -> None:
                         )
                         if result.get(k) is not None
                     }
+                    if (
+                        b.get("name") in _REQUEST_LINK_TOOLS
+                        and isinstance(result.get("id"), str)
+                        and isinstance(result.get("ref"), str)
+                    ):
+                        art["request_id"] = result["id"]
+                        art["request_ref"] = result["ref"]
                     if art:
                         b["artifact"] = art
                 break

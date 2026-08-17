@@ -246,6 +246,12 @@ class AIController:
             session_id=session_id,
             exclude_message_id=getattr(run_row, "user_message_id", None),
         )
+        # Shared agent memory: what earlier agents/turns already established this
+        # session, injected so the model and its sub-agents build on prior work
+        # instead of re-reading or re-deriving it.
+        from app.ai.blackboard import render_blackboard
+
+        blackboard_text = render_blackboard(db, session_id=session_id)
         messages: list[dict[str, Any]] = [
             *history,
             {
@@ -258,6 +264,7 @@ class AIController:
                     handles=handles,
                     contract_summaries=contract_summaries,
                     contract_inventory=contract_inventory,
+                    blackboard=blackboard_text,
                 ),
             },
         ]
@@ -361,6 +368,31 @@ class AIController:
                             }
                             return
                         tool_results.append({"tool_name": tool_name, "result": result})
+                        # Post the result to the shared blackboard so later
+                        # agents/turns can build on it (research → drafting →
+                        # review all read the same board).
+                        try:
+                            from app.ai.blackboard import finding_from_tool, record_finding
+
+                            finding = finding_from_tool(tool_name, result)
+                            if finding is not None:
+                                agent, summary, f_cid, f_ref, f_cites = finding
+                                record_finding(
+                                    db,
+                                    session_id=session_id,
+                                    agent=agent,
+                                    summary=summary,
+                                    contract_id=f_cid,
+                                    ref=f_ref,
+                                    citations=f_cites,
+                                )
+                                db.commit()
+                        except Exception:  # pragma: no cover - memory is best-effort
+                            import logging
+
+                            logging.getLogger(__name__).debug(
+                                "blackboard record failed", exc_info=True
+                            )
                         yield {
                             "event": "tool_finished",
                             "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id"), "result": result},
@@ -711,6 +743,7 @@ class AIController:
         handles: list[dict[str, Any]],
         contract_summaries: list[dict[str, Any]] | None = None,
         contract_inventory: list[dict[str, Any]] | None = None,
+        blackboard: str = "",
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
@@ -722,21 +755,21 @@ class AIController:
                 if (handle := _handle_for_contract_id(contract, handles))
             ],
         }
-        return "\n\n".join(
-            [
-                f"User message:\n{message}",
-                "Available contract handles for tool use:",
-                self._json_tool_result(safe_handles),
-                "Session scope:",
-                self._json_tool_result(scope),
-                "Contract status context:",
-                self._json_tool_result(contract_summaries or []),
-                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
-                "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
-                self._json_tool_result(contract_inventory or []),
-                "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
-            ]
-        )
+        parts = [
+            f"User message:\n{message}",
+            blackboard,  # shared agent memory — filtered out below when empty
+            "Available contract handles for tool use:",
+            self._json_tool_result(safe_handles),
+            "Session scope:",
+            self._json_tool_result(scope),
+            "Contract status context:",
+            self._json_tool_result(contract_summaries or []),
+            "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+            "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
+            self._json_tool_result(contract_inventory or []),
+            "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
+        ]
+        return "\n\n".join(part for part in parts if part)
 
     def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
         """A compact list of contracts the user can access."""

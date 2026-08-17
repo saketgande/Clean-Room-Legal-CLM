@@ -179,7 +179,9 @@ for registered_spec in [
         allows_mutation=False,
         feature_flag="feature.ai.assistant_streaming",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Headroom for a full multi-issue memo without truncation (clamped by
+        # claude_max_tokens_ceiling). A cut-off answer reads as "incomplete".
+        max_tokens=8000,
     ),
     SkillSpec(
         name="contract_docx_generation",

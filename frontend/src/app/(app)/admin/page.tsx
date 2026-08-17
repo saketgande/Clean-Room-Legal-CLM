@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Building2,
   Check,
@@ -24,6 +24,7 @@ import {
   authorityApi,
   contractsApi,
   debugApi,
+  intakeApi,
   orgApi,
   projectsApi,
   rolesApi,
@@ -60,6 +61,7 @@ import { can } from "@/lib/intake";
 import { useToast } from "@/components/toast";
 import type {
   ConfigStatus,
+  IntakeTeam,
   PermissionInfo,
   RoleResponse,
   UserInvitationResponse,
@@ -67,6 +69,16 @@ import type {
   WallResponse,
   AuthorityGrantResponse,
 } from "@/lib/types";
+
+// Owner-routing vocabulary — shared with the triage (matter categories) and the
+// intake form (departments / business units). A team is tagged with the matter
+// types it handles (expertise) and the business units it serves (departments).
+const MATTER_CATEGORIES = [
+  "NDA", "Vendor", "Policy/FAQ", "Contract Review", "Privacy", "Litigation", "Trademark", "General",
+];
+const BUSINESS_UNITS = [
+  "Product", "Engineering", "Sales", "HR", "Finance", "Procurement", "Marketing", "Operations", "Legal", "Executive",
+];
 
 // Phase 3 (MAC): confidentiality ladder, low → high.
 const CLEARANCE_LEVELS = ["public", "internal", "confidential", "restricted"];
@@ -105,6 +117,7 @@ export default function AdminPage() {
           { id: "organization", label: "Organization" },
           { id: "users", label: "Users & Access" },
           { id: "roles", label: "Roles & Permissions" },
+          { id: "teams", label: "Teams & Routing" },
           { id: "walls", label: "Ethical Walls" },
           { id: "authority", label: "Authority" },
           { id: "settings", label: "Settings" },
@@ -116,6 +129,7 @@ export default function AdminPage() {
       {tab === "organization" && <OrganizationTab />}
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
+      {tab === "teams" && <TeamsTab />}
       {tab === "walls" && <EthicalWallsTab />}
       {tab === "authority" && <AuthorityTab />}
       {tab === "settings" && <SettingsTab />}
@@ -846,7 +860,13 @@ function RolesTab() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Roles</CardTitle>
+          <div>
+            <CardTitle>Roles</CardTitle>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Permissions only — what a person is allowed to do. Not the same as{" "}
+              <b>Teams</b> (who does the work) or <b>Approver Groups</b> (who signs off).
+            </p>
+          </div>
           <Button onClick={() => setEditor({ mode: "create" })}>
             <Plus className="h-4 w-4" />
             New role
@@ -1919,6 +1939,298 @@ function AuthorityEditorModal({
           </Button>
           <Button onClick={save} loading={busy} disabled={!canSave}>
             Grant authority
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// ---- Teams & Routing (intake owner assignment) ---------------------------
+
+function Chips({ options, selected, onToggle }: {
+  options: string[]; selected: string[]; onToggle: (v: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {options.map((o) => {
+        const on = selected.includes(o);
+        return (
+          <button
+            key={o}
+            type="button"
+            onClick={() => onToggle(o)}
+            className={cn(
+              "rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+              on
+                ? "border-brand-500 bg-brand-50 text-brand-700"
+                : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
+            )}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function TeamsTab() {
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { data: teams, isLoading, error } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
+  const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => usersApi.list() });
+  const [editing, setEditing] = useState<IntakeTeam | "new" | null>(null);
+
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["intake-teams"] });
+  const del = useMutation({
+    mutationFn: (id: string) => intakeApi.deleteTeam(id),
+    onSuccess: () => { invalidate(); notify("Team deleted", "success"); },
+    onError: (e) => notify(e instanceof Error ? e.message : "Delete failed", "error"),
+  });
+
+  if (isLoading) return <CenterSpinner label="Loading teams…" />;
+  if (error) return <ErrorState error={error} />;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle>Teams &amp; Routing</CardTitle>
+              <p className="mt-1 max-w-2xl text-sm text-slate-500">
+                When a request is raised, the triage assigns its owner to the team whose{" "}
+                <b>expertise</b> covers the matter type and that <b>serves the requester&apos;s business
+                unit</b>, load-balanced by member capacity. Untagged teams act as the fallback.
+              </p>
+            </div>
+            <Button onClick={() => setEditing("new")}>
+              <Plus className="h-4 w-4" /> New team
+            </Button>
+          </div>
+        </CardHeader>
+        <CardBody className="space-y-3">
+          {/* Orientation: the three people-lists are easy to confuse — spell out
+              what each is FOR and where it lives, so this screen is unambiguous. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+            <div className="mb-2 font-semibold text-slate-600">Three separate lists — each answers one question:</div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div>
+                <div className="font-medium text-slate-700">Roles <span className="font-normal text-slate-400">· Admin → Roles</span></div>
+                <div className="text-slate-500">What a person is <b>allowed to do</b> (permissions).</div>
+              </div>
+              <div>
+                <div className="font-medium text-slate-700">Approver Groups <span className="font-normal text-slate-400">· Approvals</span></div>
+                <div className="text-slate-500">Who <b>signs off</b> on an approval step.</div>
+              </div>
+              <div>
+                <div className="font-medium text-brand-700">Teams <span className="font-normal text-slate-400">· you are here</span></div>
+                <div className="text-slate-500">Who gets <b>assigned the work</b>. Only this list drives triage routing.</div>
+              </div>
+            </div>
+          </div>
+          {(teams ?? []).length === 0 ? (
+            <EmptyState
+              title="No teams yet"
+              description="Create a team and tag it with the matter types it handles and the business units it serves."
+            />
+          ) : (
+            (teams ?? []).map((t) => (
+              <div key={t.id} className="rounded-lg border border-slate-200 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-slate-900">{t.name}</span>
+                      <Badge tone="slate">{t.strategy === "round_robin" ? "round-robin" : "least-loaded"}</Badge>
+                      {!t.active && <Badge tone="amber">inactive</Badge>}
+                    </div>
+                    <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
+                      <div>
+                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Expertise</div>
+                        <div className="flex flex-wrap gap-1">
+                          {t.expertise.length
+                            ? t.expertise.map((e) => <Badge key={e} tone="green">{e}</Badge>)
+                            : <span className="text-slate-400">—</span>}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Serves (business units)</div>
+                        <div className="flex flex-wrap gap-1">
+                          {t.departments.length
+                            ? t.departments.map((d) => <Badge key={d} tone="blue">{d}</Badge>)
+                            : <span className="text-slate-400">all</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      {t.members.length} member{t.members.length === 1 ? "" : "s"}
+                      {t.members.length > 0 && (
+                        <>: {t.members.map((m) => `${m.name ?? m.user_id} (${m.open_count ?? 0}/${m.capacity})`).join(", ")}</>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={async () => {
+                        const ok = await confirm({
+                          title: `Delete ${t.name}?`,
+                          message: "Requests already assigned stay put; this only removes the pool.",
+                          confirmLabel: "Delete",
+                          tone: "danger",
+                        });
+                        if (ok) del.mutate(t.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </CardBody>
+      </Card>
+      {editing && (
+        <TeamModal
+          team={editing === "new" ? null : editing}
+          users={users ?? []}
+          teams={teams ?? []}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); invalidate(); }}
+        />
+      )}
+      {confirmDialog}
+    </div>
+  );
+}
+
+function TeamModal({ team, users, teams, onClose, onSaved }: {
+  team: IntakeTeam | null;
+  users: UserResponse[];
+  teams: IntakeTeam[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { notify } = useToast();
+  const [name, setName] = useState(team?.name ?? "");
+  const [key, setKey] = useState(team?.key ?? "");
+  const [strategy, setStrategy] = useState(team?.strategy ?? "least_loaded");
+  const [expertise, setExpertise] = useState<string[]>(team?.expertise ?? []);
+  const [departments, setDepartments] = useState<string[]>(team?.departments ?? []);
+  const [overflow, setOverflow] = useState(team?.overflow_team_id ?? "");
+  const [members, setMembers] = useState<{ user_id: string; capacity: number }[]>(
+    (team?.members ?? []).map((m) => ({ user_id: m.user_id, capacity: m.capacity })),
+  );
+
+  const toggle = (list: string[], set: (v: string[]) => void, v: string) =>
+    set(list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+
+  const memberIds = new Set(members.map((m) => m.user_id));
+  const addable = users.filter((u) => !memberIds.has(u.id));
+
+  const save = useMutation({
+    mutationFn: () => {
+      const payload = {
+        name: name.trim(),
+        strategy,
+        expertise,
+        departments,
+        overflow_team_id: overflow || null,
+        members: members.filter((m) => m.user_id),
+      };
+      return team
+        ? intakeApi.updateTeam(team.id, payload)
+        : intakeApi.createTeam({ ...payload, key: key.trim().toLowerCase() });
+    },
+    onSuccess: () => { notify(team ? "Team updated" : "Team created", "success"); onSaved(); },
+    onError: (e) => notify(e instanceof Error ? e.message : "Save failed", "error"),
+  });
+
+  const canSave = name.trim() && (team || key.trim());
+
+  return (
+    <Modal open onClose={onClose} title={team ? `Edit ${team.name}` : "New team"} size="lg">
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Name">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Commercial Legal" />
+          </Field>
+          {team ? (
+            <Field label="Key"><Input value={team.key} disabled /></Field>
+          ) : (
+            <Field label="Key" hint="lowercase id, e.g. commercial">
+              <Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="commercial" />
+            </Field>
+          )}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Balancing">
+            <Select value={strategy} onChange={(e) => setStrategy(e.target.value as IntakeTeam["strategy"])}>
+              <option value="least_loaded">Least loaded</option>
+              <option value="round_robin">Round robin</option>
+            </Select>
+          </Field>
+          <Field label="Overflow team" hint="Where work spills when everyone's full.">
+            <Select value={overflow} onChange={(e) => setOverflow(e.target.value)}>
+              <option value="">None</option>
+              {teams.filter((t) => t.id !== team?.id).map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <Field label="Expertise" hint="Matter types this team handles. The triage routes a request here when its category matches.">
+          <Chips options={MATTER_CATEGORIES} selected={expertise} onToggle={(v) => toggle(expertise, setExpertise, v)} />
+        </Field>
+        <Field label="Serves (business units)" hint="Requesting departments this team supports. Blank = serves all.">
+          <Chips options={BUSINESS_UNITS} selected={departments} onToggle={(v) => toggle(departments, setDepartments, v)} />
+        </Field>
+        <Field label="Members">
+          <div className="space-y-2">
+            {members.map((m, i) => {
+              const u = users.find((x) => x.id === m.user_id);
+              return (
+                <div key={m.user_id} className="flex items-center gap-2">
+                  <span className="flex-1 truncate text-sm text-slate-700">{u ? u.full_name : m.user_id}</span>
+                  <span className="text-xs text-slate-400">capacity</span>
+                  <Input
+                    type="number"
+                    className="w-20"
+                    value={String(m.capacity)}
+                    onChange={(e) =>
+                      setMembers(members.map((x, j) => (j === i ? { ...x, capacity: Number(e.target.value) || 0 } : x)))
+                    }
+                  />
+                  <Button variant="ghost" size="sm" onClick={() => setMembers(members.filter((_, j) => j !== i))}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              );
+            })}
+            {addable.length > 0 && (
+              <Select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) setMembers([...members, { user_id: e.target.value, capacity: 8 }]);
+                }}
+              >
+                <option value="">+ Add member…</option>
+                {addable.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+              </Select>
+            )}
+          </div>
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => save.mutate()} loading={save.isPending} disabled={!canSave}>
+            {team ? "Save" : "Create team"}
           </Button>
         </div>
       </div>

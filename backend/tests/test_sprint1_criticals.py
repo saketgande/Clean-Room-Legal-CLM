@@ -30,8 +30,10 @@ def _compile(expr) -> str:
 
 def test_f03_admin_filter_is_org_scoped_not_tautology(monkeypatch):
     """An org admin's contract filter must constrain org_id, not collapse to true()."""
-    monkeypatch.setattr(access_module, "is_org_admin", lambda user: True)
-    admin = types.SimpleNamespace(id="u-admin", org_id="org-A")
+    # is_org_admin was deleted in the access-control consolidation; the filter
+    # now delegates to app/core/policy.accessible_filter, which uses is_admin.
+    monkeypatch.setattr("app.core.policy.is_admin", lambda user: True)
+    admin = types.SimpleNamespace(id="u-admin", org_id="org-A", roles=[], department=None)
 
     sql = _compile(accessible_contract_filter(admin))
 
@@ -42,8 +44,8 @@ def test_f03_admin_filter_is_org_scoped_not_tautology(monkeypatch):
 
 def test_f03_non_admin_filter_also_org_scoped(monkeypatch):
     """Non-admins keep their ownership/membership predicate AND an org_id scope."""
-    monkeypatch.setattr(access_module, "is_org_admin", lambda user: False)
-    member = types.SimpleNamespace(id="u-1", org_id="org-A")
+    monkeypatch.setattr("app.core.policy.is_admin", lambda user: False)
+    member = types.SimpleNamespace(id="u-1", org_id="org-A", roles=[], department=None)
 
     sql = _compile(accessible_contract_filter(member))
 

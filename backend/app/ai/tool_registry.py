@@ -15,6 +15,13 @@ class ContractHandleInput(BaseModel):
     contract_id: str | None = None
 
 
+class ReadContractInput(ContractHandleInput):
+    # Character offset to start reading from. Long contracts come back in
+    # windows; when a result has_more, call again with its next_offset to
+    # continue until you've read the whole document.
+    offset: int = 0
+
+
 class FindInContractInput(ContractHandleInput):
     query: str = Field(min_length=1)
 
@@ -23,7 +30,7 @@ class ProjectContractsInput(BaseModel):
     project_id: str
 
 
-class WorkflowRunInput(BaseModel):
+class PromptRunInput(BaseModel):
     workflow_id: str
     prompt: str | None = None
     contract_ids: list[str] = Field(default_factory=list)
@@ -196,7 +203,146 @@ def _register(
     )
 
 
-_register("read_contract", "Read contract text and metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)
+# ---- Intake + workflow-engine tools (let Ask Aegis run the whole flow) ----
+class CreateIntakeRequestInput(BaseModel):
+    type_label: str = Field(description="matter type, e.g. 'NDA Request', 'Contract Review', 'Data Privacy (DPIA)', 'Trademark'")
+    subject: str | None = None
+    description: str = Field(default="", description="what the requester needs, in their own words")
+    department: str | None = Field(default=None, description="requesting business unit, e.g. Sales, Product, Finance")
+    priority: str = Field(default="Medium", pattern="^(Critical|High|Medium|Low)$")
+    field_values: dict | None = Field(default=None, description="structured intake fields if known, e.g. {'counterparty':'Acme','draft_path':'custom'}")
+
+
+class IntakeRequestRef(BaseModel):
+    request_id: str = Field(description="the intake request id or ref (e.g. 'REQ-4188')")
+
+
+class StartIntakeWorkflowInput(BaseModel):
+    request_id: str = Field(description="intake request id or ref")
+    workflow_id: str | None = Field(default=None, description="workflow to run; omit to use the AI-suggested one")
+
+
+class AdvanceIntakeWorkflowInput(BaseModel):
+    request_id: str = Field(description="intake request id or ref")
+    note: str | None = Field(default=None, description="optional note for the completed step")
+
+
+_register("create_intake_request", "Raise a new legal intake request (NDA, contract review, privacy, trademark, etc.). The triage classifies it, flags missing info, assigns an owner, and may auto-start a workflow.", AssistantToolCategory.MUTATING, "intake:create", CreateIntakeRequestInput)
+_register("get_intake_request", "Get an intake request's status, owner, missing info, and current workflow stage. Accepts a ref like 'REQ-4188'.", AssistantToolCategory.READ_ONLY, "intake:read", IntakeRequestRef)
+_register("start_intake_workflow", "Start / assign a governance workflow on an intake request (omit workflow_id to use the AI-suggested one).", AssistantToolCategory.MUTATING, "intake:update", StartIntakeWorkflowInput)
+_register("advance_intake_workflow", "Move an intake request's workflow forward — complete the current human step, or re-check a pending approval/signature.", AssistantToolCategory.MUTATING, "intake:update", AdvanceIntakeWorkflowInput)
+
+
+class DecideApprovalInput(BaseModel):
+    request_id: str = Field(description="intake request id or ref that has a pending approval")
+    decision: str = Field(pattern="^(approve|reject)$")
+    comment: str | None = None
+
+
+class ReassignRequestInput(BaseModel):
+    request_id: str = Field(description="intake request id or ref")
+    assignee: str = Field(description="the person to assign it to — their name or email")
+
+
+class CreateWorkflowInput(BaseModel):
+    name: str
+    steps: list[dict] = Field(description="ordered steps, each {type, name, config?}. types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify")
+    description: str | None = None
+    applies_to: str | None = Field(default=None, description="matter-type keyword this workflow should match, e.g. 'nda', 'msa' — optional")
+
+
+# NOTE: workflow authoring IS exposed (gated to admins via admin_panel:access). The
+# other Admin-config changes (teams, roles, authority, ethical walls, users) stay
+# UI/admin-only — Ask Aegis operates the app, it does not reconfigure those.
+_register("create_workflow", "Create a new governance workflow (the engine kind) with ordered steps. Step types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify.", AssistantToolCategory.MUTATING, "admin_panel:access", CreateWorkflowInput)
+_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "contract:approve", DecideApprovalInput)
+_register("reassign_request", "Reassign an intake request to a different owner, given their name or email.", AssistantToolCategory.MUTATING, "intake:update", ReassignRequestInput)
+
+
+class SignatureLinkInput(BaseModel):
+    request_id: str | None = Field(default=None, description="intake request id or ref")
+    contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
+
+
+class AddCommentInput(BaseModel):
+    contract_id: str
+    body: str = Field(min_length=1)
+    visibility: str = Field(default="internal", pattern="^(internal|shared)$")
+
+
+class SendForNegotiationInput(BaseModel):
+    request_id: str | None = Field(default=None, description="intake request id or ref")
+    contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
+    party: str = Field(default="counterparty", pattern="^(counterparty|internal)$")
+    team_id: str | None = Field(default=None, description="team to notify when party=internal")
+
+
+class ListNoticesInput(BaseModel):
+    status: str | None = Field(default=None, description="filter, e.g. 'open', 'overdue', 'draft'")
+    overdue_only: bool = False
+
+
+class CreateNoticeInput(BaseModel):
+    subject: str
+    counterparty_name: str
+    direction: str = Field(default="received", pattern="^(received|sent)$")
+    notice_type: str = Field(default="other")
+    description: str = ""
+    contract_id: str | None = None
+
+
+class NoticeRef(BaseModel):
+    notice_id: str
+
+
+class CompleteObligationInput(BaseModel):
+    obligation_id: str
+
+
+class ListRenewalsInput(BaseModel):
+    limit: int = Field(default=25, ge=1, le=100)
+
+
+_register("list_notices", "List legal notices (received/sent) on the register, optionally filtered by status or overdue.", AssistantToolCategory.READ_ONLY, "contract:read", ListNoticesInput)
+_register("create_notice", "Log a legal notice on the register (a received demand/notice, or an outbound one).", AssistantToolCategory.MUTATING, "contract:update", CreateNoticeInput)
+_register("draft_notice_response", "AI-draft a response to a notice on the register.", AssistantToolCategory.MUTATING, "contract:update", NoticeRef)
+_register("complete_obligation", "Mark a contract obligation as completed.", AssistantToolCategory.MUTATING, "obligation:update", CompleteObligationInput)
+_register("list_renewals", "List upcoming contract renewal events and their decisions.", AssistantToolCategory.READ_ONLY, "contract:read", ListRenewalsInput)
+
+
+class CompleteTaskInput(BaseModel):
+    task_id: str
+
+
+class SignatureStatusInput(BaseModel):
+    request_id: str | None = Field(default=None, description="intake request id or ref")
+    contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
+
+
+_register("list_my_requests", "List the intake requests you raised, with their status and stage.", AssistantToolCategory.READ_ONLY, "intake:create", EmptyInput)
+_register("list_projects", "List the organisation's projects.", AssistantToolCategory.READ_ONLY, "project:read", EmptyInput)
+_register("complete_task", "Mark an intake task as done.", AssistantToolCategory.MUTATING, "intake:update", CompleteTaskInput)
+_register("get_signature_status", "Check the signature status of a request's contract and its signers.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureStatusInput)
+
+
+class AdvanceContractStageInput(BaseModel):
+    request_id: str | None = Field(default=None, description="intake request id or ref")
+    contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
+    to_stage: str = Field(description="target lifecycle stage, e.g. review, approval, signature, executed")
+
+
+class ProjectRef(BaseModel):
+    project_id: str
+
+
+_register("advance_contract_stage", "Move a request's contract to a target lifecycle stage (respects the approval-before-signature gate).", AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput)
+_register("list_my_approvals", "List approvals pending your decision.", AssistantToolCategory.READ_ONLY, "contract:approve", EmptyInput)
+_register("read_project", "Read a project's details.", AssistantToolCategory.READ_ONLY, "project:read", ProjectRef)
+_register("read_notice", "Read a legal notice's full details.", AssistantToolCategory.READ_ONLY, "contract:read", NoticeRef)
+_register("get_signature_link", "Get the link to sign a request's contract — the user clicks it to review and sign in the app.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureLinkInput)
+_register("add_contract_comment", "Add a comment to a contract (internal, or shared with the counterparty).", AssistantToolCategory.MUTATING, "contract:update", AddCommentInput)
+_register("send_for_negotiation", "Send a request's contract out for negotiation — create a counterparty share link, or notify an internal team.", AssistantToolCategory.EXTERNAL_ACTION, "contract_file:share", SendForNegotiationInput)
+_register("read_contract", "Read a contract's full text and metadata. Long contracts return in windows: if the result has_more is true, call again with next_offset to keep reading until you've seen the whole document before analysing it.", AssistantToolCategory.READ_ONLY, "contract:read", ReadContractInput)
 _register("find_in_contract", "Find text in a contract.", AssistantToolCategory.READ_ONLY, "contract:read", FindInContractInput)
 _register("list_project_contracts", "List contracts in a project.", AssistantToolCategory.READ_ONLY, "project:read", ProjectContractsInput)
 _register("get_contract_status", "Read contract lifecycle and risk metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)
@@ -211,7 +357,7 @@ _register(
     "playbook:read",
     EmptyInput,
 )
-_register("run_workflow", "Run an approved workflow.", AssistantToolCategory.MUTATING, "workflow:read", WorkflowRunInput)
+_register("run_workflow", "Run an approved workflow.", AssistantToolCategory.MUTATING, "workflow:read", PromptRunInput)
 _register("generate_contract_docx", "Generate a new contract DOCX plan.", AssistantToolCategory.DRAFT_OR_PROPOSE, "contract:create", GenerateContractInput, feature_flag="feature.ai.docx_generation")
 _register(
     "edit_contract",

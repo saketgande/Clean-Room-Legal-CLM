@@ -30,6 +30,7 @@ from app.contract_files.models import (
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
 from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
 from app.jobs.models import JobRun
+from app.notices.models import Notice, NoticeDocument, NoticeEvent
 from app.notifications.models import Notification
 from app.obligations.models import Obligation, ObligationReminder
 from app.organizations.models import Organization
@@ -66,13 +67,13 @@ from app.tabular_review.models import (
     TabularReviewChat,
     TabularReviewColumn,
 )
-from app.workflows.models import Workflow, WorkflowRun
-from app.flows.models import Flow, FlowRun, FlowStepRun
+from app.prompt_library.models import Prompt, PromptRun
+from app.workflows.models import Workflow, WorkflowRun, WorkflowStepRun
 
 __all__ = [
-    "Flow",
-    "FlowRun",
-    "FlowStepRun",
+    "Workflow",
+    "WorkflowRun",
+    "WorkflowStepRun",
     "AdminSetting",
     "AuthorityGrant",
     "EthicalWall",
@@ -119,6 +120,9 @@ __all__ = [
     "JobRun",
     "KnowledgeEdge",
     "KnowledgeNode",
+    "Notice",
+    "NoticeDocument",
+    "NoticeEvent",
     "Notification",
     "Obligation",
     "ObligationReminder",
@@ -154,6 +158,6 @@ __all__ = [
     "User",
     "UserApprovalDecision",
     "UserInvitation",
-    "Workflow",
-    "WorkflowRun",
+    "Prompt",
+    "PromptRun",
 ]

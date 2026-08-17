@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { tokenStore } from "./api";
 import { authApi } from "./endpoints";
-import { disableDemo, isDemo } from "./demo";
 import type { UserResponse } from "./types";
 
 interface AuthState {
@@ -33,7 +32,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
 
   const refreshUser = useCallback(async () => {
-    if (!isDemo() && !tokenStore.access) {
+    if (!tokenStore.access) {
       setUser(null);
       setLoading(false);
       return;
@@ -53,7 +52,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string) => {
-      if (isDemo()) disableDemo();
       queryClient.clear();
       const tokens = await authApi.login(email, password);
       tokenStore.set(tokens);
@@ -66,12 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     queryClient.clear();
-    if (isDemo()) {
-      disableDemo();
-      setUser(null);
-      router.push("/login");
-      return;
-    }
     try {
       // Refresh token now lives in an HttpOnly cookie; the backend reads it
       // directly from the request, so we don't pass it explicitly any more.

@@ -4,29 +4,20 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, PenLine, Plus, Send, Trash2, XCircle } from "lucide-react";
 import { contractsApi, signaturesApi } from "@/lib/endpoints";
-import {
-  Badge,
-  Button,
-  Card,
-  CenterSpinner,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  Table,
-  TD,
-  TH,
-  THead,
-  TR,
-} from "@/components/ui";
-import { fmtDateTime, statusTone, titleCase } from "@/lib/utils";
+import { Button, Field, Input, Modal, Select } from "@/components/ui";
+import { fmtDateTime, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { SignatureRequest } from "@/lib/types";
 
 const TERMINAL = new Set(["completed", "declined", "voided"]);
+const STATUS_CLASS: Record<string, string> = {
+  completed: "good",
+  sent: "warn",
+  delivered: "warn",
+  draft: "dim",
+  declined: "bad",
+  voided: "bad",
+};
 
 export default function SignaturesPage() {
   const qc = useQueryClient();
@@ -65,102 +56,103 @@ export default function SignaturesPage() {
     }
   }
 
+  const rows = data ?? [];
+
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Signatures"
-        description="Send contracts for e-signature and track envelope status."
-        actions={
-          <Button onClick={() => setSendOpen(true)}>
+    <div className="sigl">
+      <style dangerouslySetInnerHTML={{ __html: SIGL_CSS }} />
+      <div className="hd">
+        <div>
+          <h1>Signatures</h1>
+          <p className="sub">Send contracts for e-signature and track envelope status.</p>
+        </div>
+        <div className="acts">
+          <button className="btn pri" onClick={() => setSendOpen(true)}>
             <Send className="h-4 w-4" />
             Send for signature
-          </Button>
-        }
-      />
+          </button>
+        </div>
+      </div>
 
       {isLoading ? (
-        <CenterSpinner label="Loading signatures…" />
+        <div className="empty">Loading signatures…</div>
       ) : error ? (
-        <ErrorState error={error} />
-      ) : (data ?? []).length === 0 ? (
-        <EmptyState
-          icon={<PenLine className="h-6 w-6" />}
-          title="No signature requests"
-          description="Send a contract for e-signature to track its envelope here."
-          action={
-            <Button onClick={() => setSendOpen(true)}>
-              <Send className="h-4 w-4" />
-              Send for signature
-            </Button>
-          }
-        />
+        <div className="empty err">
+          {error instanceof Error ? error.message : "Couldn't load signatures."}
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="empty">
+          <PenLine className="h-6 w-6" />
+          <div className="etitle">No signature requests</div>
+          <div className="edesc">Send a contract for e-signature to track its envelope here.</div>
+          <button className="btn pri" onClick={() => setSendOpen(true)}>
+            <Send className="h-4 w-4" />
+            Send for signature
+          </button>
+        </div>
       ) : (
-        <Card>
-          <p className="border-b border-slate-100 px-4 py-3 text-xs text-slate-500">
+        <div className="sigtablewrap">
+          <p className="hint">
             Each pending request can be reconciled from its row — use{" "}
-            <span className="font-medium text-slate-700">Mark completed</span> or{" "}
-            <span className="font-medium text-slate-700">Mark declined</span> to
+            <strong>Mark completed</strong> or <strong>Mark declined</strong> to
             record the envelope&apos;s final status.
           </p>
-          <Table>
-            <THead>
+          <table className="st">
+            <thead>
               <tr>
-                <TH>Contract</TH>
-                <TH>Status</TH>
-                <TH>Provider</TH>
-                <TH>Sent</TH>
-                <TH>Completed</TH>
-                <TH className="text-right">Update status</TH>
+                <th>Contract</th>
+                <th>Status</th>
+                <th>Provider</th>
+                <th>Sent</th>
+                <th>Completed</th>
+                <th className="c-right">Update status</th>
               </tr>
-            </THead>
+            </thead>
             <tbody>
-              {(data ?? []).map((req) => (
-                <TR key={req.id}>
-                  <TD className="font-medium text-slate-900">
+              {rows.map((req) => (
+                <tr key={req.id}>
+                  <td className="c-strong">
                     {titleMap.get(req.contract_id) ?? req.contract_id}
-                  </TD>
-                  <TD>
-                    <Badge tone={statusTone(req.status)}>
+                  </td>
+                  <td>
+                    <span className={`sstat ${STATUS_CLASS[req.status] ?? "dim"}`}>
                       {titleCase(req.status)}
-                    </Badge>
-                  </TD>
-                  <TD>{titleCase(req.provider)}</TD>
-                  <TD>{fmtDateTime(req.sent_at)}</TD>
-                  <TD>{fmtDateTime(req.completed_at)}</TD>
-                  <TD className="text-right">
+                    </span>
+                  </td>
+                  <td>{titleCase(req.provider)}</td>
+                  <td>{fmtDateTime(req.sent_at)}</td>
+                  <td>{fmtDateTime(req.completed_at)}</td>
+                  <td className="c-right">
                     {TERMINAL.has(req.status) ? (
-                      <span className="text-xs text-slate-400">
-                        No action needed
-                      </span>
+                      <span className="dim">No action needed</span>
                     ) : (
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          loading={busyId === req.id}
+                      <div className="rowacts">
+                        <button
+                          className="btn sm"
+                          disabled={busyId === req.id}
                           onClick={() => sync(req, true)}
                           aria-label="Mark this signature request completed"
                         >
                           <CheckCircle2 className="h-4 w-4" />
-                          Mark completed
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="danger"
+                          {busyId === req.id ? "Working…" : "Mark completed"}
+                        </button>
+                        <button
+                          className="btn sm danger"
                           disabled={busyId === req.id}
                           onClick={() => sync(req, false)}
                           aria-label="Mark this signature request declined"
                         >
                           <XCircle className="h-4 w-4" />
                           Mark declined
-                        </Button>
+                        </button>
                       </div>
                     )}
-                  </TD>
-                </TR>
+                  </td>
+                </tr>
               ))}
             </tbody>
-          </Table>
-        </Card>
+          </table>
+        </div>
       )}
 
       <SendModal
@@ -338,3 +330,27 @@ function SendModal({
     </Modal>
   );
 }
+
+const SIGL_CSS = `
+.sigl{--surface:#fff;--surface-2:#eef1f6;--inset:#f8fafc;--ink:#18213a;--ink-2:#586178;--ink-3:#8a92a6;--border:#e4e8f0;--border-strong:#ccd3e0;--accent:#3b4aa0;--accent-ink:#fff;--accent-soft:#eaecf8;--good:#2f875f;--good-soft:#e4f1ea;--warn:#a3730f;--bad:#bb4835;--shadow:0 1px 2px rgba(20,26,40,.05),0 8px 22px rgba(20,26,40,.06);--sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;padding:22px 24px 40px;color:var(--ink);font:400 13px/1.5 var(--sans)}
+.dark .sigl{--surface:#141922;--surface-2:#1b2130;--inset:#10141d;--ink:#e8ebf3;--ink-2:#9aa3b8;--ink-3:#6b7488;--border:#242b39;--border-strong:#333c4e;--accent:#8290e6;--accent-ink:#0c0f16;--accent-soft:#1f2740;--good:#5cbf90;--good-soft:#15271f;--warn:#dcab4c;--bad:#e08972;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.4)}
+.sigl .dim{color:var(--ink-3)}
+.sigl .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.sigl .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em} .sigl .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
+.sigl .acts{margin-left:auto;display:flex;gap:8px}
+.sigl .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:9px;border:1px solid var(--border-strong);background:var(--surface);color:var(--ink);font-weight:600;font-size:12.5px;cursor:pointer} .sigl .btn:hover{background:var(--surface-2)} .sigl .btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)} .sigl .btn.pri:hover{filter:brightness(1.06)} .sigl .btn[disabled]{opacity:.6;pointer-events:none}
+.sigl .btn.sm{padding:5px 10px;font-size:11.5px;border-radius:7px} .sigl .btn.danger{border-color:color-mix(in srgb,var(--bad) 45%,var(--border-strong));color:var(--bad)} .sigl .btn.danger:hover{background:color-mix(in srgb,var(--bad) 10%,var(--surface))}
+.sigl .empty{border:1px dashed var(--border-strong);border-radius:12px;background:var(--inset);padding:32px 26px;text-align:center;font-size:13px;color:var(--ink-2);display:flex;flex-direction:column;align-items:center;gap:8px} .sigl .empty.err{border-color:color-mix(in srgb,var(--bad) 40%,var(--border));color:var(--bad)}
+.sigl .empty .etitle{font-weight:660;font-size:14px;color:var(--ink)} .sigl .empty .edesc{max-width:420px;color:var(--ink-2)} .sigl .empty .btn{margin-top:6px}
+.sigl .hint{margin:0 0 10px;font-size:12px;color:var(--ink-3)} .sigl .hint strong{color:var(--ink-2);font-weight:600}
+.sigl .sigtablewrap{overflow-x:auto}
+.sigl table.st{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.sigl table.st thead th{text-align:left;font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:10px 12px;border-bottom:1px solid var(--border);background:var(--inset);white-space:nowrap}
+.sigl table.st thead th:first-child{border-top-left-radius:8px} .sigl table.st thead th:last-child{border-top-right-radius:8px}
+.sigl table.st tbody td{padding:11px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.sigl table.st tbody tr:last-child td{border-bottom:0}
+.sigl table.st .c-strong{font-weight:600;color:var(--ink)}
+.sigl table.st .c-right{text-align:right}
+.sigl .rowacts{display:flex;justify-content:flex-end;gap:8px}
+.sigl .sstat{font:600 11.5px var(--sans);white-space:nowrap} .sigl .sstat.good{color:var(--good)} .sigl .sstat.warn{color:var(--warn)} .sigl .sstat.bad{color:var(--bad)} .sigl .sstat.dim{color:var(--ink-3)}
+`;

@@ -606,7 +606,28 @@ export function ContractDocument({
                       </span>
                     );
                   }
-                  // proposed — highlight the area suggested for change
+                  // proposed — show the change inline (struck original +
+                  // proposed replacement, dotted to signal "not yet accepted")
+                  // so the redline is actually visible before accept/reject.
+                  // No replacement = pure highlight fallback.
+                  if (e.replacement_text) {
+                    return (
+                      <span
+                        key={i}
+                        id={`edit-${e.id}`}
+                        onClick={() => onSelectEdit?.(e.id)}
+                        title={e.rationale ?? "Proposed change — click to review"}
+                        className={"cursor-pointer" + ring}
+                      >
+                        <del className="bg-danger-subtle text-danger line-through decoration-danger/50">
+                          {seg.text}
+                        </del>
+                        <ins className="bg-success-subtle text-success underline decoration-dotted decoration-success/60 underline-offset-2">
+                          {e.replacement_text}
+                        </ins>
+                      </span>
+                    );
+                  }
                   return (
                     <mark
                       key={i}

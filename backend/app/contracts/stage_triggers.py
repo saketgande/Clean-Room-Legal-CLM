@@ -41,7 +41,7 @@ def fire_stage_entry_triggers(
         elif to_stage == ContractLifecycleStage.ACTIVE:
             _on_enter_active(db, contract=contract, actor_user_id=actor_user_id)
         # Auto-resume any workflow run waiting on this contract's stage.
-        from app.flows.service import advance_flow_for_contract
+        from app.workflows.service import advance_flow_for_contract
         advance_flow_for_contract(db, contract=contract, actor_user_id=actor_user_id)
     except Exception:
         logger.warning(

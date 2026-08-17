@@ -15,7 +15,7 @@ class ResourceGrant(
 ):
     """A single, time-bound grant of access to ONE object, for a user / role /
     group. This unifies the three fragmented sharing mechanisms (ProjectShare,
-    ContractShare, Workflow.shared_user_ids) into one relationship model — the
+    ContractShare, Prompt.shared_user_ids) into one relationship model — the
     object#level@principal tuple the whole legal-RBAC pipeline reads from.
 
     ``org_id`` (via OrgScopedMixin) is kept for consistency with every other

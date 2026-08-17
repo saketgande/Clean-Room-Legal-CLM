@@ -138,6 +138,8 @@ def serialize_team(db: Session, t: IntakeTeam) -> dict:
         "overflow_team_id": t.overflow_team_id,
         "overflow_team_name": overflow.name if overflow else None,
         "sort_order": t.sort_order,
+        "expertise": t.expertise or [],
+        "departments": t.departments or [],
         "members": [
             {"id": m.id, "user_id": m.user_id, "name": _label(db, m.user_id) or m.user_id,
              "capacity": m.capacity, "active": m.active, "open_count": counts.get(m.user_id, 0)}
@@ -207,6 +209,7 @@ def create_team(db: Session, *, actor: User, payload) -> dict:
         org_id=actor.org_id, key=key, name=payload.name.strip(),
         description=(payload.description or None), strategy=payload.strategy,
         overflow_team_id=payload.overflow_team_id, sort_order=payload.sort_order,
+        expertise=(payload.expertise or None), departments=(payload.departments or None),
         created_by_user_id=actor.id, updated_by_user_id=actor.id,
     )
     _apply_members(db, t, actor.org_id, payload.members)
@@ -225,7 +228,8 @@ def update_team(db: Session, *, actor: User, team_id: str, payload) -> dict:
     if payload.overflow_team_id is not None and payload.overflow_team_id:
         _get_team(db, actor.org_id, payload.overflow_team_id)
         _check_no_cycle(db, org_id=actor.org_id, team_id=t.id, overflow_id=payload.overflow_team_id)
-    for attr in ("name", "description", "active", "strategy", "sort_order", "overflow_team_id"):
+    for attr in ("name", "description", "active", "strategy", "sort_order", "overflow_team_id",
+                 "expertise", "departments"):
         val = getattr(payload, attr, None)
         if val is not None:
             setattr(t, attr, val)

@@ -160,6 +160,8 @@ class TeamCreate(BaseModel):
     strategy: str = Field(default="least_loaded", pattern="^(least_loaded|round_robin)$")
     overflow_team_id: str | None = None
     sort_order: int = 100
+    expertise: list[str] = Field(default_factory=list)  # matter categories this team owns
+    departments: list[str] = Field(default_factory=list)  # business units this team serves
     members: list[TeamMemberSpec] = Field(default_factory=list)
 
 
@@ -170,6 +172,8 @@ class TeamUpdate(BaseModel):
     strategy: str | None = Field(default=None, pattern="^(least_loaded|round_robin)$")
     overflow_team_id: str | None = None
     sort_order: int | None = None
+    expertise: list[str] | None = None
+    departments: list[str] | None = None
     members: list[TeamMemberSpec] | None = None
 
 
@@ -183,6 +187,8 @@ class TeamResponse(BaseModel):
     overflow_team_id: str | None = None
     overflow_team_name: str | None = None
     sort_order: int
+    expertise: list[str] = Field(default_factory=list)
+    departments: list[str] = Field(default_factory=list)
     members: list[TeamMemberResponse] = Field(default_factory=list)
 
 

@@ -44,7 +44,7 @@ def hybrid_sources(
     """
     limit = min(max(limit, 1), 25)
     if not contract_ids:
-        return {"semantic": [], "clauses": [], "text": []}
+        return {"semantic": [], "clauses": [], "text": [], "graph": []}
     titles = dict(
         db.execute(
             select(Contract.id, Contract.title).where(
@@ -175,13 +175,20 @@ def hybrid_sources(
             }
         )
 
-    return {"semantic": semantic, "clauses": clauses, "text": text_hits}
+    # Knowledge-graph relationships (party ↔ contract, contract ↔ clause,
+    # obligations, approvals…) — the lens the /ask page was missing. Same
+    # source as the assistant's tool, so both now reason over the graph.
+    graph = _graph_facts(db, contract_ids=ids, clause_types=[])
+
+    return {"semantic": semantic, "clauses": clauses, "text": text_hits, "graph": graph}
 
 
 def sources_to_context(sources: dict) -> str:
     """Flatten hybrid sources into the exact text block the answer LLM sees.
     Every line the model reads is a source the user can also open."""
     parts: list[str] = []
+    for g in sources.get("graph", []):
+        parts.append(f"[graph] {g['fact']}")
     for s in sources.get("semantic", []):
         parts.append(f"[snippet · {s['contract_title']}] {s['text']}")
     for c in sources.get("clauses", []):
@@ -308,6 +315,13 @@ def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> li
     if not contract_ids:
         return []
     try:
+        from app.contract_brain.rerank import rerank_enabled, rerank_order
+
+        # Same second-stage reranking the /ask page path uses — over-fetch a
+        # wider pool, then let the cross-encoder pick the true top-N. Previously
+        # the assistant path took raw cosine order with no rerank.
+        do_rerank = rerank_enabled()
+        candidate_limit = MAX_VECTOR_CHUNKS * 4 if do_rerank else MAX_VECTOR_CHUNKS
         query_vec = _embed([question])[0]
         distance = ContractEmbedding.embedding.cosine_distance(query_vec)
         rows = db.execute(
@@ -322,12 +336,16 @@ def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> li
                 ContractEmbedding.contract_version_id == Contract.current_authoritative_version_id,
             )
             .order_by(distance)
-            .limit(MAX_VECTOR_CHUNKS)
+            .limit(candidate_limit)
         ).all()
-        return [
+        chunks = [
             {"contract_id": cid, "text": text, "score": round(1.0 - float(dist), 4)}
             for cid, text, dist in rows
         ]
+        if do_rerank and chunks:
+            order = rerank_order(question, [c["text"] for c in chunks], MAX_VECTOR_CHUNKS)
+            chunks = [chunks[i] for i in order]
+        return chunks[:MAX_VECTOR_CHUNKS]
     except Exception:
         # Vector store failures are recoverable — the chat path can still
         # return a hedged answer — but we want a signal in the logs so we

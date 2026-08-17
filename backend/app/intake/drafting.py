@@ -337,8 +337,90 @@ def render_document(doc_type: str, *, company: str, counterparty: str, effective
     return spec["template"].format(company=company, counterparty=counterparty, effective_date=effective)
 
 
+def _custom_shell(*, company: str, counterparty: str, fields: dict, label: str) -> str:
+    """A starting canvas for a bespoke ('custom') draft — the captured intake
+    details plus a clear attorney-fill body. NOT the standard template; the
+    attorney writes the real terms in the CLM editor. Its whole point is to give
+    the run a real, VISIBLE contract to work on from step one."""
+    fv = fields or {}
+    lines = [
+        f"{label.upper()} — CUSTOM DRAFT",
+        "",
+        f"Between {company} and {counterparty or '[Counterparty]'}.",
+        "",
+        "— CAPTURED REQUIREMENTS (from the intake request) —",
+    ]
+    for k, v in fv.items():
+        if str(k).startswith("_") or v in (None, "", []):
+            continue
+        lines.append(f"  • {k.replace('_', ' ')}: {v}")
+    lines += [
+        "",
+        "— DRAFT —",
+        "[This is a bespoke draft. Write the custom terms below to fit the",
+        " requirements above. Do NOT use the standard template.]",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str, fields: dict) -> str | None:
+    """Generate a REAL bespoke draft with the drafting skill (the same
+    contract_docx_generation the assistant uses), grounded on the intake
+    request's type, counterparty and captured requirements. Returns the rendered
+    body text, or None so the caller can fall back to the skeleton if the model
+    is unavailable — intake must never hard-fail on a drafting miss."""
+    import logging
+
+    reqs = [
+        f"- {str(k).replace('_', ' ')}: {v}"
+        for k, v in (fields or {}).items()
+        if not str(k).startswith("_") and v not in (None, "", [])
+    ]
+    purpose = (request.description or "").strip()
+    instructions = "\n".join(
+        line
+        for line in [
+            f"Draft a {label} between {company} (our organization) and {counterparty or '[Counterparty]'}.",
+            f"Matter type: {request.type_label}.",
+            f"Purpose / context: {purpose}" if purpose else "",
+            "Captured requirements from the intake request:" if reqs else "",
+            *reqs,
+            "Produce complete, professional contract sections with real operative "
+            "language a lawyer can review and refine. Where a term wasn't specified, "
+            "use a sensible market-standard default and record it as an assumption.",
+        ]
+        if line
+    )
+    try:
+        from app.ai.controller import ai_controller
+        from app.ai.tool_runtime import _render_structured_contract_docx
+
+        drafted = await ai_controller.run_structured_skill(
+            db,
+            skill_name="contract_docx_generation",
+            org_id=actor.org_id,
+            created_by_user_id=actor.id,
+            input_payload={"title": f"{label} — {counterparty or 'Counterparty'}", "instructions": instructions},
+            commit=False,
+        )
+        if drafted is None or not getattr(drafted, "sections", None):
+            return None
+        body_text, _content = _render_structured_contract_docx(
+            title=getattr(drafted, "title", None) or f"{label} — {counterparty or 'Counterparty'}",
+            sections=[(s.heading, s.body) for s in drafted.sections],
+            assumptions=list(getattr(drafted, "assumptions", []) or []),
+        )
+        return body_text
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "intake AI drafting failed for request %s; falling back to skeleton", request.id, exc_info=True
+        )
+        return None
+
+
 async def draft_contract_for_request(
-    db, *, actor, request: IntakeRequest, http_request_id: str | None = None
+    db, *, actor, request: IntakeRequest, http_request_id: str | None = None, custom: bool = False
 ):
     """Render the right template for the request and create a real, analysed
     contract linked back to it. Idempotent: returns the existing contract if
@@ -354,12 +436,13 @@ async def draft_contract_for_request(
             return existing
 
     doc_type = resolve_doc_type(request)
-    if doc_type is None:
+    if doc_type is None and not custom:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "This request type has no draft template — handle it manually.",
         )
-    spec = _DOC_TYPES[doc_type]
+    # A custom draft doesn't need a template doc_type — it gets a generic shell.
+    spec = _DOC_TYPES[doc_type] if doc_type else {"label": (request.type_label or "Agreement"), "contract_type": "other"}
 
     org = db.get(Organization, actor.org_id)
     company = (org.name if org and org.name else "Company")
@@ -367,11 +450,23 @@ async def draft_contract_for_request(
     # Prefer the details captured on the intake form; fall back to screening / today.
     counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
     effective = str(fv.get("effective_date") or "").strip() or date.today().isoformat()
-    text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
+    if custom:
+        # Real AI generation for bespoke drafts (was a placeholder skeleton).
+        # Skeleton only survives as the safety net if the model is unavailable.
+        text = await _ai_draft_text(
+            db, actor=actor, request=request, company=company,
+            counterparty=counterparty, label=spec["label"], fields=fv,
+        )
+        if not text:
+            text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
+    else:
+        text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
     # One-way NDAs get a clearer label than the generic template label.
     label = spec["label"]
     if doc_type == "nda" and "one" in str(fv.get("nda_direction") or "").lower():
         label = "One-Way NDA"
+    if custom:
+        label = f"{label} (Custom draft)"
     title = f"{label} — {counterparty}"
 
     data = text.encode("utf-8")

@@ -1,8 +1,5 @@
 // Core HTTP + SSE client for the Legal CLM backend.
 import type { ApiError, TokenResponse } from "./types";
-import { demoStream, getMock, isDemo } from "./demo";
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function defaultApiBase() {
   if (typeof window === "undefined") return "http://localhost:8000/api/v1";
@@ -118,11 +115,6 @@ export async function apiFetch<T>(
 ): Promise<T> {
   const { body, form, noRetry, headers, ...rest } = opts;
 
-  if (isDemo()) {
-    await sleep(180);
-    return getMock(path, (rest.method as string) ?? "GET", body) as T;
-  }
-
   const doFetch = () => {
     const init: RequestInit = {
       ...rest,
@@ -171,13 +163,6 @@ export async function apiFetch<T>(
 
 /** Trigger a browser download for binary endpoints (file download, XLSX export). */
 export async function apiDownload(path: string, fallbackName = "download") {
-  if (isDemo()) {
-    if (typeof window !== "undefined")
-      window.alert(
-        "Demo mode: file downloads are disabled. Connect the backend to download real files.",
-      );
-    return;
-  }
   let res = await fetch(`${API_BASE}${path}`, {
     headers: authHeaders(),
     credentials: "include",
@@ -220,10 +205,6 @@ export async function apiStream(
   body: unknown,
   cb: StreamCallbacks,
 ): Promise<() => void> {
-  if (isDemo()) {
-    return demoStream(cb.onEvent, cb.onClose);
-  }
-
   const controller = new AbortController();
   (async () => {
     try {

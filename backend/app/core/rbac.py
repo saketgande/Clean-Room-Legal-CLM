@@ -65,6 +65,18 @@ INTAKE_PERMISSIONS = {
     "intake:update",
 }
 
+# Legal-notice register:
+#   read   — see the register + a notice's timeline
+#   create — file a received notice / draft an outbound one
+#   update — edit, assign, change status, add notes
+# Deleting is gated on admin_panel:access instead, since it destroys the
+# timeline a notice's handling is evidenced by.
+NOTICE_PERMISSIONS = {
+    "notice:read",
+    "notice:create",
+    "notice:update",
+}
+
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
@@ -75,6 +87,7 @@ ALL_PERMISSIONS = (
     | APPROVAL_PERMISSIONS
     | OBLIGATION_PERMISSIONS
     | INTAKE_PERMISSIONS
+    | NOTICE_PERMISSIONS
     | ADMIN_PERMISSIONS
     | USER_PERMISSIONS
 )
@@ -114,6 +127,12 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "intake:create",
         "intake:read",
         "intake:update",
+        # The notice register holds adverse legal communications, so it starts
+        # least-privilege: legal staff only. Widen to MEMBER deliberately if
+        # non-legal staff (mailroom, finance) should file what they receive.
+        "notice:read",
+        "notice:create",
+        "notice:update",
     },
     APPROVER_ROLE_NAME: {
         "contract:read",
@@ -123,6 +142,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract_file:read",
         "intake:create",
         "intake:read",
+        "notice:read",
     },
 }
 

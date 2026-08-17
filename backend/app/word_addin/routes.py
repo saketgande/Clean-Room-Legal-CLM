@@ -4,18 +4,8 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import get_current_user, get_db
 from app.core.rate_limit import limiter
-from app.word_addin.schemas import (
-    AskRequest,
-    AskResponse,
-    LinkResponse,
-    ReviewRequest,
-    ReviewResponse,
-)
-from app.word_addin.service import (
-    resolve_contract_for_document,
-    run_contract_question,
-    run_contract_review,
-)
+from app.word_addin.schemas import LinkResponse
+from app.word_addin.service import resolve_contract_for_document
 
 router = APIRouter(prefix="/word", tags=["word-addin"])
 
@@ -30,35 +20,6 @@ def ping(current_user=Depends(get_current_user)):
         "full_name": current_user.full_name,
         "email": current_user.email,
     }
-
-
-@router.post("/review", response_model=ReviewResponse)
-@limiter.limit(settings.rate_limit_ai_skill)
-async def review(
-    payload: ReviewRequest,
-    request: Request,
-    response: Response,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    # ``request``/``response`` are required by slowapi's @limiter.limit so it
-    # can read the client key and inject X-RateLimit-* headers — they're unused
-    # in the body otherwise.
-    _ = (request, response)
-    return await run_contract_review(payload, db, org_id=current_user.org_id)
-
-
-@router.post("/ask", response_model=AskResponse)
-@limiter.limit(settings.rate_limit_ai_skill)
-async def ask(
-    payload: AskRequest,
-    request: Request,
-    response: Response,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-):
-    _ = (request, response)
-    return await run_contract_question(payload, db, org_id=current_user.org_id)
 
 
 @router.post("/link", response_model=LinkResponse)

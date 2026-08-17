@@ -227,6 +227,19 @@ def test_read_contract_result_creates_verifiable_text_snapshot_citation():
     assert citations[0]["excerpt"] == "This agreement includes a confidentiality clause."
     assert citations[0]["start_char"] == 0
 
+    # read_contract now returns the windowed body under "text" (paginated); the
+    # citation builder must still pick it up so sources don't go blank.
+    paged = _citations_from_tool_result(
+        {
+            "contract_id": "contract-1",
+            "text_snapshot_id": "snapshot-1",
+            "text": "Windowed body text of the contract.",
+            "has_more": True,
+            "next_offset": 24000,
+        }
+    )
+    assert paged[0]["excerpt"] == "Windowed body text of the contract."
+
 
 def test_tracked_edit_decision_summary_preserves_existing_summary():
     summary = _decision_summary("Assistant edit proposal", decision="accepted", comment="Looks good")

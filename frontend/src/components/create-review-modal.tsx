@@ -7,7 +7,7 @@ import {
   contractsApi,
   projectsApi,
   tabularApi,
-  workflowsApi,
+  promptsApi,
 } from "@/lib/endpoints";
 import { Button, Field, Input, Modal, Select } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -62,7 +62,7 @@ export function CreateReviewModal({
   });
   const { data: workflows } = useQuery({
     queryKey: ["workflows"],
-    queryFn: workflowsApi.list,
+    queryFn: promptsApi.list,
     enabled: open,
   });
 

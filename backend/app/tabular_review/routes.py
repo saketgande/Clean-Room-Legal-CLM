@@ -512,6 +512,24 @@ async def chat_over_table(
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
     context_text = build_table_context(db, review=review, org_id=current_user.org_id)
+    # Replay the recent conversation so a follow-up ("what about the second
+    # one?") actually has memory — the chat rows were persisted but never fed
+    # back to the model, so every question used to start cold.
+    prior = db.scalars(
+        select(TabularReviewChat)
+        .where(
+            TabularReviewChat.org_id == current_user.org_id,
+            TabularReviewChat.tabular_review_id == review.id,
+        )
+        .order_by(TabularReviewChat.created_at.desc())
+        .limit(8)
+    ).all()
+    convo = "\n".join(f"{h.role}: {(h.content or '')[:600]}" for h in reversed(prior))
+    question = (
+        f"Conversation so far:\n{convo}\n\nCurrent question: {payload.message}"
+        if convo
+        else payload.message
+    )
     db.add(
         TabularReviewChat(
             org_id=current_user.org_id,
@@ -528,7 +546,7 @@ async def chat_over_table(
         skill_name="tabular_review_chat",
         org_id=current_user.org_id,
         created_by_user_id=current_user.id,
-        input_payload={"question": payload.message, "table_context": context_text},
+        input_payload={"question": question, "table_context": context_text},
         request_id=getattr(request.state, "request_id", None),
     )
     answer = output if isinstance(output, TabularChatOutput) else TabularChatOutput.model_validate(output)

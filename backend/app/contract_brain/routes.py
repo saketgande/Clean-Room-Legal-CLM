@@ -6,9 +6,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.citations import align_citation_to_source
 from app.ai.controller import ai_controller
 from app.ai.schemas import BrainAnswerOutput
+from app.contract_brain.grounding import ground_answer
 from app.contract_brain.models import BrainQuery
 from app.contract_brain.retrieval import (
     aggregate_answer,
@@ -138,63 +138,10 @@ async def ask_contract_brain(
     )
     answer = answer if isinstance(answer, BrainAnswerOutput) else BrainAnswerOutput.model_validate(answer)
 
-    # Ground every citation by ALIGNMENT, not trust: snap the model's quote to
-    # the closest real span in the retrieved sources and show that actual span.
-    # A supported claim thus always displays verbatim source text; an
-    # unsupported one fails and drags confidence down.
-    GROUNDING_THRESHOLD = 85.0
-    validated_citations = []
-    review = "valid"
-    valid_cites = 0
-    for c in answer.citations:
-        span, score = align_citation_to_source(c.quote, source_text)
-        is_valid = score >= GROUNDING_THRESHOLD
-        if is_valid:
-            valid_cites += 1
-        else:
-            review = "needs_review"
-        validated_citations.append(
-            {
-                "quote": span if is_valid else c.quote,
-                "label": c.label,
-                "validation_status": "valid" if is_valid else "invalid",
-                "similarity_score": round(score, 1),
-            }
-        )
-    if not source_text:
-        review = "no_context"
-
-    # Honest confidence: a legal answer is only as trustworthy as its grounding.
-    # If the model's own citations don't verify against the sources, cap the
-    # confidence it can claim — never show "high" over unverifiable quotes.
-    total_cites = len(answer.citations)
-    grounding = (valid_cites / total_cites) if total_cites else 0.0
-    confidence = answer.confidence
-    if total_cites == 0:
-        confidence = "low"
-    elif grounding < 0.5:
-        confidence = "low"
-    elif grounding < 0.8 and confidence == "high":
-        confidence = "medium"
-
-    # Zero validated citations means nothing in the answer text is backed by a
-    # verified quote from the retrieved context — per the prompt, that should
-    # only happen for a genuine "not found" response. The model doesn't always
-    # honor that: it can still write specific-sounding facts with no citation
-    # behind them at all, alongside a `limitations` note admitting the context
-    # didn't support them. Confidence already drops to "low" for this case, but
-    # a reader skimming the bolded answer over a caveat box below it can still
-    # walk away trusting fabricated specifics. Since this is the one thing the
-    # answer text has zero server-verified support for, replace it outright
-    # with a deterministic message instead of the model's prose — the
-    # `limitations` field (often the one honest part of a bad answer) is kept.
-    display_answer = answer.answer
-    if total_cites == 0:
-        display_answer = (
-            "I couldn't find contract text in the retrieved sources that directly "
-            "supports a specific answer to this question."
-            + (f" {answer.limitations}" if answer.limitations else "")
-        )
+    # Verify → attribute → cap confidence → guard fabrication, via the ONE
+    # shared grounding function the assistant tool now uses too, so both paths
+    # can never diverge on how trustworthy an answer is.
+    grounded = ground_answer(answer, source_text)
 
     n_sem, n_cl, n_tx = len(sources["semantic"]), len(sources["clauses"]), len(sources["text"])
     query = BrainQuery(
@@ -203,22 +150,22 @@ async def ask_contract_brain(
         question=payload.question,
         contract_id=payload.contract_id,
         project_id=payload.project_id,
-        answer=display_answer,
-        citations=validated_citations,
+        answer=grounded["display_answer"],
+        citations=grounded["citations"],
         retrieval_metadata={
             "scope": payload.query_scope,
-            "source_count": n_sem + n_cl + n_tx,
-            "graph_facts": 0,
+            "source_count": n_sem + n_cl + n_tx + len(sources.get("graph", [])),
+            "graph_facts": len(sources.get("graph", [])),
             "vector_chunks": n_sem,
             "fulltext_clauses": n_cl + n_tx,
             "contract_ids": contract_ids[:50],
-            "confidence": confidence,
-            "model_confidence": answer.confidence,
-            "citation_review": review,
-            "grounding": round(grounding, 3),
-            "verified_citations": valid_cites,
-            "total_citations": total_cites,
-            "limitations": answer.limitations,
+            "confidence": grounded["confidence"],
+            "model_confidence": grounded["model_confidence"],
+            "citation_review": grounded["citation_review"],
+            "grounding": grounded["grounding"],
+            "verified_citations": grounded["verified_citations"],
+            "total_citations": grounded["total_citations"],
+            "limitations": grounded["limitations"],
             # The exact sources this answer was built from — the frontend shows
             # them beneath the answer, identical to "Find sources only".
             "sources": sources,

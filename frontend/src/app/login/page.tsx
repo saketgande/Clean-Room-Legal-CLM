@@ -6,7 +6,6 @@ import { Scale, Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { authApi } from "@/lib/endpoints";
 import { tokenStore } from "@/lib/api";
-import { enableDemo } from "@/lib/demo";
 import { Button, Input, Field } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/utils";
@@ -14,15 +13,10 @@ import { cn } from "@/lib/utils";
 type Mode = "login" | "register" | "setup";
 
 export default function LoginPage() {
-  const { login, refreshUser } = useAuth();
+  const { login } = useAuth();
   const { notify } = useToast();
   const router = useRouter();
 
-  async function exploreDemo() {
-    enableDemo();
-    await refreshUser();
-    router.push("/intake");
-  }
   const [mode, setMode] = useState<Mode>("login");
   const [loading, setLoading] = useState(false);
 
@@ -235,25 +229,6 @@ export default function LoginPage() {
                   : "Create organization"}
             </Button>
           </form>
-
-          <div className="my-5 flex items-center gap-3">
-            <div className="h-px flex-1 bg-slate-200" />
-            <span className="text-xs text-slate-400">or</span>
-            <div className="h-px flex-1 bg-slate-200" />
-          </div>
-
-          <Button
-            type="button"
-            variant="outline"
-            size="lg"
-            className="w-full"
-            onClick={exploreDemo}
-          >
-            Explore demo — no backend needed
-          </Button>
-          <p className="mt-2 text-center text-xs text-slate-400">
-            Loads the full UI populated with sample data.
-          </p>
         </div>
       </div>
     </div>

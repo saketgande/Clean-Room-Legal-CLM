@@ -741,6 +741,13 @@ def _create_playbook_redline_version(
         if not original and not replacement:
             continue  # nothing actionable to show
         span = _find_phrase(source_text, original) if original else None
+        # Exact search misses paraphrased quotes — fall back to alignment.
+        if original and span is None:
+            span = _align_phrase(source_text, original)
+        # Anchor to the ACTUAL document text at that span, not the model's
+        # paraphrase, so the tracked change strikes real text and applies.
+        if span:
+            original = source_text[span[0] : span[1]]
         risk = "high" if ev.severity == "critical" else ev.severity
         changes.append(
             {
@@ -1026,6 +1033,24 @@ def _find_phrase(text: str, phrase: str) -> tuple[int, int] | None:
     if match is None:
         return None
     return match.start(), match.end()
+
+
+def _align_phrase(text: str, phrase: str, threshold: float = 82.0) -> tuple[int, int] | None:
+    """Fuzzy fallback for _find_phrase: LLMs paraphrase the clause they quote
+    (drop a word, tweak punctuation), so an exact search misses even when the
+    clause is genuinely there. Align the quote to the best-matching real span so
+    the redline anchors to actual document text instead of floating unapplied."""
+    if not phrase or not text:
+        return None
+    try:
+        from rapidfuzz import fuzz
+
+        alignment = fuzz.partial_ratio_alignment(phrase.lower(), text.lower())
+        if alignment is not None and alignment.score >= threshold:
+            return alignment.dest_start, alignment.dest_end
+    except Exception:  # pragma: no cover - rapidfuzz optional / defensive
+        pass
+    return None
 
 
 def _suggested_fix(rule: PlaybookRule) -> str | None:

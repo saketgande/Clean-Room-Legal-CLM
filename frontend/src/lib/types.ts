@@ -67,8 +67,8 @@ export interface IntakeRequest {
   project_id: ID | null; contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
 }
-// Flow Router agent output — lives on ai_triage.flow_suggestion.
-export interface FlowSuggestion {
+// Workflow Router agent output — lives on ai_triage.flow_suggestion.
+export interface WorkflowSuggestion {
   flow_id: string | null;
   flow_name: string | null;
   confidence: number;
@@ -143,7 +143,8 @@ export interface IntakeTeamMember {
 export interface IntakeTeam {
   id: ID; key: string; name: string; description: string | null; active: boolean;
   strategy: "least_loaded" | "round_robin"; overflow_team_id: ID | null;
-  overflow_team_name: string | null; sort_order: number; members: IntakeTeamMember[];
+  overflow_team_name: string | null; sort_order: number;
+  expertise: string[]; departments: string[]; members: IntakeTeamMember[];
 }
 export interface IntakeKbArticle {
   id: ID; source_ref: string; title: string; body: string; tags: string[]; active: boolean;
@@ -763,7 +764,7 @@ export interface AssistantStreamEvent {
 // Workflows
 // ---------------------------------------------------------------------------
 
-export interface Workflow {
+export interface Prompt {
   id: ID;
   org_id: ID;
   name: string;
@@ -778,7 +779,7 @@ export interface Workflow {
   shared_user_ids?: string[] | null;
 }
 
-export interface WorkflowVersion {
+export interface PromptVersion {
   id: ID;
   version_number: number;
   name: string;
@@ -790,7 +791,7 @@ export interface WorkflowVersion {
   created_at: ISODateTime | null;
 }
 
-export interface WorkflowUsage {
+export interface PromptUsage {
   run_count: number;
   last_run_at: ISODateTime | null;
   distinct_users: number;
@@ -800,7 +801,7 @@ export interface WorkflowUsage {
 // Flows (workflow engine)
 // ---------------------------------------------------------------------------
 
-export type FlowStepType =
+export type WorkflowStepType =
   | "ai_task"
   | "human_task"
   | "clm_draft"
@@ -809,14 +810,21 @@ export type FlowStepType =
   | "counterparty"
   | "notify";
 
-export interface FlowStepDef {
+export interface WorkflowStepCond {
+  field: string;
+  op: string; // "eq" | "ne"
+  value: string;
+}
+export interface WorkflowStepDef {
   id: ID;
-  type: FlowStepType;
+  type: WorkflowStepType;
   name: string;
   config: Record<string, unknown>;
+  parallel?: boolean; // runs concurrently with the step(s) above it
+  cond?: WorkflowStepCond | null; // "only when" — run this step only if it matches
 }
 
-export interface Flow {
+export interface Workflow {
   id: ID;
   name: string;
   description: string | null;
@@ -830,21 +838,44 @@ export interface Flow {
     match_department?: string | null;
     match_keyword?: string | null;
   };
-  steps: FlowStepDef[];
+  steps: WorkflowStepDef[];
 }
 
-export interface FlowRunStep {
+export interface WorkflowRunStep {
   idx: number;
-  type: FlowStepType;
+  type: WorkflowStepType;
   name: string;
   status: string;
   assignee_user_id: ID | null;
+  assignee_label: string | null;
+  team_id: ID | null;
+  team_label: string | null;
+  role: string | null;
   note: string | null;
   result: Record<string, unknown> | null;
   updated_at: string | null;
+  parallel?: boolean;
+  cond?: WorkflowStepCond | null;
 }
 
-export interface FlowRun {
+export interface WorkflowRunComment {
+  idx: number | null;
+  kind: string;
+  text: string;
+  actor_id: ID | null;
+  actor_name: string;
+  at: string;
+}
+
+export interface WorkflowRunBriefEntry {
+  step: string;
+  type: string;
+  agent: string;
+  summary: string;
+  confidence?: number | null;
+}
+
+export interface WorkflowRun {
   id: ID;
   request_id: ID;
   flow_id: ID;
@@ -853,7 +884,10 @@ export interface FlowRun {
   current_index: number;
   contract_id: ID | null;
   error: string | null;
-  steps: FlowRunStep[];
+  steps: WorkflowRunStep[];
+  comments: WorkflowRunComment[];
+  // The multi-agent hand-off trace: what each agent/step established, in order.
+  brief?: WorkflowRunBriefEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1338,3 +1372,104 @@ export interface IntakeDocument {
 }
 
 export interface IntakeParty { name: string; role: string; is_person?: boolean; }
+
+// ---- Notice register -------------------------------------------------------
+// `deadline_posture` is derived server-side on every read (never stored), so it
+// can't go stale against the statutory clock. 'met' = answered or closed.
+export type NoticeDirection = "received" | "sent";
+export type NoticeStatus = "draft" | "open" | "responded" | "escalated" | "closed";
+export type NoticeDeadlinePosture = "none" | "on_track" | "at_risk" | "overdue" | "met";
+
+export interface NoticeEvent {
+  id: ID;
+  kind: "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note";
+  body: string | null;
+  actor_user_id: ID | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface Notice {
+  id: ID;
+  ref: string;
+  direction: NoticeDirection;
+  notice_type: string;
+  subject: string;
+  description: string;
+  counterparty_name: string;
+  counterparty_ref: string | null;
+  contract_id: ID | null;
+  contract_title: string | null;
+  notice_date: ISODate | null;
+  received_at: ISODate | null;
+  response_due_date: ISODate | null;
+  status: NoticeStatus;
+  priority: string;
+  owner_user_id: ID | null;
+  owner_name: string | null;
+  responded_at: string | null;
+  response_summary: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deadline_posture: NoticeDeadlinePosture;
+  days_to_due: number | null;
+  /** Most urgent reminder already sent to the owner — so you can see whether
+   *  anyone was actually told before a deadline lapsed. */
+  last_reminder_stage: "t7" | "t3" | "due" | "overdue" | null;
+  last_reminder_at: string | null;
+  /** AI-drafted reply awaiting a lawyer's edit. A proposal — `response_summary`
+   *  is the record of what was actually sent. */
+  draft_response: string | null;
+  draft_response_at: string | null;
+  /** Set once escalated: the linked intake ticket that carries routing, SLA and
+   *  the approval ladder. */
+  escalated_intake_request_id: ID | null;
+  escalated_intake_ref: string | null;
+  events?: NoticeEvent[];
+  documents?: NoticeDocument[];
+  /** Only present on the draft-response endpoint. False means the model was
+   *  unavailable and a template skeleton was returned instead. */
+  draft_generated?: boolean;
+}
+
+export interface NoticeReminderRun {
+  sent: number;
+  skipped_no_owner: number;
+  already_reminded: number;
+}
+
+export interface NoticeSummary {
+  total: number; open: number; overdue: number; at_risk: number;
+  responded: number; escalated: number; closed: number; draft: number;
+}
+
+export interface NoticeDocument {
+  id: ID;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  extraction_quality: number | null;
+  has_text: boolean;
+  created_at: string;
+}
+
+/** Proposed field values read off an uploaded notice. Suggestions only — the
+ *  filer confirms them in the form, so a mis-read deadline never lands
+ *  unreviewed. `source` says whether the LLM or the regex fallback produced
+ *  them, which the UI surfaces so a low-confidence read is obvious. */
+export interface NoticeExtraction {
+  suggestions: Partial<{
+    counterparty_name: string;
+    counterparty_ref: string;
+    notice_type: string;
+    subject: string;
+    notice_date: ISODate;
+    response_due_date: ISODate;
+    demanded_action: string;
+  }>;
+  confidence: number;
+  source: "llm" | "heuristic" | "empty";
+  extraction_quality: number | null;
+  message: string | null;
+}

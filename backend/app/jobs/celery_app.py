@@ -58,6 +58,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.send_obligation_reminders",
         "schedule": crontab(hour=8, minute=0),  # daily 08:00 UTC
     },
+    "send-notice-reminders": {
+        "task": "app.jobs.tasks.send_notice_reminders",
+        "schedule": crontab(hour=8, minute=5),  # daily, just after obligations
+    },
     "prune-expired-tokens": {
         "task": "app.jobs.tasks.prune_expired_tokens",
         "schedule": crontab(minute=0),  # hourly

@@ -44,18 +44,20 @@ class StandaloneAgent:
 STANDALONE_AGENTS: tuple[StandaloneAgent, ...] = (
     StandaloneAgent("flow_router", "app.intake.flow_agent", "suggest_flow",
                     "new intake ticket / re-suggest", "flow_router", 0.0),
+    StandaloneAgent("intake_triage", "app.intake.triage_agent", "triage",
+                    "new intake ticket / re-suggest", "intake_triage", 0.0),
     StandaloneAgent("litigation_intake_agent", "app.intake.litigation_agent", "assess_litigation",
                     "litigation-category intake ticket", "litigation_intake_agent", 0.0),
     StandaloneAgent("intake_gate_classifier", "app.intake.gates", "_classify_ai",
                     "every new intake ticket", "intake_gate_classifier", 0.0),
     StandaloneAgent("email_triage_agent", "app.intake.email_triage_agent", "classify_email",
                     "inbound Gmail message", "email_triage_agent", 0.0),
-    StandaloneAgent("word_addin_review", "app.word_addin.service", "run_contract_review",
-                    "POST /word/review", "word_addin_review", 0.0),
-    StandaloneAgent("word_addin_ask", "app.word_addin.service", "run_contract_question",
-                    "POST /word/ask", "word_addin_ask", 0.0),
     StandaloneAgent("plain_language_summary", "app.contracts.routes", "contract_plain_summary",
                     "GET /contracts/{id}/plain-summary", "plain_language_summary", 0.3),
+    StandaloneAgent("notice_extraction_agent", "app.notices.extraction", "extract_notice_fields",
+                    "document uploaded on the notice register", "notice_extraction_agent", 0.0),
+    StandaloneAgent("notice_response_agent", "app.notices.drafting", "draft_notice_response",
+                    "POST /notices/{id}/draft-response", "notice_response_agent", 0.2),
 )
 STANDALONE_BY_ID: dict[str, StandaloneAgent] = {a.id: a for a in STANDALONE_AGENTS}
 

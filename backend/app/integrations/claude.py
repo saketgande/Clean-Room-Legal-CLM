@@ -94,6 +94,33 @@ async def aclose_claude_client() -> None:
         await client.close()
 
 
+def _cached_system(system_prompt: str) -> Any:
+    """The system prompt as a cache-marked content block so Anthropic serves it
+    from cache on repeat turns instead of re-billing the whole thing. Falls back
+    to a plain string when caching is off. (A prefix under the model's minimum
+    cacheable length is silently ignored by the API, so this is always safe.)"""
+    if not settings.ai_prompt_caching or not system_prompt:
+        return system_prompt
+    return [
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
+def _cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Mark the tool list for caching. One breakpoint on the LAST tool caches
+    the entire tools array up to it — so all 47 assistant tool schemas are sent
+    once, then read from cache on every subsequent turn and loop iteration."""
+    if not settings.ai_prompt_caching or not tools:
+        return tools
+    marked = [dict(tool) for tool in tools]
+    marked[-1] = {**marked[-1], "cache_control": {"type": "ephemeral"}}
+    return marked
+
+
 class ClaudeClient:
     provider = "claude"
 
@@ -117,15 +144,17 @@ class ClaudeClient:
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": _cached_system(system_prompt),
                 "messages": [{"role": "user", "content": user_prompt}],
-                "tools": [
-                    {
-                        "name": tool_name,
-                        "description": f"Return structured data for {tool_name}.",
-                        "input_schema": input_schema,
-                    }
-                ],
+                "tools": _cached_tools(
+                    [
+                        {
+                            "name": tool_name,
+                            "description": f"Return structured data for {tool_name}.",
+                            "input_schema": input_schema,
+                        }
+                    ]
+                ),
                 "tool_choice": {"type": "tool", "name": tool_name},
             }
         )
@@ -161,7 +190,7 @@ class ClaudeClient:
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": _cached_system(system_prompt),
                 "messages": [{"role": "user", "content": user_prompt}],
             }
         )
@@ -199,9 +228,9 @@ class ClaudeClient:
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "system": system_prompt,
+                "system": _cached_system(system_prompt),
                 "messages": messages,
-                "tools": tools,
+                "tools": _cached_tools(tools),
                 "tool_choice": {"type": "auto"},
             }
         )
@@ -261,11 +290,11 @@ class ClaudeClient:
             "model": model or settings.claude_model,
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "system": system_prompt,
+            "system": _cached_system(system_prompt),
             "messages": messages,
         }
         if tools:
-            json_payload["tools"] = tools
+            json_payload["tools"] = _cached_tools(tools)
             json_payload["tool_choice"] = {"type": "auto"}
 
         client = _anthropic_client()
@@ -362,6 +391,10 @@ class ClaudeClient:
                 "prompt_tokens": usage.get("input_tokens"),
                 "completion_tokens": usage.get("output_tokens"),
                 "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0),
+                # Prompt-cache accounting: cache_creation is billed once (a bit
+                # above normal input), cache_read is the cheap hit on later turns.
+                "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
+                "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
             },
             latency_ms=latency_ms,
             provider_request_id=provider_request_id,

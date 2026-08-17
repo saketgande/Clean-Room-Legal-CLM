@@ -20,7 +20,6 @@ import {
   ChevronRight,
   ChevronDown,
   ArrowUp,
-  ArrowRight,
   FileText,
   ShieldCheck,
   ListChecks,
@@ -33,7 +32,9 @@ import {
   assistantApi,
   contractsApi,
   projectsApi,
-  workflowsApi,
+  promptsApi,
+  approvalsApi,
+  renewalsApi,
 } from "@/lib/endpoints";
 import { apiStream } from "@/lib/api";
 import { Badge, Button, CenterSpinner, Input, Modal, Select, Spinner } from "@/components/ui";
@@ -50,7 +51,7 @@ import type {
   ContractEditResponse,
   ContractResponse,
   ProjectResponse,
-  Workflow,
+  Prompt,
 } from "@/lib/types";
 
 // Guards against duplicate React keys when a list source contains repeats
@@ -74,6 +75,8 @@ type TimelineBlock =
         contract_id?: string;
         edits?: number;
         summary?: string;
+        request_id?: string;
+        request_ref?: string;
       };
     };
 
@@ -86,6 +89,7 @@ interface ChatItem {
     name: string;
     status: "running" | "done" | "error";
     toolUseId?: string;
+    result?: Record<string, unknown> | null;
   };
   workflow?: { id: string; name: string };
   blocks?: TimelineBlock[];
@@ -141,27 +145,29 @@ export function AssistantWorkspace() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   })();
-  const suggestedPrompts = [
+  // Front-page starters organised by what the agents can DO, each with a real
+  // portfolio-shaped example — this is the command surface, not generic prompts.
+  const capabilities = [
     {
-      icon: FileText,
-      title: "Summarize an MSA",
-      desc: "A five-point brief on liability and termination exposure.",
+      verb: "Ask · research",
+      icon: Sparkles,
       prompt:
-        "Summarize this MSA in five points, focusing on the liability and termination clauses.",
+        "What's our exposure if a key counterparty terminates their MSA early? Ground it in the contract.",
     },
     {
+      verb: "Draft",
+      icon: Wand2,
+      prompt: "Draft a mutual NDA with Acme Corp — 2-year term, governed by EU law.",
+    },
+    {
+      verb: "Review · redline",
       icon: ShieldCheck,
-      title: "Run a compliance audit",
-      desc: "Cross-reference our DPA against current privacy rules.",
-      prompt:
-        "Audit this contract for compliance gaps and cross-reference the DPA against current privacy obligations.",
+      prompt: "Find a Globex MSA and redline it against our negotiation playbook.",
     },
     {
+      verb: "Find",
       icon: ListChecks,
-      title: "Extract obligations",
-      desc: "Every deadline, payment, and renewal duty as a tracked list.",
-      prompt:
-        "Extract every obligation from this contract — deadlines, payments, and renewal duties — as a tracked list.",
+      prompt: "Which contracts in the portfolio auto-renew within the next 30 days?",
     },
   ];
 
@@ -172,7 +178,7 @@ export function AssistantWorkspace() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
-  const [workflow, setWorkflow] = useState<Workflow | null>(null);
+  const [workflow, setWorkflow] = useState<Prompt | null>(null);
   const [wfModalOpen, setWfModalOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
   const [projPickerOpen, setProjPickerOpen] = useState(false);
@@ -300,9 +306,47 @@ export function AssistantWorkspace() {
   });
   const { data: allWorkflows } = useQuery({
     queryKey: ["workflows"],
-    queryFn: workflowsApi.list,
+    queryFn: promptsApi.list,
     enabled: !!workflowParam,
   });
+  // Home "Needs your attention" — real portfolio data, fetched only on the
+  // empty landing (not while a chat is open).
+  const homeActive = !activeSession;
+  const { data: homeApprovals } = useQuery({
+    queryKey: ["home-approvals"],
+    queryFn: () => approvalsApi.list(),
+    enabled: homeActive,
+  });
+  const { data: homeRenewals } = useQuery({
+    queryKey: ["home-renewals"],
+    queryFn: () => renewalsApi.list(),
+    enabled: homeActive,
+  });
+  const attention = useMemo(() => {
+    const out: { text: string; pill: string; due: boolean; href: string }[] = [];
+    const waiting = (homeApprovals ?? []).filter(
+      (a) => a.status === "pending" || a.status === "waiting",
+    );
+    if (waiting.length)
+      out.push({
+        text: `${waiting.length} approval${waiting.length === 1 ? "" : "s"} waiting on the team`,
+        pill: "approvals",
+        due: false,
+        href: "/approvals",
+      });
+    for (const r of (homeRenewals ?? [])
+      .filter((r) => r.decision === "undecided")
+      .slice(0, 3)) {
+      out.push({
+        text: `${r.contract_title ?? "Contract"} — renewal decision`,
+        pill: "renewal",
+        due: true,
+        href: "/renewals",
+      });
+    }
+    return out.slice(0, 3);
+  }, [homeApprovals, homeRenewals]);
+  const recents = (sessions ?? []).slice(0, 3);
 
   // Seed an assistant workflow when arrived via /assistant?workflow=<id>.
   useEffect(() => {
@@ -608,12 +652,16 @@ export function AssistantWorkspace() {
     } else if (event === "tool_finished") {
       const toolUseId =
         typeof data.tool_use_id === "string" ? data.tool_use_id : undefined;
+      const result =
+        data.result && typeof data.result === "object"
+          ? (data.result as Record<string, unknown>)
+          : null;
       setItems((prev) =>
         prev.map((it) =>
           it.tool &&
           it.tool.status === "running" &&
           (!toolUseId || it.tool.toolUseId === toolUseId)
-            ? { ...it, tool: { ...it.tool, status: data.error ? "error" : "done" } }
+            ? { ...it, tool: { ...it.tool, status: data.error ? "error" : "done", result } }
             : it,
         ),
       );
@@ -682,7 +730,7 @@ export function AssistantWorkspace() {
     setStreaming(false);
   }
 
-  async function submitMessage(text: string, wf?: Workflow | null) {
+  async function submitMessage(text: string, wf?: Prompt | null) {
     if (!activeSession || !text.trim() || streaming) return;
     const message = text.trim();
     setItems((prev) => [
@@ -805,19 +853,35 @@ export function AssistantWorkspace() {
             )}
           </div>
           {!activeSession ? (
-            <div className="flex flex-1 flex-col items-center overflow-y-auto px-6">
-              <div className="flex w-full max-w-[640px] flex-1 flex-col justify-center py-16">
-                <h1 className="animate-rise-in font-sans text-[52px] font-normal leading-[1.04] tracking-[-0.02em] text-slate-900">
-                  {greeting},<br />
-                  <span className="font-medium">{firstName}.</span>
+            <div className="flex-1 overflow-y-auto">
+              <div className="mx-auto w-full max-w-[720px] px-6 py-8">
+                {/* grounding strip — this is your desk, grounded in your data */}
+                <div className="flex items-center gap-3 text-[12.5px] text-slate-400">
+                  <span className="inline-flex items-center gap-1.5 font-mono text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                    Grounded in your portfolio
+                  </span>
+                  {attention.length > 0 && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="font-mono text-warning">
+                        {attention.length} need{attention.length === 1 ? "s" : ""} your attention
+                      </span>
+                    </>
+                  )}
+                </div>
+
+                <h1 className="answer-serif mt-4 animate-rise-in text-[clamp(28px,4vw,38px)] font-normal leading-[1.1] tracking-[-0.01em] text-slate-900">
+                  {greeting}, {firstName}.{" "}
+                  <span className="text-slate-400">What are we working on?</span>
                 </h1>
-                <p className="mt-5 max-w-[440px] animate-rise-in text-[15px] leading-relaxed text-slate-500">
-                  Bring me a contract and a question. I can analyze terms, test
-                  compliance, surface obligations, or draft what you need next.
+                <p className="mt-3 max-w-[56ch] animate-rise-in text-[15px] leading-relaxed text-slate-500">
+                  Ask about a contract, a clause, or the whole portfolio — every
+                  answer is grounded in your own documents, with the sources to open.
                 </p>
 
                 {workflow && (
-                  <div className="mt-7 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
+                  <div className="mt-5 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                     <Wand2 className="h-3.5 w-3.5" />
                     <span className="font-medium">Prompt:</span>
                     {workflow.name}
@@ -830,45 +894,11 @@ export function AssistantWorkspace() {
                   </div>
                 )}
 
-                <div className="mt-12 animate-rise-in">
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                    Suggested
-                  </p>
-                  <div className="h-px bg-slate-200" />
-                  {suggestedPrompts.map((p) => {
-                    const Icon = p.icon;
-                    return (
-                      <div key={p.title}>
-                        <button
-                          onClick={() => startConversation(p.prompt)}
-                          disabled={streaming}
-                          className="group flex w-full items-center gap-4 py-[18px] text-left transition-colors hover:bg-slate-100/60 disabled:opacity-50"
-                        >
-                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-brand-700">
-                            <Icon className="h-[18px] w-[18px]" />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-sans text-[16px] font-medium text-slate-900">
-                              {p.title}
-                            </span>
-                            <span className="block text-[13px] leading-snug text-slate-500">
-                              {p.desc}
-                            </span>
-                          </span>
-                          <ArrowRight className="h-[18px] w-[18px] shrink-0 text-slate-300 transition-transform duration-200 group-hover:translate-x-1 group-hover:text-slate-500" />
-                        </button>
-                        <div className="h-px bg-slate-200/60 last:bg-slate-200" />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="sticky bottom-7 w-full max-w-[640px]">
-                <div className="rounded-md border border-slate-200 bg-slate-100 p-2.5 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+                {/* hero composer */}
+                <div className="mt-6 rounded-2xl border border-slate-300 bg-white p-3 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                   <textarea
                     rows={1}
-                    placeholder="Ask Aegis, or describe what you need…"
+                    placeholder="Ask about a contract, a clause, or your whole portfolio…"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) =>
@@ -876,7 +906,7 @@ export function AssistantWorkspace() {
                       !e.shiftKey &&
                       (e.preventDefault(), startConversation(input))
                     }
-                    className="block max-h-44 w-full resize-none bg-transparent px-3 pb-2 pt-2.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-500 focus:outline-none"
+                    className="block max-h-44 w-full resize-none bg-transparent px-2 pb-2 pt-1.5 text-[16px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
                   />
                   <div className="mt-1 flex items-center gap-1">
                     <button
@@ -900,16 +930,110 @@ export function AssistantWorkspace() {
                       <FolderKanban className="h-4 w-4" />
                       Projects
                     </button>
+                    <span className="ml-auto mr-1.5 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
+                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                      grounded in your portfolio
+                    </span>
                     <button
                       onClick={() => startConversation(input)}
                       disabled={!input.trim() || streaming}
-                      className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-30"
+                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-30"
                     >
                       <ArrowUp className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
-                <p className="mt-3 pb-2 text-center text-[11px] text-slate-400">
+
+                {/* capability starters — what the agents can do */}
+                <p className="mb-3 mt-8 font-mono text-[11px] uppercase tracking-[0.1em] text-slate-400">
+                  Start with what Aegis can do
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {capabilities.map((c) => {
+                    const Icon = c.icon;
+                    return (
+                      <button
+                        key={c.verb}
+                        onClick={() => startConversation(c.prompt)}
+                        disabled={streaming}
+                        className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-300 disabled:opacity-50"
+                      >
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
+                          <Icon className="h-[18px] w-[18px]" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-brand-600">
+                            {c.verb}
+                          </span>
+                          <span className="answer-serif mt-0.5 block text-[15px] leading-snug text-slate-800">
+                            {c.prompt}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* recents + attention — real portfolio data */}
+                <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
+                  <div>
+                    <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-slate-400">
+                      Pick up where you left off
+                    </p>
+                    {recents.length ? (
+                      recents.map((s) => (
+                        <button
+                          key={s.id}
+                          onClick={() => selectSession(s)}
+                          className="flex w-full items-center gap-3 border-b border-slate-200 py-2.5 text-left text-[13.5px] text-slate-600 last:border-0 hover:text-slate-900"
+                        >
+                          <span className="flex-1 truncate">
+                            {s.title || "Untitled chat"}
+                          </span>
+                          <span className="shrink-0 font-mono text-[11px] text-slate-400">
+                            {fmtRelative(s.updated_at)}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="py-2.5 text-[13px] text-slate-400">
+                        No chats yet — ask something above.
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-slate-400">
+                      Needs your attention
+                    </p>
+                    {attention.length ? (
+                      attention.map((a, i) => (
+                        <Link
+                          key={i}
+                          href={a.href}
+                          className="flex w-full items-center gap-3 border-b border-slate-200 py-2.5 text-left text-[13.5px] text-slate-600 last:border-0 hover:text-slate-900"
+                        >
+                          <span className="flex-1 truncate">{a.text}</span>
+                          <span
+                            className={cn(
+                              "shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px]",
+                              a.due
+                                ? "border-warning/40 text-warning"
+                                : "border-slate-200 text-slate-400",
+                            )}
+                          >
+                            {a.pill}
+                          </span>
+                        </Link>
+                      ))
+                    ) : (
+                      <p className="py-2.5 text-[13px] text-slate-400">
+                        All clear — nothing needs you right now.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <p className="mt-9 pb-6 text-center text-[11px] text-slate-400">
                   Aegis can err. Verify material conclusions with counsel — not
                   legal advice.
                 </p>
@@ -918,7 +1042,7 @@ export function AssistantWorkspace() {
           ) : (
             <>
               <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-3xl space-y-8 px-5 py-10">
+                <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-10">
                   {items.length === 0 && !streaming && (
                     <div className="flex items-center gap-2 text-sm text-slate-400">
                       <Sparkles className="h-4 w-4" />
@@ -952,28 +1076,33 @@ export function AssistantWorkspace() {
                       />
                     );
                   })}
+                  {/* The one live status for the whole turn — names the step in
+                      flight (or "Thinking…") with a Stop. No competing spinners. */}
                   {streaming &&
                     (() => {
                       const running = items.find(
                         (it) => it.tool?.status === "running",
                       )?.tool?.name;
-                      const longOp =
-                        running &&
-                        [
-                          "generate_contract_docx",
-                          "edit_contract",
-                          "redline_against_playbook",
-                          "run_playbook_review",
-                        ].includes(running);
+                      const LONG_OPS = [
+                        "generate_contract_docx",
+                        "edit_contract",
+                        "redline_against_playbook",
+                        "run_playbook_review",
+                        "redraft_contract",
+                      ];
                       return (
-                        <div className="flex items-center gap-2 text-sm text-slate-400">
-                          <Spinner className="h-3.5 w-3.5" />
-                          {longOp
-                            ? `${toolLabel(running, false)} — a full document can take a minute or two…`
-                            : running
-                              ? `${toolLabel(running, false)}…`
-                              : "Thinking…"}
-                        </div>
+                        <WorkingBeat
+                          label={running ? `${toolLabel(running, false)}…` : "Thinking…"}
+                          hint={
+                            running && LONG_OPS.includes(running)
+                              ? "this can take a minute or two"
+                              : undefined
+                          }
+                          onStop={() => {
+                            abortActiveStream();
+                            setStreaming(false);
+                          }}
+                        />
                       );
                     })()}
                   {playbookPicker && (
@@ -1069,7 +1198,7 @@ export function AssistantWorkspace() {
               </div>
 
               <div className="shrink-0 border-t border-slate-200 bg-slate-100">
-                <div className="mx-auto w-full max-w-3xl px-5 py-4">
+                <div className="mx-auto w-full max-w-5xl px-6 py-4">
                   {workflow && (
                     <div className="mb-2 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
                       <Wand2 className="h-3.5 w-3.5" />
@@ -1083,10 +1212,10 @@ export function AssistantWorkspace() {
                       </button>
                     </div>
                   )}
-                  <div className="rounded-md border border-slate-300 bg-slate-100 px-4 py-3 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
                     <textarea
                       rows={1}
-                      placeholder="Ask a question about your documents…"
+                      placeholder="Ask about a contract, a clause, or your whole portfolio…"
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={(e) =>
@@ -1122,10 +1251,14 @@ export function AssistantWorkspace() {
                         <FolderKanban className="h-4 w-4" />
                         Projects
                       </button>
+                      <span className="ml-auto mr-1 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
+                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                        grounded
+                      </span>
                       <button
                         onClick={send}
                         disabled={streaming || !!pending || !input.trim()}
-                        className="ml-auto flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-white transition-colors hover:bg-slate-700 disabled:opacity-30"
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:opacity-30"
                       >
                         <ArrowUp className="h-4 w-4" />
                       </button>
@@ -1429,7 +1562,90 @@ const TOOL_LABELS: Record<string, [string, string]> = {
     "Submitted for approval",
   ],
   send_for_signature: ["Sending for signature", "Sent for signature"],
+  create_intake_request: ["Raising the request", "Request raised"],
+  get_intake_request: ["Looking up the request", "Found the request"],
+  list_my_requests: ["Finding your requests", "Found your requests"],
+  start_intake_workflow: ["Starting the workflow", "Workflow started"],
+  advance_intake_workflow: ["Advancing the workflow", "Workflow advanced"],
+  create_workflow: ["Building the workflow", "Workflow built"],
+  decide_approval: ["Recording the decision", "Decision recorded"],
+  list_my_approvals: ["Checking your approvals", "Found your approvals"],
+  reassign_request: ["Reassigning the request", "Request reassigned"],
+  complete_task: ["Completing the task", "Task completed"],
+  advance_contract_stage: ["Advancing the contract", "Contract advanced"],
+  add_contract_comment: ["Adding your comment", "Comment added"],
+  send_for_negotiation: ["Sending for negotiation", "Sent for negotiation"],
+  get_signature_link: ["Fetching the signing link", "Signing link ready"],
+  get_signature_status: ["Checking signature status", "Checked signature status"],
+  list_notices: ["Looking up notices", "Found notices"],
+  create_notice: ["Logging the notice", "Notice logged"],
+  draft_notice_response: ["Drafting a response", "Response drafted"],
+  read_notice: ["Reading the notice", "Read the notice"],
+  complete_obligation: ["Completing the obligation", "Obligation completed"],
+  list_renewals: ["Looking up renewals", "Found renewals"],
+  list_obligations: ["Looking up obligations", "Found obligations"],
+  list_projects: ["Looking up projects", "Found projects"],
+  read_project: ["Reading the project", "Read the project"],
+  find_contracts: ["Searching contracts", "Found contracts"],
+  my_attention_items: ["Checking what needs you", "Found your items"],
 };
+
+// Tools whose result the user should be able to open. Intake-request tools
+// return {id, ref} → /intake?open=<id>; contract-read tools return {contract_id}
+// → /contracts/<id>. We surface a click-through so the chat hands off to the
+// real page instead of the model inventing a (dead) link.
+const REQUEST_RESULT_TOOLS = new Set([
+  "create_intake_request",
+  "get_intake_request",
+  "start_intake_workflow",
+  "advance_intake_workflow",
+]);
+const CONTRACT_OPEN_TOOLS = new Set([
+  "read_contract",
+  "find_in_contract",
+  "get_contract_status",
+]);
+
+type OpenLink = { key: string; href: string; label: string };
+
+// Build the open-links for a tool from a result-shaped object. `fields` differs
+// between the live stream (id/ref/contract_id) and the persisted block artifact
+// (request_id/request_ref/contract_id), so callers pass the right field names.
+function openLinksFrom(
+  name: string,
+  fields: {
+    requestId?: unknown;
+    requestRef?: unknown;
+    contractId?: unknown;
+  },
+): OpenLink[] {
+  const out: OpenLink[] = [];
+  if (REQUEST_RESULT_TOOLS.has(name)) {
+    const id = typeof fields.requestId === "string" ? fields.requestId : null;
+    const ref = typeof fields.requestRef === "string" ? fields.requestRef : null;
+    if (id && ref)
+      out.push({ key: `r${id}`, href: `/intake?open=${id}`, label: `Open ${ref}` });
+  }
+  if (CONTRACT_OPEN_TOOLS.has(name)) {
+    const cid =
+      typeof fields.contractId === "string" ? fields.contractId : null;
+    if (cid)
+      out.push({ key: `c${cid}`, href: `/contracts/${cid}`, label: "Open contract" });
+  }
+  return out;
+}
+
+// Live stream: read the ephemeral tool result.
+function openLinksOf(item: ChatItem): OpenLink[] {
+  if (!item.tool || item.tool.status !== "done") return [];
+  const r = item.tool.result;
+  if (!r) return [];
+  return openLinksFrom(item.tool.name, {
+    requestId: r.id,
+    requestRef: r.ref,
+    contractId: r.contract_id,
+  });
+}
 
 function toolLabel(name: string, done: boolean): string {
   const pair = TOOL_LABELS[name];
@@ -1703,15 +1919,29 @@ function TimelineStepCard({
   tools: Extract<TimelineBlock, { type: "tool" }>[];
 }) {
   const [open, setOpen] = useState(false);
+  const openLinks: OpenLink[] = [];
+  const seen = new Set<string>();
+  for (const t of tools) {
+    for (const l of openLinksFrom(t.name, {
+      requestId: t.artifact?.request_id,
+      requestRef: t.artifact?.request_ref,
+      contractId: t.artifact?.contract_id,
+    })) {
+      if (!seen.has(l.key)) {
+        seen.add(l.key);
+        openLinks.push(l);
+      }
+    }
+  }
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-100">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100/70">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-sm text-slate-600"
+        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[13px] text-slate-500"
       >
-        <Sparkles className="h-4 w-4 text-slate-400" />
-        <span className="font-medium text-slate-700">
-          Completed in {tools.length} step
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-success" />
+        <span className="font-medium">
+          Worked through {tools.length} step
           {tools.length === 1 ? "" : "s"}
         </span>
         <ChevronDown
@@ -1721,6 +1951,20 @@ function TimelineStepCard({
           )}
         />
       </button>
+      {openLinks.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-slate-200 px-4 py-2.5">
+          {openLinks.map((l) => (
+            <Link
+              key={l.key}
+              href={l.href}
+              className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-brand-700"
+            >
+              {l.label}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          ))}
+        </div>
+      )}
       {open && (
         <ol className="ml-4 space-y-3 border-t border-slate-100 py-4 pl-5 pr-4">
           {tools.map((t, i) => (
@@ -1775,65 +2019,161 @@ function AssistantTimeline({
         g.k === "steps" ? (
           <TimelineStepCard key={i} tools={g.tools} />
         ) : (
-          <Markdown key={i}>{g.text}</Markdown>
+          <div className="answer-serif" key={i}>
+            <Markdown>{g.text}</Markdown>
+          </div>
         ),
       )}
-      {item.citations && item.citations.length > 0 && (
-        <div className="space-y-1.5 pt-1">
-          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-            Sources
-          </p>
-          {item.citations.map((c, i) => {
-            const q = c.quote ?? c.excerpt ?? "";
-            return (
-              <button
-                key={i}
-                onClick={() => q && onCite?.(c.contract_id, q)}
-                title="Show this passage in the document"
-                className="flex w-full gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-left text-xs text-slate-600 transition-colors hover:border-brand-300 hover:bg-brand-50/60"
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">
-                  {i + 1}
-                </span>
-                <span className="flex-1 italic">{q}</span>
-                <Quote className="h-3.5 w-3.5 shrink-0 text-brand-400" />
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
+    </div>
+  );
+}
+
+// Renders the "Sources" citation chips. A citation is only clickable when it
+// carries a contract_id to open — otherwise it's a static quote chip (no dead
+// click / hover / open affordance), so passages the retriever couldn't tie to a
+// specific document don't look broken.
+function CitationList({
+  citations,
+  onCite,
+}: {
+  citations: Citation[];
+  onCite?: (contractId: string | undefined, quote: string) => void;
+}) {
+  // Drop empty citation entries — the backend sometimes returns numbered
+  // citations with neither a quote nor a contract_id (nothing to show or open),
+  // which otherwise render as meaningless numbered chips. Keep only citations
+  // with a passage to read or a document to open, then renumber sequentially.
+  const shown = citations.filter(
+    (c) => (c.quote ?? c.excerpt ?? "").trim() || c.contract_id,
+  );
+  if (!shown.length) return null;
+  return (
+    <div className="space-y-1.5 pt-1">
+      <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
+        Sources
+      </p>
+      {shown.map((c, i) => {
+        const q = c.quote ?? c.excerpt ?? "";
+        const target = c.contract_id;
+        const inner = (
+          <>
+            <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] bg-brand-600 text-[10px] font-bold text-white">
+              {i + 1}
+            </span>
+            <span className="answer-serif flex-1 leading-relaxed text-slate-600">{q}</span>
+            {target && <Quote className="h-3.5 w-3.5 shrink-0 text-brand-400" />}
+          </>
+        );
+        return target ? (
+          <button
+            key={i}
+            onClick={() => q && onCite?.(target, q)}
+            title="Show this passage in the document"
+            className="flex w-full gap-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-left text-xs leading-relaxed text-slate-600 transition-colors hover:border-brand-300 hover:bg-brand-50/60"
+          >
+            {inner}
+          </button>
+        ) : (
+          <div
+            key={i}
+            className="flex w-full gap-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-3 text-xs leading-relaxed text-slate-600"
+          >
+            {inner}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// One calm live status for the whole stream: the Aegis mark, the step actually
+// in flight, and a Stop — instead of several spinners competing for attention.
+function WorkingBeat({
+  label,
+  hint,
+  onStop,
+}: {
+  label: string;
+  hint?: string;
+  onStop: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 py-1">
+      <span className="h-6 w-6 shrink-0 rounded-lg bg-gradient-to-br from-brand-500 to-brand-600" />
+      <span className="min-w-0 flex-1 truncate">
+        <span className="shimmer-text text-[15px] text-slate-500">{label}</span>
+        {hint ? (
+          <span className="ml-1.5 text-[12.5px] text-slate-400">{hint}</span>
+        ) : null}
+      </span>
+      <button
+        onClick={onStop}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] text-slate-600 transition hover:text-slate-900"
+      >
+        <span className="h-2 w-2 rounded-[2px] bg-slate-500" />
+        Stop
+      </button>
     </div>
   );
 }
 
 function StepTrace({ steps }: { steps: ChatItem[] }) {
   const [open, setOpen] = useState(false);
-  const running = steps.some(
-    (s) => s.tool && s.tool.status === "running",
-  );
+  const runningStep = [...steps]
+    .reverse()
+    .find((s) => s.tool && s.tool.status === "running");
+  const running = Boolean(runningStep);
+  // The live "working" status lives in one place now (WorkingBeat, below the
+  // stream). StepTrace is just the quiet, collapsed record of what ran.
+  // Any request/contract a step touched becomes a visible click-through, shown
+  // even when the trace is collapsed so the user never loses the link.
+  const uniqueLinks: OpenLink[] = [];
+  const seen = new Set<string>();
+  for (const s of steps) {
+    for (const l of openLinksOf(s)) {
+      if (!seen.has(l.key)) {
+        seen.add(l.key);
+        uniqueLinks.push(l);
+      }
+    }
+  }
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50/60">
+    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100/70">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-600"
+        className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-[13px] text-slate-500"
       >
-        {running ? (
-          <Spinner className="h-3.5 w-3.5" />
-        ) : (
-          <Wrench className="h-3.5 w-3.5 text-slate-400" />
-        )}
+        <span
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            running ? "bg-warning" : "bg-success",
+          )}
+        />
         <span className="font-medium">
-          {running
-            ? "Working…"
-            : `Completed in ${steps.length} step${steps.length === 1 ? "" : "s"}`}
+          Worked through {steps.length} step{steps.length === 1 ? "" : "s"}
         </span>
         <ChevronRight
           className={cn(
-            "ml-auto h-4 w-4 text-slate-400 transition-transform",
+            "ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform",
             open && "rotate-90",
           )}
         />
       </button>
+      {uniqueLinks.length > 0 && (
+        <div className="flex flex-wrap gap-2 border-t border-slate-200 px-4 py-2.5">
+          {uniqueLinks.map((l) => (
+            <Link
+              key={l.key}
+              href={l.href}
+              className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-brand-700"
+            >
+              {l.label}
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          ))}
+        </div>
+      )}
       {open && (
         <ol className="space-y-1.5 border-t border-slate-200 px-4 py-3">
           {steps.map((s) => (
@@ -1914,7 +2254,7 @@ function ChatBubble({
               </span>
             </div>
           )}
-          <div className="whitespace-pre-wrap rounded-2xl bg-slate-100 px-4 py-2.5 text-[15px] leading-7 text-slate-800">
+          <div className="whitespace-pre-wrap rounded-2xl bg-slate-900 px-4 py-2.5 text-[15px] leading-7 text-white">
             {item.text}
           </div>
         </div>
@@ -1935,34 +2275,13 @@ function ChatBubble({
         </button>
       )}
       {item.text ? (
-        <Markdown>{item.text}</Markdown>
+        <div className="answer-serif">
+          <Markdown>{item.text}</Markdown>
+        </div>
       ) : (
         <span className="text-slate-300">…</span>
       )}
-      {item.citations && item.citations.length > 0 && (
-        <div className="space-y-1.5 pt-1">
-          <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-            Sources
-          </p>
-          {item.citations.map((c, i) => {
-            const q = c.quote ?? c.excerpt ?? "";
-            return (
-              <button
-                key={i}
-                onClick={() => q && onCite?.(c.contract_id, q)}
-                title="Show this passage in the document"
-                className="flex w-full gap-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 text-left text-xs text-slate-600 transition-colors hover:border-brand-300 hover:bg-brand-50/60"
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700">
-                  {i + 1}
-                </span>
-                <span className="flex-1 italic">{q}</span>
-                <Quote className="h-3.5 w-3.5 shrink-0 text-brand-400" />
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
     </div>
   );
 }
@@ -2125,7 +2444,7 @@ function ProjectPickerModal({
 
 // A workflow's definition is either { prompt } (assistant workflows) or
 // { columns: [{ name, prompt }] } (tabular-review workflows). Read the columns.
-function workflowColumns(wf: Workflow): { name: string; prompt?: string }[] {
+function workflowColumns(wf: Prompt): { name: string; prompt?: string }[] {
   const cols = (wf.definition as { columns?: { name: string; prompt?: string }[] })
     ?.columns;
   return Array.isArray(cols) ? cols : [];
@@ -2134,7 +2453,7 @@ function workflowColumns(wf: Workflow): { name: string; prompt?: string }[] {
 // Turn any workflow into a chat instruction. Assistant workflows carry a ready
 // prompt; for review workflows we synthesize one from their extraction columns
 // so they can be applied to the attached document(s) in conversation too.
-function workflowPrompt(wf: Workflow): string {
+function workflowPrompt(wf: Prompt): string {
   const direct = (wf.definition as { prompt?: string })?.prompt;
   if (direct && direct.trim()) return direct;
   const cols = workflowColumns(wf);
@@ -2154,15 +2473,15 @@ function WorkflowModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onPick: (w: Workflow) => void;
+  onPick: (w: Prompt) => void;
 }) {
   const { data: workflows, isLoading } = useQuery({
     queryKey: ["workflows"],
-    queryFn: workflowsApi.list,
+    queryFn: promptsApi.list,
     enabled: open,
   });
-  const [selected, setSelected] = useState<Workflow | null>(null);
-  const [hovered, setHovered] = useState<Workflow | null>(null);
+  const [selected, setSelected] = useState<Prompt | null>(null);
+  const [hovered, setHovered] = useState<Prompt | null>(null);
   const preview = hovered ?? selected;
   const all = workflows ?? [];
   const groups = [

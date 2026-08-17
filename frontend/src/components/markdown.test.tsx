@@ -18,4 +18,12 @@ describe("Markdown", () => {
     expect(anchor.getAttribute("rel")).toBe("noopener noreferrer");
     expect(anchor.getAttribute("target")).toBe("_blank");
   });
+
+  it("neutralizes fabricated in-app links to plain text", () => {
+    // The assistant sometimes invents a route like /intake/requests/REQ-4196;
+    // it must render as text, never a clickable (dead) link.
+    render(<Markdown>{"[REQ-4196](/intake/requests/REQ-4196)"}</Markdown>);
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.getByText("REQ-4196")).toBeInTheDocument();
+  });
 });

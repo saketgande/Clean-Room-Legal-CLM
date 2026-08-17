@@ -127,6 +127,86 @@ def seed() -> None:
         db.close()
 
 
+def backfill_contract_brain() -> None:
+    """Queue extraction + knowledge-graph ingestion for any contract missing
+    clauses or a graph slice, so Contract Brain covers the whole portfolio and
+    not just the contracts that happened to flow through a job path. Idempotent
+    — re-running skips contracts already covered."""
+    from app.auth.models import Role, User
+    from app.contract_brain.models import ClauseExtraction, KnowledgeNode
+    from app.contract_files.models import ContractTextSnapshot, ContractVersion
+    from app.contract_files.service import _queue_initial_contract_jobs
+    from app.contracts.models import Contract
+    from app.jobs.service import create_job, dispatch_job
+
+    db = SessionLocal()
+    try:
+        contracts = db.scalars(
+            select(Contract).where(Contract.current_authoritative_version_id.isnot(None))
+        ).all()
+        admins: dict[str, User | None] = {}
+        queued = 0
+        for c in contracts:
+            version = db.get(ContractVersion, c.current_authoritative_version_id)
+            if version is None or not version.text_snapshot_id:
+                continue
+            snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
+            has_clauses = db.scalar(
+                select(ClauseExtraction.id).where(
+                    ClauseExtraction.contract_id == c.id,
+                    ClauseExtraction.is_stale.is_(False),
+                ).limit(1)
+            )
+            has_graph = db.scalar(
+                select(KnowledgeNode.id).where(
+                    KnowledgeNode.contract_id == c.id,
+                    KnowledgeNode.is_stale.is_(False),
+                ).limit(1)
+            )
+            if has_clauses and has_graph:
+                continue
+            if c.org_id not in admins:
+                admins[c.org_id] = db.scalar(
+                    select(User).join(User.roles).where(
+                        User.org_id == c.org_id, Role.name == "admin"
+                    ).limit(1)
+                ) or db.scalar(select(User).where(User.org_id == c.org_id).limit(1))
+            admin = admins[c.org_id]
+            jobs = []
+            if not has_clauses:
+                # Re-extract (metadata + clauses + embeddings); a successful
+                # clause extraction chains graph ingestion on its own.
+                jobs += _queue_initial_contract_jobs(
+                    db, user=admin, contract=c, version=version, snapshot=snapshot
+                )
+            else:
+                # Clauses exist, only the graph is missing → ingest directly.
+                jobs.append(
+                    create_job(
+                        db,
+                        org_id=c.org_id,
+                        job_type="contract_brain_ingestion",
+                        resource_type="contract",
+                        resource_id=c.id,
+                        created_by_user_id=admin.id if admin else None,
+                        idempotency_key=f"contract_brain_ingestion:{version.id}:{snapshot.id}:backfill",
+                        metadata={
+                            "contract_version_id": version.id,
+                            "text_snapshot_id": snapshot.id,
+                        },
+                    )
+                )
+            db.flush()
+            for j in jobs:
+                dispatch_job(db, job=j)
+            db.commit()
+            queued += len(jobs)
+            print(f"  {(c.title or c.id)[:50]}: queued {len(jobs)} job(s)")
+        print(f"Backfill done — {queued} job(s) queued across {len(contracts)} contracts.")
+    finally:
+        db.close()
+
+
 def reset_database() -> None:
     if settings.environment not in {"local", "development", "test"} or not settings.allow_dev_reset:
         raise SystemExit("Refusing reset. Set ENVIRONMENT=local and ALLOW_DEV_RESET=true.")
@@ -137,12 +217,14 @@ def reset_database() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local backend development helpers")
-    parser.add_argument("command", choices=["seed", "reset-db"])
+    parser.add_argument("command", choices=["seed", "reset-db", "backfill-brain"])
     args = parser.parse_args()
     if args.command == "seed":
         seed()
     if args.command == "reset-db":
         reset_database()
+    if args.command == "backfill-brain":
+        backfill_contract_brain()
 
 
 if __name__ == "__main__":
