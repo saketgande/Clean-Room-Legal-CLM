@@ -76,6 +76,18 @@ TRADEMARK_PERMISSIONS = {
     "trademark:integrations_manage",
 }
 
+# Legal-notice register:
+#   read   — see the register + a notice's timeline
+#   create — file a received notice / draft an outbound one
+#   update — edit, assign, change status, add notes
+# Deleting is gated on admin_panel:access instead, since it destroys the
+# timeline a notice's handling is evidenced by.
+NOTICE_PERMISSIONS = {
+    "notice:read",
+    "notice:create",
+    "notice:update",
+}
+
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
@@ -87,6 +99,7 @@ ALL_PERMISSIONS = (
     | OBLIGATION_PERMISSIONS
     | INTAKE_PERMISSIONS
     | TRADEMARK_PERMISSIONS
+    | NOTICE_PERMISSIONS
     | ADMIN_PERMISSIONS
     | USER_PERMISSIONS
 )
@@ -134,6 +147,12 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "trademark:search",
         "trademark:extract",
         "trademark:integrations_manage",
+        # The notice register holds adverse legal communications, so it starts
+        # least-privilege: legal staff only. Widen to MEMBER deliberately if
+        # non-legal staff (mailroom, finance) should file what they receive.
+        "notice:read",
+        "notice:create",
+        "notice:update",
     },
     APPROVER_ROLE_NAME: {
         "contract:read",
@@ -143,10 +162,31 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract_file:read",
         "intake:create",
         "intake:read",
+        "notice:read",
     },
 }
 
 
 def has_permission(user_permissions: Iterable[str], required_permission: str) -> bool:
-    permissions = set(user_permissions)
-    return required_permission in permissions or "*" in permissions
+    # RBAC disabled by request: every authenticated user passes every
+    # permission check, regardless of role.
+    #
+    # Read this before assuming any admin-gated path still holds: is_org_admin()
+    # in core/access.py consults this function first, so *every* authenticated
+    # user is now an org admin. That silently opens the ~22 call sites that give
+    # admins a shortcut, including:
+    #   * clearance_permits() in contracts/access.py — so confidentiality/MAC
+    #     classification is NOT enforced while this stands, even though the code
+    #     reads as though it is;
+    #   * _require_admin() on the debug router (dev/local only, but still).
+    #
+    # Genuinely still enforced, independently of this function:
+    #   * org_id tenant isolation — scoped per query, never routed through here;
+    #   * ethical walls (walls/service.py) — they override every ALLOW and bind
+    #     admins too, by design, so the disable doesn't reach them;
+    #   * delegation-of-authority (authority/service.py) — no admin shortcut.
+    #
+    # To restore RBAC, revert this to:
+    #   permissions = set(user_permissions)
+    #   return required_permission in permissions or "*" in permissions
+    return True

@@ -72,6 +72,16 @@ def build_table_context(db: Session, *, review: TabularReview, org_id: str) -> s
         )
     ).all()
     lines: list[str] = []
+    # Column definitions first, so the chat can answer meta-questions like
+    # "what does the Direction column mean?" — it now sees each column's
+    # defining prompt, not just the extracted cell values.
+    if columns:
+        lines.append("COLUMN DEFINITIONS (what each column asks of every contract):")
+        for col in columns:
+            q = (col.prompt or "").strip()
+            lines.append(f"- {col.name}: {q}" if q else f"- {col.name}")
+        lines.append("")
+        lines.append("EXTRACTED CELLS:")
     for cell in cells:
         if cell.status not in {"complete", "needs_review"} or not cell.answer:
             continue

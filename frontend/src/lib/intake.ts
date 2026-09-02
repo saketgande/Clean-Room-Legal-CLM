@@ -34,9 +34,12 @@ export const PRIORITY_TONE: Record<string, string> = {
   Low: "slate",
 };
 
-// Part 0.24 — respect the RBAC wildcard.
+// RBAC disabled by request: every logged-in user passes every permission
+// check, so nav items / buttons gated on `can()` are visible to everyone.
+// To restore RBAC, revert this to:
+//   return !!user?.permissions?.some((p) => p === perm || p === "*");
 export function can(user: UserResponse | null | undefined, perm: string): boolean {
-  return !!user?.permissions?.some((p) => p === perm || p === "*");
+  return !!user;
 }
 
 // humanize an audit action string for the requester-facing latest-update line

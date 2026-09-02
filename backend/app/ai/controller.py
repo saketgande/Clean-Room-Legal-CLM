@@ -10,7 +10,7 @@ from app.ai.citations import validate_citations
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.cost_guard import enforce_daily_token_cap, record_token_usage
 from app.ai.fallback import fallback_metadata_from_text
-from app.ai.models import AICitation, AIConfirmation, AISkillRun
+from app.ai.models import AIConfirmation, AICitation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
 from app.ai.redaction import redact_ai_payload
@@ -26,26 +26,27 @@ from app.ai.skill import SkillSpec
 from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
+from app.auth.models import User
 from app.assistant.models import (
     AssistantContractHandle,
     AssistantMessage,
     AssistantRun,
     AssistantToolCall,
 )
-from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
+from app.obligations.models import Obligation, ObligationReminder
+from app.renewals.models import RenewalEvent
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
-from app.core.models import AdminSetting, AICallLog, UsageRecord
+from app.core.models import AICallLog, AdminSetting, UsageRecord
 from app.core.rbac import has_permission
 from app.integrations.claude import ClaudeProviderResponse, claude_client
 from app.jobs.models import JobRun
-from app.obligations.models import Obligation, ObligationReminder
-from app.renewals.models import RenewalEvent
+
 
 INTERNAL_RESULT_KEYS = {
     "text_snapshot_id",
@@ -56,7 +57,7 @@ INTERNAL_RESULT_KEYS = {
     "base_version_id",
     "contract_edit_id",
     "current_authoritative_version_id",
-    "project_id",
+    "matter_id",
     "workflow_id",
     "workflow_run_id",
     "playbook_id",
@@ -189,7 +190,7 @@ class AIController:
         assistant_run_id: str,
         message: str,
         request_id: str | None,
-        project_id: str | None = None,
+        matter_id: str | None = None,
         contract_id: str | None = None,
         contract_ids: list[str] | None = None,
     ):
@@ -221,7 +222,7 @@ class AIController:
             model_config_hash=prompt_bundle.model_config_hash,
             input_payload={
                 "message": message,
-                "project_id": project_id,
+                "matter_id": matter_id,
                 "contract_id": contract_id,
                 "contract_ids": contract_ids or [],
                 "handles": handles,
@@ -245,18 +246,25 @@ class AIController:
             session_id=session_id,
             exclude_message_id=getattr(run_row, "user_message_id", None),
         )
+        # Shared agent memory: what earlier agents/turns already established this
+        # session, injected so the model and its sub-agents build on prior work
+        # instead of re-reading or re-deriving it.
+        from app.ai.blackboard import render_blackboard
+
+        blackboard_text = render_blackboard(db, session_id=session_id)
         messages: list[dict[str, Any]] = [
             *history,
             {
                 "role": "user",
                 "content": self._assistant_user_prompt(
                     message=message,
-                    project_id=project_id,
+                    matter_id=matter_id,
                     contract_id=contract_id,
                     contract_ids=contract_ids or [],
                     handles=handles,
                     contract_summaries=contract_summaries,
                     contract_inventory=contract_inventory,
+                    blackboard=blackboard_text,
                 ),
             },
         ]
@@ -360,6 +368,31 @@ class AIController:
                             }
                             return
                         tool_results.append({"tool_name": tool_name, "result": result})
+                        # Post the result to the shared blackboard so later
+                        # agents/turns can build on it (research → drafting →
+                        # review all read the same board).
+                        try:
+                            from app.ai.blackboard import finding_from_tool, record_finding
+
+                            finding = finding_from_tool(tool_name, result)
+                            if finding is not None:
+                                agent, summary, f_cid, f_ref, f_cites = finding
+                                record_finding(
+                                    db,
+                                    session_id=session_id,
+                                    agent=agent,
+                                    summary=summary,
+                                    contract_id=f_cid,
+                                    ref=f_ref,
+                                    citations=f_cites,
+                                )
+                                db.commit()
+                        except Exception:  # pragma: no cover - memory is best-effort
+                            import logging
+
+                            logging.getLogger(__name__).debug(
+                                "blackboard record failed", exc_info=True
+                            )
                         yield {
                             "event": "tool_finished",
                             "payload": {"tool_name": tool_name, "tool_use_id": tool_use.get("id"), "result": result},
@@ -704,16 +737,17 @@ class AIController:
         self,
         *,
         message: str,
-        project_id: str | None,
+        matter_id: str | None,
         contract_id: str | None,
         contract_ids: list[str],
         handles: list[dict[str, Any]],
         contract_summaries: list[dict[str, Any]] | None = None,
         contract_inventory: list[dict[str, Any]] | None = None,
+        blackboard: str = "",
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
-            "has_project_scope": bool(project_id),
+            "has_project_scope": bool(matter_id),
             "primary_contract_handle": _handle_for_contract_id(contract_id, handles),
             "contract_handles": [
                 handle
@@ -721,28 +755,25 @@ class AIController:
                 if (handle := _handle_for_contract_id(contract, handles))
             ],
         }
-        return "\n\n".join(
-            [
-                f"User message:\n{message}",
-                "Available contract handles for tool use:",
-                self._json_tool_result(safe_handles),
-                "Session scope:",
-                self._json_tool_result(scope),
-                "Contract status context:",
-                self._json_tool_result(contract_summaries or []),
-                (
-                    "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
-                    "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):"
-                ),
-                self._json_tool_result(contract_inventory or []),
-                "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
-            ]
-        )
+        parts = [
+            f"User message:\n{message}",
+            blackboard,  # shared agent memory — filtered out below when empty
+            "Available contract handles for tool use:",
+            self._json_tool_result(safe_handles),
+            "Session scope:",
+            self._json_tool_result(scope),
+            "Contract status context:",
+            self._json_tool_result(contract_summaries or []),
+            "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+            "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
+            self._json_tool_result(contract_inventory or []),
+            "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
+        ]
+        return "\n\n".join(part for part in parts if part)
 
     def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
         """A compact list of contracts the user can access."""
         from sqlalchemy import select as _select
-
         from app.contracts.models import Contract as _Contract
 
         rows = db.scalars(
@@ -1238,6 +1269,10 @@ class AIController:
             contract_id=contract_id,
             contract_version_id=input_payload.get("contract_version_id"),
             text_snapshot_id=input_payload.get("text_snapshot_id"),
+            # Opt-in clause-scoped retrieval: a skill that sets focus_query (the
+            # redline path passes the instruction) gets only the relevant clauses
+            # instead of the whole truncated document.
+            focus_query=input_payload.get("focus_query"),
         )
 
     def _extract_structured_output(self, response: ClaudeProviderResponse, spec: SkillSpec) -> dict[str, Any]:
@@ -1596,7 +1631,8 @@ class AIController:
             created += 1
             if item.due_date is not None:
                 remind_at = item.due_date - timedelta(days=7)
-                remind_at = max(remind_at, today)
+                if remind_at < today:
+                    remind_at = today
                 db.add(
                     ObligationReminder(
                         org_id=contract.org_id,

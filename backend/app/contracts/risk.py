@@ -50,13 +50,50 @@ async def compute_contract_risk(
         )
     ).all()
     if not clauses:
+        # Self-heal instead of dead-ending. If the contract has text but no
+        # clauses yet, kick off extraction — it chains graph ingestion and
+        # auto-review, which re-runs risk once clauses exist. Previously this
+        # returned "run analysis first" and nothing ever ran.
+        from app.contract_files.models import ContractTextSnapshot, ContractVersion
+
+        note = "No clauses extracted yet."
+        version = (
+            db.get(ContractVersion, contract.current_authoritative_version_id)
+            if contract.current_authoritative_version_id
+            else None
+        )
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version and version.text_snapshot_id
+            else None
+        )
+        if version is not None and snapshot is not None:
+            from app.jobs.service import create_job, dispatch_job
+
+            job = create_job(
+                db,
+                org_id=contract.org_id,
+                job_type="clause_extraction",
+                resource_type="contract",
+                resource_id=contract.id,
+                created_by_user_id=user.id,
+                idempotency_key=f"clause_extraction:{version.id}:{snapshot.id}",
+                metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
+            )
+            db.flush()
+            try:
+                dispatch_job(db, job=job)
+                note = "Clause analysis started — the risk score will populate once it completes."
+            except Exception:  # pragma: no cover - dispatch is best-effort
+                logger.warning("could not dispatch clause extraction for %s", contract.id, exc_info=True)
         summary = {
             "score": None,
             "band": "unknown",
             "drivers": [],
             "counts": {"high": 0, "medium": 0, "low": 0},
             "clause_count": 0,
-            "note": "No clauses extracted yet — run contract analysis first.",
+            "note": note,
+            "analysis_started": "started" in note,
             "computed_at": utcnow().isoformat(),
         }
         contract.risk_score = None

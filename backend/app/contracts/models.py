@@ -44,6 +44,8 @@ class Contract(
     renewal_due = Column(Boolean, index=True, nullable=False, default=False)
     archived = Column(Boolean, index=True, nullable=False, default=False)
     owner_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
+    # A contract belongs to at most one matter (one matter -> many contracts).
+    matter_id = Column(String(36), ForeignKey("matter.id"), index=True, nullable=True)
     counterparty_name = Column(String(255), index=True, nullable=True)
     jurisdiction = Column(String(160), index=True, nullable=True)
     # Phase 3 (MAC): confidentiality classification. Ordered ladder

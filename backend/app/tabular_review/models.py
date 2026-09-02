@@ -22,7 +22,7 @@ class TabularReview(
     Base,
 ):
     name = Column(String(255), nullable=False)
-    project_id = Column(String(36), ForeignKey("project.id"), nullable=True)
+    matter_id = Column(String(36), ForeignKey("matter.id"), nullable=True)
     source_contract_ids = Column(JSON, nullable=False, default=list)
     status = Column(String(80), index=True, nullable=False, default="draft")
     metadata_json = Column(JSON, nullable=False, default=dict)

@@ -34,11 +34,11 @@ def test_lifecycle_state_machine_exposes_allowed_transitions():
 
 def test_assistant_prompt_includes_contract_status_context_without_ids():
     contract_id = "11111111-1111-1111-1111-111111111111"
-    project_id = "22222222-2222-2222-2222-222222222222"
+    matter_id = "22222222-2222-2222-2222-222222222222"
 
     prompt = ai_controller._assistant_user_prompt(
         message="What is the risk?",
-        project_id=project_id,
+        matter_id=matter_id,
         contract_id=contract_id,
         contract_ids=[contract_id],
         handles=[{"handle": "contract-0", "contract_id": contract_id}],
@@ -57,4 +57,4 @@ def test_assistant_prompt_includes_contract_status_context_without_ids():
     assert "ai_review" in prompt
     assert "high" in prompt
     assert contract_id not in prompt
-    assert project_id not in prompt
+    assert matter_id not in prompt

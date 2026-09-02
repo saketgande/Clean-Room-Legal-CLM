@@ -26,7 +26,7 @@ from app.auth.models import Role, User
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
-from app.projects.models import Project, ProjectContract
+from app.matters.models import Matter, MatterContract
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 
 SCOPE_TYPES = {"contract", "project"}
@@ -61,9 +61,9 @@ def _wall_covers_contract_sql():
     project_scope = and_(
         EthicalWall.scope_type == "project",
         exists(
-            select(ProjectContract.id).where(
-                ProjectContract.project_id == EthicalWall.scope_id,
-                ProjectContract.contract_id == Contract.id,
+            select(MatterContract.id).where(
+                MatterContract.matter_id == EthicalWall.scope_id,
+                MatterContract.contract_id == Contract.id,
             )
         ),
     )
@@ -90,9 +90,9 @@ def user_is_walled(db: Session, *, user: User, contract: Contract) -> bool:
     """Row check: is the user sealed off from this specific contract by an active
     ethical wall (scoped to the contract, or to a project it belongs to)?"""
     project_ids = [
-        pc.project_id
+        pc.matter_id
         for pc in db.scalars(
-            select(ProjectContract).where(ProjectContract.contract_id == contract.id)
+            select(MatterContract).where(MatterContract.contract_id == contract.id)
         ).all()
     ]
     scope_conds = [
@@ -123,7 +123,7 @@ def _scope_label(db: Session, scope_type: str, scope_id: str) -> str | None:
         c = db.get(Contract, scope_id)
         return c.title if c else None
     if scope_type == "project":
-        p = db.get(Project, scope_id)
+        p = db.get(Matter, scope_id)
         return p.name if p else None
     return None
 
@@ -177,7 +177,7 @@ def _validate_scope(db: Session, *, org_id: str, scope_type: str, scope_id: str)
         c = db.get(Contract, scope_id)
         ok = c is not None and c.org_id == org_id
     else:
-        p = db.get(Project, scope_id)
+        p = db.get(Matter, scope_id)
         ok = p is not None and p.org_id == org_id
     if not ok:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Walled resource not found")

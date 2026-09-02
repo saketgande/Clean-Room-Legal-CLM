@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { contractsApi } from "@/lib/endpoints";
+import { splitBlocks, anchorEdit } from "@/lib/contract-blocks";
 import { Badge, Button, Select } from "@/components/ui";
 import { titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
@@ -67,15 +68,45 @@ type Segment =
   | { kind: "text"; text: string }
   | { kind: "edit"; text: string; edit: ContractEditResponse };
 
+// The block_id the backend stashed in a redline's anchor citation, if any —
+// an exact target that survives quote drift and text reflow.
+function citationBlockId(edit: ContractEditResponse): string | undefined {
+  for (const c of edit.citation ?? []) {
+    if (
+      c &&
+      typeof c === "object" &&
+      (c as { type?: string }).type === "anchor"
+    )
+      return (c as { block_id?: string | null }).block_id ?? undefined;
+  }
+  return undefined;
+}
+
 function buildSegments(
   text: string,
   edits: ContractEditResponse[],
 ): Segment[] {
+  const blocks = splitBlocks(text);
   const located = edits
     .filter((e) => e.original_text && e.status !== "rejected")
     .map((e) => {
+      // Precise path: strike the exact quoted phrase when it's found verbatim.
       const span = findSpan(text, e.original_text as string);
-      return span ? { start: span[0], end: span[1], edit: e } : null;
+      if (span) return { start: span[0], end: span[1], edit: e };
+      // Fallback: the quote drifted from the source. Place the redline on the
+      // clause the backend anchored it to (block_id), or the best-matching
+      // block — instead of dropping it from the document view entirely.
+      const blockId = anchorEdit(blocks, {
+        block_id: citationBlockId(e),
+        original_text: e.original_text,
+      });
+      const block = blockId ? blocks.find((b) => b.id === blockId) : undefined;
+      if (block) {
+        const i = text.indexOf(block.text);
+        if (i >= 0)
+          return { start: i, end: i + block.text.length, edit: e };
+      }
+      return null;
     })
     .filter((x): x is { start: number; end: number; edit: ContractEditResponse } =>
       Boolean(x),
@@ -380,6 +411,9 @@ export function ContractDocument({
 
   function invalidateAfterMutation() {
     qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
+    // ClmWorkspace (the CLM editor) reads edits under this key — invalidate it
+    // too so a proposed redline shows immediately instead of after a reload.
+    qc.invalidateQueries({ queryKey: ["contract-edits", contractId] });
     qc.invalidateQueries({ queryKey: ["contract", contractId, "versions"] });
     qc.invalidateQueries({ queryKey: ["contract-comments", contractId] });
     qc.invalidateQueries({ queryKey: ["review-status", contractId] });
@@ -606,7 +640,28 @@ export function ContractDocument({
                       </span>
                     );
                   }
-                  // proposed — highlight the area suggested for change
+                  // proposed — show the change inline (struck original +
+                  // proposed replacement, dotted to signal "not yet accepted")
+                  // so the redline is actually visible before accept/reject.
+                  // No replacement = pure highlight fallback.
+                  if (e.replacement_text) {
+                    return (
+                      <span
+                        key={i}
+                        id={`edit-${e.id}`}
+                        onClick={() => onSelectEdit?.(e.id)}
+                        title={e.rationale ?? "Proposed change — click to review"}
+                        className={"cursor-pointer" + ring}
+                      >
+                        <del className="bg-danger-subtle text-danger line-through decoration-danger/50">
+                          {seg.text}
+                        </del>
+                        <ins className="bg-success-subtle text-success underline decoration-dotted decoration-success/60 underline-offset-2">
+                          {e.replacement_text}
+                        </ins>
+                      </span>
+                    );
+                  }
                   return (
                     <mark
                       key={i}

@@ -17,6 +17,7 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.service import next_version_number
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
@@ -263,6 +264,185 @@ def clone_playbook_version(
         after={"playbook_id": playbook.id, "source_version_id": source_version.id if source_version else None},
     )
     return version
+
+
+# The standard clause set a negotiation playbook is expected to cover. "Expand
+# with AI" drafts rules for whichever of these the playbook is missing, so a
+# 3-rule starter becomes a working playbook.
+STANDARD_PLAYBOOK_CLAUSES = [
+    "confidentiality",
+    "limitation_of_liability",
+    "indemnification",
+    "termination",
+    "payment_terms",
+    "intellectual_property",
+    "warranties",
+    "governing_law",
+    "assignment",
+    "data_protection",
+    "insurance",
+    "dispute_resolution",
+]
+
+_EXPAND_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rules": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "clause_type": {"type": "string"},
+                    "preferred_position": {"type": "string"},
+                    "fallback_position": {"type": "string"},
+                    "prohibited_language": {"type": "string"},
+                    "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
+                    "rationale": {"type": "string"},
+                    "approval_required": {"type": "boolean"},
+                },
+                "required": ["clause_type", "preferred_position", "risk_level", "rationale"],
+            },
+        }
+    },
+    "required": ["rules"],
+}
+
+
+def _rules_from_templates(missing: list[str]) -> list[dict[str, Any]]:
+    """Deterministic fallback for the standard clauses, used under mock mode or
+    an API failure so Expand always returns a usable draft."""
+    by_type = {t["clause_type"]: t for t in GENERATED_RULE_TEMPLATES}
+    out: list[dict[str, Any]] = []
+    for c in missing:
+        if c in by_type:
+            out.append(dict(by_type[c]))
+        else:
+            label = c.replace("_", " ")
+            out.append(
+                {
+                    "clause_type": c,
+                    "rule_type": "required_language",
+                    "preferred_position": (
+                        f"The {label} clause should follow the company's standard "
+                        f"position; confirm the specifics with legal."
+                    ),
+                    "risk_level": "medium",
+                    "rationale": f"Standard {label} coverage added to complete the playbook.",
+                }
+            )
+    return out
+
+
+def _generate_missing_rules(
+    db: Session, *, org_id: str, playbook: Playbook, covered: list[str], missing: list[str]
+) -> tuple[list[dict[str, Any]], bool]:
+    """Draft rules for the missing standard clauses. Returns (rules, generated).
+    Never raises — falls back to deterministic templates."""
+    from app.core.config import settings
+
+    if settings.mock_claude:
+        return _rules_from_templates(missing), False
+
+    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
+    from app.ai.cost_guard import enforce_daily_token_cap
+    from app.integrations.claude import ClaudeClient, run_coro_blocking
+
+    system = (
+        "You are senior in-house counsel authoring standard negotiation-playbook "
+        "rules. For each requested clause type, give a company-favourable preferred "
+        "position, a fallback, any prohibited language, a risk level, and a one-line "
+        "rationale. Keep positions concrete and commercially reasonable; do not "
+        "invent facts about a specific deal."
+    )
+    user = (
+        f"Playbook: {playbook.name}\n"
+        + (f"Context: {playbook.description}\n" if playbook.description else "")
+        + f"Already covered: {', '.join(covered) or 'none'}\n\n"
+        + "Draft one rule for each of these missing clause types:\n"
+        + "\n".join(f"- {c}" for c in missing)
+    )
+    try:
+        enforce_daily_token_cap(org_id)
+        resp = run_coro_blocking(
+            lambda: ClaudeClient().complete_structured(
+                system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
+                user_prompt=user,
+                tool_name="draft_playbook_rules",
+                input_schema=_EXPAND_SCHEMA,
+                max_tokens=2500,
+                temperature=0.3,
+                model=settings.claude_model,
+            )
+        )
+        blocks = getattr(resp, "tool_use_blocks", None) or []
+        data = blocks[0].get("input") if blocks else None
+        rules = data.get("rules") if isinstance(data, dict) else None
+        if not isinstance(rules, list) or not rules:
+            return _rules_from_templates(missing), False
+        # Keep only requested clause types; drop anything malformed.
+        wanted = set(missing)
+        clean = [r for r in rules if isinstance(r, dict) and r.get("clause_type") in wanted]
+        return (clean or _rules_from_templates(missing)), bool(clean)
+    except Exception:
+        return _rules_from_templates(missing), False
+
+
+def expand_playbook(db: Session, *, playbook: Playbook, user: User) -> PlaybookVersion:
+    """Draft rules for the standard clauses this playbook is missing and land
+    them in a new draft version (existing rules preserved). Advisory: the draft
+    still needs review/publish."""
+    version = db.get(PlaybookVersion, playbook.current_version_id) if playbook.current_version_id else None
+    if version is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Playbook has no version to expand")
+    existing = db.scalars(
+        select(PlaybookRule).where(
+            PlaybookRule.org_id == user.org_id,
+            PlaybookRule.playbook_version_id == version.id,
+        )
+    ).all()
+    covered = sorted({r.clause_type for r in existing})
+    missing = [c for c in STANDARD_PLAYBOOK_CLAUSES if c not in covered]
+    if not missing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This playbook already covers the standard clause set.",
+        )
+    new_rules, generated = _generate_missing_rules(
+        db, org_id=user.org_id, playbook=playbook, covered=covered, missing=missing
+    )
+    new_version = clone_playbook_version(
+        db,
+        playbook=playbook,
+        user=user,
+        source_version=version,
+        summary=(
+            f"Expanded with {len(new_rules)} standard-clause rule"
+            f"{'' if len(new_rules) == 1 else 's'}"
+            f"{'' if generated else ' (templates — model unavailable)'}"
+        ),
+    )
+    for nr in new_rules:
+        db.add(
+            PlaybookRule(
+                org_id=user.org_id,
+                playbook_version_id=new_version.id,
+                clause_type=nr["clause_type"],
+                rule_type=nr.get("rule_type", "required_language"),
+                preferred_position=nr.get("preferred_position"),
+                fallback_position=nr.get("fallback_position"),
+                prohibited_language=nr.get("prohibited_language"),
+                required_language=nr.get("required_language"),
+                risk_level=nr.get("risk_level", "medium"),
+                rationale=nr.get("rationale"),
+                approval_required=bool(nr.get("approval_required", False)),
+                escalation_role="legal",
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+        )
+    db.commit()
+    db.refresh(new_version)
+    return new_version
 
 
 def select_run_version(
@@ -731,6 +911,7 @@ def _create_playbook_redline_version(
     text; missing-language deviations (no original span) become insertions.
     """
     source_text = source_snapshot.text or ""
+    blocks = split_blocks(source_text)
     changes: list[dict] = []
     for ev, row in evaluated_pairs:
         replacement = _clean_phrase(ev.replacement_text or ev.suggested_fix) or ""
@@ -739,7 +920,27 @@ def _create_playbook_redline_version(
             original = _clean_phrase(ev.citation.get("quote")) or ""
         if not original and not replacement:
             continue  # nothing actionable to show
-        span = _find_phrase(source_text, original) if original else None
+        # Block-anchor first: identify WHICH clause the model means (coarse and
+        # robust) and strike that whole real block, instead of char-locating the
+        # model's paraphrase — which misplaces the change or floats it unapplied
+        # to the end of the document when the quote drifts.
+        # ponytail: whole-block granularity; fine because playbook replacements
+        # are full preferred clauses. Sub-clause diffing only if redlines feel
+        # too coarse.
+        block = block_by_id(blocks, anchor_quote(blocks, original)) if original else None
+        if block is not None:
+            idx = source_text.find(block.text)  # block.text is a verbatim slice
+            span = (idx, idx + len(block.text)) if idx >= 0 else _find_phrase(source_text, block.text)
+            original = block.text
+        else:
+            span = _find_phrase(source_text, original) if original else None
+            # Exact search misses paraphrased quotes — fall back to alignment.
+            if original and span is None:
+                span = _align_phrase(source_text, original)
+            # Anchor to the ACTUAL document text at that span, not the model's
+            # paraphrase, so the tracked change strikes real text and applies.
+            if span:
+                original = source_text[span[0] : span[1]]
         risk = "high" if ev.severity == "critical" else ev.severity
         changes.append(
             {
@@ -748,6 +949,7 @@ def _create_playbook_redline_version(
                 "original": original,
                 "replacement": replacement,
                 "span": span,
+                "block_id": block.id if block is not None else None,
                 "risk": risk,
             }
         )
@@ -827,6 +1029,7 @@ def _create_playbook_redline_version(
                 "end": span[1] if span else -1,
                 "matched": bool(span),
                 "applied": bool(span),
+                "block_id": c["block_id"],
                 "risk_level": c["risk"],
             },
             {
@@ -1025,6 +1228,24 @@ def _find_phrase(text: str, phrase: str) -> tuple[int, int] | None:
     if match is None:
         return None
     return match.start(), match.end()
+
+
+def _align_phrase(text: str, phrase: str, threshold: float = 82.0) -> tuple[int, int] | None:
+    """Fuzzy fallback for _find_phrase: LLMs paraphrase the clause they quote
+    (drop a word, tweak punctuation), so an exact search misses even when the
+    clause is genuinely there. Align the quote to the best-matching real span so
+    the redline anchors to actual document text instead of floating unapplied."""
+    if not phrase or not text:
+        return None
+    try:
+        from rapidfuzz import fuzz
+
+        alignment = fuzz.partial_ratio_alignment(phrase.lower(), text.lower())
+        if alignment is not None and alignment.score >= threshold:
+            return alignment.dest_start, alignment.dest_end
+    except Exception:  # pragma: no cover - rapidfuzz optional / defensive
+        pass
+    return None
 
 
 def _suggested_fix(rule: PlaybookRule) -> str | None:

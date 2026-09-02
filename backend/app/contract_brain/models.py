@@ -48,7 +48,7 @@ class BrainQuery(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Tim
     query_scope = Column(String(80), index=True, nullable=False)
     question = Column(Text, nullable=False)
     contract_id = Column(String(36), ForeignKey("contract.id"), nullable=True)
-    project_id = Column(String(36), ForeignKey("project.id"), nullable=True)
+    matter_id = Column(String(36), ForeignKey("matter.id"), nullable=True)
     answer = Column(Text, nullable=True)
     citations = Column(JSON, nullable=True)
     retrieval_metadata = Column(JSON, nullable=True)

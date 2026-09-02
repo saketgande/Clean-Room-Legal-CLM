@@ -167,7 +167,7 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "parties": gather_parties(r),
         "handoff_holder": r.handoff_holder,
         "handoff_user_id": r.handoff_user_id,
-        "project_id": r.project_id,
+        "matter_id": r.matter_id,
         "contract_id": r.contract_id,
         "contract_title": _contract_title(db, r.contract_id),
         "workflow": _workflow(r, rtype),
@@ -242,6 +242,13 @@ def _apply_fields(db: Session, t: IntakeRequestType, org_id: str, fields) -> Non
                 required=f.required, sort_order=f.sort_order, options=f.options,
             )
         )
+    # Drop the old rows and flush the DELETEs *before* attaching the new ones.
+    # Assigning straight over the collection leaves both sets pending in one
+    # flush, where SQLAlchemy emits the INSERTs first and trips the
+    # (request_type_id, key) unique constraint for any reused key — which is
+    # every edit that isn't a wholesale rename.
+    t.fields.clear()
+    db.flush()
     t.fields = rows
 
 
@@ -383,9 +390,10 @@ def _compute_intake_analysis(db: Session, request: IntakeRequest) -> None:
             fv.setdefault(k, v)
         request.field_values = fv
     else:
-        from app.intake.flow_agent import suggest_flow
+        from app.intake import triage_agent
 
-        at["flow_suggestion"] = suggest_flow(db, request)
+        # Re-run the full context-aware triage; merge so gates/overrides survive.
+        at.update(triage_agent.triage(db, request))
         at.pop("litigation_assessment", None)
     request.ai_triage = at  # reassign so SQLAlchemy tracks the JSON mutation
 
@@ -426,6 +434,96 @@ def _derive_subject(subject: str | None, description: str | None, type_label: st
     return (type_label or "").strip()[:200]
 
 
+def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
+                     department: str | None, complexity: str):
+    """The team that should own this request: the one whose expertise covers the
+    matter category, narrowed to the team that serves the request's department
+    when there's a match. Falls back to the complexity→tier heuristic when
+    nothing has expertise for the category (so orgs that haven't tagged teams
+    still get an owner)."""
+    from sqlalchemy import func, select as _select
+    from app.intake.models import IntakeTeam
+
+    teams = db.scalars(
+        _select(IntakeTeam)
+        .where(IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True))
+        .order_by(IntakeTeam.sort_order, IntakeTeam.name)
+    ).all()
+
+    # 1. expertise: teams that own this matter category
+    cands = [t for t in teams if category and category in (t.expertise or [])]
+    # 2. department: prefer a candidate team that serves the request's business
+    #    unit; if none does, department stays a soft signal (keep the matches).
+    if department:
+        dept = department.strip().lower()
+        dept_match = [t for t in cands
+                      if any((d or "").strip().lower() == dept for d in (t.departments or []))]
+        if dept_match:
+            cands = dept_match
+    if cands:
+        return cands[0]  # sort_order wins; pick_from_pool balances members within
+
+    # 3. fallback: complexity → tier
+    key = "tier1" if complexity == "simple" else "tier2"
+    return db.scalar(_select(IntakeTeam).where(
+        IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True), func.lower(IntakeTeam.key) == key))
+
+
+def _assign_owner_from_triage(db: Session, request: IntakeRequest) -> None:
+    """Auto-assign the request owner from the triage read — replaces the keyword
+    routing rules. Routes by matter-type EXPERTISE and business unit (with
+    complexity→tier as the fallback); pick_from_pool balances by load. Never
+    overrides a human decision or an existing assignee; best-effort — no eligible
+    pool means the request just waits in the queue."""
+    if request.triaged_by_user_id or request.triage_action or request.assigned_to_user_id:
+        return
+    from app.intake import teams as teams_mod
+
+    at = request.ai_triage or {}
+    category = at.get("category")
+    complexity = at.get("complexity") or "standard"
+    department = request.department or (at.get("understanding") or {}).get("business_unit")
+    team = _pick_owner_team(db, org_id=request.org_id, category=category,
+                            department=department, complexity=complexity)
+    if not team:
+        return
+    pick = teams_mod.pick_from_pool(db, team_id=team.id)
+    if pick and pick.user_id:
+        request.assigned_to_user_id = pick.user_id
+        request.handoff_holder = "human"
+        request.handoff_user_id = pick.user_id
+
+
+def _maybe_autostart_workflow(db: Session, request: IntakeRequest, actor: User) -> None:
+    """Confidence-gated auto-start: when the triage is confident about the
+    workflow pick (and didn't flag it for a human), kick the workflow off
+    automatically; otherwise it stays a one-click suggestion on the ticket.
+    Best-effort and post-commit — never breaks the create path."""
+    at = request.ai_triage or {}
+    # Completeness gate: never auto-draft a request the triage flagged as missing
+    # critical info — hold it for the requester to complete first.
+    if at.get("needs_info"):
+        return
+    fs = at.get("flow_suggestion") or {}
+    fid = fs.get("flow_id")
+    if not fid or fs.get("needs_human") or (fs.get("confidence") or 0.0) < 0.75:
+        return
+    try:
+        from app.workflows.models import Workflow
+        from app.workflows.service import start_flow
+        from app.integrations.claude import run_coro_blocking
+
+        flow = db.get(Workflow, fid)
+        if not flow or flow.org_id != request.org_id:
+            return
+        run_coro_blocking(lambda: start_flow(db, actor=actor, request=request, flow=flow))
+        db.commit()
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger(__name__).warning("workflow auto-start failed for %s", request.id, exc_info=True)
+
+
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
                    conversation: list | None = None) -> dict:
     rtype = None
@@ -446,13 +544,20 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
         stage_timestamps=[{"stage": "new", "at": now.isoformat()}],
         created_by_user_id=actor.id, updated_by_user_id=actor.id,
     )
-    # Deterministic classification first, so routing rules can match on complexity.
+    # Context-aware triage first: the AI reads the WHOLE request and decides
+    # category/complexity/risk/urgency + the workflow pick, driving the gates,
+    # priority and owner below. Falls back to the keyword classifier on failure.
     cp = (payload.field_values or {}).get("counterparty") if payload.field_values else None
     # Seed the parties list from the captured counterparty so it's editable and
     # conflict-screenable; adverse/related parties can be added later.
     if cp and str(cp).strip():
         r.parties = [{"name": str(cp).strip(), "role": "counterparty", "is_person": False}]
-    r.ai_triage = agents.classify(r.type_label, r.description)
+    from app.intake import triage_agent
+
+    r.ai_triage = triage_agent.triage(db, r)
+    _urgency = (r.ai_triage.get("understanding") or {}).get("urgency")
+    if _urgency in ("Low", "Medium", "High"):
+        r.priority = _urgency
     # Tier-0 hard gates: AI classifier (keyword fallback) forces senior rungs into
     # the approval ladder; litigation/etc. also escalate here, before routing runs.
     from app.intake import gates as gates_mod
@@ -467,10 +572,10 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
                          event_type="intake.created", title=f"Request filed — {r.type_label}",
                          actor_user_id=actor.id, request_id=request_id)
-    # Routing rules set assignee / priority / SLA / escalation in the save
-    # chokepoint. (Triage removed: no AI recommendation is drafted — the request
-    # lands 'open' in the queue and a reviewer starts its workflow.)
-    routing.apply_routing(db, r)
+    # Auto-assign the owner from the triage read (replaces the keyword routing
+    # rules): complexity picks the tier pool, least-loaded within. Expertise /
+    # business-unit routing refines this later.
+    _assign_owner_from_triage(db, r)
     if r.assigned_to_user_id and r.assigned_to_user_id != actor.id:
         _notify(db, r, r.assigned_to_user_id, "intake.assigned",
                 f"{r.ref} assigned to you", f"{r.type_label} — priority {r.priority}.")
@@ -482,7 +587,13 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     # lost to a mid-transaction flush; isolating it — like the /screen endpoint —
     # makes it reliable and can never leave the request half-written.
     _run_screening_safe(db, r, actor.id)
-    _attach_flow_suggestion(db, r)
+    # The triage already set ai_triage.flow_suggestion pre-commit; only the
+    # litigation path needs the extra deep assessment (branch-field pre-fill).
+    from app.intake.litigation_agent import is_litigation
+
+    if is_litigation(r):
+        _attach_flow_suggestion(db, r)
+    _maybe_autostart_workflow(db, r, actor)
     return serialize_request(db, r)
 
 
@@ -1024,11 +1135,11 @@ def promote(db: Session, *, actor: User, request_id: str, payload,
             raise HTTPException(404, "Contract not found")
         r.contract_id = c.id
     else:
-        from app.projects.models import Project
-        p = db.get(Project, payload.target_id)
+        from app.matters.models import Matter
+        p = db.get(Matter, payload.target_id)
         if p is None or p.org_id != actor.org_id:
-            raise HTTPException(404, "Project not found")
-        r.project_id = p.id
+            raise HTTPException(404, "Matter not found")
+        r.matter_id = p.id
     r.updated_by_user_id = actor.id
     write_audit_log(db, action="intake.promoted", resource_type="intake_request", resource_id=r.id,
                     org_id=actor.org_id, actor_user_id=actor.id, request_id=http_request_id,

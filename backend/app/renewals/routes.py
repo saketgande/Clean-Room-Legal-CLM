@@ -108,6 +108,23 @@ def get_renewal(
     return _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
 
 
+@router.get("/{renewal_id}/recommendation")
+def renewal_recommendation(
+    renewal_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """Advisory AI suggestion (renew / renegotiate / terminate) + rationale,
+    grounded in the contract's facts on file. Never records a decision."""
+    row = _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
+    contract = db.get(Contract, row.contract_id)
+    if contract is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found for this renewal")
+    from app.renewals.recommendation import recommend_renewal
+
+    return recommend_renewal(db, org_id=current_user.org_id, renewal=row, contract=contract)
+
+
 @router.post("/{renewal_id}/decision")
 def decide_renewal(
     renewal_id: str,

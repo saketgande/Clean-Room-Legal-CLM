@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
 from app.contract_files.models import (
+    ContractDocumentElement,
     ContractEdit,
     ContractFile,
     ContractShare,
@@ -219,6 +220,91 @@ async def log_counterparty_revision(
     return version
 
 
+@router.post(
+    "/negotiation-revision",
+    response_model=ContractVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+@limiter.limit(settings.rate_limit_contract_upload)
+async def log_negotiation_revision(
+    contract_id: str,
+    request: Request,
+    response: Response,
+    file: UploadFile = File(...),
+    party: str = Form(default="counterparty"),
+    party_label: str | None = Form(default=None),
+    change_summary: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:update")),
+):
+    """Record ONE negotiation round — a revised version returned by a party. The
+    party decides the version source: an external counterparty, an internal
+    stakeholder, or our own counter. Powers the guided negotiation panel (works
+    for internal negotiation, not just the counterparty)."""
+    _ = response
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    req_id = getattr(request.state, "request_id", None)
+    p = (party or "").lower()
+    source = {
+        "counterparty": ContractVersionSource.COUNTERPARTY_REVISION,
+        "internal": ContractVersionSource.USER_REDLINE,
+        "us": ContractVersionSource.MANUAL_UPLOAD,
+    }.get(p, ContractVersionSource.USER_REDLINE)
+    who = party_label or {"counterparty": "Counterparty", "internal": "Internal party", "us": "Our side"}.get(p, "Party")
+    version = await add_version_from_upload(
+        db, contract=contract, upload=file, user=current_user,
+        change_summary=change_summary or f"{who} revision received",
+        source=source, request_id=req_id,
+    )
+    write_timeline_event(
+        db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+        event_type="contract.negotiation_revision", title=f"Negotiation round — {who} revision",
+        actor_user_id=current_user.id, request_id=req_id,
+        details={"contract_version_id": version.id, "party": p},
+    )
+    db.commit()
+    db.refresh(version)
+    return version
+
+
+class NotifyTeamPayload(BaseModel):
+    team_id: str
+    message: str | None = None
+
+
+@router.post("/notify-team", status_code=status.HTTP_200_OK)
+def notify_team_for_review(
+    contract_id: str,
+    payload: NotifyTeamPayload,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract_file:read")),
+):
+    """Notify a team's active members (in-app) that their negotiation review /
+    redline is requested on this contract — the internal side of 'Send to party'."""
+    from app.intake.models import IntakeTeam, IntakeTeamMember
+    from app.notifications.models import Notification
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    team = db.get(IntakeTeam, payload.team_id)
+    if team is None or team.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
+    members = db.scalars(
+        select(IntakeTeamMember).where(
+            IntakeTeamMember.team_id == team.id, IntakeTeamMember.active.is_(True)
+        )
+    ).all()
+    subject = f"Negotiation review requested — {contract.title}"
+    body = payload.message or f'Please review and redline "{contract.title}" for the internal negotiation.'
+    for m in members:
+        db.add(Notification(
+            org_id=current_user.org_id, user_id=m.user_id, channel="in_app",
+            event_type="contract.negotiation_review", subject=subject, body=body, status="sent",
+            created_by_user_id=current_user.id, updated_by_user_id=current_user.id,
+        ))
+    db.commit()
+    return {"notified": len(members), "team": team.name}
+
+
 @router.get("/versions/{version_id}/text", response_model=ContractTextSnapshotResponse)
 def get_version_text_snapshot(
     contract_id: str,
@@ -362,6 +448,85 @@ def _build_plain_docx(*, title: str, subtitle: str, text: str) -> bytes:
         document.add_paragraph(subtitle)
     for para in _split_paragraphs(text):
         document.add_paragraph(para)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
+
+
+def _html_table_rows(html: str | None) -> list[list[str]]:
+    """Best-effort parse of a table element's stored HTML into rows of cell text,
+    so the export can render it as a real Word table instead of a garbled string."""
+    from html.parser import HTMLParser
+
+    class _P(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.rows: list[list[str]] = []
+            self._row: list[str] | None = None
+            self._cell: list[str] | None = None
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "tr":
+                self._row = []
+            elif tag in ("td", "th"):
+                self._cell = []
+
+        def handle_endtag(self, tag):
+            if tag in ("td", "th") and self._cell is not None and self._row is not None:
+                self._row.append("".join(self._cell).strip())
+                self._cell = None
+            elif tag == "tr" and self._row is not None:
+                self.rows.append(self._row)
+                self._row = None
+
+        def handle_data(self, data):
+            if self._cell is not None:
+                self._cell.append(data)
+
+    parser = _P()
+    try:
+        parser.feed(html or "")
+    except Exception:
+        return []
+    return [r for r in parser.rows if any(c for c in r)]
+
+
+def _build_structured_docx(db: Session, snapshot: ContractTextSnapshot, *, title: str, subtitle: str) -> bytes:
+    """Rebuild the .docx from structured elements: headings as headings, tables
+    as tables, page headers/footers dropped. Preserves the document's shape
+    instead of flattening everything to identical paragraphs."""
+    from io import BytesIO
+
+    from docx import Document
+
+    els = db.scalars(
+        select(ContractDocumentElement)
+        .where(ContractDocumentElement.text_snapshot_id == snapshot.id)
+        .order_by(ContractDocumentElement.seq)
+    ).all()
+
+    document = Document()
+    document.add_heading(title, level=1)
+    if subtitle:
+        document.add_paragraph(subtitle)
+    for e in els:
+        if e.element_type == "page_artifact":
+            continue  # headers/footers/page numbers don't belong in the export
+        if e.element_type in ("title", "heading"):
+            document.add_heading(e.text, level=min(max(e.level, 1) + 1, 4))
+        elif e.element_type == "table":
+            rows = _html_table_rows(e.html)
+            if rows:
+                cols = max(len(r) for r in rows)
+                table = document.add_table(rows=len(rows), cols=cols)
+                table.style = "Table Grid"
+                for ri, row in enumerate(rows):
+                    for ci, cell in enumerate(row):
+                        table.rows[ri].cells[ci].text = cell
+            else:
+                document.add_paragraph(e.text)  # fallback if HTML didn't parse
+        else:
+            document.add_paragraph(e.text)
     buffer = BytesIO()
     document.save(buffer)
     return buffer.getvalue()
@@ -549,6 +714,37 @@ def propose_contract_edit(
     return edit
 
 
+class AiRedlineRequest(BaseModel):
+    instructions: str = Field(min_length=1, max_length=4000)
+
+
+@router.post("/edits/ai-redline", status_code=status.HTTP_201_CREATED)
+async def ai_redline_contract(
+    contract_id: str,
+    payload: AiRedlineRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """AI tracked-changes from a natural-language instruction (e.g. a playbook
+    fix). Reuses the assistant's edit_contract generator so the CLM 'Draft fix'
+    buttons produce real, anchored redlines — not a chat answer. Raises 422 when
+    the model can't locate specific language to revise."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    from app.ai.tool_registry import EditContractInput
+    from app.ai.tool_runtime import tool_runtime
+
+    result = await tool_runtime._edit_contract(
+        db,
+        payload=EditContractInput(
+            contract_id=contract.id, instructions=payload.instructions
+        ),
+        user=current_user,
+        session_id=f"clm-redline:{contract.id}",
+    )
+    db.commit()
+    return result
+
+
 class ManualTextUpdate(BaseModel):
     text: str = Field(min_length=1)
     change_summary: str | None = None
@@ -691,11 +887,13 @@ def export_contract_docx(
     )
     if snapshot is None or not (snapshot.text or "").strip():
         raise HTTPException(status.HTTP_409_CONFLICT, "No extracted text to export")
-    content = _build_plain_docx(
-        title=contract.title,
-        subtitle=f"Current text · V{version.version_number}",
-        text=snapshot.text,
-    )
+    subtitle = f"Current text · V{version.version_number}"
+    # Structured export preserves headings, clause numbering, and tables; the
+    # flat builder is the fallback for snapshots that aren't structured yet.
+    if snapshot.structure_status == "structured" and snapshot.element_count:
+        content = _build_structured_docx(db, snapshot, title=contract.title, subtitle=subtitle)
+    else:
+        content = _build_plain_docx(title=contract.title, subtitle=subtitle, text=snapshot.text)
     # Sanitize the user-controlled title before putting it in the
     # Content-Disposition header — a raw double-quote or control char would
     # corrupt the header/filename for the client.
@@ -720,6 +918,20 @@ def accept_contract_edit(
     edit = _get_contract_edit(db, contract_id=contract_id, edit_id=edit_id, org_id=current_user.org_id)
     if edit.status != "proposed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be accepted")
+    # Optimistic-lock guard. A redline is a whole-document proposal built FROM a
+    # specific base version (edit.contract_version_id). Accepting swaps the
+    # authoritative pointer to that proposal — which throws away anything the base
+    # didn't contain. So if the base is no longer current (another redline was
+    # accepted, or a new version was uploaded in the meantime), accepting this one
+    # would silently revert that newer state. Refuse instead, and tell the caller
+    # to regenerate against the current version.
+    if edit.contract_version_id != contract.current_authoritative_version_id:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This redline was based on an earlier version of the contract and "
+            "would revert newer changes. Re-run the redline on the current "
+            "version, then accept it.",
+        )
     proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
     contract_file = db.get(ContractFile, proposal_version.contract_file_id)
     if contract_file is None or contract_file.org_id != current_user.org_id:

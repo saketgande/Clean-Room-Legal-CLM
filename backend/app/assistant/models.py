@@ -29,7 +29,7 @@ from app.core.enums import (
 class AssistantSession(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     session_type = Column(String(80), index=True, nullable=False, default=AssistantSessionType.GENERAL)
     title = Column(String(255), nullable=True)
-    project_id = Column(String(36), ForeignKey("project.id"), nullable=True)
+    matter_id = Column(String(36), ForeignKey("matter.id"), nullable=True)
     contract_id = Column(String(36), ForeignKey("contract.id"), nullable=True)
     tabular_review_id = Column(String(36), nullable=True)
     status = Column(String(80), index=True, nullable=False, default="active")

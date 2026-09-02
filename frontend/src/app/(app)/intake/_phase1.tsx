@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
-  ErrorState, Field, Input, Modal, Select, StatCard, Table, TD, TH, THead, TR,
+  ErrorState, Field, Input, Modal, Select, Table, TD, TH, THead, TR,
 } from "@/components/ui";
 import { intakeApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
@@ -42,52 +42,53 @@ export function SlaDashboardTab({ isAdmin }: { isAdmin: boolean }) {
   if (error) return <ErrorState error={error} />;
   const o = ops!;
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">Queue health · custody-based SLA legs. Escalation fires on the overdue edge.</p>
-        {isAdmin && <Button size="sm" variant="outline" loading={busy} onClick={scan}>Run breach scan</Button>}
+    <div>
+      <div className="toprow">
+        <p className="dim">Queue health · custody-based SLA legs. Escalation fires on the overdue edge.</p>
+        {isAdmin && <button className="btn" disabled={busy} onClick={scan}>{busy ? "Scanning…" : "Run breach scan"}</button>}
       </div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatCard label="Open" value={String(o.open_total)} tone="blue" />
-        <StatCard label="At risk" value={String(o.at_risk)} tone="amber" />
-        <StatCard label="Overdue" value={String(o.overdue)} tone="red" />
-        <StatCard label="Breaches (7d)" value={String(o.breaches_7d)} tone="slate" />
+      <div className="statcard">
+        <div className="tiles">
+          <div className="tile a"><div className="tn">{o.open_total}</div><div className="tl">Open</div></div>
+          <div className="tile w"><div className="tn">{o.at_risk}</div><div className="tl">At risk</div></div>
+          <div className="tile c"><div className="tn">{o.overdue}</div><div className="tl">Overdue</div></div>
+          <div className="tile"><div className="tn">{o.breaches_7d}</div><div className="tl">Breaches (7d)</div></div>
+        </div>
       </div>
 
       {breachRow && legs && (
-        <Card>
-          <CardHeader><CardTitle>SLA custody legs</CardTitle>
-            <span className="ml-auto font-mono text-xs text-slate-500">{breachRow.ref}</span></CardHeader>
-          <CardBody>
+        <div className="card">
+          <div className="cardhd"><h3>SLA custody legs</h3><span className="ref">{breachRow.ref}</span></div>
+          <div className="cardbd">
             <SlaLegsBar legs={legs.legs} breached={legs.breached} />
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Attorney workload</CardTitle></CardHeader>
-          <CardBody className="p-0">
-            {o.workload.length === 0 ? <p className="px-4 py-3 text-xs text-slate-400">No assigned open work.</p> : (
-              <Table><tbody>{o.workload.map((w) => (
-                <TR key={w.user_id}><TD>{w.name}</TD>
-                  <TD className="tabular-nums text-slate-500">{w.open} open</TD>
-                  <TD>{w.overdue > 0 && <Badge tone="red">{w.overdue} overdue</Badge>}</TD></TR>
-              ))}</tbody></Table>
+      <div className="cols">
+        <div className="card">
+          <div className="cardhd"><h3>Attorney workload</h3></div>
+          <div className="cardbd nopad">
+            {o.workload.length === 0 ? <p className="emptyline">No assigned open work.</p> : (
+              <table><tbody>{o.workload.map((w) => (
+                <tr key={w.user_id}><td>{w.name}</td>
+                  <td className="num">{w.open} open</td>
+                  <td>{w.overdue > 0 && <span className="badge c">{w.overdue} overdue</span>}</td></tr>
+              ))}</tbody></table>
             )}
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Routing-rule effectiveness</CardTitle></CardHeader>
-          <CardBody className="p-0">
-            {o.rule_effectiveness.length === 0 ? <p className="px-4 py-3 text-xs text-slate-400">No rules configured.</p> : (
-              <Table><tbody>{o.rule_effectiveness.map((r) => (
-                <TR key={r.id}><TD className="font-medium">{r.name}</TD>
-                  <TD className="tabular-nums text-slate-500">fired {r.times_fired}×</TD></TR>
-              ))}</tbody></Table>
+          </div>
+        </div>
+        <div className="card">
+          <div className="cardhd"><h3>Routing-rule effectiveness</h3></div>
+          <div className="cardbd nopad">
+            {o.rule_effectiveness.length === 0 ? <p className="emptyline">No rules configured.</p> : (
+              <table><tbody>{o.rule_effectiveness.map((r) => (
+                <tr key={r.id}><td className="fw">{r.name}</td>
+                  <td className="num">fired {r.times_fired}×</td></tr>
+              ))}</tbody></table>
             )}
-          </CardBody>
-        </Card>
+          </div>
+        </div>
       </div>
     </div>
   );

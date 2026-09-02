@@ -123,30 +123,49 @@ this contract**.
 The panel opens on the main co-pilot view: a command bar with quick-action
 chips on top, results below.
 
-1. **Sign in** with your Aegis email + password (calls `/api/v1/auth/login`).
-2. Use a **chip** or type into the **command bar**:
-   - `Review` → `/word/review`: risk-ranked issue cards for the open contract.
-   - `Obligations` / `Summarize` / any free-text question → `/word/ask`: reads
-     the document and answers inline.
-   - `Playbook` → pick a playbook and run it against the **linked** contract.
-3. On any issue card / redline / deviation:
+1. **Sign in** with your Aegis email + password (calls `/api/v1/auth/login`). A
+   short-lived access token is kept in memory; when it expires, the panel
+   silently refreshes it via the same HttpOnly-cookie session the web app
+   uses — no re-login unless the underlying session itself has actually
+   expired or been revoked.
+2. Use a **chip** or type into the **command bar** — every one of these calls
+   the *same* backend the web app's Ask Aegis / risk / playbook engines use,
+   not a separate implementation:
+   - `Review` → `GET/POST /contracts/{id}/risk` + `/deviations`: the real
+     weighted risk score and open playbook deviations for the linked contract.
+   - `Obligations` / `Summarize` / any free-text question → a real, streamed
+     Ask Aegis turn (`/assistant/sessions/{id}/stream`) with tool use, inline
+     "Reading the contract…"-style status, and multi-turn memory across the
+     conversation.
+   - `Explain selection` → highlight a clause in the document first; this asks
+     Ask Aegis about exactly that text, no typing required.
+   - `Playbook` → pick a playbook, then either **run it** against the linked
+     contract, or **browse its clause library** to insert a standard clause
+     directly.
+3. On any issue card / redline / deviation / clause:
    - **Locate** — selects, scrolls to, and briefly highlights the exact clause.
    - **Insert redline** — track changes on, replaces the clause with the
      suggestion (falls back to your current selection if it can't auto-locate).
    - **Insert clause** / **Comment** / **Copy** as applicable.
 4. The **Track changes** toggle (in the command bar) controls whether edits are
    recorded as redlines. Leave it on so a reviewer can accept/reject each change.
+5. In the contract panel, **"Save current draft as new version"** has a
+   checkbox — **"This is the counterparty's redline coming back"** — check it
+   when uploading a revision *they* sent, so Aegis logs it as a counterparty
+   revision and automatically re-reviews it (fresh risk score + playbook pass)
+   once analysis finishes, instead of a plain manual upload.
 
 ### Contract chip → panel
 
-5. The chip under the header shows the linked contract (or **Link this
+6. The chip under the header shows the linked contract (or **Link this
    document…**). Tap it to open the Contract panel and either **Save to Aegis**
    (uploads the `.docx` as a new contract) or **Link to an existing contract**.
    The link is stored inside the `.docx`, so it persists for anyone who reopens it.
-6. In the panel: the contract's **stage**, **version history**, **Save current
-   draft as new version** (`POST /contracts/{id}/versions`), **Open in Aegis**,
-   and **proposed redlines** with **Locate / Apply in Word / Accept / Reject**
-   (Accept/Reject sync to the repository).
+7. In the panel: the contract's **stage**, **version history**, **Save current
+   draft as new version** (`POST /contracts/{id}/versions`, or `.../counterparty-revision`
+   when the toggle from step 5 is checked), **Open in Aegis**, and **proposed
+   redlines** with **Locate / Apply in Word / Accept / Reject** (Accept/Reject
+   sync to the repository).
 
 The **moon/sun** button (top-right) switches light/dark; it defaults to your
 Office theme.
@@ -166,17 +185,79 @@ Office theme.
 
 ---
 
-## Going to production (later)
+## Production hosting — already configured
 
-This setup is for local development (sideloading). To ship to real users:
+The steps below aren't speculative future work — this is what `deploy/nginx/aegis.conf`
+already does on the production VM, matching `manifest.xml`'s hardcoded
+`https://aegis.ctpsandbox.com/word-addin/...` URLs:
 
-1. **Host the panel** (`public/`) on your own HTTPS domain instead of
-   `localhost:3001`, and replace every `https://localhost:3001` in
-   `manifest.xml` with that URL.
-2. **Point at the real API.** Either keep a same-origin proxy, or call the
-   backend directly and add your panel's origin to `CORS_ORIGINS` on the backend.
+1. **The panel is hosted, same-origin, already.** nginx's `location /word-addin/`
+   block serves this directory's `public/` straight from disk
+   (`/opt/aegis/word-addin/`) under the same origin as the API. Deploying an
+   update is `rsync`/copy `word-addin/public/` to that path on the VM — there's
+   no separate hosting setup to build.
+2. **The API is already proxied same-origin**, not called cross-origin — the
+   same `location /api/` block the Next.js frontend uses also serves this
+   add-in, so there's no CORS configuration and no cross-site cookie
+   complication for the silent-refresh session cookie described in "Using the
+   panel" above; it behaves exactly like the web app's own session.
+
+What's still genuinely open, if you want it:
+
 3. **Auth:** swap email/password for Microsoft 365 SSO (Nested App
-   Authentication) or the Office Dialog API against your login page.
+   Authentication) or the Office Dialog API against your login page — a real
+   feature to build, not a config step.
 4. **Distribute** via **Centralized Deployment** (Microsoft 365 admin center →
    Integrated apps → upload `manifest.xml`) for a whole firm, or **AppSource**
    for public self-serve.
+
+## Ready for Microsoft Marketplace submission
+
+What's done in this repo:
+
+- `public/support.html` — a real support page (`manifest.xml`'s `SupportUrl` now
+  points here instead of at the panel itself). **Replace its placeholder email
+  before submitting** — a real one is required for certification.
+- `public/privacy.html` — a privacy policy drafted from the add-in's actual data
+  flows (auth, document content sent for AI review, what's stored where). It's
+  marked as a draft throughout — **have it reviewed by legal/compliance before
+  publishing**, and fill in the `[bracketed]` placeholders (your legal entity
+  name, hosting region). This isn't optional: Microsoft's validation checks that
+  the privacy policy specifically describes this app, not just a generic
+  company page.
+- `STORE_LISTING.md` — short/long description copy, a category suggestion, a
+  shot list for screenshots, and a template for the mandatory reviewer test-
+  account notes (this add-in uses email/password, not SSO, so a working test
+  account in the certification notes is required or the submission auto-fails).
+- Accessibility: fixed several text/background color pairs in `taskpane.css`
+  that failed WCAG AA contrast (status messages, empty states, and — worst —
+  dark-mode severity badges), and added `aria-label`s to the sign-in and
+  command-bar inputs.
+
+What's still yours to do — none of this is something to build, it's business/
+legal ownership:
+
+- Enroll in the **Microsoft 365 and Copilot program** via Partner Center (a
+  developer/publisher account, separately from any Aegis account).
+- Have counsel finalize `privacy.html` and decide on a EULA (Microsoft's
+  standard EULA is the simplest default — a checkbox in Partner Center, no file
+  needed — unless you want your own).
+- Set the real support contact in `support.html`.
+- Create a real test account for reviewers and fill in `STORE_LISTING.md`'s
+  certification-notes template with it (don't commit real credentials to this
+  repo — see the note at the bottom of that file).
+- Take the actual screenshots (needs a live Word session, so it's not something
+  automatable here) and write/paste the listing into Partner Center.
+- Budget 4-6 weeks for review, and expect at least one round of feedback —
+  that's normal, not a sign something's wrong.
+
+## A note on `manifest.xml`'s WordApi version
+
+The manifest declares `WordApi MinVersion="1.3"` (the floor Word needs to load
+the add-in at all), while `taskpane.js` separately runtime-checks for WordApi
+**1.4** before enabling Track Changes and Comments. That's intentional
+progressive enhancement, not a bug: an older Word that only satisfies 1.3 still
+loads the panel — it just gets those two features disabled gracefully (see the
+troubleshooting table above). Don't "fix" this by bumping the manifest's floor
+to 1.4 — that would stop the add-in from loading at all on older Word builds
+for no benefit.

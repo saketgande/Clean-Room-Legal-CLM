@@ -21,7 +21,7 @@
   <Description DefaultValue="AI contract review and redlining from your Aegis Legal CLM, right inside Word." />
   <IconUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/assets/icon-64.png" />
-  <SupportUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/taskpane.html" />
+  <SupportUrl DefaultValue="https://aegis.ctpsandbox.com/word-addin/support.html" />
 
   <Hosts>
     <Host Name="Document" />

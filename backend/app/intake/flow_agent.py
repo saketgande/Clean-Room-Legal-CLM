@@ -1,5 +1,5 @@
-"""Flow Router agent — reads an intake request and suggests which governance
-workflow (Flow) it should ride, grounded on the org's live flow catalog.
+"""Workflow Router agent — reads an intake request and suggests which governance
+workflow (Workflow) it should ride, grounded on the org's live flow catalog.
 
 Suggest-only: it never starts a flow. A reviewer accepts the suggestion on the
 ticket (one click → flows/start). Two layers by design:
@@ -30,12 +30,11 @@ _CONFIDENT = 0.6
 
 def flow_catalog(db: Session, org_id: str) -> list[dict]:
     """The enabled flows this org can route to — the model's only menu."""
+    from app.workflows.models import Workflow
     from sqlalchemy import select
 
-    from app.flows.models import Flow
-
     flows = db.scalars(
-        select(Flow).where(Flow.org_id == org_id, Flow.enabled.is_(True)).order_by(Flow.eval_order.asc())
+        select(Workflow).where(Workflow.org_id == org_id, Workflow.enabled.is_(True)).order_by(Workflow.eval_order.asc())
     ).all()
     out = []
     for f in flows:
@@ -50,7 +49,7 @@ def flow_catalog(db: Session, org_id: str) -> list[dict]:
 
 def _baseline(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict:
     """Deterministic suggestion from the existing criteria matcher."""
-    from app.flows.service import select_flow
+    from app.workflows.service import select_flow
 
     flow = select_flow(db, request=request)
     if flow is None:

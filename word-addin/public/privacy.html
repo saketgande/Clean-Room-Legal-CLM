@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy — Aegis Legal CLM for Word</title>
+    <style>
+      :root {
+        --bg: #f7f8fa; --surface: #ffffff; --ink: #15181e; --muted: #5b6472;
+        --line: rgba(20, 24, 31, 0.1); --accent: #4f46e5; --warn-bg: #fff8e6; --warn-border: #e8c766; --warn-ink: #7a5b00;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #0f1116; --surface: #181b22; --ink: #e7e9ed; --muted: #99a1af; --line: rgba(255,255,255,0.12); --accent: #8b83ff; --warn-bg: #2a2410; --warn-border: #5c4d17; --warn-ink: #e0c46a; color-scheme: dark; }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--ink); line-height: 1.65; }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; }
+      .brand { display: flex; align-items: center; gap: 9px; margin-bottom: 28px; }
+      .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+      .brand-name { font-weight: 600; font-size: 17px; }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      p.lead { color: var(--muted); margin: 0 0 24px; font-size: 13.5px; }
+      .draft-notice {
+        background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-ink);
+        border-radius: 12px; padding: 16px 18px; margin-bottom: 32px; font-size: 13.5px;
+      }
+      .draft-notice strong { display: block; margin-bottom: 4px; }
+      h2 { font-size: 15px; margin: 32px 0 8px; }
+      p, li { font-size: 14px; }
+      ul { padding-left: 20px; margin: 8px 0; }
+      li { margin-bottom: 6px; }
+      table { width: 100%; border-collapse: collapse; margin: 10px 0 4px; font-size: 13px; }
+      th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+      th { color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; }
+      a { color: var(--accent); }
+      code { font-family: ui-monospace, Menlo, monospace; font-size: 12px; background: rgba(120,120,120,0.12); padding: 1px 5px; border-radius: 5px; }
+      .placeholder { background: rgba(220,38,38,0.12); color: #b91c1c; padding: 0 4px; border-radius: 4px; }
+      @media (prefers-color-scheme: dark) { .placeholder { color: #f0a09a; } }
+      footer { margin-top: 40px; font-size: 12.5px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand"><span class="brand-dot"></span><span class="brand-name">Aegis</span></div>
+
+      <div class="draft-notice">
+        <strong>Draft — have this reviewed by qualified legal counsel before publishing.</strong>
+        This policy is auto-generated from the add-in's actual code behavior (what data it
+        collects, where it sends it, and why) as of the date below. It is a factual starting
+        point, not a substitute for legal review — privacy-law obligations (GDPR, CCPA, and
+        others) depend on facts about your organization, your customers, and your data-processing
+        agreements that no code-derived document can capture. Replace every
+        <span class="placeholder">bracketed placeholder</span> before this goes live, and route it
+        through your legal/compliance function first — this is doubly true for a legal-tech
+        product whose own customers will scrutinize it.
+      </div>
+
+      <h1>Privacy Policy — Aegis Legal CLM Word Add-in</h1>
+      <p class="lead">Effective date: <span class="placeholder">[DATE]</span> · Applies to: the Aegis Legal CLM task pane for Microsoft Word</p>
+
+      <h2>Who this covers</h2>
+      <p>
+        This policy describes how <span class="placeholder">[Your Company / Legal Entity Name]</span>
+        ("we," "us") handles information through the Aegis Legal CLM add-in for Microsoft Word (the
+        "Add-in"). The Add-in is a companion to the Aegis Legal CLM web application and is used by
+        employees of organizations that license Aegis ("your organization") to review, redline, and
+        ask questions about contracts without leaving Word.
+      </p>
+
+      <h2>Information the Add-in collects</h2>
+      <table>
+        <tr><th>What</th><th>When</th><th>Why</th></tr>
+        <tr><td>Email address and password</td><td>Sign-in</td><td>Authenticate you against your organization's Aegis account</td></tr>
+        <tr><td>The open document's full content (text and, when you save/link it, the file itself)</td><td>Linking a document, running Review, asking a question, saving a new version</td><td>AI-assisted contract review, risk scoring, playbook comparison, and answering your questions about the document</td></tr>
+        <tr><td>Text you highlight in the document</td><td>Using "Explain selection"</td><td>Answer a question about that specific clause</td></tr>
+        <tr><td>Your questions and the assistant's answers</td><td>Any conversation in the panel</td><td>Maintain conversation context across a session; shown back to you and to your organization's Aegis account</td></tr>
+        <tr><td>A contract-record identifier</td><td>Automatically, once a document is linked</td><td>Stored inside the <code>.docx</code> file itself (via Word's document-settings API) so the link to the matching Aegis record persists when the file is reopened or shared</td></tr>
+        <tr><td>An access token and your name/email (cached)</td><td>After sign-in</td><td>Kept in the browser storage local to the Word add-in panel so you don't have to sign in again every time you open it</td></tr>
+        <tr><td>Light/dark theme preference</td><td>Using the theme toggle</td><td>Remember your preference locally</td></tr>
+      </table>
+      <p>We do not collect payment information, and the Add-in does not use third-party advertising or analytics trackers.</p>
+
+      <h2>How your document content is used</h2>
+      <p>
+        When you link a document, run Review, ask a question, or select "Explain selection," the
+        relevant text is sent to Aegis's backend, which:
+      </p>
+      <ul>
+        <li>Stores it as a version/snapshot of a contract record belonging to your organization's Aegis account (contract records are scoped to your organization; other organizations on Aegis cannot see them).</li>
+        <li>Sends the relevant text to Anthropic's Claude API (a third-party AI service) to generate risk scores, identify clauses that deviate from your organization's playbooks, and answer your questions. Anthropic processes this text to generate a response; see <a href="https://www.anthropic.com/legal/privacy" target="_blank" rel="noopener noreferrer">Anthropic's privacy policy</a> for how they handle it.</li>
+        <li>Does not use your document content to train any AI model.</li>
+      </ul>
+
+      <h2>Where information is stored</h2>
+      <p>
+        Contract content, versions, conversation history, and account information are stored in
+        your organization's Aegis database, hosted at
+        <span class="placeholder">[hosting provider / region, e.g. "AWS us-east-1"]</span>. Data is
+        retained per your organization's Aegis configuration and is not shared with other Aegis
+        customers. The access token and small local preferences described above are stored only in
+        the browser storage of the device running Word, and are cleared when you sign out.
+      </p>
+
+      <h2>Third-party services</h2>
+      <ul>
+        <li><strong>Anthropic (Claude API)</strong> — processes document/question text to generate AI review, risk, and chat responses, as described above.</li>
+        <li><strong>Google Fonts</strong> — the panel loads the "Inter" typeface from Google's font CDN, which (like any web font request) receives the requesting device's IP address as part of that request.</li>
+      </ul>
+      <p>We do not sell your information or your organization's contract data to third parties.</p>
+
+      <h2>Your rights and choices</h2>
+      <p>
+        Access, correction, or deletion requests for data processed through the Add-in should go
+        through your organization's Aegis administrator, since contract and account data belongs to
+        your organization's Aegis tenant. Depending on your jurisdiction, you may have additional
+        rights (e.g., under GDPR or CCPA) — contact us at the address below with questions.
+      </p>
+
+      <h2>Data security</h2>
+      <p>
+        The access token used to authenticate API calls is short-lived; session renewal uses an
+        HttpOnly cookie that isn't readable by any script running in the page. All communication
+        between the Add-in and the backend is encrypted in transit (HTTPS).
+      </p>
+
+      <h2>Children's privacy</h2>
+      <p>The Add-in is a business tool intended for use by professional employees of licensed organizations and is not directed at children.</p>
+
+      <h2>Changes to this policy</h2>
+      <p>We'll update the effective date above when this policy changes and, for material changes, provide additional notice through the Add-in or your organization's Aegis administrator.</p>
+
+      <h2>Contact us</h2>
+      <p>Questions about this policy: <a href="support.html">contact support</a>.</p>
+
+      <footer>Aegis Legal CLM — this document describes the Word add-in specifically, as required for Microsoft Marketplace submission.</footer>
+    </div>
+  </body>
+</html>

@@ -14,8 +14,8 @@ class ResourceGrant(
     TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
 ):
     """A single, time-bound grant of access to ONE object, for a user / role /
-    group. This unifies the three fragmented sharing mechanisms (ProjectShare,
-    ContractShare, Workflow.shared_user_ids) into one relationship model — the
+    group. This unifies the three fragmented sharing mechanisms (MatterShare,
+    ContractShare, Prompt.shared_user_ids) into one relationship model — the
     object#level@principal tuple the whole legal-RBAC pipeline reads from.
 
     ``org_id`` (via OrgScopedMixin) is kept for consistency with every other

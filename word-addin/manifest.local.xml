@@ -21,7 +21,7 @@
   <Description DefaultValue="AI contract review and redlining from your Aegis Legal CLM, right inside Word." />
   <IconUrl DefaultValue="https://localhost:3001/assets/icon-32.png" />
   <HighResolutionIconUrl DefaultValue="https://localhost:3001/assets/icon-64.png" />
-  <SupportUrl DefaultValue="https://localhost:3001/taskpane.html" />
+  <SupportUrl DefaultValue="https://localhost:3001/support.html" />
 
   <Hosts>
     <Host Name="Document" />

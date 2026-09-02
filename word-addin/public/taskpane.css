@@ -2,18 +2,24 @@
    bottom, document auto-linked. Clean and professional; light + dark. */
 :root {
   --bg: #f7f8fa; --surface: #ffffff; --surface-2: #eef1f5; --ink: #15181e;
-  --muted: #5b6472; --faint: #98a0ae; --line: rgba(20, 24, 31, 0.08); --line-2: rgba(20, 24, 31, 0.15);
+  /* --faint/--med/--ok are tuned to meet WCAG AA (>=4.5:1) against --surface
+     for their real usage as text (status line, empty states, badges) — don't
+     re-lighten/brighten these without rechecking contrast. */
+  --muted: #5b6472; --faint: #6c778a; --line: rgba(20, 24, 31, 0.08); --line-2: rgba(20, 24, 31, 0.15);
   --accent: #4f46e5; --accent-ink: #ffffff; --accent-soft: rgba(79, 70, 229, 0.1);
-  --high: #dc2626; --med: #d97706; --low: #4f46e5; --ok: #16a34a;
+  --high: #dc2626; --med: #b45309; --low: #4f46e5; --ok: #12883e; --badge-ink: #ffffff;
   --shadow: 0 1px 2px rgba(20, 24, 31, 0.05), 0 8px 22px -14px rgba(20, 24, 31, 0.14);
   --sans: "Inter", -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
   color-scheme: light;
 }
 .dark {
   --bg: #0f1116; --surface: #181b22; --surface-2: #20242d; --ink: #e7e9ed;
-  --muted: #99a1af; --faint: #5b6472; --line: rgba(255, 255, 255, 0.08); --line-2: rgba(255, 255, 255, 0.14);
+  --muted: #99a1af; --faint: #798394; --line: rgba(255, 255, 255, 0.08); --line-2: rgba(255, 255, 255, 0.14);
   --accent: #8b83ff; --accent-ink: #14101f; --accent-soft: rgba(139, 131, 255, 0.16);
-  --high: #e0746c; --med: #e0a95e; --low: #8b83ff; --ok: #5fcf8a;
+  /* --high/--med/--low stay light (pastel) here since they're also readable
+     as direct text on this dark surface (.status.error uses --high); badges
+     compensate with dark --badge-ink instead of assuming white-on-fill. */
+  --high: #e0746c; --med: #e0a95e; --low: #8b83ff; --ok: #5fcf8a; --badge-ink: #15181e;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
   color-scheme: dark;
 }
@@ -121,7 +127,7 @@ a.btn { text-decoration: none; }
 .finding:hover { border-color: var(--line-2); }
 .finding-head { display: flex; align-items: center; gap: 9px; }
 .finding-title { font-weight: 600; font-size: 13.5px; color: var(--ink); }
-.badge { display: inline-flex; align-items: center; flex-shrink: 0; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: #fff; }
+.badge { display: inline-flex; align-items: center; flex-shrink: 0; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em; color: var(--badge-ink); }
 .badge.high { background: var(--high); } .badge.medium { background: var(--med); } .badge.low { background: var(--low); }
 .finding-cat { font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--faint); }
 .finding-issue { font-size: 13px; line-height: 1.55; color: var(--muted); }
@@ -164,6 +170,6 @@ a.btn { text-decoration: none; }
 .dark .banner { color: #e0a95e; }
 .status { padding: 0 14px; font-size: 12px; color: var(--faint); transition: padding 0.1s; }
 .status:not(:empty) { padding: 8px 14px; }
-.status.ok { color: var(--ok); } .status.warn { color: #b45309; } .status.error { color: var(--high); }
+.status.ok { color: var(--ok); } .status.warn { color: var(--med); } .status.error { color: var(--high); }
 
 .hidden { display: none !important; }

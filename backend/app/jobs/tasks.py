@@ -973,3 +973,25 @@ def prune_resource_timeline_event() -> dict:
             ResourceTimelineEvent, days=_RESOURCE_TIMELINE_EVENT_RETENTION_DAYS
         )
     }
+
+
+@celery_app.task
+def send_notice_reminders() -> dict:
+    """Daily: chase notices approaching or past their statutory response
+    deadline, across every org.
+
+    Idempotent by construction — the sweep only notifies when a notice's
+    milestone (7 days out / 3 days out / due today / lapsed) is more urgent than
+    the last one recorded on it, so re-running it the same day sends nothing.
+    Answered and closed notices fall out of the query, which is what stops the
+    chasing once the work is actually done.
+
+    Org-agnostic counterpart of the per-org POST /notices/run-reminders.
+    """
+    from app.notices import service as notices_service
+
+    db = SessionLocal()
+    try:
+        return notices_service.run_reminders(db)
+    finally:
+        db.close()

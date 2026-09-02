@@ -118,9 +118,9 @@ def _resource_owner_id(db: Session, resource_type: str, resource_id: str) -> str
         c = db.get(Contract, resource_id)
         return c.owner_user_id if c else None
     if resource_type == "project":
-        from app.projects.models import Project
+        from app.matters.models import Matter
 
-        p = db.get(Project, resource_id)
+        p = db.get(Matter, resource_id)
         return p.owner_user_id if p else None
     if resource_type == "playbook":
         from app.playbooks.models import Playbook

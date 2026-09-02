@@ -10,11 +10,14 @@ const TOKEN_KEY = "aegis_token";
 const USER_KEY = "aegis_user";
 const THEME_KEY = "aegis_theme";
 const LINK_KEY = "aegisContractId";
+const SESSION_KEY = "aegisSessionId";
+const SESSION_CONTRACT_KEY = "aegisSessionContractId";
 
 let trackChangesSupported = false;
 let commentsSupported = false;
 let booted = false;
 let trackOn = true;
+let activeStreamAbort = null;
 
 const SEV = { high: 0, medium: 1, low: 2 };
 const OBLIGATIONS_Q = "Extract every obligation in this contract — deadlines, payments, and renewal duties — as a clear list.";
@@ -24,6 +27,7 @@ const CHIPS = [
   { act: "playbook", label: "Playbook", icon: "book" },
   { act: "obligations", label: "Obligations", icon: "list" },
   { act: "summarize", label: "Summarize", icon: "file" },
+  { act: "explain", label: "Explain selection", icon: "target" },
 ];
 
 const ICONS = {
@@ -82,17 +86,98 @@ function paintChips() { const c = $("chips"); c.innerHTML = ""; CHIPS.forEach((c
 
 /* ---- api ---- */
 const getToken = () => localStorage.getItem(TOKEN_KEY) || "";
-async function api(path, { method = "GET", body, form, auth = true } = {}) {
+
+// The access token is short-lived; the refresh token lives in an HttpOnly
+// cookie the backend sets on /auth/login (scoped to /api/v1/auth). Same-origin
+// requests already carry it, so a silent POST /auth/refresh mints a new access
+// token without the user ever seeing a sign-in prompt for an ordinary expiry.
+// Mirrors frontend/src/lib/api.ts's tryRefresh — same endpoint, same one-retry
+// contract, so both surfaces recover from an expired token the same way.
+let refreshingToken = null;
+async function tryRefreshToken() {
+  if (!refreshingToken) {
+    refreshingToken = (async () => {
+      try {
+        const res = await fetch(API_BASE + "/auth/refresh", {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: "{}",
+        });
+        if (!res.ok) return false;
+        const data = await res.json();
+        if (data && data.access_token) { localStorage.setItem(TOKEN_KEY, data.access_token); return true; }
+        return false;
+      } catch (e) { return false; }
+      finally { refreshingToken = null; }
+    })();
+  }
+  return refreshingToken;
+}
+
+async function api(path, { method = "GET", body, form, auth = true, _retried = false } = {}) {
   const headers = {};
   if (auth && getToken()) headers["Authorization"] = "Bearer " + getToken();
   let payload;
   if (form) payload = form;
   else if (body !== undefined) { headers["Content-Type"] = "application/json"; payload = JSON.stringify(body); }
-  const res = await fetch(API_BASE + path, { method, headers, body: payload });
+  const res = await fetch(API_BASE + path, { method, headers, body: payload, credentials: "include" });
+  if (res.status === 401 && auth && !_retried) {
+    if (await tryRefreshToken()) return api(path, { method, body, form, auth, _retried: true });
+    doLogout();
+    throw new Error("Your session expired — please sign in again.");
+  }
   const raw = await res.text();
   let data; try { data = raw ? JSON.parse(raw) : {}; } catch (e) { data = { detail: raw }; }
   if (!res.ok) { const msg = (data && (data.detail || data.message)) || "HTTP " + res.status; throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg)); }
   return data;
+}
+
+/* Consumes an SSE endpoint (POST body -> text/event-stream) a chunk at a time.
+   Mirrors frontend/src/lib/api.ts's apiStream — same event framing, same
+   split-on-blank-line parsing — so the Word add-in and the web app agree on
+   what an assistant-stream event looks like. Returns an abort function. */
+function apiStreamPost(path, body, { onEvent, onError, onClose }) {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const doFetch = () => {
+        const headers = { "Content-Type": "application/json" };
+        if (getToken()) headers["Authorization"] = "Bearer " + getToken();
+        return fetch(API_BASE + path, { method: "POST", headers, body: JSON.stringify(body || {}), credentials: "include", signal: controller.signal });
+      };
+      let res = await doFetch();
+      if (res.status === 401 && (await tryRefreshToken())) res = await doFetch();
+      if (!res.ok || !res.body) {
+        let msg = "HTTP " + res.status;
+        try { const d = await res.json(); msg = (d && (d.detail || d.message)) || msg; } catch (e) {}
+        if (onError) onError(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)));
+        if (onClose) onClose();
+        return;
+      }
+      const reader = res.body.getReader(), decoder = new TextDecoder();
+      let buffer = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split(/\r?\n\r?\n/);
+        buffer = chunks.pop() || "";
+        for (const chunk of chunks) {
+          let eventName = "message"; const dataLines = [];
+          for (const line of chunk.split(/\r?\n/)) {
+            if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          if (!dataLines.length) continue;
+          let parsed; try { parsed = JSON.parse(dataLines.join("\n")); } catch (e) { parsed = { raw: dataLines.join("\n") }; }
+          onEvent(eventName, parsed);
+        }
+      }
+      if (onClose) onClose();
+    } catch (err) {
+      if (err.name !== "AbortError" && onError) onError(err);
+      if (onClose) onClose();
+    }
+  })();
+  return () => controller.abort();
 }
 
 /* ---- auth ---- */
@@ -143,7 +228,7 @@ async function autoLink() {
     setStatus(res.created ? "Linked — saved to Aegis." : "Linked to your contract in Aegis.", "ok");
   } catch (e) { setCtx({ state: "error", main: "Couldn't link — tap to retry", onClick: autoLink }); }
 }
-function showLinked(c) { setCtx({ state: "linked", main: c.title || "Linked contract", sub: prettyStage(c.lifecycle_stage || ""), onClick: openContract }); }
+function showLinked(c) { setCtx({ state: "linked", main: c.title || "Linked contract", sub: prettyStage(c.lifecycle_stage || ""), onClick: openContract }); ensureSession().catch(() => {}); }
 async function refreshCtx() {
   const id = getLinkedContractId();
   if (!id) { setCtx({ state: "idle", main: "No contract linked", onClick: openContract }); return; }
@@ -165,68 +250,154 @@ function appendAssistant() { clearWelcome(); const d = document.createElement("d
 async function runReview() {
   appendUser("Review this contract");
   const c = appendAssistant(); c.appendChild(loadingRow("Reviewing the contract…"));
-  let text; try { text = await getDocumentText(); } catch (e) { c.innerHTML = ""; c.appendChild(errInline("Couldn't read the document: " + e.message)); return; }
-  if (!text.trim()) { c.innerHTML = ""; c.appendChild(errInline("The document looks empty — open a contract first.")); return; }
-  try { const res = await api("/word/review", { method: "POST", body: { text, title: getDocTitle(), party: null, playbook: null, max_findings: 12 } }); c.innerHTML = ""; c.appendChild(reviewContent(res)); }
-  catch (e) { c.innerHTML = ""; c.appendChild(errInline("Review failed: " + e.message)); }
-  scrollResults();
-}
-async function runAsk(question, label) {
-  appendUser(label || question);
-  const c = appendAssistant(); c.appendChild(loadingRow());
-  let text; try { text = await getDocumentText(); } catch (e) { c.innerHTML = ""; c.appendChild(errInline("Couldn't read the document: " + e.message)); return; }
-  if (!text.trim()) { c.innerHTML = ""; c.appendChild(errInline("The document looks empty — open a contract first.")); return; }
-  try { const res = await api("/word/ask", { method: "POST", body: { question, text, title: getDocTitle() } }); c.innerHTML = ""; const a = document.createElement("div"); a.className = "answer"; a.innerHTML = renderMarkdown(res.answer); c.appendChild(a); }
-  catch (e) { c.innerHTML = ""; c.appendChild(errInline("Failed: " + e.message)); }
+  const id = getLinkedContractId();
+  if (!id) { c.innerHTML = ""; c.appendChild(infoBlock("This document isn't linked to a contract yet — it links automatically once it has content.")); c.appendChild(mkBtnIcon("Open contract", "link", "outline mini", openContract)); return; }
+  let risk, deviations;
+  try {
+    [risk, deviations] = await Promise.all([
+      api("/contracts/" + id + "/risk", { method: "POST", body: {} }),
+      api("/contracts/" + id + "/deviations"),
+    ]);
+  } catch (e) { c.innerHTML = ""; c.appendChild(errInline("Review failed: " + e.message)); return; }
+  if (!risk.band || risk.band === "unknown") {
+    c.innerHTML = "";
+    c.appendChild(infoBlock("Still analyzing this document — clause extraction runs in the background right after linking. Try Review again in a few seconds."));
+    c.appendChild(mkBtn("Try again", "outline mini", runReview));
+    return;
+  }
+  c.innerHTML = ""; c.appendChild(reviewContent(risk, deviations));
   scrollResults();
 }
 function onChip(act) {
   if (act === "review") runReview();
   else if (act === "playbook") chipPlaybook();
-  else if (act === "obligations") runAsk(OBLIGATIONS_Q, "Extract obligations");
-  else if (act === "summarize") runAsk(SUMMARIZE_Q, "Summarize this contract");
+  else if (act === "obligations") runAssistantTurn(OBLIGATIONS_Q, "Extract obligations");
+  else if (act === "summarize") runAssistantTurn(SUMMARIZE_Q, "Summarize this contract");
+  else if (act === "explain") explainSelection();
 }
 
-function reviewContent(res) {
+// Selection-aware ask: explain whatever clause the user has highlighted in
+// the document, without them having to type a question about it.
+async function explainSelection() {
+  let text = "";
+  try {
+    text = await Word.run(async (ctx) => {
+      const sel = ctx.document.getSelection(); sel.load("text"); await ctx.sync();
+      return sel.text || "";
+    });
+  } catch (e) { setStatus("Couldn't read the selection: " + e.message, "error"); return; }
+  text = text.trim();
+  if (!text) { setStatus("Select some text in the document, then try again.", "warn"); return; }
+  const quoted = text.length > 600 ? text.slice(0, 600) + "…" : text;
+  runAssistantTurn('Explain this clause and flag any risk:\n\n"' + quoted + '"', "Explain the selected clause");
+}
+
+/* ---- streaming Ask (real Ask Aegis: tools, citations, multi-turn memory) ---- */
+const TOOL_LABELS = {
+  read_contract: "Reading the contract…", find_in_contract: "Searching the contract…",
+  ask_contract_brain: "Checking Contract Brain…", list_playbooks: "Looking up playbooks…",
+  run_playbook_review: "Running the playbook…", redline_against_playbook: "Drafting redlines…",
+  edit_contract: "Preparing an edit…", redraft_contract: "Redrafting…",
+  extract_obligations: "Extracting obligations…", get_contract_status: "Checking status…",
+};
+function toolLabel(name) { return TOOL_LABELS[name] || ("Using " + prettyStage(name || "a tool") + "…"); }
+
+function confirmationBlock(data, turn) {
+  const confirmationId = data.confirmation_id, assistantRunId = data.assistant_run_id, toolName = data.tool_name;
+  const box = document.createElement("div"); box.className = "muted-block";
+  const p = document.createElement("p"); p.textContent = "This needs your confirmation: " + prettyStage(toolName || "action") + ".";
+  box.appendChild(p);
+  const actions = document.createElement("div"); actions.className = "finding-actions";
+  const disableAll = () => actions.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  actions.appendChild(mkBtn("Confirm", "primary mini", async () => {
+    disableAll();
+    try {
+      await api("/assistant/confirmations/" + confirmationId + "/confirm", { method: "POST", body: {} });
+      box.remove();
+      streamIntoTurn("/assistant/runs/" + assistantRunId + "/resume?confirmation_id=" + confirmationId, {}, turn);
+    } catch (e) { box.appendChild(errInline("Confirm failed: " + e.message)); }
+  }));
+  actions.appendChild(mkBtn("Cancel", "ghost mini", async () => {
+    disableAll();
+    try {
+      await api("/assistant/confirmations/" + confirmationId + "/reject", { method: "POST", body: { reason: "Rejected in Word" } });
+      box.remove(); turn.appendChild(infoBlock("Cancelled."));
+    } catch (e) { box.appendChild(errInline("Cancel failed: " + e.message)); }
+  }));
+  box.appendChild(actions);
+  return box;
+}
+
+// Drives one SSE call (either the initial stream or a post-confirmation
+// resume) into an existing assistant turn: streams answer text in, shows a
+// transient status row per tool call, and renders a Confirm/Cancel affordance
+// when the assistant needs one — the same event contract Ask Aegis's web UI
+// consumes (message_delta/tool_started/tool_finished/confirmation_required/error).
+function streamIntoTurn(path, body, turn) {
+  const thinking = loadingRow("Thinking…"); turn.appendChild(thinking); scrollResults();
+  let answerEl = null, buffer = ""; const toolRows = new Map();
+  function ensureAnswerEl() {
+    if (!answerEl) { if (thinking.parentNode) thinking.remove(); answerEl = document.createElement("div"); answerEl.className = "answer"; turn.appendChild(answerEl); }
+    return answerEl;
+  }
+  function onEvent(event, data) {
+    if (event === "message_delta") {
+      buffer += String(data.text || ""); ensureAnswerEl().innerHTML = renderMarkdown(buffer); scrollResults();
+    } else if (event === "tool_started") {
+      if (thinking.parentNode) thinking.remove();
+      const row = loadingRow(toolLabel(data.tool_name));
+      turn.insertBefore(row, answerEl || null);
+      if (data.tool_use_id) toolRows.set(data.tool_use_id, row);
+      scrollResults();
+    } else if (event === "tool_finished") {
+      const row = data.tool_use_id && toolRows.get(data.tool_use_id);
+      if (row && row.parentNode) row.remove();
+    } else if (event === "confirmation_required") {
+      if (thinking.parentNode) thinking.remove();
+      turn.appendChild(confirmationBlock(data, turn));
+    } else if (event === "error") {
+      if (thinking.parentNode) thinking.remove();
+      turn.appendChild(errInline(String(data.message || "The assistant hit an error.")));
+    }
+  }
+  function onError(err) { if (thinking.parentNode) thinking.remove(); turn.appendChild(errInline("Failed: " + err.message)); }
+  function onClose() { if (thinking.parentNode) thinking.remove(); activeStreamAbort = null; scrollResults(); }
+  activeStreamAbort = apiStreamPost(path, body, { onEvent, onError, onClose });
+}
+
+async function runAssistantTurn(message, label) {
+  if (activeStreamAbort) return; // one in-flight turn at a time
+  appendUser(label || message);
+  const turn = appendAssistant();
+  let sessionId;
+  try { sessionId = await ensureSession(); }
+  catch (e) { turn.appendChild(errInline("Couldn't start a conversation: " + e.message)); return; }
+  const contractId = getLinkedContractId();
+  streamIntoTurn("/assistant/sessions/" + sessionId + "/stream", { message, contract_ids: contractId ? [contractId] : [] }, turn);
+}
+
+function reviewContent(risk, deviations) {
   const frag = document.createDocumentFragment();
-  const findings = (res.findings || []).slice().sort((a, b) => (SEV[a.severity] ?? 9) - (SEV[b.severity] ?? 9));
-  frag.appendChild(riskHero(findings, res.summary, res.truncated));
-  if (findings.length) { const list = document.createElement("div"); list.className = "findings"; findings.forEach((f) => list.appendChild(findingCard(f))); frag.appendChild(list); }
+  frag.appendChild(riskHero(risk));
+  const devs = (deviations || []).slice().sort((a, b) => SEV[mapSeverity(a.severity)] - SEV[mapSeverity(b.severity)]);
+  if (devs.length) { const list = document.createElement("div"); list.className = "findings"; devs.forEach((d) => list.appendChild(deviationCard(d))); frag.appendChild(list); }
+  else frag.appendChild(emptyInline("No open playbook deviations."));
   return frag;
 }
-function riskHero(findings, summary, truncated) {
-  const counts = { high: 0, medium: 0, low: 0 };
-  findings.forEach((f) => { const s = f.severity || "medium"; if (counts[s] === undefined) counts[s] = 0; counts[s]++; });
-  const total = findings.length;
-  const level = counts.high >= 2 ? "High risk" : counts.high >= 1 ? "Elevated risk" : counts.medium >= 1 ? "Moderate risk" : total ? "Low risk" : "No issues";
+function riskHero(risk) {
+  const counts = risk.counts || { high: 0, medium: 0, low: 0 };
+  const total = risk.clause_count || counts.high + counts.medium + counts.low;
+  const band = risk.band || "unrated";
+  const level = band === "high" ? "High risk" : band === "medium" ? "Moderate risk" : band === "low" ? "Low risk" : "Unrated";
   const card = document.createElement("div"); card.className = "risk-hero";
   card.innerHTML = '<div class="rh-eyebrow">Review</div><div class="rh-level"></div><div class="rh-meter"></div><div class="rh-counts"></div>';
-  card.querySelector(".rh-level").textContent = level;
+  card.querySelector(".rh-level").textContent = risk.score != null ? level + " · " + risk.score + "/100" : level;
   const meter = card.querySelector(".rh-meter"); let any = false;
   [["high", counts.high], ["medium", counts.medium], ["low", counts.low]].forEach((p) => { if (p[1] > 0) { any = true; const s = document.createElement("div"); s.className = "rh-seg " + p[0]; s.style.flex = String(p[1]); meter.appendChild(s); } });
   if (!any) { const s = document.createElement("div"); s.className = "rh-seg none"; s.style.flex = "1"; meter.appendChild(s); }
   const parts = []; if (counts.high) parts.push(counts.high + " high"); if (counts.medium) parts.push(counts.medium + " medium"); if (counts.low) parts.push(counts.low + " low");
-  card.querySelector(".rh-counts").textContent = total ? (total + " issue" + (total !== 1 ? "s" : "") + (parts.length ? " · " + parts.join(" · ") : "")) : "No issues flagged.";
-  if (summary) { const s = document.createElement("div"); s.className = "rh-summary"; s.textContent = summary + (truncated ? " · reviewed the first part of a long document" : ""); card.appendChild(s); }
-  return card;
-}
-function findingCard(f) {
-  const sev = f.severity || "medium";
-  const card = document.createElement("div"); card.className = "finding";
-  const head = document.createElement("div"); head.className = "finding-head";
-  const badge = document.createElement("span"); badge.className = "badge " + sev; badge.textContent = sev.toUpperCase();
-  const title = document.createElement("span"); title.className = "finding-title"; title.textContent = f.title || "Issue";
-  head.append(badge, title); card.appendChild(head);
-  if (f.category) { const c = document.createElement("div"); c.className = "finding-cat"; c.textContent = f.category; card.appendChild(c); }
-  if (f.issue) { const p = document.createElement("p"); p.className = "finding-issue"; p.textContent = f.issue; card.appendChild(p); }
-  if (f.suggested_text) { const s = document.createElement("div"); s.className = "suggestion"; s.textContent = f.suggested_text; card.appendChild(s); }
-  const actions = document.createElement("div"); actions.className = "finding-actions";
-  if (f.original_text) actions.appendChild(mkBtnIcon("Locate", "target", "outline mini", () => locateInDoc(f.original_text)));
-  if (f.action === "insert") actions.appendChild(mkBtn("Insert clause", "primary mini", () => insertClause(f)));
-  else if (f.action === "flag") { if (commentsSupported) actions.appendChild(mkBtn("Comment", "outline mini", () => commentOnSelection(f))); }
-  else actions.appendChild(mkBtn("Insert redline", "primary mini", () => applyRedline(f)));
-  if (f.suggested_text) actions.appendChild(mkBtn("Copy", "ghost mini", () => copyText(f.suggested_text)));
-  card.appendChild(actions);
+  card.querySelector(".rh-counts").textContent = total ? (total + " clause" + (total !== 1 ? "s" : "") + " reviewed" + (parts.length ? " · " + parts.join(" · ") : "")) : "No clauses extracted yet.";
+  if (risk.summary) { const s = document.createElement("div"); s.className = "rh-summary"; s.textContent = risk.summary; card.appendChild(s); }
   return card;
 }
 
@@ -242,10 +413,49 @@ async function chipPlaybook() {
   let pbs = []; try { pbs = await api("/playbooks"); } catch (e) { c.innerHTML = ""; c.appendChild(errInline("Couldn't load playbooks: " + e.message)); return; }
   c.innerHTML = "";
   if (!pbs.length) { c.appendChild(emptyInline("No playbooks yet. Create one in the Aegis app.")); return; }
-  c.appendChild(infoBlock("Choose a playbook to run on this contract:"));
+  c.appendChild(infoBlock("Choose a playbook for this contract:"));
   const list = document.createElement("div"); list.className = "pick-list";
-  pbs.forEach((p) => { const it = document.createElement("button"); it.className = "pick-item"; it.innerHTML = '<span><span class="pi-title"></span><span class="pi-sub"></span></span>'; it.querySelector(".pi-title").textContent = p.name || "Untitled playbook"; it.querySelector(".pi-sub").textContent = p.description || ""; it.addEventListener("click", () => runPlaybook(p.id, id, c)); list.appendChild(it); });
+  pbs.forEach((p) => { const it = document.createElement("button"); it.className = "pick-item"; it.innerHTML = '<span><span class="pi-title"></span><span class="pi-sub"></span></span>'; it.querySelector(".pi-title").textContent = p.name || "Untitled playbook"; it.querySelector(".pi-sub").textContent = p.description || ""; it.addEventListener("click", () => choosePlaybookAction(p, id, c)); list.appendChild(it); });
   c.appendChild(list);
+}
+function choosePlaybookAction(p, contractId, c) {
+  c.innerHTML = "";
+  c.appendChild(infoBlock(p.name || "Playbook"));
+  const stack = document.createElement("div"); stack.className = "stack";
+  stack.appendChild(mkBtn("Run this playbook", "primary block", () => runPlaybook(p.id, contractId, c)));
+  stack.appendChild(mkBtn("Browse its clause library", "outline block", () => browseClauseLibrary(p, c)));
+  c.appendChild(stack);
+}
+async function browseClauseLibrary(p, c) {
+  c.innerHTML = "";
+  if (!p.current_version_id) { c.appendChild(emptyInline("This playbook has no published version yet.")); return; }
+  c.appendChild(loadingRow("Loading clause library…"));
+  let rules = [];
+  try { rules = await api("/playbooks/" + p.id + "/versions/" + p.current_version_id + "/rules"); }
+  catch (e) { c.innerHTML = ""; c.appendChild(errInline("Couldn't load the clause library: " + e.message)); return; }
+  c.innerHTML = "";
+  c.appendChild(infoBlock((p.name || "Playbook") + " — clause library:"));
+  const usable = rules.filter((r) => r.sample_clause || r.required_language);
+  if (!usable.length) { c.appendChild(emptyInline("No insertable clauses in this playbook yet.")); return; }
+  const list = document.createElement("div"); list.className = "findings";
+  usable.forEach((r) => list.appendChild(clauseLibraryCard(r)));
+  c.appendChild(list);
+}
+function clauseLibraryCard(r) {
+  const text = r.sample_clause || r.required_language;
+  const sev = mapSeverity(r.risk_level);
+  const card = document.createElement("div"); card.className = "finding";
+  const head = document.createElement("div"); head.className = "finding-head";
+  const badge = document.createElement("span"); badge.className = "badge " + sev; badge.textContent = (r.risk_level || sev).toUpperCase();
+  const title = document.createElement("span"); title.className = "finding-title"; title.textContent = prettyStage(r.clause_type || "Clause");
+  head.append(badge, title); card.appendChild(head);
+  if (r.rationale) { const p2 = document.createElement("p"); p2.className = "finding-issue"; p2.textContent = r.rationale; card.appendChild(p2); }
+  const s = document.createElement("div"); s.className = "suggestion"; s.textContent = clip(text, 400); card.appendChild(s);
+  const actions = document.createElement("div"); actions.className = "finding-actions";
+  actions.appendChild(mkBtn("Insert clause", "primary mini", () => insertClause({ suggested_text: text })));
+  actions.appendChild(mkBtn("Copy", "ghost mini", () => copyText(text)));
+  card.appendChild(actions);
+  return card;
 }
 async function runPlaybook(playbookId, contractId, c) {
   c.innerHTML = ""; c.appendChild(loadingRow("Running playbook — this can take a moment…"));
@@ -352,6 +562,21 @@ function setLinkedContractId(id) { return new Promise((r) => { try { Office.cont
 function clearLinkedContractId() { return setLinkedContractId(null); }
 function openContract() { showView("contract"); renderContract(); }
 
+/* ---- assistant session (one per linked contract, cached on the document) ---- */
+function getSessionId() { try { return Office.context.document.settings.get(SESSION_KEY) || null; } catch (e) { return null; } }
+function getSessionContractId() { try { return Office.context.document.settings.get(SESSION_CONTRACT_KEY) || null; } catch (e) { return null; } }
+function setSession(id, contractId) { return new Promise((r) => { try { Office.context.document.settings.set(SESSION_KEY, id); Office.context.document.settings.set(SESSION_CONTRACT_KEY, contractId || null); Office.context.document.settings.saveAsync(() => r()); } catch (e) { r(); } }); }
+async function ensureSession() {
+  const contractId = getLinkedContractId();
+  if (getSessionId() && getSessionContractId() === contractId) return getSessionId();
+  const s = await api("/assistant/sessions", {
+    method: "POST",
+    body: { session_type: contractId ? "contract" : "general", contract_id: contractId || undefined, title: (getDocTitle() || "Word document").slice(0, 60) },
+  });
+  await setSession(s.id, contractId);
+  return s.id;
+}
+
 /* ---- contract panel ---- */
 async function renderContract() {
   const body = $("contract-body"); body.innerHTML = "";
@@ -398,7 +623,12 @@ function renderLinked(body, contract) {
 }
 async function renderVersions(body, id) {
   body.appendChild(sectionTitle("Versions"));
-  body.appendChild(mkBtnIcon("Save current draft as new version", "save", "primary block", () => saveAsNewVersion(id)));
+  const cpLabel = document.createElement("label"); cpLabel.className = "muted-block";
+  cpLabel.style.display = "flex"; cpLabel.style.alignItems = "center"; cpLabel.style.gap = "7px"; cpLabel.style.cursor = "pointer";
+  const cpCheckbox = document.createElement("input"); cpCheckbox.type = "checkbox";
+  cpLabel.append(cpCheckbox, document.createTextNode("This is the counterparty's redline coming back"));
+  body.appendChild(cpLabel);
+  body.appendChild(mkBtnIcon("Save current draft as new version", "save", "primary block", () => saveAsNewVersion(id, cpCheckbox.checked)));
   const wrap = document.createElement("div"); wrap.className = "stack"; body.appendChild(wrap); wrap.appendChild(loadingRow("Loading versions…"));
   try { const vs = await api("/contracts/" + id + "/versions"); wrap.innerHTML = ""; if (!vs.length) { wrap.appendChild(emptyInline("No versions yet.")); return; } vs.slice().reverse().forEach((v) => wrap.appendChild(versionRow(v))); }
   catch (e) { wrap.innerHTML = ""; wrap.appendChild(errInline("Couldn't load versions: " + e.message)); }
@@ -413,10 +643,20 @@ function versionRow(v) {
   if (v.is_authoritative) { const p = document.createElement("span"); p.className = "auth-pill"; p.textContent = "Current"; row.appendChild(p); }
   return row;
 }
-async function saveAsNewVersion(id) {
-  setStatus("Saving current draft as a new version…");
-  try { const v = await api("/contracts/" + id + "/versions", { method: "POST", form: await docxForm(getDocTitle() || "contract") }); setStatus("Saved as version " + v.version_number + ".", "ok"); renderContract(); }
-  catch (e) { setStatus("Save failed: " + e.message, "error"); }
+async function saveAsNewVersion(id, isCounterpartyRevision) {
+  setStatus(isCounterpartyRevision ? "Logging the counterparty's revision…" : "Saving current draft as a new version…");
+  try {
+    const form = await docxForm(getDocTitle() || "contract");
+    const path = isCounterpartyRevision ? "/contracts/" + id + "/counterparty-revision" : "/contracts/" + id + "/versions";
+    const v = await api(path, { method: "POST", form });
+    setStatus(
+      isCounterpartyRevision
+        ? "Logged as the counterparty's revision — Aegis will re-review it automatically once analysis finishes."
+        : "Saved as version " + v.version_number + ".",
+      "ok",
+    );
+    renderContract();
+  } catch (e) { setStatus("Save failed: " + e.message, "error"); }
 }
 async function renderEdits(body, id) {
   body.appendChild(sectionTitle("Proposed redlines"));
@@ -459,7 +699,7 @@ function fmtDate(iso) { try { const d = new Date(iso); if (isNaN(d.getTime())) r
 
 /* ---- wiring ---- */
 function autoGrow(el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 120) + "px"; }
-function sendCommand() { const v = $("cmd-input").value.trim(); if (!v) return; $("cmd-input").value = ""; autoGrow($("cmd-input")); runAsk(v); }
+function sendCommand() { const v = $("cmd-input").value.trim(); if (!v) return; $("cmd-input").value = ""; autoGrow($("cmd-input")); runAssistantTurn(v); }
 function wireUi() {
   $("login-btn").addEventListener("click", doLogin);
   $("password").addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });

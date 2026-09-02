@@ -5,9 +5,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, FileText, Wand2, Upload } from "lucide-react";
 import {
   contractsApi,
-  projectsApi,
+  mattersApi,
   tabularApi,
-  workflowsApi,
+  promptsApi,
 } from "@/lib/endpoints";
 import { Button, Field, Input, Modal, Select } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -38,7 +38,7 @@ export function CreateReviewModal({
   const qc = useQueryClient();
   const { notify } = useToast();
   const [name, setName] = useState("");
-  const [projectId, setProjectId] = useState(defaultProjectId ?? "");
+  const [matterId, setProjectId] = useState(defaultProjectId ?? "");
   const [workflowId, setWorkflowId] = useState("");
   const [contractIds, setContractIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -47,7 +47,7 @@ export function CreateReviewModal({
 
   const { data: projects } = useQuery({
     queryKey: ["projects"],
-    queryFn: projectsApi.list,
+    queryFn: mattersApi.list,
     enabled: open,
   });
   const { data: contracts } = useQuery({
@@ -56,13 +56,13 @@ export function CreateReviewModal({
     enabled: open,
   });
   const { data: projectContracts } = useQuery({
-    queryKey: ["project", projectId, "contracts"],
-    queryFn: () => projectsApi.contracts(projectId),
-    enabled: open && !!projectId,
+    queryKey: ["project", matterId, "contracts"],
+    queryFn: () => mattersApi.contracts(matterId),
+    enabled: open && !!matterId,
   });
   const { data: workflows } = useQuery({
     queryKey: ["workflows"],
-    queryFn: workflowsApi.list,
+    queryFn: promptsApi.list,
     enabled: open,
   });
 
@@ -85,10 +85,10 @@ export function CreateReviewModal({
 
   // When a project is chosen, pre-select that project's contracts.
   useEffect(() => {
-    if (projectId && projectContracts) {
+    if (matterId && projectContracts) {
       setContractIds(projectContracts.map((pc) => pc.contract_id));
     }
-  }, [projectId, projectContracts]);
+  }, [matterId, projectContracts]);
 
   function reset() {
     setName("");
@@ -133,7 +133,7 @@ export function CreateReviewModal({
     try {
       const review = await tabularApi.create({
         name: name.trim(),
-        project_id: projectId || undefined,
+        matter_id: matterId || undefined,
         contract_ids: contractIds,
         columns: validColumns.map((c) => ({
           name: c.name.trim(),
@@ -213,13 +213,13 @@ export function CreateReviewModal({
           )}
         </Field>
 
-        <Field label="Project" hint={lockProject ? undefined : "Optional"}>
+        <Field label="Matter" hint={lockProject ? undefined : "Optional"}>
           <Select
-            value={projectId}
+            value={matterId}
             onChange={(e) => setProjectId(e.target.value)}
             disabled={lockProject}
           >
-            <option value="">No project</option>
+            <option value="">No matter</option>
             {(projects ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -231,8 +231,8 @@ export function CreateReviewModal({
         <Field
           label={`Contracts (${contractIds.length} selected)`}
           hint={
-            projectId
-              ? "Pre-filled from the project — adjust if needed"
+            matterId
+              ? "Pre-filled from the matter — adjust if needed"
               : "Pick the contracts to run every column against"
           }
         >
@@ -331,7 +331,7 @@ export function CreateReviewModal({
     <ImportContractModal
       open={importOpen}
       onClose={() => setImportOpen(false)}
-      defaultProjectId={projectId || undefined}
+      defaultProjectId={matterId || undefined}
       onUploaded={(c) => {
         qc.invalidateQueries({ queryKey: ["contracts"] });
         setContractIds((prev) =>

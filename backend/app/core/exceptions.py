@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette import status
@@ -27,7 +28,12 @@ def register_exception_handlers(app: FastAPI) -> None:
         request_id = getattr(request.state, "request_id", None)
         response = JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": exc.errors(), "request_id": request_id},
+            # jsonable_encoder matches FastAPI's own handler and is required,
+            # not cosmetic: each error carries the offending `input`, which for
+            # a file field is raw bytes. Serialising that directly raises inside
+            # the handler, so a malformed upload surfaced as a 500 stack trace
+            # instead of the 422 the client needs to fix its request.
+            content=jsonable_encoder({"detail": exc.errors(), "request_id": request_id}),
         )
         if request_id:
             response.headers["X-Request-ID"] = request_id

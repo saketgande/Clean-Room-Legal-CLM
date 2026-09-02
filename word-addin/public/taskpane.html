@@ -30,8 +30,8 @@
         <h1 class="wordmark">Aegis</h1>
         <p class="lead center">Review, redline, and ask about your contracts — without leaving Word.</p>
         <div class="auth-form">
-          <input id="email" class="input" type="email" autocomplete="username" placeholder="Email" />
-          <input id="password" class="input" type="password" autocomplete="current-password" placeholder="Password" />
+          <input id="email" class="input" type="email" autocomplete="username" placeholder="Email" aria-label="Email" />
+          <input id="password" class="input" type="password" autocomplete="current-password" placeholder="Password" aria-label="Password" />
           <button id="login-btn" class="btn primary block">Sign in</button>
         </div>
       </div>
@@ -43,9 +43,9 @@
       <div class="composer">
         <div id="chips" class="chips"></div>
         <div class="cmd">
-          <textarea id="cmd-input" rows="1" placeholder="Ask about this contract, or describe what you need…"></textarea>
+          <textarea id="cmd-input" rows="1" placeholder="Ask about this contract, or describe what you need…" aria-label="Ask about this contract"></textarea>
           <div class="cmd-row">
-            <label class="track" id="track-label"><input id="track" type="checkbox" checked /><span>Track changes</span></label>
+            <label class="track" id="track-label"><input id="track" type="checkbox" checked aria-label="Track changes" /><span>Track changes</span></label>
             <button id="cmd-send" class="send-btn" aria-label="Send"></button>
           </div>
         </div>

@@ -19,12 +19,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Apply the saved theme before first paint to avoid a flash. The app is
-            light-first — a fresh visitor defaults to the light ground. */}
+        {/* Apply the theme before first paint to avoid a flash. An explicit
+            saved choice ('aegis-theme') wins; otherwise follow the OS
+            preference, and keep following it live until the user picks one. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "(function(){try{var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':false;document.documentElement.classList.toggle('dark',dark);}catch(e){}})();",
+              "(function(){try{var mq=window.matchMedia('(prefers-color-scheme: dark)');var apply=function(){var t=localStorage.getItem('aegis-theme');var dark=t?t==='dark':mq.matches;document.documentElement.classList.toggle('dark',dark);};apply();mq.addEventListener('change',function(){if(!localStorage.getItem('aegis-theme'))apply();});}catch(e){}})();",
           }}
         />
       </head>

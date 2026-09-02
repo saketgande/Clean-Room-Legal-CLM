@@ -6,7 +6,7 @@ from app.contracts.models import Contract
 from app.core.access import is_org_admin
 from app.core.database import utcnow
 from app.grants.service import granted_resource_ids, user_has_grant
-from app.projects.models import Project, ProjectContract, ProjectMember, ProjectShare
+from app.matters.models import Matter, MatterContract, MatterMember, MatterShare
 from app.walls.service import user_is_walled, wall_block_filter
 
 # --- Phase 3: mandatory access control (confidentiality / clearance) -------
@@ -93,36 +93,36 @@ def accessible_contract_filter(user: User):
     if is_org_admin(user):
         return and_(org_scope, not_walled)
     project_membership = (
-        select(ProjectContract.id)
-        .join(Project, Project.id == ProjectContract.project_id)
+        select(MatterContract.id)
+        .join(Matter, Matter.id == MatterContract.matter_id)
         .join(
-            ProjectMember,
-            (ProjectMember.project_id == ProjectContract.project_id)
-            & (ProjectMember.org_id == ProjectContract.org_id),
+            MatterMember,
+            (MatterMember.matter_id == MatterContract.matter_id)
+            & (MatterMember.org_id == MatterContract.org_id),
         )
         .where(
-            ProjectContract.contract_id == Contract.id,
-            ProjectContract.org_id == user.org_id,
-            Project.deleted_at.is_(None),
-            ProjectMember.user_id == user.id,
+            MatterContract.contract_id == Contract.id,
+            MatterContract.org_id == user.org_id,
+            Matter.deleted_at.is_(None),
+            MatterMember.user_id == user.id,
         )
         .exists()
     )
-    project_share = (
-        select(ProjectContract.id)
-        .join(Project, Project.id == ProjectContract.project_id)
+    matter_share = (
+        select(MatterContract.id)
+        .join(Matter, Matter.id == MatterContract.matter_id)
         .join(
-            ProjectShare,
-            (ProjectShare.project_id == ProjectContract.project_id)
-            & (ProjectShare.org_id == ProjectContract.org_id),
+            MatterShare,
+            (MatterShare.matter_id == MatterContract.matter_id)
+            & (MatterShare.org_id == MatterContract.org_id),
         )
         .where(
-            ProjectContract.contract_id == Contract.id,
-            ProjectContract.org_id == user.org_id,
-            Project.deleted_at.is_(None),
-            ProjectShare.shared_with_user_id == user.id,
-            ProjectShare.revoked_at.is_(None),
-            or_(ProjectShare.expires_at.is_(None), ProjectShare.expires_at > utcnow()),
+            MatterContract.contract_id == Contract.id,
+            MatterContract.org_id == user.org_id,
+            Matter.deleted_at.is_(None),
+            MatterShare.shared_with_user_id == user.id,
+            MatterShare.revoked_at.is_(None),
+            or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
         )
         .exists()
     )
@@ -134,7 +134,7 @@ def accessible_contract_filter(user: User):
             Contract.owner_user_id == user.id,
             Contract.created_by_user_id == user.id,
             project_membership,
-            project_share,
+            matter_share,
             # Phase 2: a direct, time-bound resource grant on this contract.
             Contract.id.in_(granted_resource_ids(user, "contract")),
         ),
@@ -177,38 +177,38 @@ def user_can_access_contract(db: Session, *, contract: Contract, user: User) -> 
     if user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id):
         return True
     membership = (
-        select(ProjectContract.id)
-        .join(Project, Project.id == ProjectContract.project_id)
+        select(MatterContract.id)
+        .join(Matter, Matter.id == MatterContract.matter_id)
         .join(
-            ProjectMember,
-            (ProjectMember.project_id == ProjectContract.project_id)
-            & (ProjectMember.org_id == ProjectContract.org_id),
+            MatterMember,
+            (MatterMember.matter_id == MatterContract.matter_id)
+            & (MatterMember.org_id == MatterContract.org_id),
         )
         .where(
-            ProjectContract.org_id == user.org_id,
-            ProjectContract.contract_id == contract.id,
-            Project.deleted_at.is_(None),
-            ProjectMember.user_id == user.id,
+            MatterContract.org_id == user.org_id,
+            MatterContract.contract_id == contract.id,
+            Matter.deleted_at.is_(None),
+            MatterMember.user_id == user.id,
         )
         .limit(1)
     )
     if db.scalar(membership) is not None:
         return True
     return db.scalar(
-        select(ProjectContract.id)
-        .join(Project, Project.id == ProjectContract.project_id)
+        select(MatterContract.id)
+        .join(Matter, Matter.id == MatterContract.matter_id)
         .join(
-            ProjectShare,
-            (ProjectShare.project_id == ProjectContract.project_id)
-            & (ProjectShare.org_id == ProjectContract.org_id),
+            MatterShare,
+            (MatterShare.matter_id == MatterContract.matter_id)
+            & (MatterShare.org_id == MatterContract.org_id),
         )
         .where(
-            ProjectContract.org_id == user.org_id,
-            ProjectContract.contract_id == contract.id,
-            Project.deleted_at.is_(None),
-            ProjectShare.shared_with_user_id == user.id,
-            ProjectShare.revoked_at.is_(None),
-            or_(ProjectShare.expires_at.is_(None), ProjectShare.expires_at > utcnow()),
+            MatterContract.org_id == user.org_id,
+            MatterContract.contract_id == contract.id,
+            Matter.deleted_at.is_(None),
+            MatterShare.shared_with_user_id == user.id,
+            MatterShare.revoked_at.is_(None),
+            or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
         )
         .limit(1)
     ) is not None

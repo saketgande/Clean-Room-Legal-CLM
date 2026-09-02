@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -13,28 +13,10 @@ import {
   Quote,
   Repeat,
   User2,
+  X,
 } from "lucide-react";
 import { obligationsApi } from "@/lib/endpoints";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorState,
-  Field,
-  Input,
-  Modal,
-  PageHeader,
-  Select,
-  StatCard,
-  Table,
-  TD,
-  TH,
-  THead,
-  TR,
-  SkeletonRows,
-} from "@/components/ui";
-import { cn, fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { fmtDate, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { Obligation, ObligationStatus } from "@/lib/types";
 
@@ -45,6 +27,16 @@ const STATUSES: ObligationStatus[] = [
   "completed",
   "cancelled",
 ];
+
+// Status drives both the list pill and the timing color — reuse the same
+// SLA-style language (crit/warn/good) as the rest of the app.
+const STATUS_TONE: Record<ObligationStatus, "accent" | "warn" | "crit" | "good" | "muted"> = {
+  open: "accent",
+  due_soon: "warn",
+  overdue: "crit",
+  completed: "good",
+  cancelled: "muted",
+};
 
 /** What the contract says about WHEN this obligation applies. A fixed calendar
  * date is rare; most obligations are conditional ("upon receipt…") or ongoing
@@ -78,18 +70,16 @@ export default function ObligationsPage() {
     queryKey: ["obligations", status],
     queryFn: () => obligationsApi.list(status ? { status_filter: status } : {}),
   });
+  const obligations = data ?? [];
 
-  const counts = useMemo(() => {
-    const c: Record<ObligationStatus, number> = {
-      open: 0,
-      due_soon: 0,
-      overdue: 0,
-      completed: 0,
-      cancelled: 0,
-    };
-    for (const o of data ?? []) c[o.status] += 1;
-    return c;
-  }, [data]);
+  const counts: Record<ObligationStatus, number> = {
+    open: 0,
+    due_soon: 0,
+    overdue: 0,
+    completed: 0,
+    cancelled: 0,
+  };
+  for (const o of obligations) counts[o.status] += 1;
 
   async function runReminders() {
     setRemindersBusy(true);
@@ -121,70 +111,84 @@ export default function ObligationsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <PageHeader
-        title="Obligations"
-        description="Every commitment extracted from your contracts — who owes it, which agreement it comes from, and when it applies."
-        actions={
-          <Button variant="outline" loading={remindersBusy} onClick={runReminders}>
-            <AlarmClock className="h-4 w-4" />
-            Run reminders
-          </Button>
-        }
-      />
-
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <StatCard label="Open" value={counts.open} icon={<ListChecks className="h-5 w-5" />} tone="blue" />
-        <StatCard label="Due soon" value={counts.due_soon} icon={<Clock className="h-5 w-5" />} tone="amber" />
-        <StatCard label="Overdue" value={counts.overdue} icon={<AlarmClock className="h-5 w-5" />} tone="red" />
-        <StatCard label="Completed" value={counts.completed} icon={<CheckCircle2 className="h-5 w-5" />} tone="green" />
-        <StatCard label="Cancelled" value={counts.cancelled} icon={<ClipboardList className="h-5 w-5" />} tone="slate" />
+    <div className="oblg">
+      <style dangerouslySetInnerHTML={{ __html: OBLG_CSS }} />
+      <div className="hd">
+        <div>
+          <h1>Obligations</h1>
+          <p className="sub">
+            Every commitment extracted from your contracts — who owes it, which agreement it comes
+            from, and when it applies.
+          </p>
+        </div>
+        <div className="acts">
+          <button className="btn" disabled={remindersBusy} onClick={runReminders}>
+            <AlarmClock size={14} />
+            {remindersBusy ? "Running…" : "Run reminders"}
+          </button>
+        </div>
       </div>
 
-      <Card className="flex flex-wrap items-end gap-3 p-4">
-        <Field label="Status" className="w-48">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
+      <div className="statcard">
+        <div className="stats">
+          <StatTile label="Open" value={counts.open} tone="accent" icon={<ListChecks size={16} />} />
+          <StatTile label="Due soon" value={counts.due_soon} tone="warn" icon={<Clock size={16} />} />
+          <StatTile label="Overdue" value={counts.overdue} tone="crit" icon={<AlarmClock size={16} />} />
+          <StatTile label="Completed" value={counts.completed} tone="good" icon={<CheckCircle2 size={16} />} />
+          <StatTile label="Cancelled" value={counts.cancelled} tone="muted" icon={<ClipboardList size={16} />} />
+        </div>
+      </div>
+
+      <div className="filters">
+        <label className="fld">
+          <span className="flabel">Status</span>
+          <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="">All statuses</option>
             {STATUSES.map((s) => (
               <option key={s} value={s}>
                 {titleCase(s)}
               </option>
             ))}
-          </Select>
-        </Field>
-        <p className="ml-auto self-center text-[13px] text-slate-500">
-          Click any row to see the exact contract language it came from.
-        </p>
-      </Card>
+          </select>
+        </label>
+        <p className="hint">Click any row to see the exact contract language it came from.</p>
+      </div>
 
       {isLoading ? (
-        <SkeletonRows rows={6} />
+        <div className="tbl">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="skrow" />
+          ))}
+        </div>
       ) : error ? (
-        <ErrorState error={error} />
-      ) : (data ?? []).length === 0 ? (
-        <EmptyState
-          icon={<ListChecks className="h-6 w-6" />}
-          title="No obligations found"
-          description="Obligations extracted from active contracts will appear here."
-        />
+        <div className="empty err">{error instanceof Error ? error.message : "Couldn't load obligations."}</div>
+      ) : obligations.length === 0 ? (
+        <div className="empty">
+          <ListChecks size={20} />
+          <div>
+            <p className="et">No obligations found</p>
+            <p className="ed">Obligations extracted from active contracts will appear here.</p>
+          </div>
+        </div>
       ) : (
-        <Card className="overflow-hidden">
-          <Table>
-            <THead>
+        <div className="tbl">
+          <table>
+            <thead>
               <tr>
-                <TH className="w-8"> </TH>
-                <TH>Obligation</TH>
-                <TH>Responsible party</TH>
-                <TH>Contract</TH>
-                <TH>Timing</TH>
-                <TH>Status</TH>
-                <TH className="text-right">Actions</TH>
+                <th className="chev"> </th>
+                <th>Obligation</th>
+                <th>Responsible party</th>
+                <th>Contract</th>
+                <th>Timing</th>
+                <th>Status</th>
+                <th className="right">Actions</th>
               </tr>
-            </THead>
+            </thead>
             <tbody>
-              {(data ?? []).map((o) => {
+              {obligations.map((o) => {
                 const t = timing(o);
                 const open = expanded === o.id;
+                const tone = STATUS_TONE[o.status];
                 const quote = (o.source_citation as { quote?: string } | null)?.quote;
                 const meta = o.metadata_json as {
                   source_clause_type?: string;
@@ -192,114 +196,93 @@ export default function ObligationsPage() {
                 } | null;
                 return (
                   <Fragment key={o.id}>
-                    <TR
-                      className="cursor-pointer align-top"
-                      onClick={() => setExpanded(open ? null : o.id)}
-                    >
-                      <TD>
-                        <ChevronRight
-                          className={cn(
-                            "h-4 w-4 text-slate-400 transition-transform",
-                            open && "rotate-90",
+                    <tr className={`row${open ? " open" : ""}`} onClick={() => setExpanded(open ? null : o.id)}>
+                      <td className="chev">
+                        <ChevronRight size={15} className="chevicon" />
+                      </td>
+                      <td className="obl">
+                        {o.obligation_type && <span className="tag">{o.obligation_type}</span>}
+                        <p className="desc">{o.description}</p>
+                      </td>
+                      <td>
+                        <div className="party">
+                          <User2 size={13} className="dim" />
+                          <div>
+                            <p className="pname">{o.responsible_party ?? "Unassigned"}</p>
+                            {o.owner_name && <p className="psub">tracked by {o.owner_name}</p>}
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <Link
+                          href={`/contracts/${o.contract_id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="clink"
+                        >
+                          {o.contract_title ?? o.contract_id}
+                        </Link>
+                        {o.counterparty_name && <p className="psub">with {o.counterparty_name}</p>}
+                      </td>
+                      <td>
+                        <div className="party">
+                          {t.tone === "recurring" ? (
+                            <Repeat size={13} className="dim" />
+                          ) : (
+                            <Clock size={13} className="dim" />
                           )}
-                        />
-                      </TD>
-                      <TD className="max-w-md">
-                        {o.obligation_type && (
-                          <span className="mb-1 inline-block rounded bg-brand-50 px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.06em] text-brand-700">
-                            {o.obligation_type}
-                          </span>
-                        )}
-                        <p className="line-clamp-2 font-medium text-slate-900">
-                          {o.description}
-                        </p>
-                      </TD>
-                      <TD>
-                        <div className="flex items-start gap-1.5">
-                          <User2 className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" />
-                          <div className="min-w-0">
-                            <p className="font-medium text-slate-700">
-                              {o.responsible_party ?? "Unassigned"}
-                            </p>
-                            {o.owner_name && (
-                              <p className="text-[11px] text-slate-400">
-                                tracked by {o.owner_name}
+                          <div>
+                            <p className={`pname${t.tone === "date" ? " strong" : ""}`}>{t.label}</p>
+                            {t.sub && (
+                              <p
+                                className="psub"
+                                style={{
+                                  color:
+                                    tone === "crit"
+                                      ? "var(--crit)"
+                                      : tone === "warn"
+                                        ? "var(--warn)"
+                                        : undefined,
+                                }}
+                              >
+                                {t.sub}
                               </p>
                             )}
                           </div>
                         </div>
-                      </TD>
-                      <TD>
-                        <Link
-                          href={`/contracts/${o.contract_id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-medium text-brand-700 hover:underline"
-                        >
-                          {o.contract_title ?? o.contract_id}
-                        </Link>
-                        {o.counterparty_name && (
-                          <p className="text-[11px] text-slate-400">with {o.counterparty_name}</p>
-                        )}
-                      </TD>
-                      <TD>
-                        <div className="flex items-start gap-1.5">
-                          {t.tone === "recurring" ? (
-                            <Repeat className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" />
-                          ) : (
-                            <Clock className="mt-0.5 h-3.5 w-3.5 flex-none text-slate-400" />
-                          )}
-                          <div className="min-w-0">
-                            <p
-                              className={cn(
-                                "font-medium",
-                                t.tone === "date" ? "text-slate-900" : "text-slate-700",
-                              )}
-                            >
-                              {t.label}
-                            </p>
-                            {t.sub && <p className="text-[11px] text-slate-400">{t.sub}</p>}
-                          </div>
-                        </div>
-                      </TD>
-                      <TD>
-                        <Badge tone={statusTone(o.status)}>{titleCase(o.status)}</Badge>
-                      </TD>
-                      <TD className="text-right" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end gap-2">
+                      </td>
+                      <td>
+                        <span className={`pill ${tone}`}>{titleCase(o.status)}</span>
+                      </td>
+                      <td className="right" onClick={(e) => e.stopPropagation()}>
+                        <div className="rowacts">
                           {o.status !== "completed" && (
-                            <Button size="sm" loading={busyId === o.id} onClick={() => complete(o)}>
-                              Complete
-                            </Button>
+                            <button className="btn sm pri" disabled={busyId === o.id} onClick={() => complete(o)}>
+                              {busyId === o.id ? "…" : "Complete"}
+                            </button>
                           )}
-                          <Button size="sm" variant="outline" onClick={() => setEditing(o)}>
+                          <button className="btn sm" onClick={() => setEditing(o)}>
                             Edit
-                          </Button>
+                          </button>
                         </div>
-                      </TD>
-                    </TR>
+                      </td>
+                    </tr>
                     {open && (
-                      <tr key={`${o.id}-detail`} className="bg-slate-50">
+                      <tr className="detail">
                         <td />
-                        <td colSpan={6} className="px-4 py-4">
-                          <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
+                        <td colSpan={6}>
+                          <div className="dgrid">
                             <div>
-                              <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                                <Quote className="h-3.5 w-3.5" /> What the contract says
+                              <p className="dlabel">
+                                <Quote size={13} /> What the contract says
                               </p>
                               {quote ? (
-                                <blockquote className="rounded-md border-l-2 border-brand-600 bg-slate-100 px-3 py-2 text-[13px] italic leading-relaxed text-slate-700">
-                                  “{quote}”
-                                </blockquote>
+                                <blockquote className="quote">&ldquo;{quote}&rdquo;</blockquote>
                               ) : (
-                                <p className="text-[13px] text-slate-400">
-                                  No source excerpt was captured for this obligation.
-                                </p>
+                                <p className="nosrc">No source excerpt was captured for this obligation.</p>
                               )}
-                              <p className="mt-2 text-[13px] leading-relaxed text-slate-600">
-                                {o.description}
-                              </p>
+                              <p className="descfull">{o.description}</p>
                             </div>
-                            <div className="space-y-2.5 text-[13px]">
+                            <div className="drows">
                               <DetailRow label="Responsible party" value={o.responsible_party} />
                               <DetailRow
                                 label="Internal owner"
@@ -310,8 +293,7 @@ export default function ObligationsPage() {
                                 value={
                                   o.due_date
                                     ? `Due ${fmtDate(o.due_date)}`
-                                    : o.recurrence ??
-                                      "Conditional — applies on trigger, no fixed date"
+                                    : o.recurrence ?? "Conditional — applies on trigger, no fixed date"
                                 }
                               />
                               <DetailRow label="Category" value={o.obligation_type} />
@@ -319,15 +301,9 @@ export default function ObligationsPage() {
                                 <DetailRow label="From clause" value={meta.source_clause_type} />
                               )}
                               {meta?.confidence && (
-                                <DetailRow
-                                  label="Extraction confidence"
-                                  value={titleCase(meta.confidence)}
-                                />
+                                <DetailRow label="Extraction confidence" value={titleCase(meta.confidence)} />
                               )}
-                              <Link
-                                href={`/contracts/${o.contract_id}`}
-                                className="inline-block pt-1 text-[13px] font-semibold text-brand-700 hover:underline"
-                              >
+                              <Link href={`/contracts/${o.contract_id}`} className="openlink">
                                 Open {o.contract_title ?? "contract"} →
                               </Link>
                             </div>
@@ -339,8 +315,8 @@ export default function ObligationsPage() {
                 );
               })}
             </tbody>
-          </Table>
-        </Card>
+          </table>
+        </div>
       )}
 
       <EditModal
@@ -358,11 +334,31 @@ export default function ObligationsPage() {
 
 function DetailRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex gap-3">
-      <span className="w-32 flex-none text-[11px] font-bold uppercase tracking-wide text-slate-400">
-        {label}
-      </span>
-      <span className="text-slate-700 dark:text-slate-300">{value ?? "—"}</span>
+    <div className="drow">
+      <span className="dk">{label}</span>
+      <span className="dv">{value ?? "—"}</span>
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: number;
+  tone: "accent" | "warn" | "crit" | "good" | "muted";
+  icon: React.ReactNode;
+}) {
+  return (
+    <div className="stat">
+      <span className={`sic ${tone}`}>{icon}</span>
+      <div>
+        <p className="sval">{value}</p>
+        <p className="slabel">{label}</p>
+      </div>
     </div>
   );
 }
@@ -396,6 +392,15 @@ function EditModal({
     setHydratedFor(obligation.id);
   }
 
+  useEffect(() => {
+    if (!obligation) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [obligation, onClose]);
+
   async function submit() {
     if (!obligation) return;
     setBusy(true);
@@ -416,56 +421,173 @@ function EditModal({
     }
   }
 
+  if (!obligation) return null;
+
   return (
-    <Modal
-      open={!!obligation}
-      onClose={onClose}
-      title="Edit obligation"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={submit} loading={busy}>
-            Save changes
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        <Field label="Responsible party" hint="Which party owes this — e.g. Receiving Party, both parties">
-          <Input value={responsibleParty} onChange={(e) => setResponsibleParty(e.target.value)} />
-        </Field>
-        <Field label="Internal owner (user ID)" hint="Who on your team tracks it">
-          <Input value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} />
-        </Field>
-        <Field label="Obligation type">
-          <Input
-            placeholder="e.g. payment"
-            value={obligationType}
-            onChange={(e) => setObligationType(e.target.value)}
-          />
-        </Field>
-        <Field label="Status">
-          <Select value={status} onChange={(e) => setStatus(e.target.value as ObligationStatus)}>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {titleCase(s)}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label="Due date" hint="Leave blank for conditional / ongoing obligations">
-          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-        </Field>
-        <Field label="Recurrence / timing" hint="e.g. monthly, during term and 12 months after">
-          <Input
-            placeholder="e.g. monthly"
-            value={recurrence}
-            onChange={(e) => setRecurrence(e.target.value)}
-          />
-        </Field>
+    <div className="oblg">
+      <div className="ov" onClick={onClose}>
+        <div className="mdl" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+          <div className="mhd">
+            <h2>Edit obligation</h2>
+            <button className="xbtn" aria-label="Close dialog" onClick={onClose}>
+              <X size={15} />
+            </button>
+          </div>
+          <div className="mbody">
+            <label className="fld">
+              <span className="flabel">Responsible party</span>
+              <input
+                value={responsibleParty}
+                onChange={(e) => setResponsibleParty(e.target.value)}
+              />
+              <span className="fhint">Which party owes this — e.g. Receiving Party, both parties</span>
+            </label>
+            <label className="fld">
+              <span className="flabel">Internal owner (user ID)</span>
+              <input value={ownerUserId} onChange={(e) => setOwnerUserId(e.target.value)} />
+              <span className="fhint">Who on your team tracks it</span>
+            </label>
+            <label className="fld">
+              <span className="flabel">Obligation type</span>
+              <input
+                placeholder="e.g. payment"
+                value={obligationType}
+                onChange={(e) => setObligationType(e.target.value)}
+              />
+            </label>
+            <label className="fld">
+              <span className="flabel">Status</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value as ObligationStatus)}>
+                {STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {titleCase(s)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="fld">
+              <span className="flabel">Due date</span>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              <span className="fhint">Leave blank for conditional / ongoing obligations</span>
+            </label>
+            <label className="fld">
+              <span className="flabel">Recurrence / timing</span>
+              <input
+                placeholder="e.g. monthly"
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value)}
+              />
+              <span className="fhint">e.g. monthly, during term and 12 months after</span>
+            </label>
+          </div>
+          <div className="mft">
+            <button className="btn" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="btn pri" disabled={busy} onClick={submit}>
+              {busy ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        </div>
       </div>
-    </Modal>
+    </div>
   );
 }
+
+const OBLG_CSS = `
+.oblg{--shadow:0 1px 2px rgba(20,26,40,.05),0 8px 22px rgba(20,26,40,.06);--pop:0 12px 30px rgba(20,26,40,.16);--sans:var(--font-sans);--mono:ui-monospace,SFMono-Regular,Menlo,monospace;padding:22px 24px 40px;color:var(--ink);font:400 13px/1.5 var(--sans)}
+.dark .oblg{--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.4);--pop:0 14px 34px rgba(0,0,0,.55)}
+.oblg .dim{color:var(--ink-3)}
+.oblg .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.oblg .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em}
+.oblg .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
+.oblg .acts{margin-left:auto;display:flex;gap:8px}
+
+
+
+
+
+.oblg .btn.sm{padding:5px 10px;font-size:11.5px;border-radius:7px}
+
+.oblg .statcard{border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow);padding:14px;margin-bottom:14px}
+.oblg .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.oblg .stat{display:flex;align-items:center;gap:10px;border:1px solid var(--border);border-radius:10px;background:var(--inset);padding:10px 12px}
+.oblg .sic{width:32px;height:32px;flex:none;border-radius:9px;display:grid;place-items:center}
+.oblg .sic.accent{background:var(--accent-soft);color:var(--accent)}
+.oblg .sic.warn{background:var(--warn-soft);color:var(--warn)}
+.oblg .sic.crit{background:var(--crit-soft);color:var(--crit)}
+.oblg .sic.good{background:var(--good-soft);color:var(--good)}
+.oblg .sic.muted{background:var(--surface-2);color:var(--ink-3)}
+.oblg .sval{margin:0;font-size:18px;font-weight:700;letter-spacing:-.01em;line-height:1.1}
+.oblg .slabel{margin:2px 0 0;font-size:11.5px;color:var(--ink-2)}
+
+.oblg .filters{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.oblg .fld{display:flex;flex-direction:column;gap:4px;font-size:12px}
+.oblg .flabel{font-weight:600;color:var(--ink-2);font-size:11.5px}
+.oblg .fhint{font-size:11px;color:var(--ink-3)}
+.oblg .filters select,.oblg .fld select,.oblg .fld input{border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;padding:7px 10px;min-width:180px}
+.oblg .filters select:focus,.oblg .fld select:focus,.oblg .fld input:focus{outline:2px solid var(--accent);outline-offset:1px}
+.oblg .hint{margin:0 0 0 auto;font-size:12.5px;color:var(--ink-3)}
+
+.oblg .tbl{overflow-x:auto}
+.oblg .tbl table{min-width:760px}
+.oblg table{width:100%;border-collapse:collapse}
+.oblg thead th{text-align:left;font:600 10.5px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--border)}
+.oblg thead th.right{text-align:right}
+.oblg thead th.chev{width:28px}
+.oblg tbody .row{cursor:pointer;border-bottom:1px solid var(--border)}
+.oblg tbody .row:hover{background:var(--inset)}
+.oblg tbody .row td{padding:11px 14px;vertical-align:top}
+.oblg tbody .row.open{background:var(--inset)}
+.oblg .chevicon{transition:transform .12s;color:var(--ink-3)}
+.oblg .row.open .chevicon{transform:rotate(90deg)}
+.oblg td.right{text-align:right}
+.oblg .obl{max-width:340px}
+.oblg .tag{display:inline-block;margin-bottom:4px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font:600 10.5px var(--sans);letter-spacing:.04em;text-transform:uppercase;padding:2px 7px}
+.oblg .desc{margin:0;font-weight:600;font-size:12.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.oblg .party{display:flex;align-items:flex-start;gap:6px}
+.oblg .pname{margin:0;font-weight:600;font-size:12.5px;color:var(--ink-2)}
+.oblg .pname.strong{color:var(--ink)}
+.oblg .psub{margin:2px 0 0;font-size:11px;color:var(--ink-3)}
+.oblg .clink{font-weight:600;color:var(--accent);text-decoration:none;font-size:12.5px}
+.oblg .clink:hover{text-decoration:underline}
+.oblg .rowacts{display:flex;justify-content:flex-end;gap:6px}
+
+.oblg .pill{display:inline-block;font:600 10.5px var(--sans);letter-spacing:.02em;padding:3px 9px;border-radius:99px}
+.oblg .pill.accent{background:var(--accent-soft);color:var(--accent)}
+.oblg .pill.warn{background:var(--warn-soft);color:var(--warn)}
+.oblg .pill.crit{background:var(--crit-soft);color:var(--crit)}
+.oblg .pill.good{background:var(--good-soft);color:var(--good)}
+.oblg .pill.muted{background:var(--surface-2);color:var(--ink-3)}
+
+.oblg tr.detail td{background:var(--inset);padding:16px;border-bottom:1px solid var(--border)}
+.oblg .dgrid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
+.oblg .dlabel{display:flex;align-items:center;gap:6px;margin:0 0 6px;font:600 10.5px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3)}
+.oblg .quote{margin:0;border-left:2px solid var(--accent);background:var(--surface-2);border-radius:0 8px 8px 0;padding:8px 12px;font-size:12.5px;font-style:italic;line-height:1.55;color:var(--ink-2)}
+.oblg .nosrc{margin:0;font-size:12.5px;color:var(--ink-3)}
+.oblg .descfull{margin:8px 0 0;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
+.oblg .drows{display:flex;flex-direction:column;gap:10px;font-size:12.5px}
+.oblg .drow{display:flex;gap:10px}
+.oblg .dk{width:130px;flex:none;font:700 10.5px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3)}
+.oblg .dv{color:var(--ink-2)}
+.oblg .openlink{display:inline-block;padding-top:2px;font-weight:700;font-size:12.5px;color:var(--accent);text-decoration:none}
+.oblg .openlink:hover{text-decoration:underline}
+
+.oblg .skrow{height:46px;border-bottom:1px solid var(--border);background:linear-gradient(90deg,var(--surface-2) 25%,var(--inset) 37%,var(--surface-2) 63%);background-size:400% 100%;animation:oblgshimmer 1.4s ease infinite}
+.oblg .skrow:last-child{border-bottom:none}
+@keyframes oblgshimmer{0%{background-position:100% 0}100%{background-position:0 0}}
+
+
+.oblg .empty .et{margin:0;font-weight:700;font-size:13px;color:var(--ink)}
+.oblg .empty .ed{margin:2px 0 0;font-size:12.5px;color:var(--ink-2)}
+
+.oblg .ov{position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(12,15,22,.45);backdrop-filter:blur(2px)}
+.oblg .mdl{width:100%;max-width:480px;max-height:85vh;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--pop)}
+.oblg .mhd{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--border)}
+.oblg .mhd h2{margin:0;font-size:14.5px;font-weight:700}
+.oblg .xbtn{display:grid;place-items:center;width:28px;height:28px;border:none;border-radius:7px;background:transparent;color:var(--ink-3);cursor:pointer}
+.oblg .xbtn:hover{background:var(--surface-2);color:var(--ink)}
+.oblg .mbody{overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:14px}
+.oblg .mbody .fld input,.oblg .mbody .fld select{width:100%;min-width:0}
+.oblg .mft{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid var(--border)}
+`;

@@ -46,3 +46,6 @@ frontend/.turbo/
 frontend/*.tsbuildinfo
 frontend/.env.local
 frontend/.env.production
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

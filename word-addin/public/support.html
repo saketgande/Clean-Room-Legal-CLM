@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Support — Aegis Legal CLM for Word</title>
+    <style>
+      :root {
+        --bg: #f7f8fa; --surface: #ffffff; --ink: #15181e; --muted: #5b6472;
+        --line: rgba(20, 24, 31, 0.1); --accent: #4f46e5; --accent-ink: #ffffff;
+        color-scheme: light;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root { --bg: #0f1116; --surface: #181b22; --ink: #e7e9ed; --muted: #99a1af; --line: rgba(255,255,255,0.12); --accent: #8b83ff; --accent-ink: #14101f; color-scheme: dark; }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0; font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg); color: var(--ink); line-height: 1.6;
+      }
+      .wrap { max-width: 640px; margin: 0 auto; padding: 48px 24px 80px; }
+      .brand { display: flex; align-items: center; gap: 9px; margin-bottom: 28px; }
+      .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); }
+      .brand-name { font-weight: 600; font-size: 17px; }
+      h1 { font-size: 22px; margin: 0 0 6px; }
+      p.lead { color: var(--muted); margin: 0 0 32px; }
+      section { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin-bottom: 16px; }
+      h2 { font-size: 14px; margin: 0 0 10px; }
+      p, li { font-size: 14px; color: var(--ink); }
+      ul { margin: 0; padding-left: 20px; }
+      li { margin-bottom: 6px; }
+      a { color: var(--accent); }
+      .contact-btn { display: inline-block; margin-top: 4px; padding: 9px 16px; border-radius: 10px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 500; font-size: 14px; }
+      code { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: rgba(120,120,120,0.12); padding: 1px 5px; border-radius: 5px; }
+      footer { margin-top: 32px; font-size: 12.5px; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand"><span class="brand-dot"></span><span class="brand-name">Aegis</span></div>
+      <h1>Aegis Legal CLM — Word add-in support</h1>
+      <p class="lead">Get help with the Aegis task pane for Microsoft Word.</p>
+
+      <section>
+        <h2>Contact us</h2>
+        <p>For sign-in issues, bugs, or feature questions, reach out and we'll help:</p>
+        <!-- TODO before store submission: replace with your real support
+             contact — a monitored email address or an existing help-desk
+             page. Microsoft's validation explicitly requires a working,
+             non-404 https:// URL here; a placeholder will fail review. -->
+        <a class="contact-btn" href="mailto:support@example.com">support@example.com</a>
+      </section>
+
+      <section>
+        <h2>Common issues</h2>
+        <ul>
+          <li><strong>"Add-in could not be loaded" or a certificate warning</strong> — fully quit and reopen Word, then try again.</li>
+          <li><strong>Sign-in fails</strong> — confirm your Aegis account email and password are correct and that your account has been approved by your organization's Aegis administrator.</li>
+          <li><strong>"Track changes" is greyed out</strong> — your version of Word doesn't support the feature set this requires; edits still apply, just without tracked-change markup.</li>
+          <li><strong>"Insert redline" does nothing</strong> — the exact clause text couldn't be found in the document (it may have changed). Select the clause yourself, then try again.</li>
+          <li><strong>A review or answer never finishes</strong> — check your network connection and try again; if it persists, contact us with the approximate time it happened.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>About this add-in</h2>
+        <p>Aegis Legal CLM's Word add-in lets you review, redline, and ask questions about a contract without leaving Word — backed by the same AI-assisted risk scoring, playbook comparison, and contract intelligence as the main Aegis application. See our <a href="privacy.html">privacy policy</a> for details on how your data is handled.</p>
+      </section>
+
+      <footer>Aegis Legal CLM</footer>
+    </div>
+  </body>
+</html>

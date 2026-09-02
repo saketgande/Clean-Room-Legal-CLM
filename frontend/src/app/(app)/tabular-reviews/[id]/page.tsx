@@ -14,7 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ImportContractModal } from "@/components/import-contract-modal";
-import { contractsApi, projectsApi, tabularApi } from "@/lib/endpoints";
+import { contractsApi, mattersApi, tabularApi } from "@/lib/endpoints";
 import {
   Badge,
   Breadcrumbs,
@@ -27,6 +27,7 @@ import {
   ErrorState,
   Input,
   Modal,
+  NotFound,
   Spinner,
   Table,
   TD,
@@ -61,7 +62,7 @@ export default function TabularReviewDetailPage({
   });
   const { data: projects } = useQuery({
     queryKey: ["projects"],
-    queryFn: projectsApi.list,
+    queryFn: mattersApi.list,
   });
 
   const contractTitle = useMemo(() => {
@@ -72,10 +73,18 @@ export default function TabularReviewDetailPage({
 
   if (isLoading) return <CenterSpinner label="Loading review…" />;
   if (error) return <ErrorState error={error} />;
-  if (!data) return null;
+  if (!data)
+    return (
+      <NotFound
+        title="Review not found"
+        description="This tabular review may have been deleted, or you may not have access to it."
+        backHref="/tabular-reviews"
+        backLabel="Back to reviews"
+      />
+    );
 
   const { review, columns, cells } = data;
-  const project = (projects ?? []).find((p) => p.id === review.project_id);
+  const project = (projects ?? []).find((p) => p.id === review.matter_id);
   const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
   const cellAt = (contractId: string, columnId: string) =>
     cells.find(
@@ -99,8 +108,8 @@ export default function TabularReviewDetailPage({
           items={
             project
               ? [
-                  { label: "Projects", href: "/projects" },
-                  { label: project.name, href: `/projects/${project.id}` },
+                  { label: "Matters", href: "/matters" },
+                  { label: project.name, href: `/matters/${project.id}` },
                   { label: review.name },
                 ]
               : [

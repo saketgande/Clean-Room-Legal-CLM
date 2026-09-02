@@ -64,11 +64,11 @@ export interface IntakeRequest {
   parties?: IntakeParty[];
   fired_rules: Record<string, unknown> | null;
   handoff_holder: string | null; handoff_user_id: ID | null;
-  project_id: ID | null; contract_id: ID | null; contract_title?: string | null;
+  matter_id: ID | null; contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
 }
-// Flow Router agent output — lives on ai_triage.flow_suggestion.
-export interface FlowSuggestion {
+// Workflow Router agent output — lives on ai_triage.flow_suggestion.
+export interface WorkflowSuggestion {
   flow_id: string | null;
   flow_name: string | null;
   confidence: number;
@@ -143,7 +143,8 @@ export interface IntakeTeamMember {
 export interface IntakeTeam {
   id: ID; key: string; name: string; description: string | null; active: boolean;
   strategy: "least_loaded" | "round_robin"; overflow_team_id: ID | null;
-  overflow_team_name: string | null; sort_order: number; members: IntakeTeamMember[];
+  overflow_team_name: string | null; sort_order: number;
+  expertise: string[]; departments: string[]; members: IntakeTeamMember[];
 }
 export interface IntakeKbArticle {
   id: ID; source_ref: string; title: string; body: string; tags: string[]; active: boolean;
@@ -282,51 +283,108 @@ export interface UserInvitationResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Projects
+// Matters
 // ---------------------------------------------------------------------------
 
-export type ProjectType =
+export type MatterType =
   | "general"
   | "contract_review"
   | "due_diligence"
-  | "regulatory";
+  | "regulatory"
+  | "transactional"
+  | "litigation"
+  | "m_and_a"
+  | "employment"
+  | "privacy"
+  | "procurement"
+  | "advisory";
 
-export interface ProjectResponse {
+export type MatterStatus = "intake" | "active" | "on_hold" | "closed";
+
+export interface MatterResponse {
   id: ID;
   org_id: ID;
   name: string;
   description: string | null;
-  project_type: ProjectType;
+  matter_type: MatterType;
   owner_user_id: ID;
+  matter_number: string | null;
+  client_name: string | null;
+  status: MatterStatus;
+  opened_at: ISODateTime | null;
+  closed_at: ISODateTime | null;
   metadata_json: Record<string, unknown>;
 }
 
-export interface ProjectFolderResponse {
+export interface MatterRollupItem {
   id: ID;
-  project_id: ID;
+  title: string;
+  status: string | null;
+  meta: string | null;
+}
+
+export interface MatterOverviewCounts {
+  contracts: number;
+  contracts_active: number;
+  obligations_open: number;
+  obligations_overdue: number;
+  approvals_pending: number;
+  notices_open: number;
+  intake_open: number;
+}
+
+export interface MatterOverview {
+  matter: MatterResponse;
+  counts: MatterOverviewCounts;
+  contracts: MatterRollupItem[];
+  obligations: MatterRollupItem[];
+  notices: MatterRollupItem[];
+  approvals: MatterRollupItem[];
+  intake: MatterRollupItem[];
+}
+
+export interface UnfiledItem {
+  id: ID;
+  kind: "contract" | "intake";
+  title: string;
+  subtitle: string | null;
+  suggested_matter_id: string | null;
+  suggested_matter_label: string | null;
+}
+
+export interface MatterActivityItem {
+  id: ID;
+  activity_type: string;
+  title: string;
+  occurred_at: ISODateTime | null;
+}
+
+export interface MatterFolderResponse {
+  id: ID;
+  matter_id: ID;
   parent_folder_id: ID | null;
   name: string;
 }
 
-export interface ProjectMemberResponse {
+export interface MatterMemberResponse {
   id: ID;
-  project_id: ID;
+  matter_id: ID;
   user_id: ID;
   role: string;
 }
 
-export interface ProjectShareResponse {
+export interface MatterShareResponse {
   id: ID;
-  project_id: ID;
+  matter_id: ID;
   shared_with_user_id: ID;
   access_level: "read" | "update" | "share";
   expires_at: ISODateTime | null;
   revoked_at: ISODateTime | null;
 }
 
-export interface ProjectContractResponse {
+export interface MatterContractResponse {
   id: ID;
-  project_id: ID;
+  matter_id: ID;
   contract_id: ID;
   folder_id: ID | null;
 }
@@ -687,7 +745,7 @@ export interface AssistantSession {
   org_id: ID;
   session_type: string;
   title: string | null;
-  project_id: ID | null;
+  matter_id: ID | null;
   contract_id: ID | null;
   tabular_review_id: ID | null;
   status: "active" | "archived";
@@ -763,7 +821,7 @@ export interface AssistantStreamEvent {
 // Workflows
 // ---------------------------------------------------------------------------
 
-export interface Workflow {
+export interface Prompt {
   id: ID;
   org_id: ID;
   name: string;
@@ -778,7 +836,7 @@ export interface Workflow {
   shared_user_ids?: string[] | null;
 }
 
-export interface WorkflowVersion {
+export interface PromptVersion {
   id: ID;
   version_number: number;
   name: string;
@@ -790,7 +848,7 @@ export interface WorkflowVersion {
   created_at: ISODateTime | null;
 }
 
-export interface WorkflowUsage {
+export interface PromptUsage {
   run_count: number;
   last_run_at: ISODateTime | null;
   distinct_users: number;
@@ -800,7 +858,7 @@ export interface WorkflowUsage {
 // Flows (workflow engine)
 // ---------------------------------------------------------------------------
 
-export type FlowStepType =
+export type WorkflowStepType =
   | "ai_task"
   | "human_task"
   | "clm_draft"
@@ -809,14 +867,21 @@ export type FlowStepType =
   | "counterparty"
   | "notify";
 
-export interface FlowStepDef {
+export interface WorkflowStepCond {
+  field: string;
+  op: string; // "eq" | "ne"
+  value: string;
+}
+export interface WorkflowStepDef {
   id: ID;
-  type: FlowStepType;
+  type: WorkflowStepType;
   name: string;
   config: Record<string, unknown>;
+  parallel?: boolean; // runs concurrently with the step(s) above it
+  cond?: WorkflowStepCond | null; // "only when" — run this step only if it matches
 }
 
-export interface Flow {
+export interface Workflow {
   id: ID;
   name: string;
   description: string | null;
@@ -830,21 +895,44 @@ export interface Flow {
     match_department?: string | null;
     match_keyword?: string | null;
   };
-  steps: FlowStepDef[];
+  steps: WorkflowStepDef[];
 }
 
-export interface FlowRunStep {
+export interface WorkflowRunStep {
   idx: number;
-  type: FlowStepType;
+  type: WorkflowStepType;
   name: string;
   status: string;
   assignee_user_id: ID | null;
+  assignee_label: string | null;
+  team_id: ID | null;
+  team_label: string | null;
+  role: string | null;
   note: string | null;
   result: Record<string, unknown> | null;
   updated_at: string | null;
+  parallel?: boolean;
+  cond?: WorkflowStepCond | null;
 }
 
-export interface FlowRun {
+export interface WorkflowRunComment {
+  idx: number | null;
+  kind: string;
+  text: string;
+  actor_id: ID | null;
+  actor_name: string;
+  at: string;
+}
+
+export interface WorkflowRunBriefEntry {
+  step: string;
+  type: string;
+  agent: string;
+  summary: string;
+  confidence?: number | null;
+}
+
+export interface WorkflowRun {
   id: ID;
   request_id: ID;
   flow_id: ID;
@@ -853,7 +941,10 @@ export interface FlowRun {
   current_index: number;
   contract_id: ID | null;
   error: string | null;
-  steps: FlowRunStep[];
+  steps: WorkflowRunStep[];
+  comments: WorkflowRunComment[];
+  // The multi-agent hand-off trace: what each agent/step established, in order.
+  brief?: WorkflowRunBriefEntry[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1113,6 +1204,13 @@ export interface RenewalEvent {
   updated_at: ISODateTime;
 }
 
+export interface RenewalRecommendation {
+  decision: "renew" | "terminate" | "renegotiate";
+  rationale: string;
+  confidence: "low" | "medium" | "high";
+  generated: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Contract Brain
 // ---------------------------------------------------------------------------
@@ -1124,6 +1222,7 @@ export interface BrainSearchSemanticHit {
   contract_title: string;
   text: string;
   score: number;
+  cited?: boolean;
 }
 
 export interface BrainSearchClauseHit {
@@ -1154,7 +1253,7 @@ export interface BrainQuery {
   query_scope: BrainScope;
   question: string;
   contract_id: ID | null;
-  project_id: ID | null;
+  matter_id: ID | null;
   answer: string;
   citations: Citation[];
   retrieval_metadata: {
@@ -1185,7 +1284,7 @@ export interface TabularReview {
   id: ID;
   org_id: ID;
   name: string;
-  project_id: ID | null;
+  matter_id: ID | null;
   source_contract_ids: ID[];
   status: "draft" | "running" | "complete";
   metadata_json: Record<string, unknown>;
@@ -1576,3 +1675,140 @@ export interface IntegrationTestResponse {
 }
 
 export interface IntakeParty { name: string; role: string; is_person?: boolean; }
+
+// ---- Notice register -------------------------------------------------------
+// `deadline_posture` is derived server-side on every read (never stored), so it
+// can't go stale against the statutory clock. 'met' = answered or closed.
+export type NoticeDirection = "received" | "sent";
+export type NoticeStatus = "draft" | "open" | "responded" | "escalated" | "closed";
+export type NoticeDeadlinePosture = "none" | "on_track" | "at_risk" | "overdue" | "met";
+
+export interface NoticeEvent {
+  id: ID;
+  kind: "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note";
+  body: string | null;
+  actor_user_id: ID | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface Notice {
+  id: ID;
+  ref: string;
+  direction: NoticeDirection;
+  notice_type: string;
+  subject: string;
+  description: string;
+  counterparty_name: string;
+  counterparty_ref: string | null;
+  contract_id: ID | null;
+  contract_title: string | null;
+  notice_date: ISODate | null;
+  received_at: ISODate | null;
+  response_due_date: ISODate | null;
+  status: NoticeStatus;
+  priority: string;
+  owner_user_id: ID | null;
+  owner_name: string | null;
+  responded_at: string | null;
+  response_summary: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  deadline_posture: NoticeDeadlinePosture;
+  days_to_due: number | null;
+  /** Most urgent reminder already sent to the owner — so you can see whether
+   *  anyone was actually told before a deadline lapsed. */
+  last_reminder_stage: "t7" | "t3" | "due" | "overdue" | null;
+  last_reminder_at: string | null;
+  /** AI-drafted reply awaiting a lawyer's edit. A proposal — `response_summary`
+   *  is the record of what was actually sent. */
+  draft_response: string | null;
+  draft_response_at: string | null;
+  /** Set once escalated: the linked intake ticket that carries routing, SLA and
+   *  the approval ladder. */
+  escalated_intake_request_id: ID | null;
+  escalated_intake_ref: string | null;
+  events?: NoticeEvent[];
+  documents?: NoticeDocument[];
+  /** Only present on the draft-response endpoint. False means the model was
+   *  unavailable and a template skeleton was returned instead. */
+  draft_generated?: boolean;
+}
+
+export interface NoticeReminderRun {
+  sent: number;
+  skipped_no_owner: number;
+  already_reminded: number;
+}
+
+export interface NoticeSummary {
+  total: number; open: number; overdue: number; at_risk: number;
+  responded: number; escalated: number; closed: number; draft: number;
+}
+
+export interface NoticeDocument {
+  id: ID;
+  filename: string;
+  mime_type: string;
+  size_bytes: number;
+  extraction_quality: number | null;
+  has_text: boolean;
+  created_at: string;
+}
+
+/** Proposed field values read off an uploaded notice. Suggestions only — the
+ *  filer confirms them in the form, so a mis-read deadline never lands
+ *  unreviewed. `source` says whether the LLM or the regex fallback produced
+ *  them, which the UI surfaces so a low-confidence read is obvious. */
+export interface NoticeExtraction {
+  suggestions: Partial<{
+    counterparty_name: string;
+    counterparty_ref: string;
+    notice_type: string;
+    subject: string;
+    notice_date: ISODate;
+    response_due_date: ISODate;
+    demanded_action: string;
+  }>;
+  confidence: number;
+  source: "llm" | "heuristic" | "empty";
+  extraction_quality: number | null;
+  message: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// AI usage & cost analytics (/analytics/ai-usage)
+// ---------------------------------------------------------------------------
+
+export interface AiUsageOperation {
+  prompt_key: string;
+  label: string;
+  category: string;
+  model: string;
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  avg_prompt_tokens: number;
+  avg_completion_tokens: number;
+  avg_latency_ms: number | null;
+  cost: number;
+  cost_per_call: number;
+}
+
+export interface AiUsageSummary {
+  currency: string;
+  window_days: number;
+  totals: {
+    calls: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cost: number;
+    cost_per_call: number;
+  };
+  by_operation: AiUsageOperation[];
+  by_category: { category: string; calls: number; cost: number }[];
+  daily: { date: ISODate; calls: number; cost: number }[];
+  rates: { model_family: string; input_per_m: number; output_per_m: number }[];
+}

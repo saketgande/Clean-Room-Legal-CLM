@@ -35,9 +35,22 @@ def branch_fields(assessment: dict) -> dict:
     }
 
 
+def _mark_degraded(baseline: dict) -> dict:
+    """The model was unavailable, so this is a keyword fallback, NOT a real
+    assessment. Flag it so downstream shows "AI assessment unavailable — needs
+    manual triage" and never auto-routes on the guessed branch fields."""
+    fs = {**baseline["flow_suggestion"], "needs_human": True, "source": "degraded"}
+    return {
+        **baseline,
+        "flow_suggestion": fs,
+        "degraded": True,
+        "degraded_reason": "Litigation AI assessment unavailable — fields below are a keyword fallback, not a model analysis. Triage manually.",
+    }
+
+
 def _heuristic(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict:
     """Deterministic assessment — used under mocks or when the model fails."""
-    from app.flows.service import select_flow
+    from app.workflows.service import select_flow
 
     desc = (request.description or "").lower()
     matter = ("Legal notice / demand" if "notice" in desc or "demand" in desc
@@ -149,7 +162,7 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
         blocks = getattr(resp, "tool_use_blocks", None) or []
         data = (blocks[0].get("input") if blocks else None)
         if not isinstance(data, dict):
-            return {**baseline, "source": "degraded"}
+            return _mark_degraded(baseline)
 
         fid = data.get("flow_id")
         if fid not in ids:
@@ -182,4 +195,4 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
         }
     except Exception:
         logger.warning("litigation-agent model call failed for %s", request.id, exc_info=True)
-        return {**baseline, "source": "degraded"}
+        return _mark_degraded(baseline)

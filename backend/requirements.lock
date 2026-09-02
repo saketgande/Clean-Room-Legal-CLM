@@ -56,7 +56,7 @@ click-plugins==1.1.1.2
     # via celery
 click-repl==0.3.0
     # via celery
-cryptography==48.0.0
+cryptography==50.0.0
     # via pyjwt
 deprecated==1.3.1
     # via limits
@@ -156,7 +156,7 @@ packaging==26.2
     #   onnxruntime
 pgvector==0.4.2
     # via clean-room-legal-clm-backend (pyproject.toml)
-pillow==12.2.0
+pillow==12.3.0
     # via fastembed
 prometheus-client==0.25.0
     # via prometheus-fastapi-instrumentator
@@ -185,7 +185,7 @@ pydantic==2.13.4
     #   reductoai
 pydantic-core==2.46.4
     # via pydantic
-pydantic-settings==2.14.1
+pydantic-settings==2.14.2
     # via clean-room-legal-clm-backend (pyproject.toml)
 pygments==2.20.0
     # via rich
@@ -193,7 +193,7 @@ pyjwt==2.13.0
     # via clean-room-legal-clm-backend (pyproject.toml)
 pymupdf==1.28.0
     # via clean-room-legal-clm-backend (pyproject.toml)
-pypdf==6.12.2
+pypdf==6.15.0
     # via clean-room-legal-clm-backend (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
@@ -207,7 +207,7 @@ python-dotenv==1.2.2
     #   uvicorn
 python-magic==0.4.27
     # via clean-room-legal-clm-backend (pyproject.toml)
-python-multipart==0.0.30
+python-multipart==0.0.32
     # via clean-room-legal-clm-backend (pyproject.toml)
 pyyaml==6.0.3
     # via
@@ -244,7 +244,7 @@ sqlalchemy==2.0.50
     #   alembic
     #   clean-room-legal-clm-backend (pyproject.toml)
     #   sentry-sdk
-starlette==1.2.1
+starlette==1.4.1
     # via
     #   fastapi
     #   prometheus-fastapi-instrumentator

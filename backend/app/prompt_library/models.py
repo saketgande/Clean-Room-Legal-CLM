@@ -1,0 +1,59 @@
+from sqlalchemy import Column, ForeignKey, Integer, JSON, String, Text
+
+from app.core.database import (
+    ActorTrackedMixin,
+    Base,
+    IdMixin,
+    OrgScopedMixin,
+    SoftDeleteMixin,
+    TableNameMixin,
+    TimestampMixin,
+)
+from app.core.enums import Visibility, WorkflowType
+
+
+class Prompt(
+    TableNameMixin,
+    IdMixin,
+    OrgScopedMixin,
+    ActorTrackedMixin,
+    SoftDeleteMixin,
+    TimestampMixin,
+    Base,
+):
+    name = Column(String(255), nullable=False)
+    workflow_type = Column(String(80), index=True, nullable=False, default=WorkflowType.ASSISTANT)
+    visibility = Column(String(80), index=True, nullable=False, default=Visibility.PRIVATE)
+    description = Column(Text, nullable=True)
+    definition = Column(JSON, nullable=False, default=dict)
+    # User ids this prompt is explicitly shared with (visibility=shared_with_users).
+    shared_user_ids = Column(JSON, nullable=True, default=list)
+
+
+class PromptVersion(
+    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
+):
+    """An immutable snapshot of a workflow's editable content, written on every
+    edit so users can review history and revert. Mirrors PlaybookVersion."""
+
+    workflow_id = Column(String(36), ForeignKey("prompt.id"), index=True, nullable=False)
+    version_number = Column(Integer, nullable=False)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    definition = Column(JSON, nullable=False, default=dict)
+    visibility = Column(String(80), nullable=False, default=Visibility.PRIVATE)
+    # Human note on why this version exists, e.g. "Reverted to v2".
+    note = Column(Text, nullable=True)
+
+
+class PromptRun(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
+    workflow_id = Column(String(36), ForeignKey("prompt.id"), index=True, nullable=False)
+    matter_id = Column(String(36), ForeignKey("matter.id"), nullable=True)
+    status = Column(String(80), index=True, nullable=False, default="queued")
+    input_contract_ids = Column(JSON, nullable=False, default=list)
+    input_prompt = Column(Text, nullable=True)
+    output = Column(JSON, nullable=True)
+    tool_calls = Column(JSON, nullable=True)
+    created_artifacts = Column(JSON, nullable=True)
+    model_used = Column(String(160), nullable=True)
+    error_message = Column(Text, nullable=True)

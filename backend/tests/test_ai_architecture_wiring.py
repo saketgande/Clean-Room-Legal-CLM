@@ -171,10 +171,10 @@ def test_confirmation_decisions_require_ai_tool_permission():
 
 def test_assistant_prompt_uses_handles_not_internal_ids():
     contract_id = "11111111-1111-1111-1111-111111111111"
-    project_id = "22222222-2222-2222-2222-222222222222"
+    matter_id = "22222222-2222-2222-2222-222222222222"
     prompt = ai_controller._assistant_user_prompt(
         message="Summarize this contract",
-        project_id=project_id,
+        matter_id=matter_id,
         contract_id=contract_id,
         contract_ids=[contract_id],
         handles=[{"handle": "contract-0", "contract_id": contract_id, "metadata": {}}],
@@ -182,13 +182,13 @@ def test_assistant_prompt_uses_handles_not_internal_ids():
 
     assert "contract-0" in prompt
     assert contract_id not in prompt
-    assert project_id not in prompt
+    assert matter_id not in prompt
 
 
 def test_model_safe_result_strips_internal_identifier_keys():
     assert "current_authoritative_version_id" in INTERNAL_RESULT_KEYS
     assert "contract_version_id" in INTERNAL_RESULT_KEYS
-    assert "project_id" in INTERNAL_RESULT_KEYS
+    assert "matter_id" in INTERNAL_RESULT_KEYS
 
 
 def test_phase3_tool_results_emit_frontend_artifact_events():
@@ -226,6 +226,19 @@ def test_read_contract_result_creates_verifiable_text_snapshot_citation():
     assert citations[0]["type"] == "text_snapshot"
     assert citations[0]["excerpt"] == "This agreement includes a confidentiality clause."
     assert citations[0]["start_char"] == 0
+
+    # read_contract now returns the windowed body under "text" (paginated); the
+    # citation builder must still pick it up so sources don't go blank.
+    paged = _citations_from_tool_result(
+        {
+            "contract_id": "contract-1",
+            "text_snapshot_id": "snapshot-1",
+            "text": "Windowed body text of the contract.",
+            "has_more": True,
+            "next_offset": 24000,
+        }
+    )
+    assert paged[0]["excerpt"] == "Windowed body text of the contract."
 
 
 def test_tracked_edit_decision_summary_preserves_existing_summary():

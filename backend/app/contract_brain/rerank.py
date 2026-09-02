@@ -17,11 +17,30 @@ logger = logging.getLogger(__name__)
 
 def rerank_enabled() -> bool:
     provider = settings.rerank_provider
+    if provider == "local":
+        return True  # fastembed cross-encoder, no key; degrades to input order
     if provider == "cohere":
         return bool(settings.cohere_api_key)
     if provider == "voyage":
         return bool(settings.voyage_api_key)
     return False
+
+
+# Cache the local cross-encoder across calls — loading it per query would add
+# seconds. One instance per process; onnxruntime inference is thread-safe for
+# our to_thread call sites.
+_local_reranker = None
+
+
+def _local_rerank_order(query: str, documents: list[str], top_n: int) -> list[int]:
+    global _local_reranker
+    from fastembed.rerank.cross_encoder import TextCrossEncoder
+
+    if _local_reranker is None:
+        _local_reranker = TextCrossEncoder(model_name=settings.rerank_model_local)
+    scores = list(_local_reranker.rerank(query, documents))
+    order = sorted(range(len(documents)), key=lambda i: scores[i], reverse=True)
+    return order[:top_n]
 
 
 def rerank_order(query: str, documents: list[str], top_n: int) -> list[int]:
@@ -31,6 +50,8 @@ def rerank_order(query: str, documents: list[str], top_n: int) -> list[int]:
         return []
     top_n = min(top_n, len(documents))
     try:
+        if settings.rerank_provider == "local":
+            return _local_rerank_order(query, documents, top_n)
         if settings.rerank_provider == "cohere":
             resp = httpx.post(
                 "https://api.cohere.com/v2/rerank",

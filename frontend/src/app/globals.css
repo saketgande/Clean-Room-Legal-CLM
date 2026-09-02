@@ -16,7 +16,7 @@
 :root {
   color-scheme: light;
   /* NEUTRALS — warm paper ramp (modern-premium legal), canvas → ink */
-  --color-slate-50: 247 246 243;   /* #F7F6F3  warm-paper canvas */
+  --color-slate-50: 244 246 249;   /* #F4F6F9  mockup canvas (screen-01..14 .app bg) */
   --color-slate-100: 255 255 255;  /* #FFFFFF  card/panel surface */
   --color-slate-200: 236 233 227;  /* #ECE9E3  hairline divider  */
   --color-slate-300: 224 221 213;  /* #E0DDD5  input / strong div */
@@ -28,18 +28,18 @@
   --color-slate-900: 26 28 34;     /* #1A1C22  primary ink       */
   --color-slate-950: 16 18 22;     /* #101216  max contrast      */
 
-  /* ACCENT — refined cobalt. 600 = #2440B8 primary/link, 700 = #1C3396 hover. */
-  --color-brand-50: 238 241 252;   /* #EEF1FC  wash / tab / selected */
-  --color-brand-100: 221 227 248;  /* #DDE3F8                    */
-  --color-brand-200: 201 210 244;  /* #C9D2F4  ring              */
-  --color-brand-300: 167 181 236;  /* #A7B5EC                    */
-  --color-brand-400: 111 134 223;  /* #6F86DF  (dark accent lift)*/
-  --color-brand-500: 58 87 232;    /* #3A57E8  focus ring base   */
-  --color-brand-600: 36 64 184;    /* #2440B8  primary / active  */
-  --color-brand-700: 28 51 150;    /* #1C3396  hover / link-on-white */
-  --color-brand-800: 24 43 126;    /* #182B7E  active            */
-  --color-brand-900: 22 38 95;     /* #16265F                    */
-  --color-brand-950: 16 26 64;     /* #101A40                    */
+  /* ACCENT — indigo (matches the design mockups). 600 = #3B4AA0 primary/link, 700 = #313E88 hover. */
+  --color-brand-50: 234 236 248;   /* #EAECF8  wash / tab / selected (mockup --accent-soft) */
+  --color-brand-100: 221 225 244;  /* #DDE1F4                    */
+  --color-brand-200: 198 204 235;  /* #C6CCEB  ring              */
+  --color-brand-300: 163 172 221;  /* #A3ACDD                    */
+  --color-brand-400: 124 136 201;  /* #7C88C9                    */
+  --color-brand-500: 84 98 179;    /* #5462B3  focus ring base   */
+  --color-brand-600: 59 74 160;    /* #3B4AA0  primary / active  (mockup --accent) */
+  --color-brand-700: 49 62 136;    /* #313E88  hover / link-on-white */
+  --color-brand-800: 41 52 111;    /* #29346F  active            */
+  --color-brand-900: 34 43 90;     /* #222B5A                    */
+  --color-brand-950: 24 30 64;     /* #181E40                    */
 
   /* SEMANTICS — solid (text/icon/border, AA on white) + subtle (badge/banner bg) */
   --color-success: 28 122 84;       /* #1C7A54 */
@@ -83,18 +83,18 @@
   --color-slate-900: 227 230 235;  /* #E3E6EB  body / primary    */
   --color-slate-950: 244 245 247;  /* #F4F5F7  max contrast      */
 
-  /* cobalt lifts so it reads on charcoal */
-  --color-brand-50: 26 31 60;      /* subtle cobalt bg           */
-  --color-brand-100: 33 41 82;
-  --color-brand-200: 45 57 120;
-  --color-brand-300: 70 92 188;
-  --color-brand-400: 120 142 240;
-  --color-brand-500: 92 116 240;
-  --color-brand-600: 92 116 240;   /* #5C74F0  buttons/links     */
-  --color-brand-700: 130 152 248;  /* hover lifts lighter        */
-  --color-brand-800: 167 181 236;
-  --color-brand-900: 201 210 244;
-  --color-brand-950: 221 227 248;
+  /* indigo lifts so it reads on charcoal (mockup dark --accent #8290E6) */
+  --color-brand-50: 31 39 64;      /* #1F2740 subtle indigo bg   */
+  --color-brand-100: 38 47 79;
+  --color-brand-200: 51 63 106;
+  --color-brand-300: 75 88 150;
+  --color-brand-400: 108 122 201;
+  --color-brand-500: 130 144 230;
+  --color-brand-600: 130 144 230;  /* #8290E6  buttons/links     */
+  --color-brand-700: 154 166 236;  /* hover lifts lighter        */
+  --color-brand-800: 182 190 242;
+  --color-brand-900: 204 210 246;
+  --color-brand-950: 221 225 249;
 
   /* semantics: +~15% L, −~10% S */
   --color-success: 66 200 140;
@@ -111,6 +111,117 @@
   --shadow-modal: 0 14px 46px rgb(0 0 0 / 0.6);
 }
 
+/* ===========================================================================
+   Shared "scoped-screen" palette. The bespoke screens (Matters `.proj`/`.mw`,
+   Obligations `.oblg`, Renewals `.renw`, Approvals `.apprv`, CLM `.clm`, …)
+   historically each re-declared this identical --surface/--ink/--accent set in
+   their own <style> block. It now lives here once, so those screens can drop
+   their local copies. The Tailwind kit uses the slate/brand scale above and
+   never these names, so defining them globally is inert for kit screens and
+   inherited by the scoped ones. Semantic warn/crit are unified to one shade.
+   =========================================================================== */
+:root {
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --inset: #f8fafc;
+  --ink: #18213a;
+  --ink-2: #586178;
+  --ink-3: #8a92a6;
+  --border: #e4e8f0;
+  --border-strong: #ccd3e0;
+  --accent: #3b4aa0;
+  --accent-soft: #eaecf8;
+  --accent-ink: #ffffff;
+  --good: #2f875f;
+  --good-soft: #e4f1ea;
+  --warn: #a9772b;
+  --warn-soft: #f6edd9;
+  --crit: #bb4835;
+  --crit-soft: #f7e4df;
+}
+.dark {
+  --surface: #141922;
+  --surface-2: #1b2130;
+  --inset: #10141d;
+  --ink: #e8ebf3;
+  --ink-2: #9aa3b8;
+  --ink-3: #6b7488;
+  --border: #242b39;
+  --border-strong: #333c4e;
+  --accent: #8290e6;
+  --accent-soft: #1f2740;
+  --accent-ink: #0c0f16;
+  --good: #5cbf90;
+  --good-soft: #15271f;
+  --warn: #d3a24e;
+  --warn-soft: #2a2213;
+  --crit: #e2705c;
+  --crit-soft: #2c1a17;
+}
+
+/* Shared empty / error state for the scoped screens (was re-declared, with
+   drift and hardcoded danger colors, in ~13 <style> blocks). The `.empty`
+   class is used only by scoped screens — the kit uses <EmptyState>. */
+.empty {
+  border: 1px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--inset);
+  padding: 32px 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.empty.err {
+  border-color: color-mix(in srgb, var(--crit) 40%, var(--border));
+  color: var(--crit);
+}
+
+/* Shared button family for the scoped screens. Was re-declared (with size drift)
+   in ~18 <style> blocks; now one canonical button. Kit screens use <Button> with
+   Tailwind classes, never `.btn`, so this is inert for them. A screen needing a
+   denser or functional variant (dense toolbar, height-matched search button,
+   AI-accent primary, danger, full-width) keeps a small local `.scope .btn…`
+   override, which wins on specificity. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover {
+  background: var(--surface-2);
+}
+.btn.pri {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn.pri:hover {
+  filter: brightness(1.06);
+}
+.btn.sm {
+  padding: 6px 11px;
+  font-size: 12px;
+}
+.btn[disabled],
+.btn:disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 * {
   border-color: theme("colors.slate.200");
 }
@@ -121,8 +232,8 @@ body {
 }
 
 body {
-  background-color: theme("colors.slate.50");
-  color: theme("colors.slate.900");
+  background-color: rgb(var(--color-slate-50));
+  color: rgb(var(--color-slate-900));
   font-family: var(--font-sans);
   font-feature-settings: "tnum" 1; /* lining tabular numerals app-wide */
   -webkit-font-smoothing: antialiased;
@@ -177,6 +288,35 @@ body {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Live-status text: a soft opacity pulse so an in-flight step label reads as
+   working, without pairing a spinner with a second redundant loader. */
+@keyframes shimmer-text {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.shimmer-text {
+  animation: shimmer-text 1.4s ease-in-out infinite;
+}
+
+/* Ask Aegis answers read like a senior associate's work product: serif body,
+   sans headings/labels. Scoped to .answer-serif so only assistant prose gets it. */
+.answer-serif,
+.answer-serif p,
+.answer-serif li,
+.answer-serif blockquote {
+  font-family: "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
+}
+.answer-serif p,
+.answer-serif li {
+  font-size: 16.5px;
+  line-height: 1.72;
 }
 
 /* Honor OS-level reduced-motion preference (WCAG 2.3.3). */

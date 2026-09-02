@@ -1,6 +1,7 @@
 import io
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -8,22 +9,25 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.contract_files.models import (
+    ContractDocumentElement,
     ContractFile,
     ContractTextSnapshot,
     ContractVersion,
     StorageObject,
 )
+from app.contract_files.structure import build_elements, elements_from_flat_text
 from app.contract_files.text_extraction import TextExtractionResult, extract_text
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.enums import ContractLifecycleStage, ContractVersionSource, StorageBackend
+from app.integrations.databricks import databricks_client
 from app.integrations.reducto import reducto_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.projects.access import get_project_for_user
-from app.projects.models import ProjectContract
+from app.matters.access import get_project_for_user
+from app.matters.models import MatterContract
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,9 @@ class _ExtractedText:
     page_map: dict | None
     ocr_provider: str | None = None
     ocr_error: str | None = None
+    # Structured elements from the parser (empty for native/plain extraction —
+    # the structure builder falls back to splitting the flat text into clauses).
+    elements: list = field(default_factory=list)
 
 
 # Magic-byte signatures for the MIME types we accept. Used to refuse a file
@@ -163,6 +170,84 @@ INITIAL_CONTRACT_AI_JOB_TYPES = (
 TEXT_EXTRACTION_COMPLETE_THRESHOLD = 0.55
 
 
+def _persist_document_elements(db, snapshot: ContractTextSnapshot, *, elements: list) -> None:
+    """Phase 1 of the structured-document migration: break a freshly-created
+    snapshot into ContractDocumentElement rows (clauses, headings, tables). Uses
+    the parser's real elements when present, else splits the flat text.
+
+    Purely additive and defensive: it never raises into the upload path, never
+    touches snapshot.text, and leaves the snapshot 'flat_only' if the elements
+    don't slice back out of the text exactly. So structuring can only help — it
+    can't corrupt an upload."""
+    try:
+        rows, ok = (
+            build_elements(elements, snapshot.text)
+            if elements
+            else elements_from_flat_text(snapshot.text)
+        )
+        if not ok or not rows:
+            return
+        # Idempotent: clear any prior elements for this snapshot before writing,
+        # so re-running (e.g. a backfill) rebuilds cleanly instead of duplicating.
+        db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
+        if any(snapshot.text[r["char_start"]:r["char_end"]] != r["text"] for r in rows):
+            return  # invariant broken — do not persist misaligned offsets
+        for r in rows:
+            db.add(
+                ContractDocumentElement(
+                    org_id=snapshot.org_id,
+                    contract_id=snapshot.contract_id,
+                    contract_version_id=snapshot.contract_version_id,
+                    text_snapshot_id=snapshot.id,
+                    **r,
+                )
+            )
+        snapshot.structure_status = "structured"
+        snapshot.element_count = len(rows)
+    except Exception:  # noqa: BLE001 — structuring is optional, must not break upload
+        logging.getLogger(__name__).warning(
+            "structuring snapshot %s failed; leaving flat_only",
+            getattr(snapshot, "id", "?"),
+            exc_info=True,
+        )
+
+
+def backfill_document_elements(db, *, limit: int | None = None, batch_size: int = 200) -> dict:
+    """Phase 2: give existing contracts a clause index by structuring snapshots
+    that are still 'flat_only'. Derives elements from the stored flat text — no
+    re-OCR, so it costs nothing and can't fail an extraction. Idempotent: it only
+    touches flat_only snapshots and rebuilds each cleanly, so it is safe to run,
+    re-run, or resume. Returns a small summary for logging.
+
+    ponytail: reconstructs structure from flat text (loses tables/confidence).
+    Re-parsing the original file gives higher fidelity; add that as an opt-in
+    pass when a contract's structure actually needs it.
+    """
+    from sqlalchemy import select as _select
+
+    query = _select(ContractTextSnapshot).where(
+        ContractTextSnapshot.structure_status == "flat_only"
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    snapshots = db.scalars(query).all()
+
+    structured = skipped = 0
+    for i, snapshot in enumerate(snapshots, start=1):
+        if not (snapshot.text or "").strip():
+            skipped += 1  # nothing to structure (e.g. signed PDF with empty text)
+            continue
+        _persist_document_elements(db, snapshot, elements=[])
+        if snapshot.structure_status == "structured":
+            structured += 1
+        else:
+            skipped += 1
+        if i % batch_size == 0:
+            db.commit()
+    db.commit()
+    return {"total": len(snapshots), "structured": structured, "skipped": skipped}
+
+
 async def _resolve_extracted_text(
     *, content: bytes, mime_type: str, filename: str
 ) -> _ExtractedText:
@@ -177,8 +262,11 @@ async def _resolve_extracted_text(
             quality_score=extraction.quality_score,
             page_map=extraction.page_map,
         )
+    # Databricks (ai_parse_document) when it is configured, Reducto otherwise.
+    # Both return OCRResult, so nothing downstream cares which one ran.
+    ocr_client = databricks_client if databricks_client.enabled else reducto_client
     try:
-        ocr = await reducto_client.extract_text(
+        ocr = await ocr_client.extract_text(
             filename=filename, mime_type=mime_type, content=content
         )
     except Exception as exc:
@@ -187,16 +275,17 @@ async def _resolve_extracted_text(
             text=extraction.text,
             quality_score=extraction.quality_score,
             page_map=extraction.page_map,
-            ocr_provider=reducto_client.provider,
+            ocr_provider=ocr_client.provider,
             ocr_error=str(exc),
         )
     if ocr.text:
         return _ExtractedText(
-            method="reducto_ocr",
+            method=f"{ocr.provider}_ocr",
             text=ocr.text,
             quality_score=ocr.quality_score,
             page_map=extraction.page_map,
             ocr_provider=ocr.provider,
+            elements=ocr.elements,
         )
     return _ExtractedText(
         method=extraction.method,
@@ -205,6 +294,67 @@ async def _resolve_extracted_text(
         page_map=extraction.page_map,
         ocr_provider=ocr.provider,
     )
+
+
+async def _fill_contract_metadata(db, *, contract, filename: str, content: bytes) -> None:
+    """Populate counterparty, dates and value from the document itself.
+
+    Only fills blanks — anything a person typed on the upload form wins. What
+    the model was unsure about is recorded in metadata_json rather than written
+    onto the contract, so a human can confirm it.
+    """
+    if not databricks_client.enabled:
+        return
+    try:
+        result = await databricks_client.extract_fields(filename=filename, content=content)
+    except Exception as exc:  # extraction must never fail an upload
+        contract.metadata_json = {
+            **(contract.metadata_json or {}),
+            "extraction": {"provider": databricks_client.provider, "error": str(exc)},
+        }
+        return
+    if result.error:
+        contract.metadata_json = {
+            **(contract.metadata_json or {}),
+            "extraction": {"provider": databricks_client.provider, "error": result.error},
+        }
+        return
+
+    f = result.fields
+    review = set(result.needs_review())
+
+    def _confident(key: str):
+        """A value we are willing to write onto the contract row."""
+        return None if key in review else f.get(key)
+
+    if not contract.counterparty_name:
+        contract.counterparty_name = _confident("counterparty")
+    if not contract.contract_type:
+        contract.contract_type = _confident("agreement_type")
+    if contract.value_amount is None:
+        value = _confident("total_value")
+        contract.value_amount = float(value) if isinstance(value, (int, float)) else None
+    if not contract.currency:
+        contract.currency = _confident("currency")
+    for attr, key in (("effective_date", "effective_date"), ("expiration_date", "end_date")):
+        if getattr(contract, attr) is None:
+            raw = _confident(key)
+            if raw:
+                try:
+                    setattr(contract, attr, date.fromisoformat(str(raw)[:10]))
+                except ValueError:
+                    pass
+
+    contract.metadata_json = {
+        **(contract.metadata_json or {}),
+        "extraction": {
+            "provider": databricks_client.provider,
+            "fields": f,                       # incl. notice_days, liability_cap, governing_law
+            "confidence": result.confidence,
+            "citations": result.citations,
+            "needs_review": sorted(review),    # the human queue
+        },
+    }
 
 
 def _dedupe_extension(filename: str) -> str:
@@ -301,6 +451,7 @@ def _persist_intake_records(
     )
     db.add(snapshot)
     db.flush()
+    _persist_document_elements(db, snapshot, elements=extracted.elements)
 
     version.text_snapshot_id = snapshot.id
     contract_file.current_version_id = version.id
@@ -352,7 +503,7 @@ async def create_contract_from_upload(
     *,
     upload: UploadFile,
     user: User,
-    project_id: str | None = None,
+    matter_id: str | None = None,
     title: str | None = None,
     counterparty_name: str | None = None,
     contract_type: str | None = None,
@@ -377,8 +528,8 @@ async def create_contract_from_upload(
     # Optional antivirus scan (no-op unless settings.enable_clamav). Runs before
     # we persist any bytes so an infected upload never lands in storage.
     _scan_for_malware(content)
-    if project_id:
-        get_project_for_user(db, project_id=project_id, user=user, access="update")
+    if matter_id:
+        get_project_for_user(db, matter_id=matter_id, user=user, access="update")
 
     stored = storage_service.save_bytes(
         org_id=user.org_id,
@@ -400,16 +551,21 @@ async def create_contract_from_upload(
             contract_type=contract_type,
             extracted=extracted,
         )
-        if project_id:
+        if matter_id:
             db.add(
-                ProjectContract(
+                MatterContract(
                     org_id=user.org_id,
-                    project_id=project_id,
+                    matter_id=matter_id,
                     contract_id=contract.id,
                     created_by_user_id=user.id,
                     updated_by_user_id=user.id,
                 )
             )
+        # Read the key terms off the document and fill the blanks on the
+        # contract row. Never overwrites a value a human supplied.
+        await _fill_contract_metadata(
+            db, contract=contract, filename=stored.filename, content=content
+        )
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
         )
@@ -743,6 +899,7 @@ async def add_version_from_upload(
         )
         db.add(snapshot)
         db.flush()
+        _persist_document_elements(db, snapshot, elements=extracted.elements)
         version.text_snapshot_id = snapshot.id
 
         # Promote the new version to authoritative; demote the rest (mirrors

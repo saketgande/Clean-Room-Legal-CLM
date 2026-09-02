@@ -253,6 +253,11 @@ export function PoolOpsTab() {
 
 // ======================= COPILOT CHAT =======================
 
+const ph2svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
+
+// The intake assistant, styled to match the New Request catalog (`.nr` scope):
+// a conversation thread with a live request-preview card that fills in as the
+// assistant extracts fields, and a rounded composer. Wired to intakeApi.copilot*.
 export function CopilotChat({ onFiled }: { onFiled: (id: string) => void }) {
   const qc = useQueryClient();
   const { notify } = useToast();
@@ -297,34 +302,32 @@ export function CopilotChat({ onFiled }: { onFiled: (id: string) => void }) {
   }
 
   return (
-    <Card className="max-w-2xl">
-      <CardHeader><MessageSquare className="h-4 w-4 text-brand-600" /><CardTitle>Intake Copilot</CardTitle>
-        <span className="text-xs text-slate-400">guided filing</span></CardHeader>
-      <CardBody className="space-y-3">
-        <div className="max-h-80 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-slate-50 p-3">
-          {messages.map((m, i) => (
-            <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div className={cn("max-w-[80%] rounded-md px-3 py-2 text-[13px]",
-                m.role === "user" ? "bg-brand-600 text-white" : "bg-slate-100 text-slate-700")}>{m.content}</div>
+    <div className="cochat">
+      <div className="coh"><div className="glb">✦</div><div style={{ flex: 1 }}><div className="con">Intake assistant</div><div className="cos">describe what you need — I&apos;ll draft the request</div></div></div>
+      <div className="cothread">
+        {messages.map((m, i) => (
+          <div key={i} className={`comsg ${m.role === "user" ? "you" : "agent"}`}>
+            <div className="mav">{m.role === "user" ? "You" : "✦"}</div>
+            <div className="cobub">{m.content}</div>
+          </div>
+        ))}
+        {state && (state.suggested_type_label || Object.keys(state.extracted).length > 0) && (
+          <div className="reqprev">
+            <div className="rph">{ph2svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>')}Request taking shape{state.ready ? <span className="ready">ready</span> : null}</div>
+            <div className="rpb">
+              {state.suggested_type_label ? <div className="rpr"><span className="rpk">Type</span><span className="rpv">{state.suggested_type_label}</span></div> : null}
+              {Object.entries(state.extracted).map(([k, v]) => <div key={k} className="rpr"><span className="rpk">{k.replace(/_/g, " ")}</span><span className="rpv">{String(v)}</span></div>)}
             </div>
-          ))}
-        </div>
-        {state && Object.keys(state.extracted).length > 0 && (
-          <div className="flex flex-wrap gap-1.5 text-xs">
-            <span className="text-slate-400">Captured:</span>
-            {Object.entries(state.extracted).map(([k, v]) => <Badge key={k} tone="slate">{k}: {v}</Badge>)}
           </div>
         )}
-        <div className="flex gap-2">
-          <Input value={input} onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") send(); }} placeholder="Type your answer…" />
-          <Button onClick={send} loading={busy} disabled={!input.trim()}><Send className="h-4 w-4" /></Button>
-        </div>
-        {state?.ready && (
-          <Button className="w-full" onClick={file} loading={busy}>File this request →</Button>
-        )}
-      </CardBody>
-    </Card>
+        {busy && <div className="comsg agent"><div className="mav">✦</div><div className="cobub dim">Thinking…</div></div>}
+      </div>
+      {state?.ready && <button className="btn pri filebtn" onClick={file} disabled={busy}>File this request →</button>}
+      <div className="cocomposer">
+        <input value={input} aria-label="Describe what you need" placeholder="Describe what you need…" onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") send(); }} />
+        <button className="cosend" aria-label="Send" onClick={send} disabled={!input.trim() || busy}>{ph2svg('<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>')}</button>
+      </div>
+    </div>
   );
 }
 

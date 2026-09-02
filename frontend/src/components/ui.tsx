@@ -531,6 +531,38 @@ export function MessageBar({
   );
 }
 
+/** Shown when a detail page's record can't be found (404 / cross-org / deleted).
+ * Detail queries can settle with no data and no error, which used to fall
+ * through to `return null` and render a blank screen — use this instead. */
+export function NotFound({
+  title = "Not found",
+  description = "This item may have been moved or deleted, or you may not have access to it.",
+  backHref,
+  backLabel = "Go back",
+}: {
+  title?: string;
+  description?: string;
+  backHref?: string;
+  backLabel?: string;
+}) {
+  return (
+    <EmptyState
+      title={title}
+      description={description}
+      action={
+        backHref ? (
+          <a
+            href={backHref}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-100 px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-200"
+          >
+            {backLabel}
+          </a>
+        ) : undefined
+      }
+    />
+  );
+}
+
 export function Skeleton({ className }: { className?: string }) {
   return (
     <div

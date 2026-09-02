@@ -1,7 +1,7 @@
 "use client";
 
 // The governance-ladder stepper, shared so the intake ticket and the contract
-// page render the SAME workflow (the FlowRun steps) — not two different
+// page render the SAME workflow (the WorkflowRun steps) — not two different
 // lifecycles. Styling matches the ticket exactly (Now marker, dashed path-ahead,
 // running-beat spin); ig-bob / ig-conn-ahead live in globals.css.
 
@@ -10,8 +10,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, Bot, Check, FileText, PenLine, RotateCw, ShieldCheck, SkipForward, Users, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { cn, fmtRelative, titleCase } from "@/lib/utils";
-import { flowsApi } from "@/lib/endpoints";
-import type { FlowRun, FlowRunStep } from "@/lib/types";
+import { workflowsApi } from "@/lib/endpoints";
+import type { WorkflowRun, WorkflowRunStep } from "@/lib/types";
 
 export const STEP_META: Record<string, { icon: LucideIcon; label: string; wait: string; running: string }> = {
   ai_task: { icon: Bot, label: "AI step", wait: "Needs your review", running: "Agent is working…" },
@@ -32,7 +32,7 @@ export function stepMeta(type: string) { return STEP_META[type] ?? STEP_META.hum
 export function GovernanceLadderSteps({
   steps, currentIndex, complete, selectedIdx = null, onSelect, orientation = "horizontal",
 }: {
-  steps: FlowRunStep[];
+  steps: WorkflowRunStep[];
   currentIndex: number;
   complete: boolean;
   selectedIdx?: number | null;
@@ -157,12 +157,12 @@ export function ContractGovernanceLadder({ contractId }: { contractId: string })
   const qc = useQueryClient();
   const { data: run } = useQuery({
     queryKey: ["flow-run-contract", contractId],
-    queryFn: () => flowsApi.runForContract(contractId),
+    queryFn: () => workflowsApi.runForContract(contractId),
     // Same live-poll as the intake ticket's ladder: keep checking while
     // something is actually working (a mid-beat ai_task or a subsystem job in
     // flight) so the animation resolves instead of freezing on the last poll.
     refetchInterval: (q) => {
-      const r = q.state.data as FlowRun | null | undefined;
+      const r = q.state.data as WorkflowRun | null | undefined;
       if (!r) return false;
       const working = (r.steps ?? []).some((s) => s.status === "running" || s.status === "waiting_job");
       return r.status === "running" || working ? 1500 : false;
@@ -185,7 +185,7 @@ export function ContractGovernanceLadder({ contractId }: { contractId: string })
     pumpedRef.current = key;
     const runId = run.id;
     setTimeout(() => {
-      flowsApi.refreshRun(runId).finally(() =>
+      workflowsApi.refreshRun(runId).finally(() =>
         qc.invalidateQueries({ queryKey: ["flow-run-contract", contractId] }),
       );
     }, 1000);
@@ -210,6 +210,25 @@ export function ContractGovernanceLadder({ contractId }: { contractId: string })
         <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${pct}%` }} />
       </div>
       <GovernanceLadderSteps steps={steps} currentIndex={run.current_index} complete={run.status === "complete"} orientation="vertical" />
+      {(run.brief ?? []).length > 0 && (
+        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-100 p-3">
+          <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Agent hand-off trace
+          </div>
+          <ol className="space-y-2">
+            {(run.brief ?? []).map((b, i) => (
+              <li key={i} className="flex gap-2.5 text-[13px]">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-brand-500" />
+                <div className="min-w-0">
+                  <span className="font-medium text-slate-700">{titleCase(b.agent || b.type)}</span>
+                  <span className="text-slate-400"> · {b.step}</span>
+                  <div className="text-slate-600">{b.summary}</div>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </div>
   );
 }

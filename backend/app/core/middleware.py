@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from app.core.config import settings
+from app.core.logging import PROBE_PATHS
 from app.core.request_log_queue import enqueue as enqueue_request_log
 from app.core.sanitize import parse_sensitive_keys, redact_query_string
 
@@ -29,6 +30,8 @@ def _client_request_id(value: str | None) -> str | None:
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        if request.url.path in PROBE_PATHS:
+            return await call_next(request)
         client_request_id = _client_request_id(request.headers.get("X-Request-ID"))
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id

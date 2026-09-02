@@ -19,6 +19,7 @@ import {
   ClipboardCheck,
   Signature,
   ListChecks,
+  FileWarning,
   RefreshCw,
   Activity,
   Bell,
@@ -32,10 +33,10 @@ import {
   Stamp,
  Gauge } from "lucide-react";
 import { useAuth } from "@/lib/auth";
+import { AegisRail } from "./aegis-rail";
 import { can } from "@/lib/intake";
 import { useLayout } from "@/lib/layout";
-import { cn, initials, titleCase } from "@/lib/utils";
-import { Breadcrumbs } from "@/components/ui";
+import { cn, initials } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const NAV: {
@@ -46,8 +47,9 @@ const NAV: {
     section: "Workspace",
     items: [
       { href: "/intake", label: "Legal Intake", icon: Gauge },
+      { href: "/contracts", label: "Contracts", icon: FileText },
       { href: "/", label: "Ask Aegis", icon: Bot },
-      { href: "/projects", label: "Projects", icon: FolderKanban },
+      { href: "/matters", label: "Matters", icon: FolderKanban },
       { href: "/search", label: "Search", icon: Search },
     ],
   },
@@ -57,7 +59,7 @@ const NAV: {
       { href: "/brain", label: "Contract Brain", icon: Brain },
       { href: "/tabular-reviews", label: "Tabular Review", icon: Table2 },
       { href: "/playbooks", label: "Playbooks", icon: BookMarked },
-      { href: "/workflows", label: "Prompt Library", icon: Library },
+      { href: "/prompts", label: "Prompt Library", icon: Library },
     ],
   },
   {
@@ -68,6 +70,7 @@ const NAV: {
       { href: "/sla", label: "SLA", icon: Timer },
       { href: "/signatures", label: "Signatures", icon: Signature },
       { href: "/obligations", label: "Obligations", icon: ListChecks },
+      { href: "/notices", label: "Notices", icon: FileWarning, perm: "notice:read" },
       { href: "/renewals", label: "Renewals", icon: RefreshCw },
       { href: "/trademarks", label: "Trademarks", icon: Stamp },
     ],
@@ -76,26 +79,6 @@ const NAV: {
   // in the top-right of the header — none belong in the primary nav.
 ];
 
-// Auto-breadcrumb support: map known routes to labels (primary nav + a few
-// account-menu / nested roots) so the shell renders "Home / Section" on
-// top-level pages. Detail routes ([id]) render their own richer breadcrumb.
-const ROUTE_LABELS: Record<string, string> = {
-  ...Object.fromEntries(NAV.flatMap((g) => g.items.map((i) => [i.href, i.label]))),
-  "/admin": "Admin",
-  "/jobs": "Jobs",
-  "/notifications": "Notifications",
-  "/contracts": "Contracts",
-};
-
-function buildCrumbs(pathname: string): { label: string; href?: string }[] | null {
-  const segs = pathname.split("/").filter(Boolean);
-  if (segs.length !== 1) return null; // root + detail routes are handled elsewhere
-  const href = `/${segs[0]}`;
-  return [
-    { label: "Home", href: "/" },
-    { label: ROUTE_LABELS[href] ?? titleCase(segs[0].replace(/-/g, " ")) },
-  ];
-}
 
 /** Unread in-app notifications — drives the bell badges. Polled lightly so the
  * badge stays fresh without a websocket. */
@@ -164,12 +147,11 @@ function SidebarNav({
   const isActive = (href: string) => {
     if (href === "/")
       return pathname === "/" || pathname.startsWith("/assistant");
-    // Legal Intake is the hub — it owns contracts and the retired /command route.
+    // Legal Intake is the hub — it owns contracts too.
     if (href === "/intake")
       return (
         pathname.startsWith("/intake") ||
-        pathname.startsWith("/contracts") ||
-        pathname.startsWith("/command")
+        pathname.startsWith("/contracts")
       );
     return pathname.startsWith(href);
   };
@@ -452,15 +434,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const deskCollapsed = forceCollapsed || collapsed;
   const notifActive = pathname.startsWith("/notifications");
-  // Immersive routes fill the whole main area instead of the centered,
-  // max-width-capped content column: the playbook builder, the AI assistant
-  // workspace, and the contract detail workspace all run edge-to-edge.
-  const fullBleed =
+  // The redesigned mockup screens fill the whole content area with their own
+  // full-height layout (topbar + body) and manage their own scroll, so the main
+  // area is overflow-hidden for them. They share the one AegisRail like every
+  // other route — no more per-screen sidebars.
+  const mockupRoute =
+    pathname === "/intake" ||
+    pathname === "/my-work" ||
+    pathname === "/contracts" ||
+    pathname.startsWith("/contracts/") ||
+    pathname === "/brain" ||
+    pathname.startsWith("/workflow-builder/");
+  const oldFullBleed =
     pathname === "/playbooks/build" ||
     pathname === "/" ||
-    pathname.startsWith("/assistant") ||
-    pathname.startsWith("/contracts/");
-  const crumbs = fullBleed ? null : buildCrumbs(pathname);
+    pathname.startsWith("/assistant");
+  // The old centered, max-width-capped column + breadcrumb strip is legacy
+  // chrome — only the pages that haven't been reskinned to the mockup style yet
+  // still need it (it gives their old @/components/ui-based layout room to
+  // breathe). Every reskinned page manages its own width/padding/background
+  // exactly like the mockup screens, so it renders edge-to-edge here — wrapping
+  // it in the old box double-pads it and leaves a stray "Home > X" breadcrumb
+  // bar that no mockup screen has. Shrink this list as more pages get reskinned.
+  const needsOldChrome =
+    pathname === "/admin" || pathname.startsWith("/admin/") ||
+    pathname === "/jobs" || pathname.startsWith("/jobs/") ||
+    pathname === "/notifications" || pathname.startsWith("/notifications/") ||
+    pathname.startsWith("/notices/") ||
+    pathname.startsWith("/tabular-reviews/") ||
+    (pathname.startsWith("/playbooks/") && pathname !== "/playbooks/build");
+  const fullBleed = mockupRoute || oldFullBleed || !needsOldChrome;
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">
@@ -471,15 +474,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
-      {/* Desktop sidebar */}
-      <aside
-        className={cn(
-          "hidden shrink-0 flex-col border-r border-slate-200 bg-slate-50 transition-[width] duration-200 lg:flex",
-          deskCollapsed ? "w-[4.25rem]" : "w-56",
-        )}
-      >
-        <SidebarNav collapsed={deskCollapsed} />
-      </aside>
+      {/* Desktop sidebar — the one shared rail for every route. */}
+      <div className="hidden lg:block">
+        <AegisRail />
+      </div>
 
       {/* Mobile drawer */}
       {mobileOpen && (
@@ -488,19 +486,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             onClick={() => setMobileOpen(false)}
           />
-          <aside className="absolute left-0 top-0 flex h-full w-64 animate-fade-in flex-col border-r border-slate-200 bg-slate-50">
+          <div className="absolute left-0 top-0 h-full animate-fade-in">
             <button
               onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-4 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+              className="absolute right-2 top-3 z-10 rounded-md p-1 text-slate-400 hover:bg-slate-100"
               aria-label="Close menu"
             >
               <X className="h-4 w-4" />
             </button>
-            <SidebarNav
-              collapsed={false}
-              onNavigate={() => setMobileOpen(false)}
-            />
-          </aside>
+            <AegisRail onNavigate={() => setMobileOpen(false)} />
+          </div>
         </div>
       )}
 
@@ -537,12 +532,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </header>
 
-        <main id="main-content" className="flex-1 overflow-y-auto bg-slate-50">
+        <main id="main-content" className={cn("flex flex-1 flex-col min-h-0 bg-slate-50", mockupRoute ? "overflow-hidden" : "overflow-y-auto")}>
           {fullBleed ? (
-            children
+            // Full-height app screens (intake, contract workspace, assistant, etc.)
+            // manage their own flex layout and must stay direct flex children.
+            // The reskinned list pages (.wfl/.ctl/…) instead center a
+            // max-width column with `margin:0 auto`; as a flex item that auto
+            // margin collapses them to content width (2 cramped columns), so they
+            // need a plain block wrapper to expand to their max-width like the
+            // mockup's block-flow `.main` — exactly reproducing screen-01..14.
+            mockupRoute || oldFullBleed ? (
+              children
+            ) : (
+              <div className="w-full">{children}</div>
+            )
           ) : (
-            <div className="mx-auto max-w-[1400px] px-5 py-4 sm:px-6">
-              {crumbs && <Breadcrumbs items={crumbs} />}
+            // Old-chrome pages (admin, jobs, notifications, kit detail pages) run
+            // full-width with the same ~24px gutter as the scoped screens — one
+            // width policy across the app, no centered max-width column.
+            <div className="w-full px-6 py-5">
               {children}
             </div>
           )}

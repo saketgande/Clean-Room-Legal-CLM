@@ -9,11 +9,28 @@ class UserStatus(StrEnum):
     DEACTIVATED = "deactivated"
 
 
-class ProjectType(StrEnum):
+class MatterType(StrEnum):
     GENERAL = "general"
     CONTRACT_REVIEW = "contract_review"
     DUE_DILIGENCE = "due_diligence"
     REGULATORY = "regulatory"
+    # Legal-matter types (Projects -> Matters evolution)
+    TRANSACTIONAL = "transactional"
+    LITIGATION = "litigation"
+    M_AND_A = "m_and_a"
+    EMPLOYMENT = "employment"
+    PRIVACY = "privacy"
+    PROCUREMENT = "procurement"
+    ADVISORY = "advisory"
+
+
+class MatterStatus(StrEnum):
+    """Lifecycle of a legal matter (client engagement)."""
+
+    INTAKE = "intake"
+    ACTIVE = "active"
+    ON_HOLD = "on_hold"
+    CLOSED = "closed"
 
 
 class ContractLifecycleStage(StrEnum):

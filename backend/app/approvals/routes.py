@@ -26,7 +26,7 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.config import settings
 from app.core.deps import get_db, require_permission
-from app.core.enums import UserStatus
+from app.core.enums import ContractLifecycleStage, UserStatus
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 
@@ -234,7 +234,7 @@ def list_approvals(
         _serialize_approval(
             row,
             db=db,
-            can_decide=_can_decide_approval(db, approval=row, user=current_user),
+            can_decide=_can_decide_approval(db, approval=row, user=current_user, contracts=contracts),
             group_names=group_names,
         )
         for row in rows
@@ -806,7 +806,8 @@ def _user_role_names(user) -> set[str]:
     return {role.name for role in getattr(user, "roles", [])}
 
 
-def _can_decide_approval(db: Session, *, approval: ApprovalRequest, user) -> bool:
+def _user_eligible_to_decide(db: Session, *, approval: ApprovalRequest, user) -> bool:
+    """Who is *allowed* to decide this step (identity/role/group), ignoring stage."""
     if has_permission(user.permission_values, "approval:admin"):
         return True
     if approval.requested_by_user_id == user.id:
@@ -824,6 +825,33 @@ def _can_decide_approval(db: Session, *, approval: ApprovalRequest, user) -> boo
         ):
             return True
     return False
+
+
+def _can_decide_approval(
+    db: Session,
+    *,
+    approval: ApprovalRequest,
+    user,
+    contracts: dict[str, Contract] | None = None,
+) -> bool:
+    """Whether the Approve/Reject buttons should show — eligibility AND the
+    contract-stage gate. Mirrors ApprovalSubject.guard_can_decide so can_decide
+    never promises an action that would 409 (a pending approval on a contract
+    that isn't in the approval stage is not actionable yet)."""
+    if not _user_eligible_to_decide(db, approval=approval, user=user):
+        return False
+    if approval.contract_id:
+        contract = (
+            contracts.get(approval.contract_id)
+            if contracts is not None
+            else db.get(Contract, approval.contract_id)
+        )
+        if (
+            contract is not None
+            and contract.lifecycle_stage != ContractLifecycleStage.APPROVAL
+        ):
+            return False
+    return True
 
 
 def _load_contracts_for_approvals(

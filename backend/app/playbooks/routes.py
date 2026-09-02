@@ -43,6 +43,7 @@ from app.playbooks.schemas import (
     PlaybookVersionResponse,
 )
 from app.playbooks.service import (
+    expand_playbook,
     apply_playbook_recommendation,
     chat_build_playbook,
     clone_playbook_version,
@@ -510,6 +511,22 @@ def create_playbook_version(
     db.commit()
     db.refresh(version)
     return version
+
+
+@router.post(
+    "/{playbook_id}/expand",
+    response_model=PlaybookVersionResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def expand_playbook_route(
+    playbook_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("playbook:update")),
+):
+    """Draft rules for the standard clauses this playbook is missing into a new
+    draft version. Advisory — the draft still needs review and publish."""
+    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    return expand_playbook(db, playbook=playbook, user=current_user)
 
 
 @router.post("/{playbook_id}/publish", response_model=PlaybookResponse)

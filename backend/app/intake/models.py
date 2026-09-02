@@ -88,6 +88,12 @@ class IntakeTeam(
         String(36), ForeignKey("intake_team.id", ondelete="SET NULL"), nullable=True
     )
     sort_order = Column(Integer, nullable=False, default=100)
+    # Context-aware routing: the matter categories this team owns (expertise /
+    # skills) and the business-unit departments it serves. The triage assigns a
+    # request's owner to the team whose expertise covers its category, narrowed
+    # to the team that serves the request's department when there's a match.
+    expertise = Column(JSON, nullable=True)
+    departments = Column(JSON, nullable=True)
 
     members = relationship(
         "IntakeTeamMember",
@@ -187,7 +193,7 @@ class IntakeRequest(
     external_message_id = Column(String(200), nullable=True)
     screening = Column(JSON, nullable=True)  # {counterparty, sanctions, conflicts, relationship}
     parties = Column(JSON, nullable=True)  # [{name, role, is_person}] — counterparty + adverse/related
-    project_id = Column(String(36), nullable=True)  # selective promotion (matter); no FK
+    matter_id = Column(String(36), nullable=True)  # selective promotion (matter); no FK
     contract_id = Column(
         String(36), ForeignKey("contract.id", ondelete="SET NULL"), nullable=True
     )

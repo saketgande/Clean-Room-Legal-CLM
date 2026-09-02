@@ -116,6 +116,10 @@ class Settings(BaseSettings):
     ai_store_raw_outputs: bool = False
     ai_max_tool_iterations: int = 8
     ai_default_temperature: float = 0.0
+    # Anthropic prompt caching: cache the (large, static) system prompt + tool
+    # schemas so they aren't re-billed at full price on every turn and every
+    # tool-loop iteration. Cheap cache reads instead of full input tokens.
+    ai_prompt_caching: bool = True
 
     # Retrieval quality (Contract Brain / Search). All default to the current
     # local, no-key behavior; set the provider + key to activate.
@@ -126,9 +130,15 @@ class Settings(BaseSettings):
     embedding_provider: str = "local"
     voyage_api_key: str | None = None
     voyage_embedding_model: str = "voyage-law-2"
-    #   rerank_provider: "none" | "cohere" | "voyage". When set, hybrid_sources
-    #     over-fetches candidates then reranks with a cross-encoder to the top N.
-    rerank_provider: str = "none"
+    # If local embeddings (fastembed) are unavailable, refuse to write meaningless
+    # random vectors — raise so the job fails loudly instead of poisoning the
+    # index. Set True only in CI/bare shells that knowingly want mock vectors.
+    allow_mock_embeddings: bool = False
+    #   rerank_provider: "local" (fastembed cross-encoder, no key — the default so
+    #     the second-stage reranker is actually on) | "cohere" | "voyage" | "none".
+    #     Over-fetches candidates then reranks with a cross-encoder to the top N.
+    rerank_provider: str = "local"
+    rerank_model_local: str = "Xenova/ms-marco-MiniLM-L-6-v2"
     cohere_api_key: str | None = None
     cohere_rerank_model: str = "rerank-english-v3.0"
     voyage_rerank_model: str = "rerank-2"
@@ -151,6 +161,17 @@ class Settings(BaseSettings):
 
     reducto_api_key: str | None = None
     mock_reducto: bool = False
+
+    # --- Databricks document extraction ------------------------------------
+    # OCR (ai_parse_document) plus structured field extraction (ai_extract),
+    # reached over the SQL Statement Execution API. Inert until host, token and
+    # warehouse are all set, so the app runs unchanged without them.
+    databricks_host: str | None = None            # https://<workspace>.cloud.databricks.com
+    databricks_token: str | None = None
+    databricks_warehouse_id: str | None = None    # must be a SERVERLESS warehouse
+    databricks_volume: str = "/Volumes/main/legal/contracts"
+    databricks_precision_mode: bool = True        # off for short paper, on for long agreements
+    mock_databricks: bool = False
 
     resend_api_key: str | None = None
     resend_from_email: str = "legal-clm@example.com"

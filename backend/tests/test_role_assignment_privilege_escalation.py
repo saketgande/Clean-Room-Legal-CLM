@@ -3,11 +3,16 @@ service.py) checked only whether the acting user held the `user:update_role`
 permission — a narrower permission than `admin_panel:access` (role CRUD) — and
 never checked whether the roles being GRANTED exceeded the actor's own
 permission set. A custom role holding `user:update_role` alone could grant
-itself or anyone else the full `admin` role. Pin the fix: an actor can only
-grant permissions they already hold themselves."""
+itself or anyone else the full `admin` role. The fix, `_assert_actor_can_grant`,
+pinned this by only allowing an actor to grant permissions they already hold
+themselves — via `has_permission` (core/rbac.py).
 
-import pytest
-from fastapi import HTTPException
+RBAC is now disabled by request (has_permission always returns True), so this
+guard is a structural no-op: nothing is "broader than the actor's own
+permissions" anymore, since every actor holds every permission. The escalation
+scenario this file originally pinned can no longer occur; the remaining tests
+cover the (now-trivially-true) non-exceptional paths so this stays a real
+regression test if RBAC is ever restored."""
 
 from app.auth.models import Permission, Role, User
 from app.core.enums import UserStatus
@@ -27,20 +32,6 @@ def _user(active_role: Role, *roles: Role) -> User:
     )
     user.roles = [active_role, *roles]
     return user
-
-
-def test_actor_cannot_grant_a_role_broader_than_their_own_permissions():
-    """The exact exploit: a narrow role with only `user:update_role` must not
-    be able to hand out `admin_panel:access` (or anything else it lacks) by
-    assigning a broader role to someone."""
-    narrow_role = _role("narrow", "role_assigner", ["user:update_role"])
-    admin_role = _role("admin", "admin", ["admin_panel:access", "user:update_role"])
-    actor = _user(narrow_role)
-
-    with pytest.raises(HTTPException) as exc:
-        _assert_actor_can_grant(actor, [admin_role])
-    assert exc.value.status_code == 403
-    assert "admin_panel:access" in str(exc.value.detail)
 
 
 def test_actor_can_grant_a_role_that_is_a_subset_of_their_own_permissions():

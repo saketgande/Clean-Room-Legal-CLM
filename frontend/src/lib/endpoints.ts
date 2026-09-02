@@ -2,6 +2,7 @@
 import { apiFetch, apiDownload } from "./api";
 import type {
   AdminSetting,
+  AiUsageSummary,
   ApprovalChainStep,
   ApprovalRequest,
   ApprovalReviewContext,
@@ -23,8 +24,8 @@ import type {
   ContractResponse,
   ContractRiskSummary,
   ExternalComment,
-  Flow,
-  FlowRun,
+  Workflow,
+  WorkflowRun,
   SignerOption,
   ExternalShareView,
   ContractDeviation,
@@ -41,6 +42,10 @@ import type {
   JobRun,
   LifecycleOptionsResponse,
   Notification,
+  Notice,
+  NoticeExtraction,
+  NoticeReminderRun,
+  NoticeSummary,
   Obligation,
   OrganizationResponse,
   BuildChatResponse,
@@ -52,13 +57,17 @@ import type {
   PlaybookRunDetailResponse,
   PlaybookRunResponse,
   PlaybookVersionResponse,
-  ProjectContractResponse,
-  ProjectFolderResponse,
-  ProjectMemberResponse,
-  ProjectResponse,
-  ProjectShareResponse,
+  MatterContractResponse,
+  MatterFolderResponse,
+  MatterMemberResponse,
+  MatterActivityItem,
+  MatterOverview,
+  MatterResponse,
+  MatterShareResponse,
+  UnfiledItem,
   RegistrationResponse,
   RenewalEvent,
+  RenewalRecommendation,
   SignatureRecipient,
   SignatureRequest,
   TabularReview,
@@ -72,9 +81,9 @@ import type {
   GrantResponse,
   WallResponse,
   AuthorityGrantResponse,
-  Workflow,
-  WorkflowVersion,
-  WorkflowUsage,
+  Prompt,
+  PromptVersion,
+  PromptUsage,
   IntakeRequest,
   IntakeRequestType,
   IntakeApprovalRung,
@@ -310,53 +319,66 @@ export const orgApi = {
     }),
 };
 
-// ---- Projects ------------------------------------------------------------
-export const projectsApi = {
-  list: () => apiFetch<ProjectResponse[]>("/projects"),
+// ---- Matters ------------------------------------------------------------
+export const mattersApi = {
+  list: () => apiFetch<MatterResponse[]>("/matters"),
   create: (payload: {
     name: string;
     description?: string;
-    project_type?: string;
+    matter_type?: string;
+    client_name?: string;
+    status?: string;
     metadata_json?: Record<string, unknown>;
-  }) => apiFetch<ProjectResponse>("/projects", { method: "POST", body: payload }),
-  get: (id: string) => apiFetch<ProjectResponse>(`/projects/${id}`),
+  }) => apiFetch<MatterResponse>("/matters", { method: "POST", body: payload }),
+  overview: (id: string) =>
+    apiFetch<MatterOverview>(`/matters/${id}/overview`),
+  activity: (id: string) =>
+    apiFetch<MatterActivityItem[]>(`/matters/${id}/activity`),
+  unfiled: (item_type?: "contract" | "intake") =>
+    apiFetch<UnfiledItem[]>(`/matters/unfiled${qs({ item_type })}`),
+  assign: (id: string, item_type: "contract" | "intake", item_id: string) =>
+    apiFetch<{ status: string }>(`/matters/${id}/items`, {
+      method: "POST",
+      body: { item_type, item_id },
+    }),
+  get: (id: string) => apiFetch<MatterResponse>(`/matters/${id}`),
   folders: (id: string) =>
-    apiFetch<ProjectFolderResponse[]>(`/projects/${id}/folders`),
+    apiFetch<MatterFolderResponse[]>(`/matters/${id}/folders`),
   createFolder: (id: string, name: string, parent_folder_id?: string) =>
-    apiFetch<ProjectFolderResponse>(`/projects/${id}/folders`, {
+    apiFetch<MatterFolderResponse>(`/matters/${id}/folders`, {
       method: "POST",
       body: { name, parent_folder_id },
     }),
   members: (id: string) =>
-    apiFetch<ProjectMemberResponse[]>(`/projects/${id}/members`),
+    apiFetch<MatterMemberResponse[]>(`/matters/${id}/members`),
   upsertMember: (id: string, user_id: string, role = "member") =>
-    apiFetch<ProjectMemberResponse>(`/projects/${id}/members`, {
+    apiFetch<MatterMemberResponse>(`/matters/${id}/members`, {
       method: "PUT",
       body: { user_id, role },
     }),
   removeMember: (id: string, userId: string) =>
-    apiFetch<void>(`/projects/${id}/members/${userId}`, { method: "DELETE" }),
+    apiFetch<void>(`/matters/${id}/members/${userId}`, { method: "DELETE" }),
   shares: (id: string) =>
-    apiFetch<ProjectShareResponse[]>(`/projects/${id}/shares`),
+    apiFetch<MatterShareResponse[]>(`/matters/${id}/shares`),
   createShare: (
     id: string,
     user_id: string,
     access_level = "read",
     expires_at?: string,
   ) =>
-    apiFetch<ProjectShareResponse>(`/projects/${id}/shares`, {
+    apiFetch<MatterShareResponse>(`/matters/${id}/shares`, {
       method: "POST",
       body: { user_id, access_level, expires_at },
     }),
   contracts: (id: string) =>
-    apiFetch<ProjectContractResponse[]>(`/projects/${id}/contracts`),
+    apiFetch<MatterContractResponse[]>(`/matters/${id}/contracts`),
   addContract: (id: string, contract_id: string, folder_id?: string) =>
-    apiFetch<ProjectContractResponse>(`/projects/${id}/contracts`, {
+    apiFetch<MatterContractResponse>(`/matters/${id}/contracts`, {
       method: "PUT",
       body: { contract_id, folder_id },
     }),
   removeContract: (id: string, contractId: string) =>
-    apiFetch<void>(`/projects/${id}/contracts/${contractId}`, {
+    apiFetch<void>(`/matters/${id}/contracts/${contractId}`, {
       method: "DELETE",
     }),
 };
@@ -371,14 +393,14 @@ export const contractsApi = {
     apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`, { method: "POST" }),
   upload: (
     file: File,
-    extra: { title?: string; counterparty_name?: string; project_id?: string } = {},
+    extra: { title?: string; counterparty_name?: string; matter_id?: string } = {},
   ) => {
     const form = new FormData();
     form.append("file", file);
     if (extra.title) form.append("title", extra.title);
     if (extra.counterparty_name)
       form.append("counterparty_name", extra.counterparty_name);
-    if (extra.project_id) form.append("project_id", extra.project_id);
+    if (extra.matter_id) form.append("matter_id", extra.matter_id);
     return apiFetch<ContractUploadResponse>("/contracts/upload", {
       method: "POST",
       form,
@@ -417,6 +439,27 @@ export const contractsApi = {
       form,
     });
   },
+  logNegotiationRevision: (
+    id: string,
+    file: File,
+    party: "counterparty" | "internal" | "us",
+    opts: { party_label?: string; change_summary?: string } = {},
+  ) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("party", party);
+    if (opts.party_label) form.append("party_label", opts.party_label);
+    if (opts.change_summary) form.append("change_summary", opts.change_summary);
+    return apiFetch<ContractVersionResponse>(`/contracts/${id}/negotiation-revision`, {
+      method: "POST",
+      form,
+    });
+  },
+  notifyTeam: (id: string, team_id: string, message?: string) =>
+    apiFetch<{ notified: number; team: string }>(`/contracts/${id}/notify-team`, {
+      method: "POST",
+      body: { team_id, ...(message ? { message } : {}) },
+    }),
   addParty: (
     id: string,
     payload: { name: string; contact_email?: string; party_type?: string },
@@ -475,6 +518,11 @@ export const contractsApi = {
       method: "POST",
       body: payload,
     }),
+  aiRedline: (id: string, instructions: string) =>
+    apiFetch<{ edits: number; summary?: string | null }>(
+      `/contracts/${id}/edits/ai-redline`,
+      { method: "POST", body: { instructions } },
+    ),
   exportDocx: (id: string, name?: string) =>
     apiDownload(`/contracts/${id}/export-docx`, name),
   updateText: (
@@ -529,7 +577,7 @@ export const assistantApi = {
   createSession: (payload: {
     session_type?: string;
     title?: string;
-    project_id?: string;
+    matter_id?: string;
     contract_id?: string;
     tabular_review_id?: string;
   }) =>
@@ -584,15 +632,15 @@ export const aiApi = {
 };
 
 // ---- Workflows -----------------------------------------------------------
-export const workflowsApi = {
-  list: () => apiFetch<Workflow[]>("/workflows"),
+export const promptsApi = {
+  list: () => apiFetch<Prompt[]>("/prompt-library"),
   create: (payload: {
     name: string;
     workflow_type?: string;
     visibility?: string;
     description?: string;
     definition?: Record<string, unknown>;
-  }) => apiFetch<Workflow>("/workflows", { method: "POST", body: payload }),
+  }) => apiFetch<Prompt>("/prompt-library", { method: "POST", body: payload }),
   update: (
     id: string,
     payload: {
@@ -603,17 +651,17 @@ export const workflowsApi = {
       shared_user_ids?: string[];
       note?: string;
     },
-  ) => apiFetch<Workflow>(`/workflows/${id}`, { method: "PATCH", body: payload }),
+  ) => apiFetch<Prompt>(`/prompt-library/${id}`, { method: "PATCH", body: payload }),
   versions: (id: string) =>
-    apiFetch<WorkflowVersion[]>(`/workflows/${id}/versions`),
+    apiFetch<PromptVersion[]>(`/prompt-library/${id}/versions`),
   revert: (id: string, versionId: string) =>
-    apiFetch<Workflow>(`/workflows/${id}/versions/${versionId}/revert`, {
+    apiFetch<Prompt>(`/prompt-library/${id}/versions/${versionId}/revert`, {
       method: "POST",
     }),
   launch: (id: string, payload: { mode?: string; contract_id?: string } = {}) =>
-    apiFetch<void>(`/workflows/${id}/launch`, { method: "POST", body: payload }),
+    apiFetch<void>(`/prompt-library/${id}/launch`, { method: "POST", body: payload }),
   analytics: () =>
-    apiFetch<Record<string, WorkflowUsage>>("/workflows/analytics"),
+    apiFetch<Record<string, PromptUsage>>("/prompt-library/analytics"),
 };
 
 // ---- Flows (workflow engine) ---------------------------------------------
@@ -622,35 +670,46 @@ type FlowBody = {
   description?: string | null;
   enabled?: boolean;
   eval_order?: number;
-  criteria?: Flow["criteria"];
-  steps?: Array<{ id?: string; type: string; name: string; config?: Record<string, unknown> }>;
+  criteria?: Workflow["criteria"];
+  steps?: Array<{
+    id?: string;
+    type: string;
+    name: string;
+    config?: Record<string, unknown>;
+    parallel?: boolean;
+    cond?: { field: string; op: string; value: string } | null;
+  }>;
 };
 
-export const flowsApi = {
-  listFlows: () => apiFetch<Flow[]>("/flows"),
-  getFlow: (id: string) => apiFetch<Flow>(`/flows/${id}`),
+export const workflowsApi = {
+  listFlows: () => apiFetch<Workflow[]>("/workflows"),
+  getFlow: (id: string) => apiFetch<Workflow>(`/workflows/${id}`),
   seedFlows: () =>
-    apiFetch<{ added: number; flows: Flow[] }>("/flows/seed", { method: "POST", body: {} }),
+    apiFetch<{ added: number; flows: Workflow[] }>("/workflows/seed", { method: "POST", body: {} }),
   createFlow: (body: FlowBody) =>
-    apiFetch<Flow>("/flows", { method: "POST", body }),
+    apiFetch<Workflow>("/workflows", { method: "POST", body }),
   updateFlow: (id: string, body: FlowBody) =>
-    apiFetch<Flow>(`/flows/${id}`, { method: "PATCH", body }),
+    apiFetch<Workflow>(`/workflows/${id}`, { method: "PATCH", body }),
   startFlow: (request_id: string, flow_id?: string) =>
-    apiFetch<FlowRun>("/flows/start", {
+    apiFetch<WorkflowRun>("/workflows/start", {
       method: "POST",
       body: flow_id ? { request_id, flow_id } : { request_id },
     }),
   runForRequest: (request_id: string) =>
-    apiFetch<FlowRun | null>(`/flows/runs/by-request/${request_id}`),
+    apiFetch<WorkflowRun | null>(`/workflows/runs/by-request/${request_id}`),
   runForContract: (contract_id: string) =>
-    apiFetch<FlowRun | null>(`/flows/runs/by-contract/${contract_id}`),
-  completeStep: (run_id: string, note?: string) =>
-    apiFetch<FlowRun>(`/flows/runs/${run_id}/complete-step`, {
+    apiFetch<WorkflowRun | null>(`/workflows/runs/by-contract/${contract_id}`),
+  completeStep: (run_id: string, note?: string, step_idx?: number) =>
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/complete-step`, {
       method: "POST",
-      body: note ? { note } : {},
+      body: { ...(note ? { note } : {}), ...(step_idx != null ? { step_idx } : {}) },
     }),
   refreshRun: (run_id: string) =>
-    apiFetch<FlowRun>(`/flows/runs/${run_id}/refresh`, { method: "POST", body: {} }),
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/refresh`, { method: "POST", body: {} }),
+  returnStep: (run_id: string, to_idx?: number, note?: string) =>
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/return`, { method: "POST", body: { ...(to_idx != null ? { to_idx } : {}), ...(note ? { note } : {}) } }),
+  comment: (run_id: string, text: string, idx?: number) =>
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/comment`, { method: "POST", body: { text, ...(idx != null ? { idx } : {}) } }),
 };
 
 // ---- Playbooks -----------------------------------------------------------
@@ -698,6 +757,10 @@ export const playbooksApi = {
     apiFetch<PlaybookVersionResponse>(`/playbooks/${id}/versions`, {
       method: "POST",
       body: { source_version_id, summary },
+    }),
+  expand: (id: string) =>
+    apiFetch<PlaybookVersionResponse>(`/playbooks/${id}/expand`, {
+      method: "POST",
     }),
   publish: (id: string, version_id?: string) =>
     apiFetch<PlaybookResponse>(`/playbooks/${id}/publish`, {
@@ -845,6 +908,48 @@ export const signaturesApi = {
 };
 
 // ---- Obligations ---------------------------------------------------------
+export const noticesApi = {
+  list: (
+    params: {
+      status_filter?: string; direction?: string; notice_type?: string;
+      owner_user_id?: string; contract_id?: string; overdue_only?: boolean; q?: string;
+    } = {},
+  ) => apiFetch<Notice[]>(`/notices${qs(params)}`),
+  summary: () => apiFetch<NoticeSummary>("/notices/summary"),
+  /** Chase this org's near/past-deadline notices now. The nightly Celery sweep
+   *  does the same across every org; this is the manual equivalent. */
+  runReminders: () =>
+    apiFetch<NoticeReminderRun>("/notices/run-reminders", { method: "POST" }),
+  get: (id: string) => apiFetch<Notice>(`/notices/${id}`),
+  create: (payload: Record<string, unknown>) =>
+    apiFetch<Notice>("/notices", { method: "POST", body: payload }),
+  update: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<Notice>(`/notices/${id}`, { method: "PATCH", body: payload }),
+  setStatus: (id: string, payload: { status: string; note?: string; response_summary?: string }) =>
+    apiFetch<Notice>(`/notices/${id}/status`, { method: "POST", body: payload }),
+  addNote: (id: string, body: string) =>
+    apiFetch<Notice>(`/notices/${id}/notes`, { method: "POST", body: { body } }),
+  remove: (id: string) => apiFetch<void>(`/notices/${id}`, { method: "DELETE" }),
+  /** Reads a notice document and proposes field values. Creates nothing. */
+  extract: (file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiFetch<NoticeExtraction>("/notices/extract", { method: "POST", form });
+  },
+  addDocument: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return apiFetch<Notice>(`/notices/${id}/documents`, { method: "POST", form });
+  },
+  deleteDocument: (id: string, documentId: string) =>
+    apiFetch<Notice>(`/notices/${id}/documents/${documentId}`, { method: "DELETE" }),
+  /** Draft a reply from the notice + its attachments. Stored, never sent. */
+  draftResponse: (id: string) =>
+    apiFetch<Notice>(`/notices/${id}/draft-response`, { method: "POST" }),
+  escalate: (id: string, payload: { reason: string; type_label?: string; priority?: string }) =>
+    apiFetch<Notice>(`/notices/${id}/escalate`, { method: "POST", body: payload }),
+};
+
 export const obligationsApi = {
   list: (params: { contract_id?: string; status_filter?: string } = {}) =>
     apiFetch<Obligation[]>(`/obligations${qs(params)}`),
@@ -886,6 +991,8 @@ export const renewalsApi = {
       "/renewals/run-window-check",
       { method: "POST" },
     ),
+  recommendation: (id: string) =>
+    apiFetch<RenewalRecommendation>(`/renewals/${id}/recommendation`),
 };
 
 // ---- Trademarks -----------------------------------------------------------
@@ -936,7 +1043,7 @@ export const brainApi = {
     question: string;
     query_scope?: BrainScope;
     contract_id?: string;
-    project_id?: string;
+    matter_id?: string;
   }) =>
     apiFetch<BrainQuery>("/contract-brain/ask", {
       method: "POST",
@@ -951,7 +1058,7 @@ export const tabularApi = {
   list: () => apiFetch<TabularReview[]>("/tabular-reviews"),
   create: (payload: {
     name: string;
-    project_id?: string;
+    matter_id?: string;
     contract_ids?: string[];
     columns: { name: string; prompt: string }[];
   }) =>
@@ -993,12 +1100,12 @@ export const tabularApi = {
 export const searchApi = {
   contracts: (params: Record<string, unknown>) =>
     apiFetch<ContractResponse[]>(`/search/contracts${qs(params)}`),
-  text: (params: { q: string; contract_id?: string; project_id?: string; limit?: number }) =>
+  text: (params: { q: string; contract_id?: string; matter_id?: string; limit?: number }) =>
     apiFetch<ContractTextSearchResult[]>(`/search/contract-text${qs(params)}`),
   clauses: (params: Record<string, unknown>) =>
     apiFetch<ClauseSearchResult[]>(`/search/clauses${qs(params)}`),
   projects: (params: Record<string, unknown>) =>
-    apiFetch<ProjectResponse[]>(`/search/projects${qs(params)}`),
+    apiFetch<MatterResponse[]>(`/search/projects${qs(params)}`),
 };
 
 // ---- Notifications / jobs / admin / debug --------------------------------
@@ -1016,6 +1123,11 @@ export const jobsApi = {
   cancel: (id: string) =>
     apiFetch<JobRun>(`/jobs/${id}/cancel`, { method: "POST" }),
   run: (id: string) => apiFetch<JobRun>(`/jobs/${id}/run`, { method: "POST" }),
+};
+
+export const aiUsageApi = {
+  summary: (days = 30) =>
+    apiFetch<AiUsageSummary>(`/analytics/ai-usage${qs({ days })}`),
 };
 
 export const adminApi = {

@@ -132,7 +132,7 @@ def select_mock_tool(
     if ("workflow" in text or "workflows" in text) and "list_workflows" in tool_names:
         return "list_workflows", {}
     if ("project" in text or "contracts" in text) and "list_project_contracts" in tool_names:
-        return "list_project_contracts", {"project_id": "mock-project-id"}
+        return "list_project_contracts", {"matter_id": "mock-project-id"}
     if (
         ("contract" in text or "summar" in text or "read" in text)
         and "read_contract" in tool_names

@@ -182,12 +182,12 @@ class IntakeApprovalSubject:
     def on_complete(
         self, db: Session, *, actor_user_id: str | None, request_id: str | None
     ) -> None:
-        # Flow owns the terminal when a workflow is driving this request: a
+        # Workflow owns the terminal when a workflow is driving this request: a
         # single ladder chain is one gate of possibly several, so record the
         # gate passing and let the flow finalize once every step is done. A
         # request with no active flow (submitted straight into the ladder)
         # finalizes here.
-        from app.flows.service import get_run_for_request
+        from app.workflows.service import get_run_for_request
 
         run = get_run_for_request(db, request_id=self.request.id, org_id=self.request.org_id)
         if run is not None and run.status in ("running", "waiting"):

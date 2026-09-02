@@ -16,8 +16,8 @@ from app.core.access import is_org_admin
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import TabularCellStatus
-from app.projects.access import get_project_for_user
-from app.projects.models import ProjectContract
+from app.matters.access import get_project_for_user
+from app.matters.models import MatterContract
 from app.tabular_review.models import (
     TabularReview,
     TabularReviewCell,
@@ -115,7 +115,7 @@ class TabularColumnCreate(BaseModel):
 
 class TabularReviewCreate(BaseModel):
     name: str
-    project_id: str | None = None
+    matter_id: str | None = None
     contract_ids: list[str] = Field(default_factory=list)
     columns: list[TabularColumnCreate] = Field(min_length=1)
 
@@ -150,9 +150,9 @@ def _review_is_accessible(
 ) -> bool:
     if is_org_admin(current_user) or review.created_by_user_id == current_user.id:
         return True
-    if review.project_id:
+    if review.matter_id:
         try:
-            get_project_for_user(db, project_id=review.project_id, user=current_user)
+            get_project_for_user(db, matter_id=review.matter_id, user=current_user)
         except HTTPException:
             return False
         return True
@@ -215,14 +215,14 @@ def create_review(
     current_user=Depends(require_permission("assistant:use_ai_tools")),
 ):
     contract_ids = list(dict.fromkeys(payload.contract_ids))
-    if payload.project_id:
-        get_project_for_user(db, project_id=payload.project_id, user=current_user)
+    if payload.matter_id:
+        get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
         if not contract_ids:
             contract_ids = list(
                 db.scalars(
-                    select(ProjectContract.contract_id).where(
-                        ProjectContract.org_id == current_user.org_id,
-                        ProjectContract.project_id == payload.project_id,
+                    select(MatterContract.contract_id).where(
+                        MatterContract.org_id == current_user.org_id,
+                        MatterContract.matter_id == payload.matter_id,
                     )
                 ).all()
             )
@@ -236,7 +236,7 @@ def create_review(
     review = TabularReview(
         org_id=current_user.org_id,
         name=payload.name,
-        project_id=payload.project_id,
+        matter_id=payload.matter_id,
         source_contract_ids=contract_ids,
         status="running",
         created_by_user_id=current_user.id,
@@ -512,6 +512,24 @@ async def chat_over_table(
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
     context_text = build_table_context(db, review=review, org_id=current_user.org_id)
+    # Replay the recent conversation so a follow-up ("what about the second
+    # one?") actually has memory — the chat rows were persisted but never fed
+    # back to the model, so every question used to start cold.
+    prior = db.scalars(
+        select(TabularReviewChat)
+        .where(
+            TabularReviewChat.org_id == current_user.org_id,
+            TabularReviewChat.tabular_review_id == review.id,
+        )
+        .order_by(TabularReviewChat.created_at.desc())
+        .limit(8)
+    ).all()
+    convo = "\n".join(f"{h.role}: {(h.content or '')[:600]}" for h in reversed(prior))
+    question = (
+        f"Conversation so far:\n{convo}\n\nCurrent question: {payload.message}"
+        if convo
+        else payload.message
+    )
     db.add(
         TabularReviewChat(
             org_id=current_user.org_id,
@@ -528,7 +546,7 @@ async def chat_over_table(
         skill_name="tabular_review_chat",
         org_id=current_user.org_id,
         created_by_user_id=current_user.id,
-        input_payload={"question": payload.message, "table_context": context_text},
+        input_payload={"question": question, "table_context": context_text},
         request_id=getattr(request.state, "request_id", None),
     )
     answer = output if isinstance(output, TabularChatOutput) else TabularChatOutput.model_validate(output)

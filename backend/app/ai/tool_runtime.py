@@ -18,11 +18,31 @@ from app.ai.redaction import redact_ai_payload
 from app.ai.schemas import BrainQueryParseOutput
 from app.ai.tool_policy import is_tool_enabled
 from app.ai.tool_registry import (
+    AddCommentInput,
+    AdvanceContractStageInput,
+    AdvanceIntakeWorkflowInput,
     ApprovalSubmitInput,
+    CompleteObligationInput,
+    CompleteTaskInput,
+    CreateWorkflowInput,
+    MatterRef,
+    SignatureStatusInput,
+    CreateIntakeRequestInput,
+    CreateNoticeInput,
+    DecideApprovalInput,
+    IntakeRequestRef,
+    ListNoticesInput,
+    ListRenewalsInput,
+    NoticeRef,
+    ReassignRequestInput,
+    SendForNegotiationInput,
+    SignatureLinkInput,
+    StartIntakeWorkflowInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
     ContractHandleInput,
+    ReadContractInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
@@ -31,12 +51,12 @@ from app.ai.tool_registry import (
     GenerateContractInput,
     ListObligationsInput,
     PlaybookToolInput,
-    ProjectContractsInput,
+    MatterContractsInput,
     ReadTableCellsInput,
     RedraftContractInput,
     SignatureSendInput,
     TabularReviewInput,
-    WorkflowRunInput,
+    PromptRunInput,
     tool_registry,
 )
 from app.approvals.models import ApprovalRequest
@@ -52,6 +72,7 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.access import accessible_contract_filter
 from app.contracts.lifecycle import transition_contract_stage
@@ -77,15 +98,15 @@ from app.jobs.service import create_job, dispatch_job
 from app.obligations.models import Obligation
 from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
-from app.projects.access import get_project_for_user
-from app.projects.models import ProjectContract
+from app.matters.access import get_project_for_user
+from app.matters.models import MatterContract
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureRecipient, SignatureRequest
 from app.signatures.service import validate_signature_recipients
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 from app.tabular_review.service import dispatch_cells
-from app.workflows.builtin import builtin_workflows
-from app.workflows.models import Workflow, WorkflowRun
+from app.prompt_library.builtin import builtin_prompts
+from app.prompt_library.models import Prompt, PromptRun
 
 
 class ToolRuntime:
@@ -287,7 +308,7 @@ class ToolRuntime:
                 create_redline=True,
             )
         if tool_name == "ask_contract_brain":
-            return self._ask_contract_brain(db, payload=payload, user=user, session_id=session_id)
+            return await self._ask_contract_brain(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "submit_for_approval":
             return await self._submit_for_approval(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "send_for_signature":
@@ -308,26 +329,437 @@ class ToolRuntime:
             return self._find_contracts(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_obligations":
             return self._list_obligations(db, payload=payload, user=user)
+        if tool_name == "create_intake_request":
+            return self._create_intake_request(db, payload=payload, user=user)
+        if tool_name == "get_intake_request":
+            return self._get_intake_request(db, payload=payload, user=user)
+        if tool_name == "start_intake_workflow":
+            return await self._start_intake_workflow(db, payload=payload, user=user)
+        if tool_name == "advance_intake_workflow":
+            return await self._advance_intake_workflow(db, payload=payload, user=user)
+        if tool_name == "create_workflow":
+            return self._create_workflow(db, payload=payload, user=user)
+        if tool_name == "decide_approval":
+            return await self._decide_approval(db, payload=payload, user=user)
+        if tool_name == "reassign_request":
+            return self._reassign_request(db, payload=payload, user=user)
+        if tool_name == "get_signature_link":
+            return self._get_signature_link(db, payload=payload, user=user)
+        if tool_name == "add_contract_comment":
+            return self._add_contract_comment(db, payload=payload, user=user)
+        if tool_name == "send_for_negotiation":
+            return self._send_for_negotiation(db, payload=payload, user=user)
+        if tool_name == "list_notices":
+            return self._list_notices(db, payload=payload, user=user)
+        if tool_name == "create_notice":
+            return self._create_notice(db, payload=payload, user=user)
+        if tool_name == "draft_notice_response":
+            return self._draft_notice_response(db, payload=payload, user=user)
+        if tool_name == "complete_obligation":
+            return self._complete_obligation(db, payload=payload, user=user)
+        if tool_name == "list_renewals":
+            return self._list_renewals(db, payload=payload, user=user)
+        if tool_name == "list_my_requests":
+            return self._list_my_requests(db, user=user)
+        if tool_name == "list_projects":
+            return self._list_projects(db, user=user)
+        if tool_name == "complete_task":
+            return self._complete_task(db, payload=payload, user=user)
+        if tool_name == "get_signature_status":
+            return self._get_signature_status(db, payload=payload, user=user)
+        if tool_name == "advance_contract_stage":
+            return self._advance_contract_stage(db, payload=payload, user=user)
+        if tool_name == "list_my_approvals":
+            return self._list_my_approvals(db, user=user)
+        if tool_name == "read_project":
+            return self._read_project(db, payload=payload, user=user)
+        if tool_name == "read_notice":
+            return self._read_notice(db, payload=payload, user=user)
         return {"status": "feature_not_enabled", "tool": tool_name}
+
+    # ---- Intake + workflow-engine handlers --------------------------------
+
+    def _resolve_request(self, db: Session, ref_or_id: str, user: User):
+        from app.intake.models import IntakeRequest
+
+        q = (ref_or_id or "").strip()
+        req = None
+        if q:
+            req = db.scalar(select(IntakeRequest).where(
+                IntakeRequest.org_id == user.org_id, IntakeRequest.ref == q))
+            if req is None:
+                req = db.scalar(select(IntakeRequest).where(
+                    IntakeRequest.org_id == user.org_id, IntakeRequest.id == q))
+        if req is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Intake request '{ref_or_id}' not found")
+        return req
+
+    def _latest_run(self, db: Session, request_id: str):
+        from app.workflows.models import WorkflowRun
+
+        return db.scalar(select(WorkflowRun).where(
+            WorkflowRun.request_id == request_id).order_by(WorkflowRun.created_at.desc()))
+
+    def _request_summary(self, req, run=None) -> dict[str, Any]:
+        at = req.ai_triage or {}
+        u = at.get("understanding") or {}
+        out: dict[str, Any] = {
+            "id": req.id, "ref": req.ref, "type": req.type_label, "subject": req.subject,
+            "status": req.status, "stage": req.stage, "priority": req.priority,
+            "owner_user_id": req.assigned_to_user_id,
+            "needs_info": at.get("needs_info"), "missing_info": u.get("missing_info") or [],
+            "suggested_workflow": (at.get("flow_suggestion") or {}).get("flow_name"),
+        }
+        if run is not None:
+            steps = run.steps or []
+            cur = steps[run.current_index] if 0 <= run.current_index < len(steps) else None
+            out["workflow"] = {
+                "name": run.flow_name, "status": run.status,
+                "current_step": (cur.get("name") if cur else None),
+                "current_step_type": (cur.get("type") if cur else None),
+                "contract_id": run.contract_id,
+            }
+        return out
+
+    def _create_intake_request(self, db: Session, *, payload: CreateIntakeRequestInput, user: User) -> dict[str, Any]:
+        from app.intake.service import create_request
+        from app.intake.schemas import RequestCreate
+
+        rc = RequestCreate(
+            type_label=payload.type_label, subject=payload.subject,
+            description=payload.description or "", department=payload.department,
+            priority=payload.priority, field_values=payload.field_values, source="copilot",
+        )
+        result = create_request(db, actor=user, payload=rc)
+        at = result.get("ai_triage") or {}
+        return {
+            "created": True, "id": result.get("id"), "ref": result.get("ref"),
+            "type": result.get("type_label"), "status": result.get("status"),
+            "needs_info": at.get("needs_info"),
+            "missing_info": (at.get("understanding") or {}).get("missing_info") or [],
+            "suggested_workflow": (at.get("flow_suggestion") or {}).get("flow_name"),
+            "owner_user_id": result.get("assigned_to_user_id"),
+        }
+
+    def _get_intake_request(self, db: Session, *, payload: IntakeRequestRef, user: User) -> dict[str, Any]:
+        req = self._resolve_request(db, payload.request_id, user)
+        return self._request_summary(req, self._latest_run(db, req.id))
+
+    async def _start_intake_workflow(self, db: Session, *, payload: StartIntakeWorkflowInput, user: User) -> dict[str, Any]:
+        from app.workflows.models import Workflow
+        from app.workflows.service import start_flow
+
+        req = self._resolve_request(db, payload.request_id, user)
+        flow = None
+        if payload.workflow_id:
+            flow = db.get(Workflow, payload.workflow_id)
+            if flow is None or flow.org_id != user.org_id:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+        run = await start_flow(db, actor=user, request=req, flow=flow)
+        db.commit()
+        return {"started": True, **self._request_summary(req, run)}
+
+    async def _advance_intake_workflow(self, db: Session, *, payload: AdvanceIntakeWorkflowInput, user: User) -> dict[str, Any]:
+        from app.workflows.service import advance_run, complete_human_step, refresh_run
+
+        req = self._resolve_request(db, payload.request_id, user)
+        run = self._latest_run(db, req.id)
+        if run is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No workflow is running on this request")
+        steps = run.steps or []
+        cur = steps[run.current_index] if 0 <= run.current_index < len(steps) else None
+        ctype = cur.get("type") if cur else None
+        if ctype in ("approval", "signature"):
+            run = await refresh_run(db, run=run, actor=user)
+        else:
+            complete_human_step(db, run=run, actor=user, note=payload.note)
+            run = await advance_run(db, run=run, actor=user)
+        db.commit()
+        return {"advanced": True, **self._request_summary(req, run)}
+
+    def _create_workflow(self, db: Session, *, payload: CreateWorkflowInput, user: User) -> dict[str, Any]:
+        from app.workflows.service import create_flow
+
+        criteria = {"match_type": payload.applies_to.strip().lower()} if payload.applies_to else {}
+        flow = create_flow(db, actor=user, payload={
+            "name": payload.name, "description": payload.description,
+            "steps": payload.steps, "criteria": criteria,
+        })
+        return {"created": True, "id": flow.id, "name": flow.name,
+                "steps": [s.get("name") for s in (flow.steps or [])]}
+
+    async def _decide_approval(self, db: Session, *, payload: DecideApprovalInput, user: User) -> dict[str, Any]:
+        from app.approvals.models import ApprovalRequest
+        from app.approvals.service import decide_in_app
+        from app.core.enums import ApprovalStatus
+
+        req = self._resolve_request(db, payload.request_id, user)
+        approval = db.scalar(
+            select(ApprovalRequest)
+            .where(ApprovalRequest.intake_request_id == req.id, ApprovalRequest.status == ApprovalStatus.PENDING)
+            .order_by(ApprovalRequest.created_at.asc())
+        )
+        if approval is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No pending approval on this request")
+        updated = await decide_in_app(db, user=user, approval=approval, decision=payload.decision, comment=payload.comment)
+        db.commit()
+        return {"decided": payload.decision, "request_ref": req.ref, "approval_status": updated.status}
+
+    def _reassign_request(self, db: Session, *, payload: ReassignRequestInput, user: User) -> dict[str, Any]:
+        from app.auth.models import User as UserModel
+        from app.intake.schemas import TriageActionRequest
+        from app.intake.service import record_triage_action
+
+        q = (payload.assignee or "").strip()
+        target = db.scalar(select(UserModel).where(
+            UserModel.org_id == user.org_id,
+            or_(UserModel.email.ilike(q), UserModel.full_name.ilike(q)),
+        ))
+        if target is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"No user matching '{payload.assignee}'")
+        req = self._resolve_request(db, payload.request_id, user)
+        record_triage_action(db, actor=user, request_id=req.id,
+                             payload=TriageActionRequest(action="reassigned", assignee_user_id=target.id))
+        db.commit()
+        return {"reassigned": True, "request_ref": req.ref, "owner": target.full_name}
+
+    def _resolve_contract_id(self, db: Session, *, request_id, contract_id, user: User) -> str:
+        if contract_id:
+            get_contract_for_user(db, contract_id=contract_id, user=user)
+            return contract_id
+        if request_id:
+            req = self._resolve_request(db, request_id, user)
+            cid = req.contract_id
+            if not cid:
+                run = self._latest_run(db, req.id)
+                cid = run.contract_id if run else None
+            if cid:
+                return cid
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No contract is linked to that request yet")
+
+    def _get_signature_link(self, db: Session, *, payload: SignatureLinkInput, user: User) -> dict[str, Any]:
+        cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
+        contract = get_contract_for_user(db, contract_id=cid, user=user)
+        return {
+            "contract_id": cid, "title": contract.title, "stage": contract.lifecycle_stage,
+            "sign_link": f"/contracts/{cid}",
+            "note": "Open this link to review and sign the contract in the app.",
+        }
+
+    def _add_contract_comment(self, db: Session, *, payload: AddCommentInput, user: User) -> dict[str, Any]:
+        from app.contracts.comments_service import create_comment
+
+        contract = get_contract_for_user(db, contract_id=payload.contract_id, user=user)
+        create_comment(db, contract=contract, user=user, body=payload.body, visibility=payload.visibility)
+        db.commit()
+        return {"added": True, "contract_id": payload.contract_id, "visibility": payload.visibility}
+
+    def _send_for_negotiation(self, db: Session, *, payload: SendForNegotiationInput, user: User) -> dict[str, Any]:
+        cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
+        contract = get_contract_for_user(db, contract_id=cid, user=user)
+        if payload.party == "internal":
+            if not payload.team_id:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "team_id is required for internal negotiation")
+            from app.intake.models import IntakeTeam, IntakeTeamMember
+            from app.notifications.models import Notification
+
+            team = db.get(IntakeTeam, payload.team_id)
+            if team is None or team.org_id != user.org_id:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Team not found")
+            members = db.scalars(select(IntakeTeamMember).where(
+                IntakeTeamMember.team_id == team.id, IntakeTeamMember.active.is_(True))).all()
+            for m in members:
+                db.add(Notification(
+                    org_id=user.org_id, user_id=m.user_id, channel="in_app",
+                    event_type="contract.negotiation_review",
+                    subject=f"Negotiation review requested — {contract.title}",
+                    body=f'Please review and redline "{contract.title}".', status="sent",
+                    created_by_user_id=user.id, updated_by_user_id=user.id))
+            db.commit()
+            return {"sent": "internal", "team": team.name, "notified": len(members)}
+        # counterparty → external share link
+        import secrets
+        from app.contract_files.models import ContractShare
+        from app.contract_files.routes import _hash_secret
+        from app.core.enums import ShareAccessMode
+
+        token = secrets.token_urlsafe(32)
+        share = ContractShare(
+            org_id=user.org_id, contract_id=cid,
+            contract_version_id=contract.current_authoritative_version_id,
+            token_hash=_hash_secret(token), access_mode=ShareAccessMode.VIEW_ONLY,
+            created_by_user_id=user.id, updated_by_user_id=user.id,
+        )
+        db.add(share)
+        db.commit()
+        return {"sent": "counterparty", "share_link": f"/s/{token}",
+                "note": "Send this link to the counterparty; their returned redline is recorded as the next round."}
+
+    def _list_notices(self, db: Session, *, payload: ListNoticesInput, user: User) -> dict[str, Any]:
+        from app.notices.service import list_notices
+
+        rows = list_notices(db, org_id=user.org_id, status_filter=payload.status, overdue_only=payload.overdue_only)
+        return {"count": len(rows), "notices": rows[:25]}
+
+    def _create_notice(self, db: Session, *, payload: CreateNoticeInput, user: User) -> dict[str, Any]:
+        from app.notices.schemas import NoticeCreate
+        from app.notices.service import create_notice
+
+        nc = NoticeCreate(
+            subject=payload.subject, counterparty_name=payload.counterparty_name,
+            direction=payload.direction, notice_type=payload.notice_type,
+            description=payload.description, contract_id=payload.contract_id,
+        )
+        res = create_notice(db, actor=user, payload=nc)
+        db.commit()
+        return {"created": True, **({k: res.get(k) for k in ("id", "ref", "subject", "status")} if isinstance(res, dict) else {})}
+
+    def _draft_notice_response(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
+        from app.notices.service import draft_response
+
+        res = draft_response(db, actor=user, notice_id=payload.notice_id)
+        db.commit()
+        draft = res.get("draft_response") if isinstance(res, dict) else None
+        return {"drafted": True, "notice_id": payload.notice_id, "response": draft}
+
+    def _complete_obligation(self, db: Session, *, payload: CompleteObligationInput, user: User) -> dict[str, Any]:
+        from app.obligations.models import Obligation
+
+        ob = db.get(Obligation, payload.obligation_id)
+        if ob is None or ob.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
+        ob.status = "completed"
+        ob.updated_by_user_id = user.id
+        db.commit()
+        return {"completed": True, "obligation_id": ob.id}
+
+    def _list_renewals(self, db: Session, *, payload: ListRenewalsInput, user: User) -> dict[str, Any]:
+        from app.renewals.models import RenewalEvent
+
+        rows = db.scalars(
+            select(RenewalEvent).where(RenewalEvent.org_id == user.org_id)
+            .order_by(RenewalEvent.renewal_window_starts_at.asc())
+        ).all()
+        out = [{
+            "id": r.id, "contract_id": r.contract_id, "decision": r.decision,
+            "window_starts": (r.renewal_window_starts_at.isoformat() if r.renewal_window_starts_at else None),
+        } for r in rows[:payload.limit]]
+        return {"count": len(out), "renewals": out}
+
+    def _list_my_requests(self, db: Session, *, user: User) -> dict[str, Any]:
+        from app.intake.models import IntakeRequest
+
+        rows = db.scalars(
+            select(IntakeRequest)
+            .where(IntakeRequest.org_id == user.org_id, IntakeRequest.requester_user_id == user.id)
+            .order_by(IntakeRequest.created_at.desc())
+        ).all()
+        return {"count": len(rows), "requests": [{
+            "ref": r.ref, "type": r.type_label, "subject": r.subject,
+            "status": r.status, "stage": r.stage,
+        } for r in rows[:25]]}
+
+    def _list_projects(self, db: Session, *, user: User) -> dict[str, Any]:
+        from app.matters.models import Matter
+
+        rows = db.scalars(
+            select(Matter).where(Matter.org_id == user.org_id).order_by(Matter.created_at.desc())
+        ).all()
+        return {"count": len(rows), "projects": [{"id": p.id, "name": p.name} for p in rows[:50]]}
+
+    def _complete_task(self, db: Session, *, payload: CompleteTaskInput, user: User) -> dict[str, Any]:
+        from app.intake.schemas import TaskUpdateReq
+        from app.intake.service import update_task
+
+        update_task(db, actor=user, task_id=payload.task_id, payload=TaskUpdateReq(status="done"))
+        db.commit()
+        return {"completed": True, "task_id": payload.task_id}
+
+    def _get_signature_status(self, db: Session, *, payload: SignatureStatusInput, user: User) -> dict[str, Any]:
+        from app.signatures.models import SignatureRecipient, SignatureRequest
+
+        cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
+        sig = db.scalar(
+            select(SignatureRequest).where(SignatureRequest.contract_id == cid)
+            .order_by(SignatureRequest.created_at.desc())
+        )
+        if sig is None:
+            return {"contract_id": cid, "signature": None,
+                    "note": "No signature request yet — send it for signature first."}
+        recips = db.scalars(select(SignatureRecipient).where(SignatureRecipient.signature_request_id == sig.id)).all()
+        return {"contract_id": cid, "status": sig.status,
+                "recipients": [{"name": r.name, "status": r.status} for r in recips]}
+
+    def _advance_contract_stage(self, db: Session, *, payload: AdvanceContractStageInput, user: User) -> dict[str, Any]:
+        from app.contracts.lifecycle import transition_contract_stage
+
+        cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
+        contract = get_contract_for_user(db, contract_id=cid, user=user)
+        updated = transition_contract_stage(
+            db, contract=contract, to_stage=payload.to_stage.strip().lower(),
+            actor_user_id=user.id, reason="Stage moved via Ask Aegis",
+        )
+        db.commit()
+        return {"moved": True, "contract_id": cid, "stage": updated.lifecycle_stage}
+
+    def _list_my_approvals(self, db: Session, *, user: User) -> dict[str, Any]:
+        from app.approvals.models import ApprovalRequest
+        from app.core.enums import ApprovalStatus
+
+        rows = db.scalars(
+            select(ApprovalRequest).where(
+                ApprovalRequest.org_id == user.org_id,
+                ApprovalRequest.status == ApprovalStatus.PENDING,
+                ApprovalRequest.approver_user_id == user.id,
+            ).order_by(ApprovalRequest.created_at.asc())
+        ).all()
+        return {"count": len(rows), "approvals": [{
+            "id": a.id, "contract_id": a.contract_id, "intake_request_id": a.intake_request_id,
+        } for a in rows[:25]]}
+
+    def _read_project(self, db: Session, *, payload: MatterRef, user: User) -> dict[str, Any]:
+        from app.matters.models import Matter
+
+        p = db.get(Matter, payload.matter_id)
+        if p is None or p.org_id != user.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Matter not found")
+        return {"id": p.id, "name": p.name, "description": p.description, "type": p.matter_type}
+
+    def _read_notice(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
+        from app.notices.service import get_notice
+
+        return get_notice(db, org_id=user.org_id, notice_id=payload.notice_id)
 
     def _read_contract(
         self,
         db: Session,
         *,
-        payload: ContractHandleInput,
+        payload: ReadContractInput,
         user: User,
         session_id: str,
     ) -> dict[str, Any]:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
         version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
         snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
+        # Serve the contract in windows so long documents can be read in full
+        # across calls, instead of silently cutting off at the first ~1.5k words.
+        text = snapshot.text if snapshot else ""
+        total = len(text)
+        window = 24000
+        start = max(0, min(payload.offset or 0, total))
+        chunk = text[start : start + window]
+        next_offset = start + window if start + window < total else None
         return {
             "contract_id": contract.id,
             "title": contract.title,
             "lifecycle_stage": contract.lifecycle_stage,
             "text_snapshot_id": snapshot.id if snapshot else None,
-            "text_excerpt": (snapshot.text[:8000] if snapshot else ""),
-            "text_truncated": bool(snapshot and len(snapshot.text) > 8000),
+            "text": chunk,
+            "char_offset": start,
+            "chars_returned": len(chunk),
+            "total_chars": total,
+            "has_more": next_offset is not None,
+            "next_offset": next_offset,
         }
 
     def _find_in_contract(
@@ -354,19 +786,19 @@ class ToolRuntime:
             start = lower_text.find(query, end)
         return {"contract_id": contract.id, "query": payload.query, "matches": matches}
 
-    def _list_project_contracts(self, db: Session, *, payload: ProjectContractsInput, user: User) -> dict[str, Any]:
-        get_project_for_user(db, project_id=payload.project_id, user=user)
+    def _list_project_contracts(self, db: Session, *, payload: MatterContractsInput, user: User) -> dict[str, Any]:
+        get_project_for_user(db, matter_id=payload.matter_id, user=user)
         contract_ids = db.scalars(
-            select(ProjectContract.contract_id).where(
-                ProjectContract.org_id == user.org_id,
-                ProjectContract.project_id == payload.project_id,
+            select(MatterContract.contract_id).where(
+                MatterContract.org_id == user.org_id,
+                MatterContract.matter_id == payload.matter_id,
             )
         ).all()
         contracts = db.scalars(
             select(Contract).where(Contract.org_id == user.org_id, Contract.id.in_(contract_ids))
         ).all() if contract_ids else []
         return {
-            "project_id": payload.project_id,
+            "matter_id": payload.matter_id,
             "contracts": [
                 {
                     "contract_id": contract.id,
@@ -578,7 +1010,7 @@ class ToolRuntime:
 
     def _list_workflows(self, db: Session, *, user: User) -> dict[str, Any]:
         workflows = db.scalars(
-            select(Workflow).where(Workflow.org_id == user.org_id, Workflow.deleted_at.is_(None))
+            select(Prompt).where(Prompt.org_id == user.org_id, Prompt.deleted_at.is_(None))
         ).all()
         return {"workflows": [{"workflow_id": row.id, "name": row.name, "workflow_type": row.workflow_type} for row in workflows]}
 
@@ -618,15 +1050,15 @@ class ToolRuntime:
             )
         return {"playbooks": out}
 
-    def _run_workflow(self, db: Session, *, payload: WorkflowRunInput, user: User) -> dict[str, Any]:
-        workflow = db.get(Workflow, payload.workflow_id)
+    def _run_workflow(self, db: Session, *, payload: PromptRunInput, user: User) -> dict[str, Any]:
+        workflow = db.get(Prompt, payload.workflow_id)
         builtin = None
         if workflow is None:
-            builtin = next((item for item in builtin_workflows() if item.get("id") == payload.workflow_id), None)
+            builtin = next((item for item in builtin_prompts() if item.get("id") == payload.workflow_id), None)
             if builtin is None:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Prompt not found")
         elif workflow.org_id != user.org_id or workflow.deleted_at is not None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Prompt not found")
 
         contract_ids = list(dict.fromkeys(payload.contract_ids))
         for contract_id in contract_ids:
@@ -637,8 +1069,8 @@ class ToolRuntime:
         definition = dict((builtin or {}).get("definition") or (workflow.definition if workflow else {}) or {})
 
         # Record usage so the Prompt Library analytics reflect assistant-driven
-        # runs too. Uses the audit log (not WorkflowRun) so built-ins — which
-        # have no WorkflowRun row — are counted like every other launch.
+        # runs too. Uses the audit log (not PromptRun) so built-ins — which
+        # have no PromptRun row — are counted like every other launch.
         write_audit_log(
             db,
             action="workflow.launched",
@@ -667,7 +1099,7 @@ class ToolRuntime:
                 **output,
             }
 
-        run = WorkflowRun(
+        run = PromptRun(
             org_id=user.org_id,
             workflow_id=workflow.id,
             status="succeeded",
@@ -688,8 +1120,8 @@ class ToolRuntime:
         payload: GenerateContractInput,
         user: User,
     ) -> dict[str, Any]:
-        if payload.project_id:
-            get_project_for_user(db, project_id=payload.project_id, user=user, access="update")
+        if payload.matter_id:
+            get_project_for_user(db, matter_id=payload.matter_id, user=user, access="update")
         # Draft the real contract with the AI skill. Fall back to a structured
         # skeleton only if the skill is unavailable or returns nothing usable,
         # so the tool never hard-fails mid-conversation.
@@ -786,11 +1218,11 @@ class ToolRuntime:
         contract_file.current_version_id = version.id
         contract.current_contract_file_id = contract_file.id
         contract.current_authoritative_version_id = version.id
-        if payload.project_id:
+        if payload.matter_id:
             db.add(
-                ProjectContract(
+                MatterContract(
                     org_id=user.org_id,
-                    project_id=payload.project_id,
+                    matter_id=payload.matter_id,
                     contract_id=contract.id,
                     created_by_user_id=user.id,
                     updated_by_user_id=user.id,
@@ -817,7 +1249,7 @@ class ToolRuntime:
             event_type="assistant.contract_generated",
             title="Assistant generated contract",
             actor_user_id=user.id,
-            details={"contract_version_id": version.id, "project_id": payload.project_id},
+            details={"contract_version_id": version.id, "matter_id": payload.matter_id},
         )
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
@@ -899,6 +1331,9 @@ class ToolRuntime:
                     input_payload={
                         "contract_id": contract.id,
                         "instructions": payload.instructions,
+                        # Clause-scoped retrieval: send the model only the clauses
+                        # the instruction is about, not the whole truncated doc.
+                        "focus_query": payload.instructions,
                     },
                     resource_type="contract",
                     resource_id=contract.id,
@@ -1001,6 +1436,7 @@ class ToolRuntime:
                         "end": a.get("end", -1),
                         "matched": bool(a.get("matched")),
                         "applied": bool(a.get("applied")),
+                        "block_id": a.get("block_id"),
                         "risk_level": a.get("risk_level", "medium"),
                     },
                     *[
@@ -1432,7 +1868,7 @@ class ToolRuntime:
             )
         return result
 
-    def _ask_contract_brain(
+    async def _ask_contract_brain(
         self,
         db: Session,
         *,
@@ -1440,14 +1876,18 @@ class ToolRuntime:
         user: User,
         session_id: str,
     ) -> dict[str, Any]:
+        from app.ai.controller import ai_controller
+        from app.ai.schemas import BrainAnswerOutput
+        from app.contract_brain.grounding import ground_answer
+
         contract_id = payload.contract_id
         if payload.contract_handle or (payload.query_scope == "contract" and contract_id):
             contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
             contract_id = contract.id
         if payload.query_scope == "contract" and not contract_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
-        if payload.project_id:
-            get_project_for_user(db, project_id=payload.project_id, user=user)
+        if payload.matter_id:
+            get_project_for_user(db, matter_id=payload.matter_id, user=user)
         parsed = BrainQueryParseOutput(query_scope=payload.query_scope)
         context = assemble_context(
             db,
@@ -1455,18 +1895,43 @@ class ToolRuntime:
             question=payload.question,
             scope=payload.query_scope,
             contract_id=contract_id,
-            project_id=payload.project_id,
+            matter_id=payload.matter_id,
             parsed=parsed,
         )
+        source_text = context["context_text"]
+        # Grounded answer — the SAME engine the Brain page uses. Retrieve (incl.
+        # knowledge-graph facts), have the model answer over ONLY that context,
+        # then verify every citation and cap confidence. Previously this tool
+        # dumped raw context back and let the assistant assert anything.
+        raw = await ai_controller.run_structured_skill(
+            db,
+            skill_name="contract_brain_answer",
+            org_id=user.org_id,
+            created_by_user_id=user.id,
+            input_payload={
+                "question": payload.question,
+                "retrieved_context": source_text,
+                "scope": payload.query_scope,
+            },
+            resource_type="contract" if payload.query_scope == "contract" else None,
+            resource_id=contract_id if payload.query_scope == "contract" else None,
+            session_id=session_id,
+            commit=False,
+        )
+        answer = raw if isinstance(raw, BrainAnswerOutput) else BrainAnswerOutput.model_validate(raw)
+        grounded = ground_answer(answer, source_text)
         return {
-            "status": "retrieved",
+            "status": "answered",
             "scope": payload.query_scope,
-            "source_count": context["source_count"],
+            "answer": grounded["display_answer"],
+            "citations": grounded["citations"],
+            "confidence": grounded["confidence"],
+            "limitations": grounded["limitations"],
+            "grounding": grounded["grounding"],
+            "verified_citations": grounded["verified_citations"],
+            "total_citations": grounded["total_citations"],
             "graph_fact_count": len(context["graph_facts"]),
-            "vector_chunk_count": len(context["vector_chunks"]),
-            "fulltext_clause_count": len(context["fulltext_clauses"]),
-            "context_text": context["context_text"][:12000],
-            "context_truncated": len(context["context_text"]) > 12000,
+            "source_count": context["source_count"],
         }
 
     async def _submit_for_approval(
@@ -1643,14 +2108,14 @@ class ToolRuntime:
             )
             contract_ids.append(contract.id)
         contract_ids = list(dict.fromkeys(contract_ids))
-        if payload.project_id:
-            get_project_for_user(db, project_id=payload.project_id, user=user)
+        if payload.matter_id:
+            get_project_for_user(db, matter_id=payload.matter_id, user=user)
             if not contract_ids:
                 contract_ids = list(
                     db.scalars(
-                        select(ProjectContract.contract_id).where(
-                            ProjectContract.org_id == user.org_id,
-                            ProjectContract.project_id == payload.project_id,
+                        select(MatterContract.contract_id).where(
+                            MatterContract.org_id == user.org_id,
+                            MatterContract.matter_id == payload.matter_id,
                         )
                     ).all()
                 )
@@ -1661,7 +2126,7 @@ class ToolRuntime:
         review = TabularReview(
             org_id=user.org_id,
             name=payload.name,
-            project_id=payload.project_id,
+            matter_id=payload.matter_id,
             source_contract_ids=contract_ids,
             status="running",
             created_by_user_id=user.id,
@@ -1943,13 +2408,28 @@ def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
         return None
     pattern = re.compile(r"\s+".join(re.escape(t) for t in tokens))
     m = pattern.search(haystack)
-    return (m.start(), m.end()) if m else None
+    if m is not None:
+        return (m.start(), m.end())
+    # Fuzzy fallback: the model routinely paraphrases the clause it quotes
+    # (drops a word, tweaks punctuation), so exact/whitespace search misses even
+    # when the clause is genuinely present. Align to the best real span so the
+    # edit anchors instead of being dropped as unlocatable.
+    try:
+        from rapidfuzz import fuzz
+
+        a = fuzz.partial_ratio_alignment(needle.lower(), haystack.lower())
+        if a is not None and a.score >= 82.0:
+            return (a.dest_start, a.dest_end)
+    except Exception:  # pragma: no cover - rapidfuzz optional / defensive
+        pass
+    return None
 
 
 def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[str, Any]]:
     """Resolve each AI edit suggestion to a character span in the source so the
     change can be applied — and rendered — at the right place. Overlapping or
     unlocatable edits are kept (for display) but not applied to the text."""
+    blocks = split_blocks(source_text)
     anchored: list[dict[str, Any]] = []
     for s in suggestions:
         original = (getattr(s, "original_text", None) or "")
@@ -1969,6 +2449,7 @@ def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[s
             "end": -1,
             "matched": False,
             "applied": False,
+            "block_id": None,
         }
         rec["citations"] = [q for q in rec["citations"] if q]
         if original == "":
@@ -1979,6 +2460,23 @@ def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[s
             if span is not None:
                 rec["start"], rec["end"] = span
                 rec["matched"] = True
+                # Anchor the displayed "original" to the real document text at the
+                # span (the model may have paraphrased), so the tracked change
+                # removes exactly what the reader sees — not a near-quote.
+                rec["original_text"] = source_text[span[0] : span[1]]
+            else:
+                # Quote drifted too far to char-locate. Snap to the clause it
+                # belongs to and strike that whole real block — instead of
+                # dropping it as unlocatable, which makes _edit_contract raise
+                # "couldn't locate specific language" and fail the whole redline.
+                block = block_by_id(blocks, anchor_quote(blocks, original))
+                if block is not None:
+                    i = source_text.find(block.text)
+                    if i >= 0:
+                        rec["start"], rec["end"] = i, i + len(block.text)
+                        rec["matched"] = True
+                        rec["original_text"] = block.text
+                        rec["block_id"] = block.id
         anchored.append(rec)
 
     # Mark which matched edits can actually be applied (no overlap, in order).

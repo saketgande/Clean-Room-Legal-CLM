@@ -2,7 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Send, Play, Pencil, Trash2 } from "lucide-react";
+import { Plus, Send, Play, Pencil, Trash2, Sparkles } from "lucide-react";
 import { contractsApi, playbooksApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -16,6 +16,7 @@ import {
   Field,
   Input,
   Modal,
+  NotFound,
   Breadcrumbs,
   Select,
   Tabs,
@@ -45,6 +46,7 @@ export default function PlaybookDetailPage({
   const { notify } = useToast();
   const [tab, setTab] = useState("versions");
   const [publishing, setPublishing] = useState(false);
+  const [expanding, setExpanding] = useState(false);
 
   const {
     data: playbook,
@@ -70,9 +72,33 @@ export default function PlaybookDetailPage({
     }
   }
 
+  async function expand() {
+    setExpanding(true);
+    try {
+      const v = await playbooksApi.expand(id);
+      qc.invalidateQueries({ queryKey: ["playbook", id] });
+      qc.invalidateQueries({ queryKey: ["playbook", id, "versions"] });
+      qc.invalidateQueries({ queryKey: ["playbook-rules"] });
+      setTab("rules");
+      notify(v.summary || "Playbook expanded — review the new draft", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Expand failed", "error");
+    } finally {
+      setExpanding(false);
+    }
+  }
+
   if (isLoading) return <CenterSpinner label="Loading playbook…" />;
   if (error) return <ErrorState error={error} />;
-  if (!playbook) return null;
+  if (!playbook)
+    return (
+      <NotFound
+        title="Playbook not found"
+        description="This playbook may have been deleted, or you may not have access to it."
+        backHref="/playbooks"
+        backLabel="Back to playbooks"
+      />
+    );
 
   return (
     <div className="space-y-4">
@@ -99,15 +125,21 @@ export default function PlaybookDetailPage({
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={publish}
-            loading={publishing}
-            disabled={playbook.status === "published"}
-          >
-            <Send className="h-4 w-4" />
-            Publish
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={expand} loading={expanding}>
+              <Sparkles className="h-4 w-4" />
+              Expand with AI
+            </Button>
+            <Button
+              variant="outline"
+              onClick={publish}
+              loading={publishing}
+              disabled={playbook.status === "published"}
+            >
+              <Send className="h-4 w-4" />
+              Publish
+            </Button>
+          </div>
         </div>
       </div>
 

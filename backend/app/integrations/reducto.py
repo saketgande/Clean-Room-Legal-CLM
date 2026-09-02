@@ -1,17 +1,9 @@
 import inspect
 import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 
 from app.core.config import settings
-
-
-@dataclass(frozen=True)
-class OCRResult:
-    text: str
-    provider: str
-    quality_score: float
-    metadata: dict
+from app.integrations.ocr import OCRResult  # re-exported: `reducto.OCRResult` still resolves
 
 
 async def _maybe_await(value):
@@ -50,12 +42,16 @@ class ReductoClient:
 
         result = getattr(parsed, "result", None)
         chunks = getattr(result, "chunks", None) or []
-        text = "\n".join((getattr(c, "content", "") or "") for c in chunks).strip()
+        contents = [(getattr(c, "content", "") or "") for c in chunks]
+        text = "\n".join(contents).strip()
         usage = getattr(parsed, "usage", None)
         return OCRResult(
             text=text,
             provider=self.provider,
             quality_score=0.9 if text else 0.0,
+            # Reducto chunks carry no type; the structure builder infers headings
+            # and clause numbers from the content itself.
+            elements=[{"type": "text", "content": c} for c in contents if c.strip()],
             metadata={
                 "job_id": getattr(parsed, "job_id", None),
                 "num_pages": getattr(usage, "num_pages", None),

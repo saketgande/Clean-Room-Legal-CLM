@@ -150,8 +150,10 @@ _REQUESTS = [
 
 _TEAMS = [
     {"key": "tier1", "name": "Tier 1 · Paralegals", "strategy": "least_loaded",
+     "expertise": ["NDA", "Vendor", "Policy/FAQ"],
      "members": [("user1@example.com", 8), ("user2@example.com", 8)]},
     {"key": "tier2", "name": "Tier 2 · Counsel", "strategy": "round_robin", "overflow": "tier1",
+     "expertise": ["Litigation", "Privacy", "Trademark", "Contract Review", "General"],
      "members": [("legal1@example.com", 6), ("legal2@example.com", 6)]},
 ]
 
@@ -217,6 +219,7 @@ def seed_intake(db, org, admin) -> bool:
         if spec["key"] in team_by_key:
             continue
         t = IntakeTeam(org_id=org.id, key=spec["key"], name=spec["name"], strategy=spec["strategy"],
+                       expertise=spec.get("expertise"),
                        created_by_user_id=admin.id, updated_by_user_id=admin.id)
         t.members = [IntakeTeamMember(org_id=org.id, user_id=users[e].id, capacity=cap)
                      for e, cap in spec["members"] if e in users]

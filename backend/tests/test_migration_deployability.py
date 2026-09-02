@@ -25,7 +25,7 @@ def test_deployable_schema_migration_covers_phase1_auth_tables_and_project_share
         "user_invitation",
         "org_join_request",
         "user_approval_decision",
-        "project_share",
+        "project_share",  # historical table name at migration 0005 (renamed to matter_share in 0039)
     ]:
         assert f"CREATE TABLE IF NOT EXISTS {table_name}" in migration
 

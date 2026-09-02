@@ -1,10 +1,10 @@
 "use client";
 
 // Per-ticket workflow-run panel — the primary "what's happening" view on a
-// ticket. Renders the running FlowRun as a connected vertical stepper with
+// ticket. Renders the running WorkflowRun as a connected vertical stepper with
 // per-step icons, results, and the one action the current step needs.
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Workflow,
@@ -18,13 +18,14 @@ import {
   ArrowRight,
   Sparkles,
   RotateCw,
+  GitBranch,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Badge, Button, Card, CardBody, Select } from "@/components/ui";
-import { flowsApi, intakeApi } from "@/lib/endpoints";
+import { workflowsApi, intakeApi } from "@/lib/endpoints";
 import { titleCase, cn } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import type { FlowRunStep, FlowSuggestion } from "@/lib/types";
+import type { WorkflowRunStep, WorkflowSuggestion } from "@/lib/types";
 
 const STEP_ICON: Record<string, LucideIcon> = {
   clm_draft: FileText,
@@ -44,7 +45,7 @@ function stepTone(status: string): "green" | "amber" | "red" | "slate" {
 }
 
 // A one-line "what this step produced" — so the ladder shows results, not just status.
-function stepResult(s: FlowRunStep): string | null {
+function stepResult(s: WorkflowRunStep): string | null {
   const r = (s.result ?? {}) as Record<string, unknown>;
   if (typeof r.confidence === "number") {
     const cat = r.category ? ` · ${String(r.category)}` : "";
@@ -55,16 +56,16 @@ function stepResult(s: FlowRunStep): string | null {
   return null;
 }
 
-export function WorkflowPanel({ requestId, suggestion }: { requestId: string; suggestion?: FlowSuggestion | null }) {
+export function WorkflowPanel({ requestId, suggestion }: { requestId: string; suggestion?: WorkflowSuggestion | null }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [busy, setBusy] = useState(false);
 
   const { data: run, isLoading } = useQuery({
     queryKey: ["flow-run", requestId],
-    queryFn: () => flowsApi.runForRequest(requestId),
+    queryFn: () => workflowsApi.runForRequest(requestId),
   });
-  const { data: flows } = useQuery({ queryKey: ["flows-list"], queryFn: flowsApi.listFlows });
+  const { data: flows } = useQuery({ queryKey: ["flows-list"], queryFn: workflowsApi.listFlows });
 
   function invalidate() {
     qc.invalidateQueries({ queryKey: ["flow-run", requestId] });
@@ -101,7 +102,7 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
                 <Sparkles className="h-4 w-4" />
               </span>
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-600">Flow router · suggestion</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-brand-600">Workflow router · suggestion</p>
                 <p className="text-xs text-slate-500">No workflow running yet.</p>
               </div>
             </div>
@@ -131,11 +132,11 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
           <div className="flex flex-wrap items-center gap-2">
             {hasSug && (
               <Button size="sm" loading={busy}
-                onClick={() => act(() => flowsApi.startFlow(requestId, sug!.flow_id!), `Assigned ${sug!.flow_name}`)}>
+                onClick={() => act(() => workflowsApi.startFlow(requestId, sug!.flow_id!), `Assigned ${sug!.flow_name}`)}>
                 <Check className="h-4 w-4" /> Assign this flow
               </Button>
             )}
-            <Select value="" onChange={(e) => { const v = e.target.value; if (v) act(() => flowsApi.startFlow(requestId, v), "Workflow started"); }}
+            <Select value="" onChange={(e) => { const v = e.target.value; if (v) act(() => workflowsApi.startFlow(requestId, v), "Workflow started"); }}
               className="h-8 w-52 text-[13px]">
               <option value="">{hasSug ? "Choose another…" : "Choose a workflow…"}</option>
               {(flows ?? []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -148,8 +149,17 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
 
   const steps = run.steps;
   const doneCount = steps.filter((s) => s.status === "done" || s.status === "complete").length;
-  const current: FlowRunStep | undefined = steps[run.current_index];
+  const current: WorkflowRunStep | undefined = steps[run.current_index];
   const pct = steps.length ? Math.round((doneCount / steps.length) * 100) : 0;
+  // The current parallel group: current_index plus following parallel-flagged
+  // steps. Every step in it is in flight at once, so they all read as active.
+  const groupEnd = (() => {
+    let e = run.current_index + 1;
+    while (e < steps.length && steps[e]?.parallel) e++;
+    return e;
+  })();
+  const inGroup = (i: number) => i >= run.current_index && i < groupEnd;
+  const parallelActive = !["complete", "failed", "cancelled"].includes(run.status) && groupEnd - run.current_index > 1;
 
   return (
     <Card className="overflow-hidden">
@@ -180,13 +190,20 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
       <CardBody className="space-y-4">
         <ol>
           {steps.map((s, i) => {
-            const active = s.idx === run.current_index;
+            const active = inGroup(s.idx);
             const done = s.status === "done" || s.status === "complete";
             const Icon = STEP_ICON[s.type] ?? Workflow;
             const result = stepResult(s);
             const last = i === steps.length - 1;
             return (
-              <li key={s.idx} className={cn("relative flex gap-3", !last && "pb-4")}>
+              <Fragment key={s.idx}>
+              {parallelActive && s.idx === run.current_index && (
+                <li className="mb-2 flex items-center gap-1.5 pl-12 text-[11px] font-semibold uppercase tracking-wide text-brand-600">
+                  <GitBranch className="h-3.5 w-3.5" />
+                  Parallel · all must respond
+                </li>
+              )}
+              <li className={cn("relative flex gap-3", !last && "pb-4")}>
                 {/* connector rail */}
                 {!last && (
                   <span
@@ -216,6 +233,7 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
                   <div className="flex items-center justify-between gap-2">
                     <span className={cn("truncate text-sm font-medium", active ? "text-brand-900" : "text-slate-800")}>
                       {s.name}
+                      {s.parallel && <span className="ml-1.5 rounded bg-brand-50 px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-brand-600">∥ parallel</span>}
                     </span>
                     <Badge tone={stepTone(s.status)}>{titleCase(s.status.replace(/_/g, " "))}</Badge>
                   </div>
@@ -223,29 +241,33 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
                     {titleCase(s.type.replace(/_/g, " "))}
                     {result && <span className="text-slate-600"> · {result}</span>}
                   </p>
+                  {s.status === "waiting_human" && (
+                    <button
+                      onClick={() => act(() => workflowsApi.completeStep(run.id, undefined, s.idx), "Step completed")}
+                      disabled={busy}
+                      className="mt-2 inline-flex items-center gap-1 rounded-md bg-brand-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-brand-700 disabled:opacity-50"
+                    >
+                      <Check className="h-3 w-3" />
+                      Mark done
+                    </button>
+                  )}
                 </div>
               </li>
+              </Fragment>
             );
           })}
         </ol>
 
         {/* actions for the current step */}
         {(run.contract_id ||
-          current?.status === "waiting_human" ||
           (current && (current.type === "approval" || current.type === "signature"))) && (
           <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
-            {current?.status === "waiting_human" && (
-              <Button size="sm" loading={busy} onClick={() => act(() => flowsApi.completeStep(run.id), "Step completed")}>
-                <Check className="h-4 w-4" />
-                Complete step
-              </Button>
-            )}
             {current && (current.type === "approval" || current.type === "signature") && (
               <Button
                 size="sm"
                 variant="outline"
                 loading={busy}
-                onClick={() => act(() => flowsApi.refreshRun(run.id), "Refreshed")}
+                onClick={() => act(() => workflowsApi.refreshRun(run.id), "Refreshed")}
               >
                 Check {current.type === "signature" ? "signature" : "approval"} status
               </Button>
