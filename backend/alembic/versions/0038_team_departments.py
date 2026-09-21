@@ -7,6 +7,7 @@ department dropdown, so a request's `department` matches a team's served list.
 The 0037 column was never populated, so dropping it loses nothing.
 """
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0038_team_departments"

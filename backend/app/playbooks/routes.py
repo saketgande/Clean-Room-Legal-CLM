@@ -17,6 +17,7 @@ from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import PlaybookStatus
 from app.core.rbac import has_permission
+from app.playbooks.dependencies import get_playbooks_service
 from app.playbooks.models import (
     Playbook,
     PlaybookDeviation,
@@ -42,7 +43,6 @@ from app.playbooks.schemas import (
     PlaybookVersionCreate,
     PlaybookVersionResponse,
 )
-from app.playbooks.dependencies import get_playbooks_service
 from app.playbooks.service import PlaybooksService, execute_playbook_run, generated_default_rules
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.models import (
     ContractDocumentElement,
     ContractEdit,
@@ -44,7 +45,6 @@ from app.contract_files.schemas import (
     ExternalCommentResponse,
     ExternalShareResponse,
 )
-from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.service import ContractFilesService
 from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract

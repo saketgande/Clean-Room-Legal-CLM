@@ -401,9 +401,11 @@ class DraftingService:
                 f"Purpose / context: {purpose}" if purpose else "",
                 "Captured requirements from the intake request:" if reqs else "",
                 *reqs,
-                "Produce complete, professional contract sections with real operative "
-                "language a lawyer can review and refine. Where a term wasn't specified, "
-                "use a sensible market-standard default and record it as an assumption.",
+                (
+                    "Produce complete, professional contract sections with real operative "
+                    "language a lawyer can review and refine. Where a term wasn't specified, "
+                    "use a sensible market-standard default and record it as an assumption."
+                ),
             ]
             if line
         )

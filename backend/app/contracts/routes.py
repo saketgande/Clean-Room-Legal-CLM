@@ -28,11 +28,11 @@ from app.contracts.schemas import (
 )
 from app.contracts.service import ContractService
 from app.core.config import settings
-from app.integrations.claude import ClaudeProvider
-from app.integrations.dependencies import get_claude_client
 from app.core.deps import get_db, require_permission
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
+from app.integrations.claude import ClaudeProvider
+from app.integrations.dependencies import get_claude_client
 
 logger = logging.getLogger(__name__)
 

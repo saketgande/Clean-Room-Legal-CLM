@@ -22,12 +22,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.main  # noqa: F401,E402  — registers every model so mappers resolve
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select
 
-from app.contract_brain.models import KnowledgeEdge, KnowledgeNode  # noqa: E402
-from app.core.database import SessionLocal  # noqa: E402
-from app.playbooks.models import PlaybookDeviation  # noqa: E402
+import app.main  # noqa: F401  — registers every model so mappers resolve
+from app.contract_brain.models import KnowledgeEdge, KnowledgeNode
+from app.core.database import SessionLocal
+from app.playbooks.models import PlaybookDeviation
 
 
 def entity_key_for(node: KnowledgeNode, deviations: dict[str, PlaybookDeviation]) -> str:

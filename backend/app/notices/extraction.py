@@ -154,7 +154,8 @@ def _clean_date(value) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        return datetime.strptime(value.strip()[:10], "%Y-%m-%d").date().isoformat()
+        # Naive datetime is discarded immediately via .date(); no tz semantics involved.
+        return datetime.strptime(value.strip()[:10], "%Y-%m-%d").date().isoformat()  # noqa: DTZ007
     except ValueError:
         return None
 

@@ -12,9 +12,10 @@ Two rules shape this module:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
-from fastapi import HTTPException, status as http_status
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -37,7 +38,7 @@ AT_RISK_DAYS = 3
 # --- pure helpers (no db — stay module-level) -------------------------------
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def deadline_posture(notice: Notice, *, today: date | None = None) -> tuple[str, int | None]:

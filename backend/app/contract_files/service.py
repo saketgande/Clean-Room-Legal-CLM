@@ -256,7 +256,7 @@ class ContractFilesService:
                 )
             snapshot.structure_status = "structured"
             snapshot.element_count = len(rows)
-        except Exception:  # noqa: BLE001 — structuring is optional, must not break upload
+        except Exception:
             logging.getLogger(__name__).warning(
                 "structuring snapshot %s failed; leaving flat_only",
                 getattr(snapshot, "id", "?"),

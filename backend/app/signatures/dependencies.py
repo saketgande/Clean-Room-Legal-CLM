@@ -7,7 +7,11 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db
-from app.integrations.dependencies import get_docusign_client, get_resend_client, get_storage_service
+from app.integrations.dependencies import (
+    get_docusign_client,
+    get_resend_client,
+    get_storage_service,
+)
 from app.integrations.docusign import SignatureProvider
 from app.integrations.resend import EmailSender
 from app.integrations.storage import StorageBackend

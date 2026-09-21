@@ -22,41 +22,41 @@ from app.ai.tool_registry import (
     AdvanceContractStageInput,
     AdvanceIntakeWorkflowInput,
     ApprovalSubmitInput,
-    CompleteObligationInput,
-    CompleteTaskInput,
-    CreateWorkflowInput,
-    MatterRef,
-    SignatureStatusInput,
-    CreateIntakeRequestInput,
-    CreateNoticeInput,
-    DecideApprovalInput,
-    IntakeRequestRef,
-    ListNoticesInput,
-    ListRenewalsInput,
-    NoticeRef,
-    ReassignRequestInput,
-    SendForNegotiationInput,
-    SignatureLinkInput,
-    StartIntakeWorkflowInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
+    CompleteObligationInput,
+    CompleteTaskInput,
     ContractHandleInput,
-    ReadContractInput,
+    CreateIntakeRequestInput,
+    CreateNoticeInput,
+    CreateWorkflowInput,
+    DecideApprovalInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
     FindContractsInput,
     FindInContractInput,
     GenerateContractInput,
+    IntakeRequestRef,
+    ListNoticesInput,
     ListObligationsInput,
-    PlaybookToolInput,
+    ListRenewalsInput,
     MatterContractsInput,
-    ReadTableCellsInput,
-    RedraftContractInput,
-    SignatureSendInput,
-    TabularReviewInput,
+    MatterRef,
+    NoticeRef,
+    PlaybookToolInput,
     PromptRunInput,
+    ReadContractInput,
+    ReadTableCellsInput,
+    ReassignRequestInput,
+    RedraftContractInput,
+    SendForNegotiationInput,
+    SignatureLinkInput,
+    SignatureSendInput,
+    SignatureStatusInput,
+    StartIntakeWorkflowInput,
+    TabularReviewInput,
     tool_registry,
 )
 from app.approvals.models import ApprovalRequest
@@ -64,6 +64,7 @@ from app.approvals.service import ApprovalsService
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
 from app.contract_brain.retrieval import assemble_context
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.models import (
     ContractEdit,
     ContractFile,
@@ -72,7 +73,6 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.service import ContractFilesService
 from app.contracts.access import accessible_contract_filter
 from app.contracts.lifecycle import ContractLifecycleService
@@ -96,18 +96,18 @@ from app.integrations.storage import StorageBackend as StorageBackendProtocol
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import JobsService
+from app.matters.access import get_project_for_user
+from app.matters.models import MatterContract
 from app.obligations.models import Obligation
 from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import PlaybooksService, execute_playbook_run
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
+from app.prompt_library.builtin import builtin_prompts
+from app.prompt_library.models import Prompt, PromptRun
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureRecipient, SignatureRequest
 from app.signatures.service import SignaturesService
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 from app.tabular_review.service import dispatch_cells
-from app.prompt_library.builtin import builtin_prompts
-from app.prompt_library.models import Prompt, PromptRun
 
 
 class ToolRuntime:
@@ -597,6 +597,7 @@ class ToolRuntime:
             return {"sent": "internal", "team": team.name, "notified": len(members)}
         # counterparty → external share link
         import secrets
+
         from app.contract_files.models import ContractShare
         from app.contract_files.routes import _hash_secret
         from app.core.enums import ShareAccessMode
@@ -2068,8 +2069,7 @@ class ToolRuntime:
         # Already in SIGNATURE after approval → no stage change; only move when an
         # override sends from another stage.
         if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE:
-            transition_contract_stage(
-                db,
+            ContractLifecycleService(db).transition_contract_stage(
                 contract=contract,
                 to_stage=ContractLifecycleStage.SIGNATURE,
                 actor_user_id=user.id,
@@ -2305,8 +2305,7 @@ class ToolRuntime:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
         # Archiving = close the contract and flag it as archived (retained but
         # hidden from default views). override=True allows it from any stage.
-        transition_contract_stage(
-            db,
+        ContractLifecycleService(db).transition_contract_stage(
             contract=contract,
             to_stage=ContractLifecycleStage.CLOSED,
             actor_user_id=user.id,

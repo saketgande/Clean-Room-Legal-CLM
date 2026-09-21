@@ -519,7 +519,9 @@ class IntakeService:
         when there's a match. Falls back to the complexity→tier heuristic when
         nothing has expertise for the category (so orgs that haven't tagged teams
         still get an owner)."""
-        from sqlalchemy import func, select as _select
+        from sqlalchemy import func
+        from sqlalchemy import select as _select
+
         from app.intake.models import IntakeTeam
 
         db = self.db
@@ -588,9 +590,9 @@ class IntakeService:
         if not fid or fs.get("needs_human") or (fs.get("confidence") or 0.0) < 0.75:
             return
         try:
+            from app.integrations.claude import run_coro_blocking
             from app.workflows.models import Workflow
             from app.workflows.service import start_flow
-            from app.integrations.claude import run_coro_blocking
 
             flow = db.get(Workflow, fid)
             if not flow or flow.org_id != request.org_id:

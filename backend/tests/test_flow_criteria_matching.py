@@ -8,6 +8,7 @@ regressing back to substring matching reintroduces the misroute."""
 from types import SimpleNamespace
 
 from app.flows.service import _matches
+
 from app.intake.drafting import resolve_doc_type
 
 

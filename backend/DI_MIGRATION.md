@@ -336,6 +336,38 @@ confirmed at runtime that `get_playbooks_service` now actually resolves
 `ClaudeClient` into the service, rather than the service defaulting it
 internally.
 
+## CI lint fix + a missed conversion (Phase 6, 2026-09-21)
+
+CI's `Lint (ruff)` step failed on the PR. It was also failing on the base
+commit (`a0b89dc`) — `Apply migrations` / `Run tests` are skipped when lint
+fails, so CI had not run the test suite for either. `ruff check .` (unpinned
+`ruff>=0.7.0`, current default rule set) reported 95 findings: 87 already on
+the base commit, 8 introduced by this branch.
+
+**Real bug found by lint (F821):** two multi-line calls to
+`transition_contract_stage(\n db, ...)` in `ai/tool_runtime.py`
+(`send_for_signature`'s stage-override branch and `archive_contract`) were
+missed in Phase 3 — the earlier verification greps matched only single-line
+`fn(db` calls — and would have raised `NameError` at runtime. Both now use
+`ContractLifecycleService(db).transition_contract_stage(...)`. Verified live:
+override-path `send_for_signature` moved a `review` contract to `signature`;
+`archive_contract` closed and archived one. A static check that every
+`from app.* import name` resolves (including multi-line and function-local
+imports) found no other casualties from the Phase 3 wrapper deletions.
+
+**Lint:** all 95 fixed (`ruff check .` → clean). Mechanical/safe fixes via
+`ruff --fix` (import sorting, unused `noqa`, unused imports, `UTC` alias,
+`re.IGNORECASE`, `removeprefix`, `max()`); manual: 4 ISC004 sentence
+continuations parenthesised (verified intentional, not missing commas),
+`logger.exception`, two `.values()` loops, `ClassVar` on the test doubles in
+`tests/test_contracts_di.py`, one scoped `# noqa: DTZ007`. Full suite
+unchanged: 223 passed (6 failed / 19 errors, all `test_brain_*`, need a
+host-reachable Postgres).
+
+**Durable follow-up (not done — a policy choice):** pin ruff and set an
+explicit `select` in `pyproject.toml`; otherwise each new ruff release can
+turn CI red without any code change.
+
 ## Rollout order
 
 1. ~~`contracts/` + `storage` integration~~ — done (pilot).

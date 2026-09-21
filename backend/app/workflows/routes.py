@@ -5,13 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
+from app.intake.models import IntakeRequest
 from app.workflows.builtin import seed_builtin_flows
 from app.workflows.dependencies import get_workflow_service
 from app.workflows.models import Workflow, WorkflowRun
 from app.workflows.service import WorkflowService, serialize_flow
-from app.contracts.service import get_contract_for_user
-from app.intake.models import IntakeRequest
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 

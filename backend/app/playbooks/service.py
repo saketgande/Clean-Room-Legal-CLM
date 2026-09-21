@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.ai.citations import validate_citation
 from app.ai.schemas import CitationInput, PlaybookGenerationOutput, PlaybookReviewOutput
 from app.auth.models import User
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.models import (
     ContractEdit,
     ContractFile,
@@ -17,7 +18,6 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.service import next_version_number
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event

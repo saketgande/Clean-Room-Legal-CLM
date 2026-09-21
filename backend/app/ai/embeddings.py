@@ -214,10 +214,9 @@ def _embed_local(texts: list[str]) -> list[list[float]]:
         # embedding job errors instead of poisoning the index with garbage that
         # *looks* embedded.
         if not settings.allow_mock_embeddings:
-            logger.error(
+            logger.exception(
                 "local embeddings (fastembed) unavailable and allow_mock_embeddings "
                 "is off — refusing to write meaningless vectors",
-                exc_info=True,
             )
             raise
         logger.warning(

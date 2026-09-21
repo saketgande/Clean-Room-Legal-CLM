@@ -4,7 +4,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.admin.dependencies import get_admin_service
-from app.admin.service import AdminService, audit_setting_value as _audit_setting_value, serialize_setting as _serialize_setting
+from app.admin.service import AdminService
+from app.admin.service import audit_setting_value as _audit_setting_value
+from app.admin.service import serialize_setting as _serialize_setting
 from app.core.audit import write_audit_log
 from app.core.deps import get_db, require_permission
 from app.core.models import AdminSetting

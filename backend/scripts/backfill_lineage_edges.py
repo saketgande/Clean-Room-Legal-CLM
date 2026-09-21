@@ -18,14 +18,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.main  # noqa: F401,E402
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select
 
-from app.contract_brain.entities import party_entity_key  # noqa: E402
-from app.contract_brain.lineage import infer_parent, looks_like_amendment  # noqa: E402
-from app.contract_brain.models import KnowledgeEdge, KnowledgeNode  # noqa: E402
-from app.contracts.models import Contract  # noqa: E402
-from app.core.database import SessionLocal  # noqa: E402
+import app.main  # noqa: F401
+from app.contract_brain.entities import party_entity_key
+from app.contract_brain.lineage import infer_parent
+from app.contract_brain.models import KnowledgeEdge, KnowledgeNode
+from app.contracts.models import Contract
+from app.core.database import SessionLocal
 
 
 def main() -> int:
@@ -51,7 +51,7 @@ def main() -> int:
             by_org.setdefault(c["org_id"], []).append(c)
 
         proposals = []
-        for org_id, group in by_org.items():
+        for group in by_org.values():
             for child in group:
                 hit = infer_parent(child, group)
                 if hit is None:

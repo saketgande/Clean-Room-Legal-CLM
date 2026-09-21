@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
 
+from app.auth.dependencies import get_auth_service
 from app.auth.schemas import (
     AcceptInvitationRequest,
     ApiKeyCreate,
@@ -23,7 +24,6 @@ from app.auth.schemas import (
     UserInvitationResponse,
     UserResponse,
 )
-from app.auth.dependencies import get_auth_service
 from app.auth.service import AuthService, as_user_response
 from app.core.config import settings
 from app.core.deps import get_current_user, require_permission

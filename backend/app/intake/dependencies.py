@@ -12,8 +12,6 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db
-from app.integrations.dependencies import get_reducto_client
-from app.integrations.reducto import ReductoClient
 from app.intake.approval_bridge import ApprovalBridgeService
 from app.intake.drafting import DraftingService
 from app.intake.gmail_sync import GmailSyncService
@@ -22,6 +20,8 @@ from app.intake.routing import RoutingService
 from app.intake.screening import ScreeningService
 from app.intake.service import IntakeService
 from app.intake.teams import TeamService
+from app.integrations.dependencies import get_reducto_client
+from app.integrations.reducto import ReductoClient
 
 
 def get_intake_service(db: Session = Depends(get_db)) -> IntakeService:

@@ -4,6 +4,8 @@ fake via FastAPI's dependency_overrides, without monkeypatching module
 internals — the pattern the rest of the codebase's DI conversion follows.
 """
 
+from typing import ClassVar
+
 from app.contracts.dependencies import get_contract_service
 from app.core.deps import get_current_user
 
@@ -33,7 +35,7 @@ class _FakeContract:
     expiration_date = None
     current_contract_file_id = None
     current_authoritative_version_id = None
-    metadata_json: dict = {}
+    metadata_json: ClassVar[dict] = {}
 
 
 class _FakeContractService:
@@ -50,7 +52,7 @@ class _FakeContractService:
 class _FakeUser:
     id = "user-1"
     org_id = "org-1"
-    permission_values = ["contract:read"]
+    permission_values: ClassVar[list[str]] = ["contract:read"]
 
 
 def test_get_contract_route_uses_injected_service(client):

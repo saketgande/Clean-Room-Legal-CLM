@@ -30,8 +30,7 @@ os.environ.setdefault(
     "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm",
 )
 
-import pytest  # noqa: E402  (must follow the env setdefault calls above)
-
+import pytest
 
 # --- DI migration test harness ---------------------------------------------
 # Added alongside the contracts/ DI conversion (see backend/DI_MIGRATION.md).

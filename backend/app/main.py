@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.admin.routes import router as admin_router
 from app.ai.routes import router as ai_router
+from app.analytics.routes import router as analytics_router
 from app.approvals.routes import router as approvals_router
 from app.assistant.routes import router as assistant_router
 from app.auth.routes import router as auth_router
@@ -36,15 +37,15 @@ from app.intake.routes import router as intake_router
 from app.integrations.claude import aclose_claude_client
 from app.integrations.docusign import aclose_docusign_client
 from app.integrations.resend import aclose_resend_client
-from app.analytics.routes import router as analytics_router
 from app.jobs.routes import router as jobs_router
+from app.matters.routes import router as projects_router
 from app.notices.routes import router as notices_router
 from app.notifications.routes import router as notifications_router
 from app.obligations.routes import router as obligations_router
 from app.observability.routes import router as observability_router
 from app.organizations.routes import router as organizations_router
 from app.playbooks.routes import router as playbooks_router
-from app.matters.routes import router as projects_router
+from app.prompt_library.routes import router as prompt_library_router
 from app.renewals.routes import router as renewals_router
 from app.roles.routes import router as roles_router
 from app.search.routes import router as search_router
@@ -53,7 +54,6 @@ from app.tabular_review.routes import router as tabular_review_router
 from app.trademarks.routes import router as trademarks_router
 from app.walls.routes import router as walls_router
 from app.word_addin.routes import router as word_addin_router
-from app.prompt_library.routes import router as prompt_library_router
 from app.workflows.routes import router as workflows_router
 
 

@@ -19,8 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_timeline_event
 from app.core.database import utcnow
-from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
 from app.intake.models import IntakeRequest, IntakeTeam
+from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def _matches(criteria: dict | None, request: IntakeRequest) -> bool:
     return True
 
 
-def _record_step_finding(run: WorkflowRun, step: dict, sr: "WorkflowStepRun | None") -> None:
+def _record_step_finding(run: WorkflowRun, step: dict, sr: WorkflowStepRun | None) -> None:
     """Aggregate each completed step's result into a run-level BRIEF — the shared
     "what the agents have established" trace that flows across the whole workflow.
     This is the hand-off substrate: the review step's finding, the drafting
