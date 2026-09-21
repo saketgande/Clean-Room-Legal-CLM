@@ -72,7 +72,11 @@ def _wall_covers_contract_sql():
 
 def wall_block_filter(user: User):
     """SQL predicate (correlated on ``Contract``): TRUE when the user is NOT
-    walled off from the row. ``AND`` this into any contract-visibility query."""
+    walled off from the row. ``AND`` this into any contract-visibility query.
+
+    Stays a module-level function (no ``db`` needed) — imported and called
+    directly by contracts/access.py to build a SQL filter clause.
+    """
     barred = (
         select(EthicalWallPrincipal.id)
         .join(EthicalWall, EthicalWall.id == EthicalWallPrincipal.wall_id)
@@ -86,229 +90,267 @@ def wall_block_filter(user: User):
     return ~barred.exists()
 
 
+class WallService:
+    """Ethical-wall row checks and CRUD.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
+    a ``db`` session; every function that took ``db`` first is now a method
+    reading ``self.db``. ``wall_block_filter`` and the SQL-predicate helpers
+    above stay module-level since they don't touch ``db``.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def user_is_walled(self, *, user: User, contract: Contract) -> bool:
+        """Row check: is the user sealed off from this specific contract by an active
+        ethical wall (scoped to the contract, or to a project it belongs to)?"""
+        db = self.db
+        project_ids = [
+            pc.matter_id
+            for pc in db.scalars(
+                select(MatterContract).where(MatterContract.contract_id == contract.id)
+            ).all()
+        ]
+        scope_conds = [
+            and_(EthicalWall.scope_type == "contract", EthicalWall.scope_id == contract.id)
+        ]
+        if project_ids:
+            scope_conds.append(
+                and_(EthicalWall.scope_type == "project", EthicalWall.scope_id.in_(project_ids))
+            )
+        hit = db.scalar(
+            select(EthicalWallPrincipal.id)
+            .join(EthicalWall, EthicalWall.id == EthicalWallPrincipal.wall_id)
+            .where(
+                EthicalWall.active.is_(True),
+                EthicalWall.org_id == user.org_id,
+                or_(*scope_conds),
+                _principal_match_sql(user),
+            )
+            .limit(1)
+        )
+        return hit is not None
+
+    # --- scope / principal resolution + serialization -------------------------
+
+    def _scope_label(self, scope_type: str, scope_id: str) -> str | None:
+        db = self.db
+        if scope_type == "contract":
+            c = db.get(Contract, scope_id)
+            return c.title if c else None
+        if scope_type == "project":
+            p = db.get(Matter, scope_id)
+            return p.name if p else None
+        return None
+
+    def _principal_label(self, principal_type: str, principal_id: str) -> str:
+        db = self.db
+        if principal_type == "user":
+            u = db.get(User, principal_id)
+            return (u.full_name or u.email) if u else principal_id
+        if principal_type == "role":
+            r = db.get(Role, principal_id)
+            return r.name if r else principal_id
+        return principal_id
+
+    def serialize_wall(self, wall: EthicalWall) -> dict:
+        return {
+            "id": wall.id,
+            "name": wall.name,
+            "reason": wall.reason,
+            "scope_type": wall.scope_type,
+            "scope_id": wall.scope_id,
+            "scope_label": self._scope_label(wall.scope_type, wall.scope_id),
+            "active": wall.active,
+            "principals": [
+                {
+                    "id": p.id,
+                    "principal_type": p.principal_type,
+                    "principal_id": p.principal_id,
+                    "principal_label": self._principal_label(p.principal_type, p.principal_id),
+                }
+                for p in wall.principals
+            ],
+            "created_at": wall.created_at.isoformat() if wall.created_at else None,
+        }
+
+    def list_walls(self, *, org_id: str, include_inactive: bool = True) -> list[dict]:
+        q = select(EthicalWall).where(EthicalWall.org_id == org_id)
+        if not include_inactive:
+            q = q.where(EthicalWall.active.is_(True))
+        rows = self.db.scalars(q.order_by(EthicalWall.created_at.desc())).all()
+        return [self.serialize_wall(w) for w in rows]
+
+    # --- validation -----------------------------------------------------------
+
+    def _validate_scope(self, *, org_id: str, scope_type: str, scope_id: str) -> None:
+        db = self.db
+        if scope_type not in SCOPE_TYPES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid scope_type")
+        if scope_type == "contract":
+            c = db.get(Contract, scope_id)
+            ok = c is not None and c.org_id == org_id
+        else:
+            p = db.get(Matter, scope_id)
+            ok = p is not None and p.org_id == org_id
+        if not ok:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Walled resource not found")
+
+    def _validate_principal(self, *, org_id: str, principal_type: str, principal_id: str) -> None:
+        db = self.db
+        if principal_type not in PRINCIPAL_TYPES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
+        if principal_type == "user":
+            u = db.get(User, principal_id)
+            ok = u is not None and u.org_id == org_id
+        else:
+            r = db.get(Role, principal_id)
+            ok = r is not None and r.org_id == org_id
+        if not ok:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Barred principal not found")
+
+    def _apply_principals(self, wall: EthicalWall, org_id: str, principals: list) -> None:
+        seen: set[tuple[str, str]] = set()
+        rows: list[EthicalWallPrincipal] = []
+        for p in principals:
+            key = (p.principal_type, p.principal_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            self._validate_principal(
+                org_id=org_id, principal_type=p.principal_type, principal_id=p.principal_id
+            )
+            rows.append(
+                EthicalWallPrincipal(
+                    org_id=org_id, principal_type=p.principal_type, principal_id=p.principal_id
+                )
+            )
+        if not rows:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, "A wall must bar at least one principal"
+            )
+        wall.principals = rows
+
+    # --- mutations ------------------------------------------------------------
+
+    def create_wall(self, *, actor: User, payload) -> dict:
+        db = self.db
+        name = (payload.name or "").strip()
+        if not name:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
+        self._validate_scope(
+            org_id=actor.org_id, scope_type=payload.scope_type, scope_id=payload.scope_id
+        )
+        wall = EthicalWall(
+            org_id=actor.org_id,
+            name=name,
+            reason=(payload.reason or "").strip() or None,
+            scope_type=payload.scope_type,
+            scope_id=payload.scope_id,
+            active=True,
+            created_by_user_id=actor.id,
+            updated_by_user_id=actor.id,
+        )
+        self._apply_principals(wall, actor.org_id, payload.principals)
+        db.add(wall)
+        db.flush()
+        write_audit_log(
+            db,
+            action="ethical_wall.created",
+            resource_type="ethical_wall",
+            resource_id=wall.id,
+            org_id=actor.org_id,
+            actor_user_id=actor.id,
+            after={
+                "name": wall.name,
+                "scope_type": wall.scope_type,
+                "scope_id": wall.scope_id,
+                "principals": [(p.principal_type, p.principal_id) for p in wall.principals],
+            },
+        )
+        db.commit()
+        db.refresh(wall)
+        return self.serialize_wall(wall)
+
+    def _get_wall(self, org_id: str, wall_id: str) -> EthicalWall:
+        wall = self.db.get(EthicalWall, wall_id)
+        if wall is None or wall.org_id != org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Wall not found")
+        return wall
+
+    def update_wall(self, *, actor: User, wall_id: str, payload) -> dict:
+        db = self.db
+        wall = self._get_wall(actor.org_id, wall_id)
+        before = {"name": wall.name, "active": wall.active}
+        if payload.name is not None:
+            new_name = payload.name.strip()
+            if not new_name:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
+            wall.name = new_name
+        if payload.reason is not None:
+            wall.reason = payload.reason.strip() or None
+        if payload.active is not None and payload.active != wall.active:
+            wall.active = payload.active
+            wall.deactivated_at = None if payload.active else utcnow()
+        if payload.principals is not None:
+            self._apply_principals(wall, actor.org_id, payload.principals)
+        wall.updated_by_user_id = actor.id
+        db.flush()
+        write_audit_log(
+            db,
+            action="ethical_wall.updated",
+            resource_type="ethical_wall",
+            resource_id=wall.id,
+            org_id=actor.org_id,
+            actor_user_id=actor.id,
+            before=before,
+            after={"name": wall.name, "active": wall.active},
+        )
+        db.commit()
+        db.refresh(wall)
+        return self.serialize_wall(wall)
+
+    def delete_wall(self, *, actor: User, wall_id: str) -> None:
+        db = self.db
+        wall = self._get_wall(actor.org_id, wall_id)
+        write_audit_log(
+            db,
+            action="ethical_wall.deleted",
+            resource_type="ethical_wall",
+            resource_id=wall.id,
+            org_id=actor.org_id,
+            actor_user_id=actor.id,
+            before={"name": wall.name, "scope_type": wall.scope_type, "scope_id": wall.scope_id},
+        )
+        db.delete(wall)
+        db.commit()
+
+
+# --- DI-MIGRATION: temporary wrappers ---------------------------------------
+# user_is_walled is imported directly by contracts/access.py (module-level).
+# Kept working unchanged here; migrated in a later pass. Tracked in
+# backend/DI_MIGRATION.md.
+
 def user_is_walled(db: Session, *, user: User, contract: Contract) -> bool:
-    """Row check: is the user sealed off from this specific contract by an active
-    ethical wall (scoped to the contract, or to a project it belongs to)?"""
-    project_ids = [
-        pc.matter_id
-        for pc in db.scalars(
-            select(MatterContract).where(MatterContract.contract_id == contract.id)
-        ).all()
-    ]
-    scope_conds = [
-        and_(EthicalWall.scope_type == "contract", EthicalWall.scope_id == contract.id)
-    ]
-    if project_ids:
-        scope_conds.append(
-            and_(EthicalWall.scope_type == "project", EthicalWall.scope_id.in_(project_ids))
-        )
-    hit = db.scalar(
-        select(EthicalWallPrincipal.id)
-        .join(EthicalWall, EthicalWall.id == EthicalWallPrincipal.wall_id)
-        .where(
-            EthicalWall.active.is_(True),
-            EthicalWall.org_id == user.org_id,
-            or_(*scope_conds),
-            _principal_match_sql(user),
-        )
-        .limit(1)
-    )
-    return hit is not None
-
-
-# --- scope / principal resolution + serialization -------------------------
-
-def _scope_label(db: Session, scope_type: str, scope_id: str) -> str | None:
-    if scope_type == "contract":
-        c = db.get(Contract, scope_id)
-        return c.title if c else None
-    if scope_type == "project":
-        p = db.get(Matter, scope_id)
-        return p.name if p else None
-    return None
-
-
-def _principal_label(db: Session, principal_type: str, principal_id: str) -> str:
-    if principal_type == "user":
-        u = db.get(User, principal_id)
-        return (u.full_name or u.email) if u else principal_id
-    if principal_type == "role":
-        r = db.get(Role, principal_id)
-        return r.name if r else principal_id
-    return principal_id
+    return WallService(db).user_is_walled(user=user, contract=contract)
 
 
 def serialize_wall(db: Session, wall: EthicalWall) -> dict:
-    return {
-        "id": wall.id,
-        "name": wall.name,
-        "reason": wall.reason,
-        "scope_type": wall.scope_type,
-        "scope_id": wall.scope_id,
-        "scope_label": _scope_label(db, wall.scope_type, wall.scope_id),
-        "active": wall.active,
-        "principals": [
-            {
-                "id": p.id,
-                "principal_type": p.principal_type,
-                "principal_id": p.principal_id,
-                "principal_label": _principal_label(db, p.principal_type, p.principal_id),
-            }
-            for p in wall.principals
-        ],
-        "created_at": wall.created_at.isoformat() if wall.created_at else None,
-    }
+    return WallService(db).serialize_wall(wall)
 
 
 def list_walls(db: Session, *, org_id: str, include_inactive: bool = True) -> list[dict]:
-    q = select(EthicalWall).where(EthicalWall.org_id == org_id)
-    if not include_inactive:
-        q = q.where(EthicalWall.active.is_(True))
-    rows = db.scalars(q.order_by(EthicalWall.created_at.desc())).all()
-    return [serialize_wall(db, w) for w in rows]
+    return WallService(db).list_walls(org_id=org_id, include_inactive=include_inactive)
 
-
-# --- validation -----------------------------------------------------------
-
-def _validate_scope(db: Session, *, org_id: str, scope_type: str, scope_id: str) -> None:
-    if scope_type not in SCOPE_TYPES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid scope_type")
-    if scope_type == "contract":
-        c = db.get(Contract, scope_id)
-        ok = c is not None and c.org_id == org_id
-    else:
-        p = db.get(Matter, scope_id)
-        ok = p is not None and p.org_id == org_id
-    if not ok:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Walled resource not found")
-
-
-def _validate_principal(db: Session, *, org_id: str, principal_type: str, principal_id: str) -> None:
-    if principal_type not in PRINCIPAL_TYPES:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
-    if principal_type == "user":
-        u = db.get(User, principal_id)
-        ok = u is not None and u.org_id == org_id
-    else:
-        r = db.get(Role, principal_id)
-        ok = r is not None and r.org_id == org_id
-    if not ok:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Barred principal not found")
-
-
-def _apply_principals(db: Session, wall: EthicalWall, org_id: str, principals: list) -> None:
-    seen: set[tuple[str, str]] = set()
-    rows: list[EthicalWallPrincipal] = []
-    for p in principals:
-        key = (p.principal_type, p.principal_id)
-        if key in seen:
-            continue
-        seen.add(key)
-        _validate_principal(
-            db, org_id=org_id, principal_type=p.principal_type, principal_id=p.principal_id
-        )
-        rows.append(
-            EthicalWallPrincipal(
-                org_id=org_id, principal_type=p.principal_type, principal_id=p.principal_id
-            )
-        )
-    if not rows:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "A wall must bar at least one principal"
-        )
-    wall.principals = rows
-
-
-# --- mutations ------------------------------------------------------------
 
 def create_wall(db: Session, *, actor: User, payload) -> dict:
-    name = (payload.name or "").strip()
-    if not name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
-    _validate_scope(
-        db, org_id=actor.org_id, scope_type=payload.scope_type, scope_id=payload.scope_id
-    )
-    wall = EthicalWall(
-        org_id=actor.org_id,
-        name=name,
-        reason=(payload.reason or "").strip() or None,
-        scope_type=payload.scope_type,
-        scope_id=payload.scope_id,
-        active=True,
-        created_by_user_id=actor.id,
-        updated_by_user_id=actor.id,
-    )
-    _apply_principals(db, wall, actor.org_id, payload.principals)
-    db.add(wall)
-    db.flush()
-    write_audit_log(
-        db,
-        action="ethical_wall.created",
-        resource_type="ethical_wall",
-        resource_id=wall.id,
-        org_id=actor.org_id,
-        actor_user_id=actor.id,
-        after={
-            "name": wall.name,
-            "scope_type": wall.scope_type,
-            "scope_id": wall.scope_id,
-            "principals": [(p.principal_type, p.principal_id) for p in wall.principals],
-        },
-    )
-    db.commit()
-    db.refresh(wall)
-    return serialize_wall(db, wall)
-
-
-def _get_wall(db: Session, org_id: str, wall_id: str) -> EthicalWall:
-    wall = db.get(EthicalWall, wall_id)
-    if wall is None or wall.org_id != org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Wall not found")
-    return wall
+    return WallService(db).create_wall(actor=actor, payload=payload)
 
 
 def update_wall(db: Session, *, actor: User, wall_id: str, payload) -> dict:
-    wall = _get_wall(db, actor.org_id, wall_id)
-    before = {"name": wall.name, "active": wall.active}
-    if payload.name is not None:
-        new_name = payload.name.strip()
-        if not new_name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
-        wall.name = new_name
-    if payload.reason is not None:
-        wall.reason = payload.reason.strip() or None
-    if payload.active is not None and payload.active != wall.active:
-        wall.active = payload.active
-        wall.deactivated_at = None if payload.active else utcnow()
-    if payload.principals is not None:
-        _apply_principals(db, wall, actor.org_id, payload.principals)
-    wall.updated_by_user_id = actor.id
-    db.flush()
-    write_audit_log(
-        db,
-        action="ethical_wall.updated",
-        resource_type="ethical_wall",
-        resource_id=wall.id,
-        org_id=actor.org_id,
-        actor_user_id=actor.id,
-        before=before,
-        after={"name": wall.name, "active": wall.active},
-    )
-    db.commit()
-    db.refresh(wall)
-    return serialize_wall(db, wall)
+    return WallService(db).update_wall(actor=actor, wall_id=wall_id, payload=payload)
 
 
 def delete_wall(db: Session, *, actor: User, wall_id: str) -> None:
-    wall = _get_wall(db, actor.org_id, wall_id)
-    write_audit_log(
-        db,
-        action="ethical_wall.deleted",
-        resource_type="ethical_wall",
-        resource_id=wall.id,
-        org_id=actor.org_id,
-        actor_user_id=actor.id,
-        before={"name": wall.name, "scope_type": wall.scope_type, "scope_id": wall.scope_id},
-    )
-    db.delete(wall)
-    db.commit()
+    return WallService(db).delete_wall(actor=actor, wall_id=wall_id)

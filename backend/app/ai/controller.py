@@ -44,7 +44,8 @@ from app.core.database import utcnow
 from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
 from app.core.models import AICallLog, AdminSetting, UsageRecord
 from app.core.rbac import has_permission
-from app.integrations.claude import ClaudeProviderResponse, claude_client
+from app.integrations.claude import ClaudeProvider, ClaudeProviderResponse
+from app.integrations.claude import claude_client as _default_claude_client
 from app.jobs.models import JobRun
 
 
@@ -87,6 +88,15 @@ def _safe_tool_error(exc: Exception) -> str:
 
 
 class AIController:
+    """Stateless singleton: `db` is always passed per method call, never
+    stored. Part of the DI migration (see backend/DI_MIGRATION.md) — this
+    constructor accepts the `claude_client` this file used to import and
+    call as a bare module singleton, defaulting to that same singleton
+    unchanged."""
+
+    def __init__(self, *, claude_client: ClaudeProvider | None = None):
+        self.claude_client = claude_client or _default_claude_client
+
     async def run_job_skill(
         self,
         db: Session,
@@ -275,7 +285,7 @@ class AIController:
             for iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(org_id)
                 provider_response = None
-                async for chunk in claude_client.stream_with_tools(
+                async for chunk in self.claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=tools,
@@ -573,7 +583,7 @@ class AIController:
             for _iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(user.org_id)
                 provider_response = None
-                async for chunk in claude_client.stream_with_tools(
+                async for chunk in self.claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
@@ -818,7 +828,7 @@ class AIController:
             assistant_run_id=assistant_run_id,
             resource_type="assistant_session",
             resource_id=session_id,
-            provider=claude_client.provider,
+            provider=self.claude_client.provider,
             model=provider_response.model,
             model_config_hash=skill_run.model_config_hash,
             prompt_key=skill_run.prompt_key,
@@ -1091,7 +1101,7 @@ class AIController:
         ai_call_log: AICallLog | None = None
         try:
             enforce_daily_token_cap(org_id)
-            provider_response = await claude_client.complete_structured(
+            provider_response = await self.claude_client.complete_structured(
                 system_prompt=built_prompt.system_prompt,
                 user_prompt=built_prompt.user_prompt,
                 tool_name=spec.return_tool_name,
@@ -1358,7 +1368,7 @@ class AIController:
             tool_call_id=tool_call_id,
             resource_type=resource_type,
             resource_id=resource_id,
-            provider=claude_client.provider,
+            provider=self.claude_client.provider,
             model=provider_response.model,
             model_config_hash=skill_run.model_config_hash,
             prompt_key=skill_run.prompt_key,

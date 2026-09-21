@@ -42,21 +42,8 @@ from app.playbooks.schemas import (
     PlaybookVersionCreate,
     PlaybookVersionResponse,
 )
-from app.playbooks.service import (
-    expand_playbook,
-    apply_playbook_recommendation,
-    chat_build_playbook,
-    clone_playbook_version,
-    compute_playbook_insights,
-    create_initial_playbook,
-    execute_playbook_run,
-    generate_playbook_from_text,
-    generated_default_rules,
-    get_playbook_for_user,
-    get_playbook_version,
-    save_built_playbook,
-    select_run_version,
-)
+from app.playbooks.dependencies import get_playbooks_service
+from app.playbooks.service import PlaybooksService, execute_playbook_run, generated_default_rules
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
 
@@ -78,9 +65,9 @@ def create_playbook(
     payload: PlaybookCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = create_initial_playbook(
-        db,
+    playbook = service.create_initial_playbook(
         user=current_user,
         name=payload.name,
         description=payload.description,
@@ -95,13 +82,13 @@ def generate_playbook(
     payload: PlaybookGenerate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     rules = generated_default_rules(
         contract_type=payload.contract_type,
         focus_areas=payload.focus_areas,
     )
-    playbook = create_initial_playbook(
-        db,
+    playbook = service.create_initial_playbook(
         user=current_user,
         name=payload.name,
         description=payload.description,
@@ -186,6 +173,7 @@ async def generate_playbook_from_document(
     instructions: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """AI-draft a playbook from a source document — an uploaded file, pasted
     text, or an existing contract. Returns a DRAFT playbook to review + publish."""
@@ -196,8 +184,7 @@ async def generate_playbook_from_document(
         pasted_text=pasted_text,
         source_contract_id=source_contract_id,
     )
-    return await generate_playbook_from_text(
-        db,
+    return await service.generate_playbook_from_text(
         user=current_user,
         source_text=text,
         name=name,
@@ -221,12 +208,12 @@ async def playbook_insights(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """Data-driven rule-change suggestions from this playbook's decided
     deviations. Returns ready=False until there's enough history."""
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    return await compute_playbook_insights(
-        db,
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    return await service.compute_playbook_insights(
         playbook=playbook,
         user=current_user,
         request_id=getattr(request.state, "request_id", None),
@@ -243,11 +230,11 @@ def apply_insight(
     payload: ApplyRecommendationRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """Apply a recommendation into a new DRAFT version (review then publish)."""
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    return apply_playbook_recommendation(
-        db,
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    return service.apply_playbook_recommendation(
         playbook=playbook,
         user=current_user,
         clause_type=payload.clause_type,
@@ -323,10 +310,10 @@ async def build_chat(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """One turn of the conversational builder — returns a reply + the full draft."""
-    return await chat_build_playbook(
-        db,
+    return await service.chat_build_playbook(
         user=current_user,
         message=payload.message,
         conversation=[m.model_dump() for m in payload.conversation],
@@ -342,10 +329,10 @@ def build_save(
     payload: BuildSaveRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """Persist the conversational draft as a new DRAFT playbook."""
-    return save_built_playbook(
-        db,
+    return service.save_built_playbook(
         user=current_user,
         name=payload.name,
         description=payload.description,
@@ -387,15 +374,13 @@ def decide_deviation(
     payload: PlaybookDecisionCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:run")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     deviation = db.get(PlaybookDeviation, deviation_id)
     if deviation is None or deviation.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Playbook deviation not found")
     get_contract_for_user(db, contract_id=deviation.contract_id, user=current_user)
-    from app.playbooks.service import record_deviation_decision
-
-    decision = record_deviation_decision(
-        db,
+    decision = service.record_deviation_decision(
         deviation=deviation,
         decision=payload.decision,
         rationale=payload.rationale,
@@ -409,10 +394,10 @@ def decide_deviation(
 @router.get("/{playbook_id}", response_model=PlaybookResponse)
 def get_playbook(
     playbook_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:read")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    return get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    return service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
 
 
 @router.patch("/{playbook_id}", response_model=PlaybookResponse)
@@ -421,8 +406,9 @@ def update_playbook(
     payload: PlaybookUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     before = {"name": playbook.name, "description": playbook.description}
     updates = payload.model_dump(exclude_unset=True)
     for field, value in updates.items():
@@ -448,8 +434,9 @@ def delete_playbook(
     playbook_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:delete")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     playbook.deleted_at = utcnow()
     playbook.deleted_by_user_id = current_user.id
     playbook.updated_by_user_id = current_user.id
@@ -469,8 +456,9 @@ def list_playbook_versions(
     playbook_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:read")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     return db.scalars(
         select(PlaybookVersion)
         .where(PlaybookVersion.org_id == current_user.org_id, PlaybookVersion.playbook_id == playbook.id)
@@ -484,25 +472,23 @@ def create_playbook_version(
     payload: PlaybookVersionCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     source_version = None
     if payload.source_version_id:
-        source_version = get_playbook_version(
-            db,
+        source_version = service.get_playbook_version(
             playbook=playbook,
             version_id=payload.source_version_id,
             org_id=current_user.org_id,
         )
     elif playbook.current_version_id:
-        source_version = get_playbook_version(
-            db,
+        source_version = service.get_playbook_version(
             playbook=playbook,
             version_id=playbook.current_version_id,
             org_id=current_user.org_id,
         )
-    version = clone_playbook_version(
-        db,
+    version = service.clone_playbook_version(
         playbook=playbook,
         user=current_user,
         source_version=source_version,
@@ -520,13 +506,13 @@ def create_playbook_version(
 )
 def expand_playbook_route(
     playbook_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """Draft rules for the standard clauses this playbook is missing into a new
     draft version. Advisory — the draft still needs review and publish."""
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    return expand_playbook(db, playbook=playbook, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    return service.expand_playbook(playbook=playbook, user=current_user)
 
 
 @router.post("/{playbook_id}/publish", response_model=PlaybookResponse)
@@ -535,12 +521,13 @@ def publish_playbook(
     payload: PlaybookPublishRequest | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:publish")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     version_id = (payload.version_id if payload else None) or playbook.current_version_id
     if not version_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "Playbook has no version to publish")
-    version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)
+    version = service.get_playbook_version(playbook=playbook, version_id=version_id, org_id=current_user.org_id)
     rule_count = db.scalar(
         select(PlaybookRule.id)
         .where(PlaybookRule.org_id == current_user.org_id, PlaybookRule.playbook_version_id == version.id)
@@ -573,9 +560,10 @@ def list_playbook_rules(
     version_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:read")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    version = service.get_playbook_version(playbook=playbook, version_id=version_id, org_id=current_user.org_id)
     return db.scalars(
         select(PlaybookRule)
         .where(PlaybookRule.org_id == current_user.org_id, PlaybookRule.playbook_version_id == version.id)
@@ -594,9 +582,10 @@ def create_playbook_rule(
     payload: PlaybookRuleCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    version = service.get_playbook_version(playbook=playbook, version_id=version_id, org_id=current_user.org_id)
     _ensure_draft_version(version)
     rule = PlaybookRule(
         org_id=current_user.org_id,
@@ -629,9 +618,10 @@ def update_playbook_rule(
     payload: PlaybookRuleUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    version = service.get_playbook_version(playbook=playbook, version_id=version_id, org_id=current_user.org_id)
     _ensure_draft_version(version)
     rule = _get_rule(db, rule_id=rule_id, version=version, org_id=current_user.org_id)
     before = PlaybookRuleResponse.model_validate(rule).model_dump()
@@ -661,9 +651,10 @@ def delete_playbook_rule(
     rule_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:update")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
-    version = get_playbook_version(db, playbook=playbook, version_id=version_id, org_id=current_user.org_id)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
+    version = service.get_playbook_version(playbook=playbook, version_id=version_id, org_id=current_user.org_id)
     _ensure_draft_version(version)
     rule = _get_rule(db, rule_id=rule_id, version=version, org_id=current_user.org_id)
     db.delete(rule)
@@ -686,14 +677,14 @@ async def run_playbook(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:run")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     _require_permission(current_user, "contract:read")
     if payload.create_redline:
         _require_permission(current_user, "contract:redline")
     contract = get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
-    version = select_run_version(
-        db,
+    version = service.select_run_version(
         playbook=playbook,
         org_id=current_user.org_id,
         version_id=payload.playbook_version_id,
@@ -743,8 +734,9 @@ def list_playbook_runs(
     playbook_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:read")),
+    service: PlaybooksService = Depends(get_playbooks_service),
 ):
-    playbook = get_playbook_for_user(db, playbook_id=playbook_id, user=current_user)
+    playbook = service.get_playbook_for_user(playbook_id=playbook_id, user=current_user)
     return db.scalars(
         select(PlaybookRun)
         .join(Contract, Contract.id == PlaybookRun.contract_id)

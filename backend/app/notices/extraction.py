@@ -166,7 +166,7 @@ def _clean_str(value, limit: int) -> str | None:
     return cleaned[:limit] or None
 
 
-def extract_notice_fields(db: Session, *, org_id: str, text: str) -> dict:
+def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=None) -> dict:
     """Propose register fields from a notice's text. Always returns a dict;
     `source` is 'llm' or 'heuristic' so the UI can say where a value came from."""
     from app.core.config import settings
@@ -179,13 +179,15 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str) -> dict:
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     bundle = get_agent_prompt(db, agent_id="notice_extraction_agent", org_id=org_id)
     user_prompt = _prompt(text)
     try:
         enforce_daily_token_cap(org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="extract_notice_fields", input_schema=_SCHEMA,

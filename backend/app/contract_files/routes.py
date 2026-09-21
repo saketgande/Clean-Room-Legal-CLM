@@ -44,11 +44,8 @@ from app.contract_files.schemas import (
     ExternalCommentResponse,
     ExternalShareResponse,
 )
-from app.contract_files.service import (
-    add_version_from_upload,
-    next_version_number,
-    requeue_contract_ai_jobs,
-)
+from app.contract_files.dependencies import get_contract_files_service
+from app.contract_files.service import ContractFilesService
 from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -58,7 +55,7 @@ from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractVersionSource, ShareAccessMode, StorageBackend
 from app.core.rate_limit import limiter
-from app.integrations.storage import storage_service
+from app.integrations.dependencies import get_storage_service
 
 logger = logging.getLogger(__name__)
 
@@ -136,14 +133,14 @@ async def upload_contract_version(
     file: UploadFile = File(...),
     change_summary: str | None = Form(default=None),
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract_file:update")),
 ):
     """Create a new authoritative version of an existing contract from an
     uploaded .docx — used by the Word add-in to push the edited draft back."""
     _ = response  # present for slowapi's rate-limit header injection
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return await add_version_from_upload(
-        db,
+    return await files_service.add_version_from_upload(
         contract=contract,
         upload=file,
         user=current_user,
@@ -165,6 +162,7 @@ async def log_counterparty_revision(
     file: UploadFile = File(...),
     change_summary: str | None = Form(default=None),
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract_file:update")),
 ):
     """Log a counterparty's returned redlined document as a COUNTERPARTY_REVISION
@@ -177,8 +175,7 @@ async def log_counterparty_revision(
 
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     req_id = getattr(request.state, "request_id", None)
-    version = await add_version_from_upload(
-        db,
+    version = await files_service.add_version_from_upload(
         contract=contract,
         upload=file,
         user=current_user,
@@ -235,6 +232,7 @@ async def log_negotiation_revision(
     party_label: str | None = Form(default=None),
     change_summary: str | None = Form(default=None),
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract_file:update")),
 ):
     """Record ONE negotiation round — a revised version returned by a party. The
@@ -251,8 +249,8 @@ async def log_negotiation_revision(
         "us": ContractVersionSource.MANUAL_UPLOAD,
     }.get(p, ContractVersionSource.USER_REDLINE)
     who = party_label or {"counterparty": "Counterparty", "internal": "Internal party", "us": "Our side"}.get(p, "Party")
-    version = await add_version_from_upload(
-        db, contract=contract, upload=file, user=current_user,
+    version = await files_service.add_version_from_upload(
+        contract=contract, upload=file, user=current_user,
         change_summary=change_summary or f"{who} revision received",
         source=source, request_id=req_id,
     )
@@ -330,6 +328,7 @@ def download_contract_version(
     version_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract_file:read")),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
 ):
     get_contract_for_user(db, contract_id=contract_id, user=current_user)
     version = db.get(ContractVersion, version_id)
@@ -339,7 +338,7 @@ def download_contract_version(
     if storage_object is None or storage_object.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
     try:
-        path = storage_service.path_for_read(storage_object.storage_key)
+        path = files_service.storage.path_for_read(storage_object.storage_key)
     except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found") from None
     # Force a download rather than letting the browser render the bytes inline:
@@ -350,7 +349,7 @@ def download_contract_version(
         media_type=storage_object.mime_type,
         filename=storage_object.filename,
         content_disposition_type="attachment",
-        background=BackgroundTask(storage_service.cleanup_read_path, path),
+        background=BackgroundTask(files_service.storage.cleanup_read_path, path),
     )
 
 
@@ -533,9 +532,10 @@ def _build_structured_docx(db: Session, snapshot: ContractTextSnapshot, *, title
 
 
 def _store_generated_docx(
-    db: Session, *, org_id: str, user_id: str, filename: str, content: bytes
+    db: Session, *, org_id: str, user_id: str, filename: str, content: bytes, storage=None
 ) -> StorageObject:
-    stored = storage_service.save_bytes(
+    storage = storage or get_storage_service()
+    stored = storage.save_bytes(
         org_id=org_id,
         filename=filename,
         mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -564,6 +564,7 @@ def propose_contract_edit(
     contract_id: str,
     payload: ManualEditProposal,
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     """User-authored redline: select text in the document, propose a change.
@@ -626,12 +627,13 @@ def propose_contract_edit(
         user_id=current_user.id,
         filename=f"{contract.title[:60]}-redline-v{base_version.version_number}.docx",
         content=docx_bytes,
+        storage=files_service.storage,
     )
     proposal_version = ContractVersion(
         org_id=current_user.org_id,
         contract_id=contract.id,
         contract_file_id=contract_file.id,
-        version_number=next_version_number(db, contract_file.id),
+        version_number=files_service.next_version_number(contract_file.id),
         storage_object_id=storage_object.id,
         source=ContractVersionSource.USER_REDLINE,
         change_summary=(payload.rationale or f"Manual redline by {author_name}")[:240],
@@ -755,6 +757,7 @@ def update_contract_text(
     contract_id: str,
     payload: ManualTextUpdate,
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     """Direct in-document editing (Word-style): replace the contract's current
@@ -793,12 +796,13 @@ def update_contract_text(
         user_id=current_user.id,
         filename=f"{contract.title[:60]}-manual-edit.docx",
         content=docx_bytes,
+        storage=files_service.storage,
     )
     new_version = ContractVersion(
         org_id=current_user.org_id,
         contract_id=contract.id,
         contract_file_id=contract_file.id,
-        version_number=next_version_number(db, contract_file.id),
+        version_number=files_service.next_version_number(contract_file.id),
         storage_object_id=storage_object.id,
         source=ContractVersionSource.MANUAL_EDIT,
         change_summary=summary,
@@ -912,6 +916,7 @@ def accept_contract_edit(
     edit_id: str,
     payload: ContractEditDecisionRequest,
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
@@ -981,8 +986,8 @@ def accept_contract_edit(
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
     )
-    requeue_contract_ai_jobs(
-        db, user=current_user, contract=contract, version=proposal_version
+    files_service.requeue_contract_ai_jobs(
+        user=current_user, contract=contract, version=proposal_version
     )
     db.commit()
     db.refresh(edit)
@@ -1043,6 +1048,7 @@ def restore_contract_version(
     contract_id: str,
     version_id: str,
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract_file:update")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
@@ -1056,7 +1062,7 @@ def restore_contract_version(
         org_id=current_user.org_id,
         contract_id=contract_id,
         contract_file_id=contract_file.id,
-        version_number=next_version_number(db, contract_file.id),
+        version_number=files_service.next_version_number(contract_file.id),
         storage_object_id=version.storage_object_id,
         source=ContractVersionSource.RESTORED,
         change_summary=f"Restored from version {version.version_number}",
@@ -1132,8 +1138,8 @@ def restore_contract_version(
             "restored_from_version_number": version.version_number,
         },
     )
-    requeue_contract_ai_jobs(
-        db, user=current_user, contract=contract, version=restored_version
+    files_service.requeue_contract_ai_jobs(
+        user=current_user, contract=contract, version=restored_version
     )
     db.commit()
     db.refresh(restored_version)
@@ -1352,6 +1358,7 @@ def download_external_share(
     token: str,
     passcode: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
 ):
     share = _get_active_share(db, token=token, passcode=passcode, request=request)
     if not share.download_allowed:
@@ -1366,7 +1373,7 @@ def download_external_share(
     if storage_object is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
     try:
-        path = storage_service.path_for_read(storage_object.storage_key)
+        path = files_service.storage.path_for_read(storage_object.storage_key)
     except (FileNotFoundError, ValueError):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file bytes not found") from None
     write_audit_log(
@@ -1385,7 +1392,7 @@ def download_external_share(
         media_type=storage_object.mime_type,
         filename=storage_object.filename,
         content_disposition_type="attachment",
-        background=BackgroundTask(storage_service.cleanup_read_path, path),
+        background=BackgroundTask(files_service.storage.cleanup_read_path, path),
     )
 
 

@@ -3,8 +3,15 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.contract_files.service import create_contract_from_upload
-from app.contracts.lifecycle import allowed_transitions_for, transition_contract_stage
+from app.contract_files.dependencies import get_contract_files_service
+from app.contract_files.service import ContractFilesService
+from app.contracts.dependencies import (
+    get_contract_lifecycle_service,
+    get_contract_risk_service,
+    get_contract_service,
+)
+from app.contracts.lifecycle import ContractLifecycleService, allowed_transitions_for
+from app.contracts.risk import ContractRiskService
 from app.contracts.schemas import (
     ContractActivityResponse,
     ContractPartyCreate,
@@ -19,20 +26,10 @@ from app.contracts.schemas import (
     SignerOption,
     VersionDiffResponse,
 )
-from app.contracts.service import (
-    add_contract_party,
-    compute_review_status,
-    compute_version_diff,
-    delete_contract_party,
-    get_contract_for_user,
-    list_contract_activity,
-    list_contract_parties,
-    list_contract_stage_history,
-    list_contracts_for_user,
-    list_signer_options,
-    update_contract_metadata,
-)
+from app.contracts.service import ContractService
 from app.core.config import settings
+from app.integrations.claude import ClaudeProvider
+from app.integrations.dependencies import get_claude_client
 from app.core.deps import get_db, require_permission
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
@@ -46,12 +43,12 @@ router = APIRouter(prefix="/contracts", tags=["contracts"])
 def list_contracts(
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     # Optional pagination; defaults preserve the historical "first 100, newest
     # first" behaviour so existing callers/tests see an unchanged list shape.
-    return list_contracts_for_user(db, user=current_user, limit=limit, offset=offset)
+    return service.list_contracts_for_user(user=current_user, limit=limit, offset=offset)
 
 
 @router.post(
@@ -67,11 +64,10 @@ async def upload_contract(
     title: str | None = Form(default=None),
     counterparty_name: str | None = Form(default=None),
     matter_id: str | None = Form(default=None),
-    db: Session = Depends(get_db),
+    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:create")),
 ):
-    return await create_contract_from_upload(
-        db,
+    return await files_service.create_contract_from_upload(
         upload=file,
         user=current_user,
         matter_id=matter_id,
@@ -84,20 +80,20 @@ async def upload_contract(
 @router.get("/{contract_id}", response_model=ContractResponse)
 def get_contract(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    return get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return service.get_contract_for_user(contract_id=contract_id, user=current_user)
 
 
 @router.get("/{contract_id}/risk")
 def get_contract_risk(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """The stored weighted risk summary (score + drivers). Empty until computed."""
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
     return contract.risk_summary or {
         "score": contract.risk_score,
         "band": contract.risk_band,
@@ -112,6 +108,7 @@ def get_contract_risk(
 def get_contract_deviations(
     contract_id: str,
     db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Open playbook deviations for the contract, severity-sorted — powers the
@@ -121,7 +118,7 @@ def get_contract_deviations(
     from app.playbooks.models import PlaybookDeviation
     from app.playbooks.schemas import PlaybookDeviationResponse
 
-    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    service.get_contract_for_user(contract_id=contract_id, user=current_user)
     rows = db.scalars(
         _select(PlaybookDeviation)
         .where(
@@ -140,7 +137,9 @@ def get_contract_deviations(
 async def contract_plain_summary(
     contract_id: str,
     db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
+    claude_client: ClaudeProvider = Depends(get_claude_client),
 ):
     """A plain-English, non-lawyer-readable summary of the AI review (risk + playbook
     deviations). Best-effort — degrades to a deterministic summary; never raises."""
@@ -149,10 +148,9 @@ async def contract_plain_summary(
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
     from app.core.config import settings
-    from app.integrations.claude import claude_client
     from app.playbooks.models import PlaybookDeviation
 
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
     devs = db.scalars(
         _select(PlaybookDeviation).where(
             PlaybookDeviation.org_id == current_user.org_id,
@@ -211,16 +209,14 @@ async def contract_plain_summary(
 async def compute_contract_risk_route(
     contract_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    risk_service: ContractRiskService = Depends(get_contract_risk_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Compute (or recompute) the weighted, explainable risk score from the
     contract's extracted clauses."""
-    from app.contracts.risk import compute_contract_risk
-
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return await compute_contract_risk(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return await risk_service.compute_contract_risk(
         contract=contract,
         user=current_user,
         request_id=getattr(request.state, "request_id", None),
@@ -232,12 +228,11 @@ def update_contract(
     contract_id: str,
     payload: ContractUpdate,
     request: Request,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:update")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return update_contract_metadata(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.update_contract_metadata(
         contract=contract,
         user=current_user,
         updates=payload.model_dump(exclude_unset=True),
@@ -250,12 +245,12 @@ def transition_lifecycle(
     contract_id: str,
     payload: LifecycleTransitionRequest,
     request: Request,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    lifecycle_service: ContractLifecycleService = Depends(get_contract_lifecycle_service),
     current_user=Depends(require_permission("contract:update")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    transition_contract_stage(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    lifecycle_service.transition_contract_stage(
         contract=contract,
         to_stage=payload.to_stage,
         actor_user_id=current_user.id,
@@ -267,18 +262,18 @@ def transition_lifecycle(
         signed_confirmation=payload.signed_confirmation,
         request_id=getattr(request.state, "request_id", None),
     )
-    db.commit()
-    db.refresh(contract)
+    service.db.commit()
+    service.db.refresh(contract)
     return contract
 
 
 @router.get("/{contract_id}/lifecycle", response_model=LifecycleOptionsResponse)
 def get_lifecycle_options(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
     from datetime import UTC, datetime
 
     from sqlalchemy import func as _func
@@ -288,7 +283,7 @@ def get_lifecycle_options(
     from app.contracts.models import ContractStageHistory
     from app.core.config import settings as _settings
 
-    entered = db.scalar(
+    entered = service.db.scalar(
         select(_func.max(ContractStageHistory.changed_at)).where(
             ContractStageHistory.contract_id == contract.id
         )
@@ -307,13 +302,13 @@ def get_lifecycle_options(
 @router.get("/{contract_id}/review-status", response_model=ReviewStatusResponse)
 def get_review_status(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Guided "what to do next" for a contract's review — derived from playbook
     deviations, pending redlines, open comments, and counterparty shares."""
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return compute_review_status(db, contract=contract)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.compute_review_status(contract=contract)
 
 
 @router.get(
@@ -324,13 +319,12 @@ def get_version_diff(
     contract_id: str,
     base_version_id: str,
     target_version_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Line-level diff between two versions (e.g. yours vs the counterparty's)."""
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return compute_version_diff(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.compute_version_diff(
         contract=contract,
         base_version_id=base_version_id,
         target_version_id=target_version_id,
@@ -340,11 +334,11 @@ def get_version_diff(
 @router.get("/{contract_id}/parties", response_model=list[ContractPartyResponse])
 def list_parties(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return list_contract_parties(db, contract=contract)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.list_contract_parties(contract=contract)
 
 
 @router.post(
@@ -353,12 +347,11 @@ def list_parties(
 def add_party(
     contract_id: str,
     payload: ContractPartyCreate,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:update")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return add_contract_party(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.add_contract_party(
         contract=contract,
         user=current_user,
         name=payload.name,
@@ -371,42 +364,40 @@ def add_party(
 def remove_party(
     contract_id: str,
     party_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:update")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    delete_contract_party(db, contract=contract, party_id=party_id)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    service.delete_contract_party(contract=contract, party_id=party_id)
 
 
 @router.get("/{contract_id}/signers", response_model=list[SignerOption])
 def list_signers(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Valid signature recipients — contract parties + active org users."""
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return list_signer_options(db, contract=contract)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.list_signer_options(contract=contract)
 
 
 @router.get("/{contract_id}/stage-history", response_model=list[ContractStageHistoryResponse])
 def get_stage_history(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return list_contract_stage_history(db, contract=contract)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.list_contract_stage_history(contract=contract)
 
 
 @router.get("/{contract_id}/activity", response_model=list[ContractActivityResponse])
 def get_contract_activity(
     contract_id: str,
     limit: int = 100,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return list_contract_activity(db, contract=contract, limit=limit)
-
-
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return service.list_contract_activity(contract=contract, limit=limit)

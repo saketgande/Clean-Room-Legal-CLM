@@ -2,16 +2,11 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
-from app.contracts.comments_service import (
-    create_comment,
-    delete_comment,
-    list_comments,
-    set_resolved,
-)
-from app.contracts.service import get_contract_for_user
-from app.core.deps import get_db, require_permission
+from app.contracts.comments_service import ContractCommentService
+from app.contracts.dependencies import get_contract_comment_service, get_contract_service
+from app.contracts.service import ContractService
+from app.core.deps import require_permission
 
 router = APIRouter(prefix="/contracts", tags=["comments"])
 
@@ -49,11 +44,12 @@ class CommentResponse(BaseModel):
 @router.get("/{contract_id}/comments", response_model=list[CommentResponse])
 def list_contract_comments(
     contract_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    comment_service: ContractCommentService = Depends(get_contract_comment_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return list_comments(db, contract=contract)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return comment_service.list_comments(contract=contract)
 
 
 @router.post(
@@ -63,12 +59,12 @@ def add_contract_comment(
     contract_id: str,
     payload: CommentCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    comment_service: ContractCommentService = Depends(get_contract_comment_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return create_comment(
-        db,
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return comment_service.create_comment(
         contract=contract,
         user=current_user,
         body=payload.body,
@@ -86,12 +82,13 @@ def resolve_contract_comment(
     contract_id: str,
     comment_id: str,
     payload: CommentResolveRequest,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    comment_service: ContractCommentService = Depends(get_contract_comment_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return set_resolved(
-        db, contract=contract, user=current_user, comment_id=comment_id, resolved=payload.resolved
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return comment_service.set_resolved(
+        contract=contract, user=current_user, comment_id=comment_id, resolved=payload.resolved
     )
 
 
@@ -99,8 +96,9 @@ def resolve_contract_comment(
 def remove_contract_comment(
     contract_id: str,
     comment_id: str,
-    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    comment_service: ContractCommentService = Depends(get_contract_comment_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    return delete_comment(db, contract=contract, user=current_user, comment_id=comment_id)
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    return comment_service.delete_comment(contract=contract, user=current_user, comment_id=comment_id)

@@ -20,10 +20,12 @@ from app.contract_files.text_extraction import TextExtractionResult, extract_tex
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
-from app.core.enums import ContractLifecycleStage, ContractVersionSource, StorageBackend
-from app.integrations.databricks import databricks_client
+from app.core.enums import ContractLifecycleStage, ContractVersionSource
+from app.core.enums import StorageBackend as StorageBackendEnum
+from app.integrations.databricks import DatabricksDocumentClient, databricks_client
+from app.integrations.ocr import OCRProvider
 from app.integrations.reducto import reducto_client
-from app.integrations.storage import storage_service
+from app.integrations.storage import StorageBackend, storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 from app.matters.access import get_project_for_user
@@ -169,192 +171,10 @@ INITIAL_CONTRACT_AI_JOB_TYPES = (
 )
 TEXT_EXTRACTION_COMPLETE_THRESHOLD = 0.55
 
-
-def _persist_document_elements(db, snapshot: ContractTextSnapshot, *, elements: list) -> None:
-    """Phase 1 of the structured-document migration: break a freshly-created
-    snapshot into ContractDocumentElement rows (clauses, headings, tables). Uses
-    the parser's real elements when present, else splits the flat text.
-
-    Purely additive and defensive: it never raises into the upload path, never
-    touches snapshot.text, and leaves the snapshot 'flat_only' if the elements
-    don't slice back out of the text exactly. So structuring can only help — it
-    can't corrupt an upload."""
-    try:
-        rows, ok = (
-            build_elements(elements, snapshot.text)
-            if elements
-            else elements_from_flat_text(snapshot.text)
-        )
-        if not ok or not rows:
-            return
-        # Idempotent: clear any prior elements for this snapshot before writing,
-        # so re-running (e.g. a backfill) rebuilds cleanly instead of duplicating.
-        db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
-        if any(snapshot.text[r["char_start"]:r["char_end"]] != r["text"] for r in rows):
-            return  # invariant broken — do not persist misaligned offsets
-        for r in rows:
-            db.add(
-                ContractDocumentElement(
-                    org_id=snapshot.org_id,
-                    contract_id=snapshot.contract_id,
-                    contract_version_id=snapshot.contract_version_id,
-                    text_snapshot_id=snapshot.id,
-                    **r,
-                )
-            )
-        snapshot.structure_status = "structured"
-        snapshot.element_count = len(rows)
-    except Exception:  # noqa: BLE001 — structuring is optional, must not break upload
-        logging.getLogger(__name__).warning(
-            "structuring snapshot %s failed; leaving flat_only",
-            getattr(snapshot, "id", "?"),
-            exc_info=True,
-        )
-
-
-def backfill_document_elements(db, *, limit: int | None = None, batch_size: int = 200) -> dict:
-    """Phase 2: give existing contracts a clause index by structuring snapshots
-    that are still 'flat_only'. Derives elements from the stored flat text — no
-    re-OCR, so it costs nothing and can't fail an extraction. Idempotent: it only
-    touches flat_only snapshots and rebuilds each cleanly, so it is safe to run,
-    re-run, or resume. Returns a small summary for logging.
-
-    ponytail: reconstructs structure from flat text (loses tables/confidence).
-    Re-parsing the original file gives higher fidelity; add that as an opt-in
-    pass when a contract's structure actually needs it.
-    """
-    from sqlalchemy import select as _select
-
-    query = _select(ContractTextSnapshot).where(
-        ContractTextSnapshot.structure_status == "flat_only"
-    )
-    if limit is not None:
-        query = query.limit(limit)
-    snapshots = db.scalars(query).all()
-
-    structured = skipped = 0
-    for i, snapshot in enumerate(snapshots, start=1):
-        if not (snapshot.text or "").strip():
-            skipped += 1  # nothing to structure (e.g. signed PDF with empty text)
-            continue
-        _persist_document_elements(db, snapshot, elements=[])
-        if snapshot.structure_status == "structured":
-            structured += 1
-        else:
-            skipped += 1
-        if i % batch_size == 0:
-            db.commit()
-    db.commit()
-    return {"total": len(snapshots), "structured": structured, "skipped": skipped}
-
-
-async def _resolve_extracted_text(
-    *, content: bytes, mime_type: str, filename: str
-) -> _ExtractedText:
-    """Run native text extraction and, if the result looks too thin, fall back
-    to the OCR provider. Encapsulates the messy OCR-fallback decision tree so
-    the upload orchestrator stays linear."""
-    extraction: TextExtractionResult = extract_text(content, mime_type=mime_type, filename=filename)
-    if not extraction.needs_ocr:
-        return _ExtractedText(
-            method=extraction.method,
-            text=extraction.text,
-            quality_score=extraction.quality_score,
-            page_map=extraction.page_map,
-        )
-    # Databricks (ai_parse_document) when it is configured, Reducto otherwise.
-    # Both return OCRResult, so nothing downstream cares which one ran.
-    ocr_client = databricks_client if databricks_client.enabled else reducto_client
-    try:
-        ocr = await ocr_client.extract_text(
-            filename=filename, mime_type=mime_type, content=content
-        )
-    except Exception as exc:
-        return _ExtractedText(
-            method=f"{extraction.method}_ocr_failed",
-            text=extraction.text,
-            quality_score=extraction.quality_score,
-            page_map=extraction.page_map,
-            ocr_provider=ocr_client.provider,
-            ocr_error=str(exc),
-        )
-    if ocr.text:
-        return _ExtractedText(
-            method=f"{ocr.provider}_ocr",
-            text=ocr.text,
-            quality_score=ocr.quality_score,
-            page_map=extraction.page_map,
-            ocr_provider=ocr.provider,
-            elements=ocr.elements,
-        )
-    return _ExtractedText(
-        method=extraction.method,
-        text=extraction.text,
-        quality_score=extraction.quality_score,
-        page_map=extraction.page_map,
-        ocr_provider=ocr.provider,
-    )
-
-
-async def _fill_contract_metadata(db, *, contract, filename: str, content: bytes) -> None:
-    """Populate counterparty, dates and value from the document itself.
-
-    Only fills blanks — anything a person typed on the upload form wins. What
-    the model was unsure about is recorded in metadata_json rather than written
-    onto the contract, so a human can confirm it.
-    """
-    if not databricks_client.enabled:
-        return
-    try:
-        result = await databricks_client.extract_fields(filename=filename, content=content)
-    except Exception as exc:  # extraction must never fail an upload
-        contract.metadata_json = {
-            **(contract.metadata_json or {}),
-            "extraction": {"provider": databricks_client.provider, "error": str(exc)},
-        }
-        return
-    if result.error:
-        contract.metadata_json = {
-            **(contract.metadata_json or {}),
-            "extraction": {"provider": databricks_client.provider, "error": result.error},
-        }
-        return
-
-    f = result.fields
-    review = set(result.needs_review())
-
-    def _confident(key: str):
-        """A value we are willing to write onto the contract row."""
-        return None if key in review else f.get(key)
-
-    if not contract.counterparty_name:
-        contract.counterparty_name = _confident("counterparty")
-    if not contract.contract_type:
-        contract.contract_type = _confident("agreement_type")
-    if contract.value_amount is None:
-        value = _confident("total_value")
-        contract.value_amount = float(value) if isinstance(value, (int, float)) else None
-    if not contract.currency:
-        contract.currency = _confident("currency")
-    for attr, key in (("effective_date", "effective_date"), ("expiration_date", "end_date")):
-        if getattr(contract, attr) is None:
-            raw = _confident(key)
-            if raw:
-                try:
-                    setattr(contract, attr, date.fromisoformat(str(raw)[:10]))
-                except ValueError:
-                    pass
-
-    contract.metadata_json = {
-        **(contract.metadata_json or {}),
-        "extraction": {
-            "provider": databricks_client.provider,
-            "fields": f,                       # incl. notice_days, liability_cap, governing_law
-            "confidence": result.confidence,
-            "citations": result.citations,
-            "needs_review": sorted(review),    # the human queue
-        },
-    }
+ACTIVATION_AI_JOB_TYPES = (
+    "obligation_extraction",
+    "renewal_extraction",
+)
 
 
 def _dedupe_extension(filename: str) -> str:
@@ -370,489 +190,235 @@ def _dedupe_extension(filename: str) -> str:
     return filename.strip()
 
 
-def _persist_intake_records(
-    db: Session,
-    *,
-    user: User,
-    stored,
-    mime_type: str,
-    title: str | None,
-    counterparty_name: str | None,
-    contract_type: str | None,
-    extracted: _ExtractedText,
-) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot]:
-    """Create the storage object → contract → file → version → text snapshot
-    chain in one place. Returns the persisted instances so the caller can
-    keep wiring them together without re-reading the DB."""
-    storage_object = StorageObject(
-        org_id=user.org_id,
-        storage_key=stored.storage_key,
-        filename=stored.filename,
-        mime_type=stored.mime_type,
-        size_bytes=stored.size_bytes,
-        sha256_hash=stored.sha256_hash,
-        storage_backend=StorageBackend.LOCAL_VOLUME,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(storage_object)
-    db.flush()
-
-    contract = Contract(
-        org_id=user.org_id,
-        title=title or _dedupe_extension(stored.filename),
-        counterparty_name=counterparty_name,
-        contract_type=contract_type,
-        lifecycle_stage=ContractLifecycleStage.INTAKE,
-        owner_user_id=user.id,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(contract)
-    db.flush()
-
-    contract_file = ContractFile(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        file_label=stored.filename,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(contract_file)
-    db.flush()
-
-    version = ContractVersion(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        contract_file_id=contract_file.id,
-        version_number=1,
-        storage_object_id=storage_object.id,
-        source=ContractVersionSource.UPLOAD,
-        change_summary="Original upload",
-        is_authoritative=True,
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(version)
-    db.flush()
-
-    snapshot = ContractTextSnapshot(
-        org_id=user.org_id,
-        contract_id=contract.id,
-        contract_version_id=version.id,
-        extraction_method=extracted.method,
-        extraction_quality_score=extracted.quality_score,
-        text=extracted.text,
-        page_map=extracted.page_map,
-        ocr_provider=extracted.ocr_provider,
-        validation_status=_text_snapshot_validation_status(extracted.text, extracted.quality_score),
-        created_by_user_id=user.id,
-        updated_by_user_id=user.id,
-    )
-    db.add(snapshot)
-    db.flush()
-    _persist_document_elements(db, snapshot, elements=extracted.elements)
-
-    version.text_snapshot_id = snapshot.id
-    contract_file.current_version_id = version.id
-    contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = version.id
-    return storage_object, contract, contract_file, version, snapshot
-
-
-def _dispatch_initial_jobs(
-    db: Session,
-    *,
-    queued_jobs,
-    user: User,
-    contract: Contract,
-    request_id: str | None,
-) -> tuple[list[str], list[dict]]:
-    """Best-effort dispatch of queued jobs. Returns ``(dispatched, errors)``
-    where errors are surfaced in the API response so the client can detect
-    partial success rather than seeing a 201 with silent enqueue failures."""
-    dispatched: list[str] = []
-    errors: list[dict] = []
-    for job in queued_jobs:
-        live_job = db.get(JobRun, job.id)
-        if live_job is None:
-            continue
-        try:
-            dispatch_job(db, job=live_job)
-            dispatched.append(live_job.job_type)
-        except Exception as exc:
-            errors.append({"job_id": live_job.id, "job_type": live_job.job_type, "error": str(exc)})
-    if dispatched or errors:
-        write_timeline_event(
-            db,
-            org_id=user.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.ai_jobs_dispatched",
-            title="Contract AI jobs dispatched",
-            actor_user_id=user.id,
-            request_id=request_id,
-            details={"dispatched_job_types": dispatched, "dispatch_errors": errors},
-        )
-        db.commit()
-    return dispatched, errors
-
-
-async def create_contract_from_upload(
-    db: Session,
-    *,
-    upload: UploadFile,
-    user: User,
-    matter_id: str | None = None,
-    title: str | None = None,
-    counterparty_name: str | None = None,
-    contract_type: str | None = None,
-    request_id: str | None = None,
-) -> dict:
-    """Orchestrate a contract intake: validate, store, extract text, persist
-    rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
-    rollback-on-exception path is obvious — anything before the storage save
-    can fail freely; once bytes are on disk, exceptions must delete them."""
-    mime_type = upload.content_type or "application/octet-stream"
-    if mime_type not in settings.allowed_mime_types:
-        raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
-        )
-    content = await _read_upload_with_limit(
-        upload,
-        limit=settings.max_upload_size_bytes,
-        chunk_size=settings.upload_stream_chunk_bytes,
-    )
-    # Re-verify MIME against actual bytes — client content-type is untrusted.
-    mime_type = _sniff_mime_type(content, mime_type)
-    # Optional antivirus scan (no-op unless settings.enable_clamav). Runs before
-    # we persist any bytes so an infected upload never lands in storage.
-    _scan_for_malware(content)
-    if matter_id:
-        get_project_for_user(db, matter_id=matter_id, user=user, access="update")
-
-    stored = storage_service.save_bytes(
-        org_id=user.org_id,
-        filename=upload.filename or "contract",
-        mime_type=mime_type,
-        content=content,
-    )
-    try:
-        extracted = await _resolve_extracted_text(
-            content=content, mime_type=mime_type, filename=stored.filename
-        )
-        storage_object, contract, contract_file, version, snapshot = _persist_intake_records(
-            db,
-            user=user,
-            stored=stored,
-            mime_type=mime_type,
-            title=title,
-            counterparty_name=counterparty_name,
-            contract_type=contract_type,
-            extracted=extracted,
-        )
-        if matter_id:
-            db.add(
-                MatterContract(
-                    org_id=user.org_id,
-                    matter_id=matter_id,
-                    contract_id=contract.id,
-                    created_by_user_id=user.id,
-                    updated_by_user_id=user.id,
-                )
-            )
-        # Read the key terms off the document and fill the blanks on the
-        # contract row. Never overwrites a value a human supplied.
-        await _fill_contract_metadata(
-            db, contract=contract, filename=stored.filename, content=content
-        )
-        queued_jobs = _queue_initial_contract_jobs(
-            db, user=user, contract=contract, version=version, snapshot=snapshot
-        )
-        write_audit_log(
-            db,
-            action="contract.uploaded",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=user.org_id,
-            actor_user_id=user.id,
-            request_id=request_id,
-            after={
-                "contract_file_id": contract_file.id,
-                "contract_version_id": version.id,
-                "storage_object_id": storage_object.id,
-            },
-        )
-        timeline_details: dict = {
-            "filename": stored.filename,
-            "mime_type": mime_type,
-            "extraction_method": extracted.method,
-            "extraction_quality_score": extracted.quality_score,
-            "validation_status": snapshot.validation_status,
-        }
-        if extracted.ocr_error:
-            timeline_details["ocr_error"] = extracted.ocr_error
-        write_timeline_event(
-            db,
-            org_id=user.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.uploaded",
-            title="Contract uploaded",
-            actor_user_id=user.id,
-            request_id=request_id,
-            details=timeline_details,
-        )
-        db.commit()
-    except Exception:
-        # Once bytes are on disk we MUST delete them on rollback — otherwise
-        # the storage backend retains orphan files referenced by no row.
-        db.rollback()
-        storage_service.delete_bytes_permanently(stored.storage_key)
-        raise
-
-    _dispatched_job_types, dispatch_errors = _dispatch_initial_jobs(
-        db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
-    )
-
-    # An uploaded document is a real contract in flight, not a blank "intake"
-    # request you're about to draft — so send it straight to REVIEW, where the
-    # actual work (AI analysis, redlines, comments) happens. Without this, every
-    # upload (web AND Word add-in) sits in intake until someone manually clicks
-    # through. The Review stage-entry trigger won't re-dispatch the analysis
-    # jobs we just queued above (celery_task_id guard in stage_triggers). This
-    # is best-effort: a hiccup here must never fail the upload itself.
-    try:
-        from app.contracts.lifecycle import transition_contract_stage
-        from app.core.enums import ContractLifecycleStage
-
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.REVIEW,
-            actor_user_id=user.id,
-            reason="Uploaded document — moved to review automatically",
-            request_id=request_id,
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.warning(
-            "auto-advance to review failed for contract %s", contract.id, exc_info=True
-        )
-
-    db.refresh(contract)
-    return {
-        "contract": contract,
-        "contract_file_id": contract_file.id,
-        "contract_version_id": version.id,
-        "text_snapshot_id": snapshot.id,
-        "extraction_method": extracted.method,
-        "extraction_quality_score": extracted.quality_score,
-        "queued_jobs": [job.job_type for job in queued_jobs],
-        # Surface dispatch errors so the API client can detect a partial
-        # success (intake landed; one or more AI jobs failed to enqueue).
-        "dispatch_errors": dispatch_errors,
-    }
-
-
-def _queue_initial_contract_jobs(
-    db: Session,
-    *,
-    user: User,
-    contract: Contract,
-    version: ContractVersion,
-    snapshot: ContractTextSnapshot,
-):
-    jobs = []
-    for job_type in INITIAL_CONTRACT_AI_JOB_TYPES:
-        jobs.append(
-            create_job(
-                db,
-                org_id=user.org_id,
-                job_type=job_type,
-                resource_type="contract",
-                resource_id=contract.id,
-                created_by_user_id=user.id,
-                idempotency_key=f"{job_type}:{version.id}:{snapshot.id}",
-                metadata={
-                    "contract_version_id": version.id,
-                    "text_snapshot_id": snapshot.id,
-                },
-            )
-        )
-    return jobs
-
-
-ACTIVATION_AI_JOB_TYPES = (
-    "obligation_extraction",
-    "renewal_extraction",
-)
-
-
-def queue_activation_ai_jobs(
-    db: Session,
-    *,
-    user: User,
-    contract: Contract,
-    version: ContractVersion,
-) -> None:
-    """When a contract becomes ACTIVE, extract obligations and renewal terms
-    from the authoritative version."""
-    snapshot = (
-        db.get(ContractTextSnapshot, version.text_snapshot_id)
-        if version.text_snapshot_id
-        else None
-    )
-    if snapshot is None:
-        return
-    jobs = []
-    for job_type in ACTIVATION_AI_JOB_TYPES:
-        jobs.append(
-            create_job(
-                db,
-                org_id=user.org_id,
-                job_type=job_type,
-                resource_type="contract",
-                resource_id=contract.id,
-                created_by_user_id=user.id,
-                idempotency_key=f"{job_type}:{version.id}:{snapshot.id}",
-                metadata={
-                    "contract_version_id": version.id,
-                    "text_snapshot_id": snapshot.id,
-                },
-            )
-        )
-    db.flush()
-    job_ids = [job.id for job in jobs]
-    db.commit()
-    for job_id in job_ids:
-        job = db.get(JobRun, job_id)
-        if job is not None:
-            try:
-                dispatch_job(db, job=job)
-            except Exception:
-                logger.warning("failed to dispatch job %s", job_id, exc_info=True)
-    db.commit()
-
-
 def _text_snapshot_validation_status(text: str, quality_score: float) -> str:
     if not text or quality_score < TEXT_EXTRACTION_COMPLETE_THRESHOLD:
         return "needs_review"
     return "complete"
 
 
-def next_version_number(db: Session, contract_file_id: str) -> int:
-    db.scalar(
-        select(ContractFile.id)
-        .where(ContractFile.id == contract_file_id)
-        .with_for_update()
-    )
-    max_version = db.scalar(
-        select(func.max(ContractVersion.version_number)).where(
-            ContractVersion.contract_file_id == contract_file_id
-        )
-    )
-    return int(max_version or 0) + 1
+class ContractFilesService:
+    """Contract document intake, versioning, and AI-job queuing.
 
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with a
+    ``db`` session (request-scoped) plus the three external clients this
+    module calls — ``storage``, ``reducto``, ``databricks`` — each defaulting
+    to the existing singleton so behavior is unchanged unless a caller (e.g. a
+    test) injects a fake. Pure helpers that touch neither ``db`` nor a client
+    (MIME sniffing, malware scan, filename dedup, validation-status) stay
+    module-level functions above.
+    """
 
-def requeue_contract_ai_jobs(
-    db: Session,
-    *,
-    user: User,
-    contract: Contract,
-    version: ContractVersion,
-) -> None:
-    """Re-run metadata/clause/embeddings extraction for a newly-authoritative
-    version so derived data does not go stale after an accepted edit or restore."""
-    snapshot = (
-        db.get(ContractTextSnapshot, version.text_snapshot_id)
-        if version.text_snapshot_id
-        else None
-    )
-    if snapshot is None:
-        return
-    queued = _queue_initial_contract_jobs(
-        db, user=user, contract=contract, version=version, snapshot=snapshot
-    )
-    db.flush()
-    job_ids = [job.id for job in queued]
-    db.commit()
-    for job_id in job_ids:
-        job = db.get(JobRun, job_id)
-        if job is not None:
-            try:
-                dispatch_job(db, job=job)
-            except Exception:
-                logger.warning("failed to dispatch job %s", job_id, exc_info=True)
-    db.commit()
+    def __init__(
+        self,
+        db: Session,
+        *,
+        storage: StorageBackend | None = None,
+        reducto: OCRProvider | None = None,
+        databricks: DatabricksDocumentClient | None = None,
+    ):
+        self.db = db
+        self.storage = storage or storage_service
+        self.reducto = reducto or reducto_client
+        self.databricks = databricks or databricks_client
 
+    def _persist_document_elements(self, snapshot: ContractTextSnapshot, *, elements: list) -> None:
+        """Phase 1 of the structured-document migration: break a freshly-created
+        snapshot into ContractDocumentElement rows (clauses, headings, tables). Uses
+        the parser's real elements when present, else splits the flat text.
 
-def _resolve_contract_file(db: Session, *, contract: Contract, org_id: str) -> ContractFile:
-    """Return the contract's current ContractFile (or its first file), 404-ing
-    if the contract has no file to attach a new version to."""
-    contract_file = None
-    if contract.current_contract_file_id:
-        contract_file = db.get(ContractFile, contract.current_contract_file_id)
-    if contract_file is None:
-        contract_file = db.scalars(
-            select(ContractFile)
-            .where(
-                ContractFile.org_id == org_id,
-                ContractFile.contract_id == contract.id,
-                ContractFile.deleted_at.is_(None),
+        Purely additive and defensive: it never raises into the upload path, never
+        touches snapshot.text, and leaves the snapshot 'flat_only' if the elements
+        don't slice back out of the text exactly. So structuring can only help — it
+        can't corrupt an upload."""
+        db = self.db
+        try:
+            rows, ok = (
+                build_elements(elements, snapshot.text)
+                if elements
+                else elements_from_flat_text(snapshot.text)
             )
-            .order_by(ContractFile.created_at.asc())
-        ).first()
-    if contract_file is None or contract_file.org_id != org_id:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, "Contract has no file to attach a version to"
+            if not ok or not rows:
+                return
+            # Idempotent: clear any prior elements for this snapshot before writing,
+            # so re-running (e.g. a backfill) rebuilds cleanly instead of duplicating.
+            db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
+            if any(snapshot.text[r["char_start"]:r["char_end"]] != r["text"] for r in rows):
+                return  # invariant broken — do not persist misaligned offsets
+            for r in rows:
+                db.add(
+                    ContractDocumentElement(
+                        org_id=snapshot.org_id,
+                        contract_id=snapshot.contract_id,
+                        contract_version_id=snapshot.contract_version_id,
+                        text_snapshot_id=snapshot.id,
+                        **r,
+                    )
+                )
+            snapshot.structure_status = "structured"
+            snapshot.element_count = len(rows)
+        except Exception:  # noqa: BLE001 — structuring is optional, must not break upload
+            logging.getLogger(__name__).warning(
+                "structuring snapshot %s failed; leaving flat_only",
+                getattr(snapshot, "id", "?"),
+                exc_info=True,
+            )
+
+    def backfill_document_elements(self, *, limit: int | None = None, batch_size: int = 200) -> dict:
+        """Phase 2: give existing contracts a clause index by structuring snapshots
+        that are still 'flat_only'. Derives elements from the stored flat text — no
+        re-OCR, so it costs nothing and can't fail an extraction. Idempotent: it only
+        touches flat_only snapshots and rebuilds each cleanly, so it is safe to run,
+        re-run, or resume. Returns a small summary for logging.
+
+        ponytail: reconstructs structure from flat text (loses tables/confidence).
+        Re-parsing the original file gives higher fidelity; add that as an opt-in
+        pass when a contract's structure actually needs it.
+        """
+        db = self.db
+        query = select(ContractTextSnapshot).where(
+            ContractTextSnapshot.structure_status == "flat_only"
         )
-    return contract_file
+        if limit is not None:
+            query = query.limit(limit)
+        snapshots = db.scalars(query).all()
 
+        structured = skipped = 0
+        for i, snapshot in enumerate(snapshots, start=1):
+            if not (snapshot.text or "").strip():
+                skipped += 1  # nothing to structure (e.g. signed PDF with empty text)
+                continue
+            self._persist_document_elements(snapshot, elements=[])
+            if snapshot.structure_status == "structured":
+                structured += 1
+            else:
+                skipped += 1
+            if i % batch_size == 0:
+                db.commit()
+        db.commit()
+        return {"total": len(snapshots), "structured": structured, "skipped": skipped}
 
-async def add_version_from_upload(
-    db: Session,
-    *,
-    contract: Contract,
-    upload: UploadFile,
-    user: User,
-    change_summary: str | None = None,
-    source: str = ContractVersionSource.MANUAL_UPLOAD,
-    request_id: str | None = None,
-) -> ContractVersion:
-    """Create a new authoritative version of an EXISTING contract from an
-    uploaded ``.docx`` (e.g. the edited draft pushed from the Word add-in).
-
-    Mirrors ``create_contract_from_upload`` (validate → store → extract → persist
-    → requeue AI jobs) and the version-promotion logic of ``restore_contract_version``,
-    but targets a contract that already exists. The caller is expected to have
-    already authorized access via ``get_contract_for_user``."""
-    mime_type = upload.content_type or "application/octet-stream"
-    if mime_type not in settings.allowed_mime_types:
-        raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+    async def _resolve_extracted_text(
+        self, *, content: bytes, mime_type: str, filename: str
+    ) -> _ExtractedText:
+        """Run native text extraction and, if the result looks too thin, fall back
+        to the OCR provider. Encapsulates the messy OCR-fallback decision tree so
+        the upload orchestrator stays linear."""
+        extraction: TextExtractionResult = extract_text(content, mime_type=mime_type, filename=filename)
+        if not extraction.needs_ocr:
+            return _ExtractedText(
+                method=extraction.method,
+                text=extraction.text,
+                quality_score=extraction.quality_score,
+                page_map=extraction.page_map,
+            )
+        # Databricks (ai_parse_document) when it is configured, Reducto otherwise.
+        # Both return OCRResult, so nothing downstream cares which one ran.
+        ocr_client = self.databricks if self.databricks.enabled else self.reducto
+        try:
+            ocr = await ocr_client.extract_text(
+                filename=filename, mime_type=mime_type, content=content
+            )
+        except Exception as exc:
+            return _ExtractedText(
+                method=f"{extraction.method}_ocr_failed",
+                text=extraction.text,
+                quality_score=extraction.quality_score,
+                page_map=extraction.page_map,
+                ocr_provider=ocr_client.provider,
+                ocr_error=str(exc),
+            )
+        if ocr.text:
+            return _ExtractedText(
+                method=f"{ocr.provider}_ocr",
+                text=ocr.text,
+                quality_score=ocr.quality_score,
+                page_map=extraction.page_map,
+                ocr_provider=ocr.provider,
+                elements=ocr.elements,
+            )
+        return _ExtractedText(
+            method=extraction.method,
+            text=extraction.text,
+            quality_score=extraction.quality_score,
+            page_map=extraction.page_map,
+            ocr_provider=ocr.provider,
         )
-    content = await _read_upload_with_limit(
-        upload,
-        limit=settings.max_upload_size_bytes,
-        chunk_size=settings.upload_stream_chunk_bytes,
-    )
-    mime_type = _sniff_mime_type(content, mime_type)
-    _scan_for_malware(content)
 
-    contract_file = _resolve_contract_file(db, contract=contract, org_id=user.org_id)
+    async def _fill_contract_metadata(self, *, contract, filename: str, content: bytes) -> None:
+        """Populate counterparty, dates and value from the document itself.
 
-    stored = storage_service.save_bytes(
-        org_id=user.org_id,
-        filename=upload.filename or "contract.docx",
-        mime_type=mime_type,
-        content=content,
-    )
-    try:
-        extracted = await _resolve_extracted_text(
-            content=content, mime_type=mime_type, filename=stored.filename
-        )
+        Only fills blanks — anything a person typed on the upload form wins. What
+        the model was unsure about is recorded in metadata_json rather than written
+        onto the contract, so a human can confirm it.
+        """
+        if not self.databricks.enabled:
+            return
+        try:
+            result = await self.databricks.extract_fields(filename=filename, content=content)
+        except Exception as exc:  # extraction must never fail an upload
+            contract.metadata_json = {
+                **(contract.metadata_json or {}),
+                "extraction": {"provider": self.databricks.provider, "error": str(exc)},
+            }
+            return
+        if result.error:
+            contract.metadata_json = {
+                **(contract.metadata_json or {}),
+                "extraction": {"provider": self.databricks.provider, "error": result.error},
+            }
+            return
+
+        f = result.fields
+        review = set(result.needs_review())
+
+        def _confident(key: str):
+            """A value we are willing to write onto the contract row."""
+            return None if key in review else f.get(key)
+
+        if not contract.counterparty_name:
+            contract.counterparty_name = _confident("counterparty")
+        if not contract.contract_type:
+            contract.contract_type = _confident("agreement_type")
+        if contract.value_amount is None:
+            value = _confident("total_value")
+            contract.value_amount = float(value) if isinstance(value, (int, float)) else None
+        if not contract.currency:
+            contract.currency = _confident("currency")
+        for attr, key in (("effective_date", "effective_date"), ("expiration_date", "end_date")):
+            if getattr(contract, attr) is None:
+                raw = _confident(key)
+                if raw:
+                    try:
+                        setattr(contract, attr, date.fromisoformat(str(raw)[:10]))
+                    except ValueError:
+                        pass
+
+        contract.metadata_json = {
+            **(contract.metadata_json or {}),
+            "extraction": {
+                "provider": self.databricks.provider,
+                "fields": f,                       # incl. notice_days, liability_cap, governing_law
+                "confidence": result.confidence,
+                "citations": result.citations,
+                "needs_review": sorted(review),    # the human queue
+            },
+        }
+
+    def _persist_intake_records(
+        self,
+        *,
+        user: User,
+        stored,
+        mime_type: str,
+        title: str | None,
+        counterparty_name: str | None,
+        contract_type: str | None,
+        extracted: _ExtractedText,
+    ) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot]:
+        """Create the storage object → contract → file → version → text snapshot
+        chain in one place. Returns the persisted instances so the caller can
+        keep wiring them together without re-reading the DB."""
+        db = self.db
         storage_object = StorageObject(
             org_id=user.org_id,
             storage_key=stored.storage_key,
@@ -860,21 +426,44 @@ async def add_version_from_upload(
             mime_type=stored.mime_type,
             size_bytes=stored.size_bytes,
             sha256_hash=stored.sha256_hash,
-            storage_backend=StorageBackend.LOCAL_VOLUME,
+            storage_backend=StorageBackendEnum.LOCAL_VOLUME,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
         db.add(storage_object)
         db.flush()
 
+        contract = Contract(
+            org_id=user.org_id,
+            title=title or _dedupe_extension(stored.filename),
+            counterparty_name=counterparty_name,
+            contract_type=contract_type,
+            lifecycle_stage=ContractLifecycleStage.INTAKE,
+            owner_user_id=user.id,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract)
+        db.flush()
+
+        contract_file = ContractFile(
+            org_id=user.org_id,
+            contract_id=contract.id,
+            file_label=stored.filename,
+            created_by_user_id=user.id,
+            updated_by_user_id=user.id,
+        )
+        db.add(contract_file)
+        db.flush()
+
         version = ContractVersion(
             org_id=user.org_id,
             contract_id=contract.id,
             contract_file_id=contract_file.id,
-            version_number=next_version_number(db, contract_file.id),
+            version_number=1,
             storage_object_id=storage_object.id,
-            source=source,
-            change_summary=change_summary or "New version uploaded from Word",
+            source=ContractVersionSource.UPLOAD,
+            change_summary="Original upload",
             is_authoritative=True,
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
@@ -891,72 +480,595 @@ async def add_version_from_upload(
             text=extracted.text,
             page_map=extracted.page_map,
             ocr_provider=extracted.ocr_provider,
-            validation_status=_text_snapshot_validation_status(
-                extracted.text, extracted.quality_score
-            ),
+            validation_status=_text_snapshot_validation_status(extracted.text, extracted.quality_score),
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
         db.add(snapshot)
         db.flush()
-        _persist_document_elements(db, snapshot, elements=extracted.elements)
-        version.text_snapshot_id = snapshot.id
+        self._persist_document_elements(snapshot, elements=extracted.elements)
 
-        # Promote the new version to authoritative; demote the rest (mirrors
-        # restore_contract_version / accept_contract_edit).
-        existing_versions = db.scalars(
-            select(ContractVersion).where(
-                ContractVersion.org_id == user.org_id,
-                ContractVersion.contract_id == contract.id,
-                ContractVersion.deleted_at.is_(None),
-            )
-        ).all()
-        for row in existing_versions:
-            row.is_authoritative = row.id == version.id
-            row.updated_by_user_id = user.id
+        version.text_snapshot_id = snapshot.id
         contract_file.current_version_id = version.id
-        contract_file.updated_by_user_id = user.id
         contract.current_contract_file_id = contract_file.id
         contract.current_authoritative_version_id = version.id
-        contract.updated_by_user_id = user.id
+        return storage_object, contract, contract_file, version, snapshot
 
-        write_audit_log(
-            db,
-            action="contract.version_uploaded",
-            resource_type="contract_version",
-            resource_id=version.id,
-            org_id=user.org_id,
-            actor_user_id=user.id,
-            request_id=request_id,
-            after={
-                "contract_id": contract.id,
-                "contract_file_id": contract_file.id,
-                "version_number": version.version_number,
-            },
+    def _dispatch_initial_jobs(
+        self,
+        *,
+        queued_jobs,
+        user: User,
+        contract: Contract,
+        request_id: str | None,
+    ) -> tuple[list[str], list[dict]]:
+        """Best-effort dispatch of queued jobs. Returns ``(dispatched, errors)``
+        where errors are surfaced in the API response so the client can detect
+        partial success rather than seeing a 201 with silent enqueue failures."""
+        db = self.db
+        dispatched: list[str] = []
+        errors: list[dict] = []
+        for job in queued_jobs:
+            live_job = db.get(JobRun, job.id)
+            if live_job is None:
+                continue
+            try:
+                dispatch_job(db, job=live_job)
+                dispatched.append(live_job.job_type)
+            except Exception as exc:
+                errors.append({"job_id": live_job.id, "job_type": live_job.job_type, "error": str(exc)})
+        if dispatched or errors:
+            write_timeline_event(
+                db,
+                org_id=user.org_id,
+                resource_type="contract",
+                resource_id=contract.id,
+                event_type="contract.ai_jobs_dispatched",
+                title="Contract AI jobs dispatched",
+                actor_user_id=user.id,
+                request_id=request_id,
+                details={"dispatched_job_types": dispatched, "dispatch_errors": errors},
+            )
+            db.commit()
+        return dispatched, errors
+
+    async def create_contract_from_upload(
+        self,
+        *,
+        upload: UploadFile,
+        user: User,
+        matter_id: str | None = None,
+        title: str | None = None,
+        counterparty_name: str | None = None,
+        contract_type: str | None = None,
+        request_id: str | None = None,
+    ) -> dict:
+        """Orchestrate a contract intake: validate, store, extract text, persist
+        rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
+        rollback-on-exception path is obvious — anything before the storage save
+        can fail freely; once bytes are on disk, exceptions must delete them."""
+        db = self.db
+        mime_type = upload.content_type or "application/octet-stream"
+        if mime_type not in settings.allowed_mime_types:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+            )
+        content = await _read_upload_with_limit(
+            upload,
+            limit=settings.max_upload_size_bytes,
+            chunk_size=settings.upload_stream_chunk_bytes,
         )
-        write_timeline_event(
-            db,
+        # Re-verify MIME against actual bytes — client content-type is untrusted.
+        mime_type = _sniff_mime_type(content, mime_type)
+        # Optional antivirus scan (no-op unless settings.enable_clamav). Runs before
+        # we persist any bytes so an infected upload never lands in storage.
+        _scan_for_malware(content)
+        if matter_id:
+            get_project_for_user(db, matter_id=matter_id, user=user, access="update")
+
+        stored = self.storage.save_bytes(
             org_id=user.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.version_uploaded",
-            title="New version uploaded",
-            actor_user_id=user.id,
-            request_id=request_id,
-            details={
-                "contract_version_id": version.id,
-                "version_number": version.version_number,
-                "source": "word_addin",
-            },
+            filename=upload.filename or "contract",
+            mime_type=mime_type,
+            content=content,
         )
+        try:
+            extracted = await self._resolve_extracted_text(
+                content=content, mime_type=mime_type, filename=stored.filename
+            )
+            storage_object, contract, contract_file, version, snapshot = self._persist_intake_records(
+                user=user,
+                stored=stored,
+                mime_type=mime_type,
+                title=title,
+                counterparty_name=counterparty_name,
+                contract_type=contract_type,
+                extracted=extracted,
+            )
+            if matter_id:
+                db.add(
+                    MatterContract(
+                        org_id=user.org_id,
+                        matter_id=matter_id,
+                        contract_id=contract.id,
+                        created_by_user_id=user.id,
+                        updated_by_user_id=user.id,
+                    )
+                )
+            # Read the key terms off the document and fill the blanks on the
+            # contract row. Never overwrites a value a human supplied.
+            await self._fill_contract_metadata(
+                contract=contract, filename=stored.filename, content=content
+            )
+            queued_jobs = self._queue_initial_contract_jobs(
+                user=user, contract=contract, version=version, snapshot=snapshot
+            )
+            write_audit_log(
+                db,
+                action="contract.uploaded",
+                resource_type="contract",
+                resource_id=contract.id,
+                org_id=user.org_id,
+                actor_user_id=user.id,
+                request_id=request_id,
+                after={
+                    "contract_file_id": contract_file.id,
+                    "contract_version_id": version.id,
+                    "storage_object_id": storage_object.id,
+                },
+            )
+            timeline_details: dict = {
+                "filename": stored.filename,
+                "mime_type": mime_type,
+                "extraction_method": extracted.method,
+                "extraction_quality_score": extracted.quality_score,
+                "validation_status": snapshot.validation_status,
+            }
+            if extracted.ocr_error:
+                timeline_details["ocr_error"] = extracted.ocr_error
+            write_timeline_event(
+                db,
+                org_id=user.org_id,
+                resource_type="contract",
+                resource_id=contract.id,
+                event_type="contract.uploaded",
+                title="Contract uploaded",
+                actor_user_id=user.id,
+                request_id=request_id,
+                details=timeline_details,
+            )
+            db.commit()
+        except Exception:
+            # Once bytes are on disk we MUST delete them on rollback — otherwise
+            # the storage backend retains orphan files referenced by no row.
+            db.rollback()
+            self.storage.delete_bytes_permanently(stored.storage_key)
+            raise
+
+        _dispatched_job_types, dispatch_errors = self._dispatch_initial_jobs(
+            queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
+        )
+
+        # An uploaded document is a real contract in flight, not a blank "intake"
+        # request you're about to draft — so send it straight to REVIEW, where the
+        # actual work (AI analysis, redlines, comments) happens. Without this, every
+        # upload (web AND Word add-in) sits in intake until someone manually clicks
+        # through. The Review stage-entry trigger won't re-dispatch the analysis
+        # jobs we just queued above (celery_task_id guard in stage_triggers). This
+        # is best-effort: a hiccup here must never fail the upload itself.
+        try:
+            from app.contracts.lifecycle import transition_contract_stage
+            from app.core.enums import ContractLifecycleStage
+
+            transition_contract_stage(
+                db,
+                contract=contract,
+                to_stage=ContractLifecycleStage.REVIEW,
+                actor_user_id=user.id,
+                reason="Uploaded document — moved to review automatically",
+                request_id=request_id,
+            )
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.warning(
+                "auto-advance to review failed for contract %s", contract.id, exc_info=True
+            )
+
+        db.refresh(contract)
+        return {
+            "contract": contract,
+            "contract_file_id": contract_file.id,
+            "contract_version_id": version.id,
+            "text_snapshot_id": snapshot.id,
+            "extraction_method": extracted.method,
+            "extraction_quality_score": extracted.quality_score,
+            "queued_jobs": [job.job_type for job in queued_jobs],
+            # Surface dispatch errors so the API client can detect a partial
+            # success (intake landed; one or more AI jobs failed to enqueue).
+            "dispatch_errors": dispatch_errors,
+        }
+
+    def _queue_initial_contract_jobs(
+        self,
+        *,
+        user: User,
+        contract: Contract,
+        version: ContractVersion,
+        snapshot: ContractTextSnapshot,
+    ):
+        db = self.db
+        jobs = []
+        for job_type in INITIAL_CONTRACT_AI_JOB_TYPES:
+            jobs.append(
+                create_job(
+                    db,
+                    org_id=user.org_id,
+                    job_type=job_type,
+                    resource_type="contract",
+                    resource_id=contract.id,
+                    created_by_user_id=user.id,
+                    idempotency_key=f"{job_type}:{version.id}:{snapshot.id}",
+                    metadata={
+                        "contract_version_id": version.id,
+                        "text_snapshot_id": snapshot.id,
+                    },
+                )
+            )
+        return jobs
+
+    def queue_activation_ai_jobs(
+        self,
+        *,
+        user: User,
+        contract: Contract,
+        version: ContractVersion,
+    ) -> None:
+        """When a contract becomes ACTIVE, extract obligations and renewal terms
+        from the authoritative version."""
+        db = self.db
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version.text_snapshot_id
+            else None
+        )
+        if snapshot is None:
+            return
+        jobs = []
+        for job_type in ACTIVATION_AI_JOB_TYPES:
+            jobs.append(
+                create_job(
+                    db,
+                    org_id=user.org_id,
+                    job_type=job_type,
+                    resource_type="contract",
+                    resource_id=contract.id,
+                    created_by_user_id=user.id,
+                    idempotency_key=f"{job_type}:{version.id}:{snapshot.id}",
+                    metadata={
+                        "contract_version_id": version.id,
+                        "text_snapshot_id": snapshot.id,
+                    },
+                )
+            )
+        db.flush()
+        job_ids = [job.id for job in jobs]
         db.commit()
-    except Exception:
-        # Bytes are on disk now; delete them on rollback so storage has no
-        # orphan referenced by no row.
-        db.rollback()
-        storage_service.delete_bytes_permanently(stored.storage_key)
-        raise
+        for job_id in job_ids:
+            job = db.get(JobRun, job_id)
+            if job is not None:
+                try:
+                    dispatch_job(db, job=job)
+                except Exception:
+                    logger.warning("failed to dispatch job %s", job_id, exc_info=True)
+        db.commit()
 
-    requeue_contract_ai_jobs(db, user=user, contract=contract, version=version)
-    db.refresh(version)
-    return version
+    def next_version_number(self, contract_file_id: str) -> int:
+        db = self.db
+        db.scalar(
+            select(ContractFile.id)
+            .where(ContractFile.id == contract_file_id)
+            .with_for_update()
+        )
+        max_version = db.scalar(
+            select(func.max(ContractVersion.version_number)).where(
+                ContractVersion.contract_file_id == contract_file_id
+            )
+        )
+        return int(max_version or 0) + 1
+
+    def requeue_contract_ai_jobs(
+        self,
+        *,
+        user: User,
+        contract: Contract,
+        version: ContractVersion,
+    ) -> None:
+        """Re-run metadata/clause/embeddings extraction for a newly-authoritative
+        version so derived data does not go stale after an accepted edit or restore."""
+        db = self.db
+        snapshot = (
+            db.get(ContractTextSnapshot, version.text_snapshot_id)
+            if version.text_snapshot_id
+            else None
+        )
+        if snapshot is None:
+            return
+        queued = self._queue_initial_contract_jobs(
+            user=user, contract=contract, version=version, snapshot=snapshot
+        )
+        db.flush()
+        job_ids = [job.id for job in queued]
+        db.commit()
+        for job_id in job_ids:
+            job = db.get(JobRun, job_id)
+            if job is not None:
+                try:
+                    dispatch_job(db, job=job)
+                except Exception:
+                    logger.warning("failed to dispatch job %s", job_id, exc_info=True)
+        db.commit()
+
+    def _resolve_contract_file(self, *, contract: Contract, org_id: str) -> ContractFile:
+        """Return the contract's current ContractFile (or its first file), 404-ing
+        if the contract has no file to attach a new version to."""
+        db = self.db
+        contract_file = None
+        if contract.current_contract_file_id:
+            contract_file = db.get(ContractFile, contract.current_contract_file_id)
+        if contract_file is None:
+            contract_file = db.scalars(
+                select(ContractFile)
+                .where(
+                    ContractFile.org_id == org_id,
+                    ContractFile.contract_id == contract.id,
+                    ContractFile.deleted_at.is_(None),
+                )
+                .order_by(ContractFile.created_at.asc())
+            ).first()
+        if contract_file is None or contract_file.org_id != org_id:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Contract has no file to attach a version to"
+            )
+        return contract_file
+
+    async def add_version_from_upload(
+        self,
+        *,
+        contract: Contract,
+        upload: UploadFile,
+        user: User,
+        change_summary: str | None = None,
+        source: str = ContractVersionSource.MANUAL_UPLOAD,
+        request_id: str | None = None,
+    ) -> ContractVersion:
+        """Create a new authoritative version of an EXISTING contract from an
+        uploaded ``.docx`` (e.g. the edited draft pushed from the Word add-in).
+
+        Mirrors ``create_contract_from_upload`` (validate → store → extract → persist
+        → requeue AI jobs) and the version-promotion logic of ``restore_contract_version``,
+        but targets a contract that already exists. The caller is expected to have
+        already authorized access via ``get_contract_for_user``."""
+        db = self.db
+        mime_type = upload.content_type or "application/octet-stream"
+        if mime_type not in settings.allowed_mime_types:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
+            )
+        content = await _read_upload_with_limit(
+            upload,
+            limit=settings.max_upload_size_bytes,
+            chunk_size=settings.upload_stream_chunk_bytes,
+        )
+        mime_type = _sniff_mime_type(content, mime_type)
+        _scan_for_malware(content)
+
+        contract_file = self._resolve_contract_file(contract=contract, org_id=user.org_id)
+
+        stored = self.storage.save_bytes(
+            org_id=user.org_id,
+            filename=upload.filename or "contract.docx",
+            mime_type=mime_type,
+            content=content,
+        )
+        try:
+            extracted = await self._resolve_extracted_text(
+                content=content, mime_type=mime_type, filename=stored.filename
+            )
+            storage_object = StorageObject(
+                org_id=user.org_id,
+                storage_key=stored.storage_key,
+                filename=stored.filename,
+                mime_type=stored.mime_type,
+                size_bytes=stored.size_bytes,
+                sha256_hash=stored.sha256_hash,
+                storage_backend=StorageBackendEnum.LOCAL_VOLUME,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(storage_object)
+            db.flush()
+
+            version = ContractVersion(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                contract_file_id=contract_file.id,
+                version_number=self.next_version_number(contract_file.id),
+                storage_object_id=storage_object.id,
+                source=source,
+                change_summary=change_summary or "New version uploaded from Word",
+                is_authoritative=True,
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(version)
+            db.flush()
+
+            snapshot = ContractTextSnapshot(
+                org_id=user.org_id,
+                contract_id=contract.id,
+                contract_version_id=version.id,
+                extraction_method=extracted.method,
+                extraction_quality_score=extracted.quality_score,
+                text=extracted.text,
+                page_map=extracted.page_map,
+                ocr_provider=extracted.ocr_provider,
+                validation_status=_text_snapshot_validation_status(
+                    extracted.text, extracted.quality_score
+                ),
+                created_by_user_id=user.id,
+                updated_by_user_id=user.id,
+            )
+            db.add(snapshot)
+            db.flush()
+            self._persist_document_elements(snapshot, elements=extracted.elements)
+            version.text_snapshot_id = snapshot.id
+
+            # Promote the new version to authoritative; demote the rest (mirrors
+            # restore_contract_version / accept_contract_edit).
+            existing_versions = db.scalars(
+                select(ContractVersion).where(
+                    ContractVersion.org_id == user.org_id,
+                    ContractVersion.contract_id == contract.id,
+                    ContractVersion.deleted_at.is_(None),
+                )
+            ).all()
+            for row in existing_versions:
+                row.is_authoritative = row.id == version.id
+                row.updated_by_user_id = user.id
+            contract_file.current_version_id = version.id
+            contract_file.updated_by_user_id = user.id
+            contract.current_contract_file_id = contract_file.id
+            contract.current_authoritative_version_id = version.id
+            contract.updated_by_user_id = user.id
+
+            write_audit_log(
+                db,
+                action="contract.version_uploaded",
+                resource_type="contract_version",
+                resource_id=version.id,
+                org_id=user.org_id,
+                actor_user_id=user.id,
+                request_id=request_id,
+                after={
+                    "contract_id": contract.id,
+                    "contract_file_id": contract_file.id,
+                    "version_number": version.version_number,
+                },
+            )
+            write_timeline_event(
+                db,
+                org_id=user.org_id,
+                resource_type="contract",
+                resource_id=contract.id,
+                event_type="contract.version_uploaded",
+                title="New version uploaded",
+                actor_user_id=user.id,
+                request_id=request_id,
+                details={
+                    "contract_version_id": version.id,
+                    "version_number": version.version_number,
+                    "source": "word_addin",
+                },
+            )
+            db.commit()
+        except Exception:
+            # Bytes are on disk now; delete them on rollback so storage has no
+            # orphan referenced by no row.
+            db.rollback()
+            self.storage.delete_bytes_permanently(stored.storage_key)
+            raise
+
+        self.requeue_contract_ai_jobs(user=user, contract=contract, version=version)
+        db.refresh(version)
+        return version
+
+
+# --- DI-MIGRATION: temporary wrappers ---------------------------------------
+# Every function below is a thin delegate to ContractFilesService (built with
+# the default, singleton-backed clients), kept so external callers keep
+# working unchanged while they're migrated to
+# Depends(get_contract_files_service) in their own passes. Tracked in
+# backend/DI_MIGRATION.md — remove once no importers remain.
+
+def backfill_document_elements(db: Session, *, limit: int | None = None, batch_size: int = 200) -> dict:
+    return ContractFilesService(db).backfill_document_elements(limit=limit, batch_size=batch_size)
+
+
+async def create_contract_from_upload(
+    db: Session,
+    *,
+    upload: UploadFile,
+    user: User,
+    matter_id: str | None = None,
+    title: str | None = None,
+    counterparty_name: str | None = None,
+    contract_type: str | None = None,
+    request_id: str | None = None,
+) -> dict:
+    return await ContractFilesService(db).create_contract_from_upload(
+        upload=upload,
+        user=user,
+        matter_id=matter_id,
+        title=title,
+        counterparty_name=counterparty_name,
+        contract_type=contract_type,
+        request_id=request_id,
+    )
+
+
+def _queue_initial_contract_jobs(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    version: ContractVersion,
+    snapshot: ContractTextSnapshot,
+):
+    return ContractFilesService(db)._queue_initial_contract_jobs(
+        user=user, contract=contract, version=version, snapshot=snapshot
+    )
+
+
+def queue_activation_ai_jobs(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    version: ContractVersion,
+) -> None:
+    return ContractFilesService(db).queue_activation_ai_jobs(user=user, contract=contract, version=version)
+
+
+def next_version_number(db: Session, contract_file_id: str) -> int:
+    return ContractFilesService(db).next_version_number(contract_file_id)
+
+
+def requeue_contract_ai_jobs(
+    db: Session,
+    *,
+    user: User,
+    contract: Contract,
+    version: ContractVersion,
+) -> None:
+    return ContractFilesService(db).requeue_contract_ai_jobs(user=user, contract=contract, version=version)
+
+
+async def add_version_from_upload(
+    db: Session,
+    *,
+    contract: Contract,
+    upload: UploadFile,
+    user: User,
+    change_summary: str | None = None,
+    source: str = ContractVersionSource.MANUAL_UPLOAD,
+    request_id: str | None = None,
+) -> ContractVersion:
+    return await ContractFilesService(db).add_version_from_upload(
+        contract=contract,
+        upload=upload,
+        user=user,
+        change_summary=change_summary,
+        source=source,
+        request_id=request_id,
+    )
