@@ -1,4 +1,4 @@
-"""The flow engine's ai_task step (backend/app/flows/service.py) previously
+"""The flow engine's ai_task step (backend/app/workflows/service.py) previously
 routed every mapped agent key through a static regex classifier even when a
 real, Claude-backed result already existed elsewhere for the same request.
 These tests pin the fix for the litigation-agent case: reuse the genuine
@@ -6,10 +6,9 @@ assessment computed at intake time instead of re-deriving a worse one."""
 
 import inspect
 
-from app.flows.service import _AGENT_KEY_MAP, _ai_agent_failed, _execute_step
-
 from app.ai.registry import skill_registry
 from app.ai.schemas import PrivacyIncidentAssessmentOutput
+from app.workflows.service import _AGENT_KEY_MAP, _ai_agent_failed, _execute_step
 
 
 def test_agent_key_map_routes_litigation_variants_to_the_same_intake_agent():
