@@ -53,8 +53,7 @@ def normalize_org_name(raw: str | None) -> str | None:
     name = _WS.sub(" ", name).strip()
     # "M/s Acme" is a common Indian prefix for a firm name
     for prefix in ("m s ", "m/s ", "messrs "):
-        if name.startswith(prefix):
-            name = name[len(prefix):]
+        name = name.removeprefix(prefix)
     # "L.L.P." arrives here as "l l p"; collapse runs of single letters so it
     # matches the "llp" suffix rather than surviving as three tokens.
     name = re.sub(r"\b(?:[a-z] ){1,}[a-z]\b",
@@ -145,8 +144,8 @@ def person_entity_key(*, email: str | None = None, name: str | None = None) -> s
 
 # Noise around a jurisdiction name that shouldn't split it into two entities.
 _JURIS_STRIP = re.compile(
-    r"\b(the )?(state|commonwealth|province|republic) of\b", re.I)
-_JURIS_TRAIL = re.compile(r",?\s*(usa|u\.s\.a\.|us|uk|u\.k\.)\.?$", re.I)
+    r"\b(the )?(state|commonwealth|province|republic) of\b", re.IGNORECASE)
+_JURIS_TRAIL = re.compile(r",?\s*(usa|u\.s\.a\.|us|uk|u\.k\.)\.?$", re.IGNORECASE)
 
 
 def normalize_jurisdiction(raw: str | None) -> str | None:

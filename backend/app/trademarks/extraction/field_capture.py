@@ -9,7 +9,6 @@ second PDF/OCR stack.
 import re
 
 from app.contract_files.text_extraction import TextExtractionResult, extract_text
-from app.integrations.reducto import reducto_client
 from app.trademarks.schemas import ExtractedRecord, FieldDefinition
 
 
@@ -20,9 +19,13 @@ async def extract_generic_records(
     page_start: int,
     page_end: int,
     field_definitions: list[FieldDefinition],
+    reducto=None,
 ) -> list[ExtractedRecord]:
     """One ExtractedRecord per page in [page_start, page_end], fields captured
     via anchor/regex against that page's text."""
+    from app.integrations.dependencies import get_reducto_client
+
+    reducto = reducto or get_reducto_client()
     extraction: TextExtractionResult = extract_text(content, mime_type="application/pdf", filename=filename)
     text = extraction.text
     page_map = extraction.page_map or {}
@@ -30,7 +33,7 @@ async def extract_generic_records(
 
     if extraction.needs_ocr:
         try:
-            ocr = await reducto_client.extract_text(filename=filename, mime_type="application/pdf", content=content)
+            ocr = await reducto.extract_text(filename=filename, mime_type="application/pdf", content=content)
             if ocr.text:
                 text = ocr.text
                 used_ocr = True

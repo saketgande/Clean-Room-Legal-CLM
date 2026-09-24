@@ -18,11 +18,10 @@ from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractLifecycleStage, SignatureStatus
 from app.core.rbac import has_permission
-from app.integrations.docusign import docusign_client, verify_connect_signature
-from app.integrations.resend import resend_client
-from app.integrations.storage import storage_service
+from app.integrations.docusign import verify_connect_signature
+from app.signatures.dependencies import get_signatures_service
 from app.signatures.models import SignatureRecipient, SignatureRequest
-from app.signatures.service import sync_signature_request, validate_signature_recipients
+from app.signatures.service import SignaturesService
 
 router = APIRouter(prefix="/signatures", tags=["signatures"])
 
@@ -68,6 +67,7 @@ async def send_for_signature(
     payload: SignatureSendPayload,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:sign")),
+    service: SignaturesService = Depends(get_signatures_service),
 ):
     contract = get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
     if payload.override_lifecycle and not has_permission(
@@ -102,11 +102,11 @@ async def send_for_signature(
     storage_object = db.get(StorageObject, version.storage_object_id)
     if storage_object is None or storage_object.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
-    validate_signature_recipients(
-        db, contract=contract, org_id=current_user.org_id, recipients=payload.recipients
+    service.validate_signature_recipients(
+        contract=contract, org_id=current_user.org_id, recipients=payload.recipients
     )
-    content = storage_service.read_bytes(storage_object.storage_key)
-    envelope = await docusign_client.create_envelope(
+    content = service.storage.read_bytes(storage_object.storage_key)
+    envelope = await service.docusign.create_envelope(
         filename=storage_object.filename,
         recipients=[recipient.model_dump() for recipient in payload.recipients],
         content=content,
@@ -161,7 +161,7 @@ async def send_for_signature(
         # request on a row we never saved. void_envelope is best-effort.
         db.rollback()
         if envelope.envelope_id:
-            await docusign_client.void_envelope(
+            await service.docusign.void_envelope(
                 envelope_id=envelope.envelope_id, reason="local_commit_failed"
             )
         raise
@@ -174,7 +174,7 @@ async def send_for_signature(
     safe_envelope = html.escape(str(envelope.envelope_id or "mock"))
     for recipient in payload.recipients:
         try:
-            await resend_client.send_email(
+            await service.resend.send_email(
                 to=str(recipient.email),
                 subject=f"Signature requested: {contract.title}",
                 html=(
@@ -201,6 +201,7 @@ async def sync_signature(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:sign")),
+    service: SignaturesService = Depends(get_signatures_service),
 ):
     signature = db.scalar(
         select(SignatureRequest)
@@ -223,8 +224,7 @@ async def sync_signature(
             "With live DocuSign, completion is driven by the verified Connect webhook; "
             "manual completion requires contract:lifecycle_override",
         )
-    await sync_signature_request(
-        db,
+    await service.sync_signature_request(
         user=current_user,
         signature_request=signature,
         completed=payload.completed,
@@ -240,6 +240,7 @@ async def sync_signature(
 async def docusign_connect_webhook(
     request: Request,
     db: Session = Depends(get_db),
+    service: SignaturesService = Depends(get_signatures_service),
 ):
     """DocuSign Connect callback — the trusted completion path in live mode.
 
@@ -300,8 +301,7 @@ async def docusign_connect_webhook(
         "envelope-declined",
         "envelope-voided",
     }
-    await sync_signature_request(
-        db,
+    await service.sync_signature_request(
         user=actor,
         signature_request=signature,
         completed=completed,

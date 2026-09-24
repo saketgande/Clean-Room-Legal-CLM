@@ -93,7 +93,7 @@ def _fallback(renewal, contract) -> dict:
     }
 
 
-def recommend_renewal(db: Session, *, org_id: str, renewal, contract) -> dict:
+def recommend_renewal(db: Session, *, org_id: str, renewal, contract, claude_client=None) -> dict:
     """Return {decision, rationale, confidence, generated}. Advisory only."""
     from app.core.config import settings
 
@@ -102,8 +102,10 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract) -> dict:
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     system = (
         "You are senior in-house counsel advising on a contract renewal. Recommend "
         "exactly one action — renew, renegotiate, or terminate — grounded only in the "
@@ -117,7 +119,7 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract) -> dict:
     try:
         enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(
-            lambda: ClaudeClient().complete_structured(
+            lambda: claude_client.complete_structured(
                 system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
                 user_prompt=user,
                 tool_name="recommend_renewal",

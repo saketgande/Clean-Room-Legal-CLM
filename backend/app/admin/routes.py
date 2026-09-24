@@ -3,6 +3,10 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.admin.dependencies import get_admin_service
+from app.admin.service import AdminService
+from app.admin.service import audit_setting_value as _audit_setting_value
+from app.admin.service import serialize_setting as _serialize_setting
 from app.core.audit import write_audit_log
 from app.core.deps import get_db, require_permission
 from app.core.models import AdminSetting
@@ -16,29 +20,12 @@ class AdminSettingUpsert(BaseModel):
     is_secret: bool = False
 
 
-def _serialize_setting(setting: AdminSetting) -> dict:
-    # Never return a secret value over the wire — the client masks it in the UI
-    # anyway, and shipping the cleartext lets anyone with API access read it.
-    return {
-        "id": setting.id,
-        "org_id": setting.org_id,
-        "key": setting.key,
-        "value": None if setting.is_secret else setting.value,
-        "is_secret": setting.is_secret,
-        "created_at": setting.created_at,
-        "updated_at": setting.updated_at,
-    }
-
-
 @router.get("/settings")
 def list_settings(
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
+    service: AdminService = Depends(get_admin_service),
 ):
-    rows = db.scalars(
-        select(AdminSetting).where(AdminSetting.org_id == current_user.org_id)
-    ).all()
-    return [_serialize_setting(s) for s in rows]
+    return service.list_settings(org_id=current_user.org_id)
 
 
 @router.put("/settings")
@@ -83,7 +70,3 @@ def upsert_setting(
     db.commit()
     db.refresh(setting)
     return _serialize_setting(setting)
-
-
-def _audit_setting_value(value, is_secret: bool):
-    return "<secret>" if is_secret else value

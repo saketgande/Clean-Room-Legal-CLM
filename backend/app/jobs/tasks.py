@@ -94,19 +94,19 @@ async def _maybe_auto_review(db, *, job) -> None:
         return
 
     from app.auth.models import User
-    from app.contracts.risk import compute_contract_risk
+    from app.contracts.risk import ContractRiskService
     from app.core.audit import write_timeline_event
-    from app.playbooks.service import auto_review_contract
+    from app.playbooks.service import PlaybooksService
 
     user = db.get(User, job.created_by_user_id) if job.created_by_user_id else None
     try:
         if user is not None:
-            await compute_contract_risk(db, contract=contract, user=user, request_id=None)
+            await ContractRiskService(db).compute_contract_risk(contract=contract, user=user, request_id=None)
     except Exception as exc:
         logger.warning("auto risk failed for %s: %s", contract.id, exc)
     try:
-        res = await auto_review_contract(
-            db, contract=contract, actor_user_id=job.created_by_user_id, create_redline=True
+        res = await PlaybooksService(db).auto_review_contract(
+            contract=contract, actor_user_id=job.created_by_user_id, create_redline=True
         )
         logger.info("auto playbook review for %s: %s", contract.id, res)
     except Exception as exc:
@@ -366,10 +366,10 @@ def _queue_contract_brain_ingestion(db, *, job: JobRun, reason: str) -> None:
     existing = db.scalar(select(JobRun).where(JobRun.idempotency_key == idempotency_key))
     if existing is not None:
         return
-    from app.jobs.service import create_job, dispatch_job
+    from app.jobs.service import JobsService
 
-    brain_job = create_job(
-        db,
+    jobs_service = JobsService(db)
+    brain_job = jobs_service.create_job(
         org_id=job.org_id,
         job_type="contract_brain_ingestion",
         resource_type="contract",
@@ -389,7 +389,7 @@ def _queue_contract_brain_ingestion(db, *, job: JobRun, reason: str) -> None:
     brain_job = db.get(JobRun, brain_job_id)
     if brain_job is None:
         return
-    dispatch_job(db, job=brain_job)
+    jobs_service.dispatch_job(job=brain_job)
     db.commit()
 
 
@@ -420,11 +420,12 @@ def send_obligation_reminders() -> dict:
     return asyncio.run(_send_obligation_reminders())
 
 
-async def _send_obligation_reminders() -> dict:
+async def _send_obligation_reminders(*, resend=None) -> dict:
     from app.auth.models import User
-    from app.integrations.resend import resend_client
+    from app.integrations.dependencies import get_resend_client
     from app.obligations.models import Obligation, ObligationReminder
 
+    resend = resend or get_resend_client()
     db = SessionLocal()
     try:
         today = utcnow().date()
@@ -468,7 +469,7 @@ async def _send_obligation_reminders() -> dict:
             if owner is not None:
                 obligation_label = ob.obligation_type or "contract obligation"
                 try:
-                    await resend_client.send_email(
+                    await resend.send_email(
                         to=owner.email,
                         subject=f"Obligation due: {obligation_label}",
                         html=(
@@ -622,7 +623,7 @@ def close_expired_contracts() -> dict:
     stage history and audit trail all apply; the actor is None (system).
     Idempotent — already-closed contracts never match the query.
     """
-    from app.contracts.lifecycle import transition_contract_stage
+    from app.contracts.lifecycle import ContractLifecycleService
     from app.contracts.models import Contract
     from app.core.enums import ContractLifecycleStage, RenewalDecision
     from app.notifications.models import Notification
@@ -651,8 +652,7 @@ def close_expired_contracts() -> dict:
             if undecided_renewal or contract.renewal_due:
                 skipped += 1
                 continue
-            transition_contract_stage(
-                db,
+            ContractLifecycleService(db).transition_contract_stage(
                 contract=contract,
                 to_stage=ContractLifecycleStage.CLOSED,
                 actor_user_id=None,
@@ -688,14 +688,15 @@ def run_renewal_window_check() -> dict:
     return asyncio.run(_run_renewal_window_check())
 
 
-async def _run_renewal_window_check() -> dict:
+async def _run_renewal_window_check(*, resend=None) -> dict:
     import html
 
     from app.auth.models import User
     from app.core.enums import ContractLifecycleStage
-    from app.integrations.resend import resend_client
+    from app.integrations.dependencies import get_resend_client
     from app.renewals.models import RenewalEvent
 
+    resend = resend or get_resend_client()
     db = SessionLocal()
     try:
         today = utcnow().date()
@@ -732,7 +733,7 @@ async def _run_renewal_window_check() -> dict:
             if owner is not None:
                 safe_title = html.escape(contract.title or "Untitled contract")
                 try:
-                    await resend_client.send_email(
+                    await resend.send_email(
                         to=owner.email,
                         subject=f"Renewal window open: {contract.title}",
                         html=(
@@ -988,10 +989,10 @@ def send_notice_reminders() -> dict:
 
     Org-agnostic counterpart of the per-org POST /notices/run-reminders.
     """
-    from app.notices import service as notices_service
+    from app.notices.service import NoticesService
 
     db = SessionLocal()
     try:
-        return notices_service.run_reminders(db)
+        return NoticesService(db).run_reminders()
     finally:
         db.close()

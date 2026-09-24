@@ -20,13 +20,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import app.main  # noqa: F401,E402
-from sqlalchemy import select  # noqa: E402
+from sqlalchemy import select
 
-from app.contract_brain.entities import normalize_org_name, party_entity_key, suggest_merges  # noqa: E402
-from app.contract_brain.models import KnowledgeEdge, KnowledgeNode  # noqa: E402
-from app.contracts.models import Contract, ContractParty  # noqa: E402
-from app.core.database import SessionLocal  # noqa: E402
+import app.main  # noqa: F401
+from app.contract_brain.entities import (
+    normalize_org_name,
+    party_entity_key,
+    suggest_merges,
+)
+from app.contract_brain.models import KnowledgeEdge, KnowledgeNode
+from app.contracts.models import Contract, ContractParty
+from app.core.database import SessionLocal
 
 
 def main() -> int:

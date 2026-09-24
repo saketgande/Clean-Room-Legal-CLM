@@ -9,11 +9,11 @@ from app.ai.embeddings import _embed
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction, KnowledgeEdge, KnowledgeNode
 from app.contract_files.models import ContractEmbedding, ContractTextSnapshot
-from app.obligations.models import Obligation
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.matters.access import get_project_for_user
+from app.obligations.models import Obligation
 from app.search.fts import (
     clause_vector,
     fts_usable,
@@ -503,7 +503,7 @@ def temporal_facts(
         )
     }
 
-    for cid, c in contracts.items():
+    for c in contracts.values():
         exp = c.expiration_date
         if exp is None:
             continue

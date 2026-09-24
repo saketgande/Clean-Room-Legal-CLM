@@ -31,8 +31,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.config import settings  # noqa: E402
-from app.integrations.databricks import CONTRACT_SCHEMA, databricks_client  # noqa: E402
+from app.core.config import settings
+from app.integrations.databricks import CONTRACT_SCHEMA, databricks_client
 
 OK, BAD, WARN = "  ✓", "  ✗", "  !"
 

@@ -12,6 +12,7 @@ yet, and existing snapshots default to structure_status='flat_only', so this
 deploys with no behaviour change and rolls back cleanly.
 """
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0040_document_elements"

@@ -30,8 +30,9 @@ _CONFIDENT = 0.6
 
 def flow_catalog(db: Session, org_id: str) -> list[dict]:
     """The enabled flows this org can route to — the model's only menu."""
-    from app.workflows.models import Workflow
     from sqlalchemy import select
+
+    from app.workflows.models import Workflow
 
     flows = db.scalars(
         select(Workflow).where(Workflow.org_id == org_id, Workflow.enabled.is_(True)).order_by(Workflow.eval_order.asc())
@@ -101,7 +102,7 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def suggest_flow(db: Session, request: IntakeRequest) -> dict:
+def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     """Best-fit flow for a request. Always returns a dict (never raises)."""
     from app.core.config import settings
 
@@ -117,15 +118,17 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
     bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
     user_prompt = _prompt_for(request, catalog)
     try:
         enforce_daily_token_cap(request.org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="suggest_flow", input_schema=_SCHEMA,

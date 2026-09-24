@@ -20,6 +20,7 @@ from datetime import date
 
 from starlette.datastructures import Headers, UploadFile
 
+from app.contract_files.service import ContractFilesService
 from app.core.audit import write_audit_log, write_timeline_event
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
@@ -363,227 +364,262 @@ def _custom_shell(*, company: str, counterparty: str, fields: dict, label: str) 
     return "\n".join(lines)
 
 
-async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str, fields: dict) -> str | None:
-    """Generate a REAL bespoke draft with the drafting skill (the same
-    contract_docx_generation the assistant uses), grounded on the intake
-    request's type, counterparty and captured requirements. Returns the rendered
-    body text, or None so the caller can fall back to the skeleton if the model
-    is unavailable — intake must never hard-fail on a drafting miss."""
-    import logging
+class DraftingService:
+    """Turns an intake request into a real, analysed draft contract.
 
-    reqs = [
-        f"- {str(k).replace('_', ' ')}: {v}"
-        for k, v in (fields or {}).items()
-        if not str(k).startswith("_") and v not in (None, "", [])
-    ]
-    purpose = (request.description or "").strip()
-    instructions = "\n".join(
-        line
-        for line in [
-            f"Draft a {label} between {company} (our organization) and {counterparty or '[Counterparty]'}.",
-            f"Matter type: {request.type_label}.",
-            f"Purpose / context: {purpose}" if purpose else "",
-            "Captured requirements from the intake request:" if reqs else "",
-            *reqs,
-            "Produce complete, professional contract sections with real operative "
-            "language a lawyer can review and refine. Where a term wasn't specified, "
-            "use a sensible market-standard default and record it as an assumption.",
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
+    a ``db`` session; ``files`` defaults to a ``ContractFilesService`` built
+    from the same session (composition — drafting reuses the normal
+    contract-intake pipeline). Templates, the doc-type resolver, and the
+    other pure rendering helpers stay module-level, unchanged, above.
+    """
+
+    def __init__(self, db, *, files: ContractFilesService | None = None):
+        self.db = db
+        self.files = files or ContractFilesService(db)
+
+    async def _ai_draft_text(self, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str, fields: dict) -> str | None:
+        """Generate a REAL bespoke draft with the drafting skill (the same
+        contract_docx_generation the assistant uses), grounded on the intake
+        request's type, counterparty and captured requirements. Returns the rendered
+        body text, or None so the caller can fall back to the skeleton if the model
+        is unavailable — intake must never hard-fail on a drafting miss."""
+        import logging
+
+        db = self.db
+        reqs = [
+            f"- {str(k).replace('_', ' ')}: {v}"
+            for k, v in (fields or {}).items()
+            if not str(k).startswith("_") and v not in (None, "", [])
         ]
-        if line
-    )
-    try:
-        from app.ai.controller import ai_controller
-        from app.ai.tool_runtime import _render_structured_contract_docx
-
-        drafted = await ai_controller.run_structured_skill(
-            db,
-            skill_name="contract_docx_generation",
-            org_id=actor.org_id,
-            created_by_user_id=actor.id,
-            input_payload={"title": f"{label} — {counterparty or 'Counterparty'}", "instructions": instructions},
-            commit=False,
+        purpose = (request.description or "").strip()
+        instructions = "\n".join(
+            line
+            for line in [
+                f"Draft a {label} between {company} (our organization) and {counterparty or '[Counterparty]'}.",
+                f"Matter type: {request.type_label}.",
+                f"Purpose / context: {purpose}" if purpose else "",
+                "Captured requirements from the intake request:" if reqs else "",
+                *reqs,
+                (
+                    "Produce complete, professional contract sections with real operative "
+                    "language a lawyer can review and refine. Where a term wasn't specified, "
+                    "use a sensible market-standard default and record it as an assumption."
+                ),
+            ]
+            if line
         )
-        if drafted is None or not getattr(drafted, "sections", None):
+        try:
+            from app.ai.controller import ai_controller
+            from app.ai.tool_runtime import _render_structured_contract_docx
+
+            drafted = await ai_controller.run_structured_skill(
+                db,
+                skill_name="contract_docx_generation",
+                org_id=actor.org_id,
+                created_by_user_id=actor.id,
+                input_payload={"title": f"{label} — {counterparty or 'Counterparty'}", "instructions": instructions},
+                commit=False,
+            )
+            if drafted is None or not getattr(drafted, "sections", None):
+                return None
+            body_text, _content = _render_structured_contract_docx(
+                title=getattr(drafted, "title", None) or f"{label} — {counterparty or 'Counterparty'}",
+                sections=[(s.heading, s.body) for s in drafted.sections],
+                assumptions=list(getattr(drafted, "assumptions", []) or []),
+            )
+            return body_text
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "intake AI drafting failed for request %s; falling back to skeleton", request.id, exc_info=True
+            )
             return None
-        body_text, _content = _render_structured_contract_docx(
-            title=getattr(drafted, "title", None) or f"{label} — {counterparty or 'Counterparty'}",
-            sections=[(s.heading, s.body) for s in drafted.sections],
-            assumptions=list(getattr(drafted, "assumptions", []) or []),
-        )
-        return body_text
-    except Exception:
-        logging.getLogger(__name__).warning(
-            "intake AI drafting failed for request %s; falling back to skeleton", request.id, exc_info=True
-        )
-        return None
 
+    async def draft_contract_for_request(
+        self, *, actor, request: IntakeRequest, http_request_id: str | None = None, custom: bool = False
+    ):
+        """Render the right template for the request and create a real, analysed
+        contract linked back to it. Idempotent: returns the existing contract if
+        already drafted. Raises HTTPException(422) if the request has no template."""
+        from fastapi import HTTPException, status
+
+        from app.contracts.models import Contract
+
+        db = self.db
+        if request.contract_id:
+            existing = db.get(Contract, request.contract_id)
+            if existing is not None:
+                return existing
+
+        doc_type = resolve_doc_type(request)
+        if doc_type is None and not custom:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "This request type has no draft template — handle it manually.",
+            )
+        # A custom draft doesn't need a template doc_type — it gets a generic shell.
+        spec = _DOC_TYPES[doc_type] if doc_type else {"label": (request.type_label or "Agreement"), "contract_type": "other"}
+
+        org = db.get(Organization, actor.org_id)
+        company = (org.name if org and org.name else "Company")
+        fv = request.field_values or {}
+        # Prefer the details captured on the intake form; fall back to screening / today.
+        counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
+        effective = str(fv.get("effective_date") or "").strip() or date.today().isoformat()
+        if custom:
+            # Real AI generation for bespoke drafts (was a placeholder skeleton).
+            # Skeleton only survives as the safety net if the model is unavailable.
+            text = await self._ai_draft_text(
+                actor=actor, request=request, company=company,
+                counterparty=counterparty, label=spec["label"], fields=fv,
+            )
+            if not text:
+                text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
+        else:
+            text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
+        # One-way NDAs get a clearer label than the generic template label.
+        label = spec["label"]
+        if doc_type == "nda" and "one" in str(fv.get("nda_direction") or "").lower():
+            label = "One-Way NDA"
+        if custom:
+            label = f"{label} (Custom draft)"
+        title = f"{label} — {counterparty}"
+
+        data = text.encode("utf-8")
+        upload = UploadFile(
+            file=io.BytesIO(data),
+            size=len(data),
+            filename=f"{spec['label']} - {counterparty}.txt",
+            headers=Headers({"content-type": "text/plain"}),
+        )
+        result = await self.files.create_contract_from_upload(
+            upload=upload,
+            user=actor,
+            title=title,
+            counterparty_name=counterparty,
+            contract_type=spec["contract_type"],
+            request_id=http_request_id,
+        )
+        contract = result["contract"]
+
+        # Flag for auto AI review — once clause extraction finishes (async), the job
+        # runner runs risk + the matching playbook so REVIEW is ready without a click.
+        meta = dict(contract.metadata_json or {})
+        meta["auto_review_pending"] = True
+        # Carry the parent the requester picked on the agreement form (amendment,
+        # renewal, SoW, DPA…) onto the contract, so lineage is a STATED fact the
+        # graph can assert — not the same-counterparty guess the inference makes.
+        parent_id = str(fv.get("parent_contract_id") or "").strip()
+        if parent_id:
+            meta["parent_contract_id"] = parent_id
+            if fv.get("parent_contract_title"):
+                meta["parent_contract_title"] = fv["parent_contract_title"]
+        contract.metadata_json = meta
+
+        # Link both directions and record it on the request's timeline.
+        request.contract_id = contract.id
+        request.updated_by_user_id = actor.id
+        write_audit_log(
+            db, action="intake.contract_drafted", resource_type="intake_request",
+            resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
+            request_id=http_request_id, after={"contract_id": contract.id, "doc_type": doc_type},
+        )
+        write_timeline_event(
+            db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
+            event_type="intake.contract_drafted", title=f"Drafted the {spec['label']}",
+            actor_user_id=actor.id, request_id=http_request_id,
+            details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"]},
+        )
+        db.commit()
+        db.refresh(request)
+        return contract
+
+    async def ingest_attachment_as_contract(
+        self, *, actor, request: IntakeRequest, http_request_id: str | None = None
+    ):
+        """Create a contract FROM the request's most recent attachment (its extracted
+        text) instead of a template — the 'review an existing contract' path.
+        Idempotent; flags the contract for auto AI review."""
+        from fastapi import HTTPException, status
+        from sqlalchemy import select
+
+        from app.contracts.models import Contract
+        from app.intake.models import IntakeDocument
+
+        db = self.db
+        if request.contract_id:
+            existing = db.get(Contract, request.contract_id)
+            if existing is not None:
+                return existing
+
+        doc = db.scalars(
+            select(IntakeDocument)
+            .where(IntakeDocument.request_id == request.id, IntakeDocument.extracted_text.isnot(None))
+            .order_by(IntakeDocument.created_at.desc())
+        ).first()
+        if doc is None or not (doc.extracted_text or "").strip():
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "No attached document with extractable text to use as the contract.",
+            )
+
+        counterparty = _primary_counterparty(request)
+        doc_type = resolve_doc_type(request)
+        contract_type = _DOC_TYPES[doc_type]["contract_type"] if doc_type else None
+        base = doc.filename.rsplit(".", 1)[0] if "." in doc.filename else doc.filename
+        title = base.strip() or f"Contract — {counterparty}"
+
+        data = (doc.extracted_text or "").encode("utf-8")
+        upload = UploadFile(
+            file=io.BytesIO(data), size=len(data),
+            filename=f"{base or 'contract'}.txt", headers=Headers({"content-type": "text/plain"}),
+        )
+        result = await self.files.create_contract_from_upload(
+            upload=upload, user=actor, title=title,
+            counterparty_name=counterparty, contract_type=contract_type, request_id=http_request_id,
+        )
+        contract = result["contract"]
+
+        meta = dict(contract.metadata_json or {})
+        meta["auto_review_pending"] = True
+        contract.metadata_json = meta
+        request.contract_id = contract.id
+        request.updated_by_user_id = actor.id
+        write_audit_log(
+            db, action="intake.contract_from_attachment", resource_type="intake_request",
+            resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
+            request_id=http_request_id, after={"contract_id": contract.id, "document_id": doc.id},
+        )
+        write_timeline_event(
+            db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
+            event_type="intake.contract_from_attachment", title="Created the contract from the attachment",
+            actor_user_id=actor.id, request_id=http_request_id,
+            details={"contract_id": contract.id, "title": title, "document": doc.filename},
+        )
+        db.commit()
+        db.refresh(request)
+        return contract
+
+
+# --- DI-MIGRATION: temporary wrappers ---------------------------------------
+# draft_contract_for_request and ingest_attachment_as_contract are imported
+# directly (deferred) by app.workflows.service and app.intake.routes. Tracked
+# in backend/DI_MIGRATION.md.
 
 async def draft_contract_for_request(
     db, *, actor, request: IntakeRequest, http_request_id: str | None = None, custom: bool = False
 ):
-    """Render the right template for the request and create a real, analysed
-    contract linked back to it. Idempotent: returns the existing contract if
-    already drafted. Raises HTTPException(422) if the request has no template."""
-    from fastapi import HTTPException, status
-
-    from app.contract_files.service import create_contract_from_upload
-    from app.contracts.models import Contract
-
-    if request.contract_id:
-        existing = db.get(Contract, request.contract_id)
-        if existing is not None:
-            return existing
-
-    doc_type = resolve_doc_type(request)
-    if doc_type is None and not custom:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "This request type has no draft template — handle it manually.",
-        )
-    # A custom draft doesn't need a template doc_type — it gets a generic shell.
-    spec = _DOC_TYPES[doc_type] if doc_type else {"label": (request.type_label or "Agreement"), "contract_type": "other"}
-
-    org = db.get(Organization, actor.org_id)
-    company = (org.name if org and org.name else "Company")
-    fv = request.field_values or {}
-    # Prefer the details captured on the intake form; fall back to screening / today.
-    counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
-    effective = str(fv.get("effective_date") or "").strip() or date.today().isoformat()
-    if custom:
-        # Real AI generation for bespoke drafts (was a placeholder skeleton).
-        # Skeleton only survives as the safety net if the model is unavailable.
-        text = await _ai_draft_text(
-            db, actor=actor, request=request, company=company,
-            counterparty=counterparty, label=spec["label"], fields=fv,
-        )
-        if not text:
-            text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
-    else:
-        text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
-    # One-way NDAs get a clearer label than the generic template label.
-    label = spec["label"]
-    if doc_type == "nda" and "one" in str(fv.get("nda_direction") or "").lower():
-        label = "One-Way NDA"
-    if custom:
-        label = f"{label} (Custom draft)"
-    title = f"{label} — {counterparty}"
-
-    data = text.encode("utf-8")
-    upload = UploadFile(
-        file=io.BytesIO(data),
-        size=len(data),
-        filename=f"{spec['label']} - {counterparty}.txt",
-        headers=Headers({"content-type": "text/plain"}),
+    return await DraftingService(db).draft_contract_for_request(
+        actor=actor, request=request, http_request_id=http_request_id, custom=custom
     )
-    result = await create_contract_from_upload(
-        db,
-        upload=upload,
-        user=actor,
-        title=title,
-        counterparty_name=counterparty,
-        contract_type=spec["contract_type"],
-        request_id=http_request_id,
-    )
-    contract = result["contract"]
-
-    # Flag for auto AI review — once clause extraction finishes (async), the job
-    # runner runs risk + the matching playbook so REVIEW is ready without a click.
-    meta = dict(contract.metadata_json or {})
-    meta["auto_review_pending"] = True
-    # Carry the parent the requester picked on the agreement form (amendment,
-    # renewal, SoW, DPA…) onto the contract, so lineage is a STATED fact the
-    # graph can assert — not the same-counterparty guess the inference makes.
-    parent_id = str(fv.get("parent_contract_id") or "").strip()
-    if parent_id:
-        meta["parent_contract_id"] = parent_id
-        if fv.get("parent_contract_title"):
-            meta["parent_contract_title"] = fv["parent_contract_title"]
-    contract.metadata_json = meta
-
-    # Link both directions and record it on the request's timeline.
-    request.contract_id = contract.id
-    request.updated_by_user_id = actor.id
-    write_audit_log(
-        db, action="intake.contract_drafted", resource_type="intake_request",
-        resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
-        request_id=http_request_id, after={"contract_id": contract.id, "doc_type": doc_type},
-    )
-    write_timeline_event(
-        db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
-        event_type="intake.contract_drafted", title=f"Drafted the {spec['label']}",
-        actor_user_id=actor.id, request_id=http_request_id,
-        details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"]},
-    )
-    db.commit()
-    db.refresh(request)
-    return contract
 
 
 async def ingest_attachment_as_contract(
     db, *, actor, request: IntakeRequest, http_request_id: str | None = None
 ):
-    """Create a contract FROM the request's most recent attachment (its extracted
-    text) instead of a template — the 'review an existing contract' path.
-    Idempotent; flags the contract for auto AI review."""
-    from fastapi import HTTPException, status
-    from sqlalchemy import select
-
-    from app.contract_files.service import create_contract_from_upload
-    from app.contracts.models import Contract
-    from app.intake.models import IntakeDocument
-
-    if request.contract_id:
-        existing = db.get(Contract, request.contract_id)
-        if existing is not None:
-            return existing
-
-    doc = db.scalars(
-        select(IntakeDocument)
-        .where(IntakeDocument.request_id == request.id, IntakeDocument.extracted_text.isnot(None))
-        .order_by(IntakeDocument.created_at.desc())
-    ).first()
-    if doc is None or not (doc.extracted_text or "").strip():
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "No attached document with extractable text to use as the contract.",
-        )
-
-    counterparty = _primary_counterparty(request)
-    doc_type = resolve_doc_type(request)
-    contract_type = _DOC_TYPES[doc_type]["contract_type"] if doc_type else None
-    base = doc.filename.rsplit(".", 1)[0] if "." in doc.filename else doc.filename
-    title = base.strip() or f"Contract — {counterparty}"
-
-    data = (doc.extracted_text or "").encode("utf-8")
-    upload = UploadFile(
-        file=io.BytesIO(data), size=len(data),
-        filename=f"{base or 'contract'}.txt", headers=Headers({"content-type": "text/plain"}),
+    return await DraftingService(db).ingest_attachment_as_contract(
+        actor=actor, request=request, http_request_id=http_request_id
     )
-    result = await create_contract_from_upload(
-        db, upload=upload, user=actor, title=title,
-        counterparty_name=counterparty, contract_type=contract_type, request_id=http_request_id,
-    )
-    contract = result["contract"]
-
-    meta = dict(contract.metadata_json or {})
-    meta["auto_review_pending"] = True
-    contract.metadata_json = meta
-    request.contract_id = contract.id
-    request.updated_by_user_id = actor.id
-    write_audit_log(
-        db, action="intake.contract_from_attachment", resource_type="intake_request",
-        resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
-        request_id=http_request_id, after={"contract_id": contract.id, "document_id": doc.id},
-    )
-    write_timeline_event(
-        db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
-        event_type="intake.contract_from_attachment", title="Created the contract from the attachment",
-        actor_user_id=actor.id, request_id=http_request_id,
-        details={"contract_id": contract.id, "title": title, "document": doc.filename},
-    )
-    db.commit()
-    db.refresh(request)
-    return contract
 
 
 if __name__ == "__main__":  # pragma: no cover - template self-check

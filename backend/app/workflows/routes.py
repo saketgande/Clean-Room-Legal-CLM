@@ -5,12 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
-from app.workflows import service
-from app.workflows.builtin import seed_builtin_flows
-from app.workflows.models import Workflow, WorkflowRun
 from app.contracts.service import get_contract_for_user
+from app.core.deps import get_db, require_permission
 from app.intake.models import IntakeRequest
+from app.workflows.builtin import seed_builtin_flows
+from app.workflows.dependencies import get_workflow_service
+from app.workflows.models import Workflow, WorkflowRun
+from app.workflows.service import WorkflowService, serialize_flow
 
 router = APIRouter(prefix="/workflows", tags=["workflows"])
 
@@ -66,98 +67,107 @@ def _get_run(db: Session, org_id: str, run_id: str) -> WorkflowRun:
 # ---- flow definitions -----------------------------------------------------
 
 @router.get("")
-def list_flows(db: Session = Depends(get_db), current_user=Depends(require_permission("workflow:read"))):
-    return [service.serialize_flow(f) for f in service.list_flows(db, org_id=current_user.org_id)]
+def list_flows(workflow_service: WorkflowService = Depends(get_workflow_service),
+               current_user=Depends(require_permission("workflow:read"))):
+    return [serialize_flow(f) for f in workflow_service.list_flows(org_id=current_user.org_id)]
 
 
 @router.get("/{flow_id}")
 def get_flow(flow_id: str, db: Session = Depends(get_db),
              current_user=Depends(require_permission("workflow:read"))):
-    return service.serialize_flow(_get_flow(db, current_user.org_id, flow_id))
+    return serialize_flow(_get_flow(db, current_user.org_id, flow_id))
 
 
 @router.post("/seed")
-def seed(db: Session = Depends(get_db), current_user=Depends(require_permission("workflow:create"))):
+def seed(db: Session = Depends(get_db), workflow_service: WorkflowService = Depends(get_workflow_service),
+         current_user=Depends(require_permission("workflow:create"))):
     added = seed_builtin_flows(db, org_id=current_user.org_id, actor_id=current_user.id)
-    return {"added": added, "flows": [service.serialize_flow(f) for f in service.list_flows(db, org_id=current_user.org_id)]}
+    return {"added": added, "flows": [serialize_flow(f) for f in workflow_service.list_flows(org_id=current_user.org_id)]}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-def create_flow(payload: FlowPayload, db: Session = Depends(get_db),
+def create_flow(payload: FlowPayload, workflow_service: WorkflowService = Depends(get_workflow_service),
                 current_user=Depends(require_permission("workflow:create"))):
-    f = service.create_flow(db, actor=current_user, payload=payload.model_dump(exclude_none=True))
-    return service.serialize_flow(f)
+    f = workflow_service.create_flow(actor=current_user, payload=payload.model_dump(exclude_none=True))
+    return serialize_flow(f)
 
 
 @router.patch("/{flow_id}")
 def update_flow(flow_id: str, payload: FlowPayload, db: Session = Depends(get_db),
+                workflow_service: WorkflowService = Depends(get_workflow_service),
                 current_user=Depends(require_permission("workflow:update"))):
     f = _get_flow(db, current_user.org_id, flow_id)
-    f = service.update_flow(db, actor=current_user, flow=f, payload=payload.model_dump(exclude_none=True))
-    return service.serialize_flow(f)
+    f = workflow_service.update_flow(actor=current_user, flow=f, payload=payload.model_dump(exclude_none=True))
+    return serialize_flow(f)
 
 
 # ---- flow runs ------------------------------------------------------------
 
 @router.post("/start")
 async def start(payload: StartPayload, db: Session = Depends(get_db),
+                workflow_service: WorkflowService = Depends(get_workflow_service),
                 current_user=Depends(require_permission("intake:read"))):
     request = db.get(IntakeRequest, payload.request_id)
     if request is None or request.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
     flow = _get_flow(db, current_user.org_id, payload.flow_id) if payload.flow_id else None
-    run = await service.start_flow(db, actor=current_user, request=request, flow=flow)
-    return service.serialize_run(db, run)
+    run = await workflow_service.start_flow(actor=current_user, request=request, flow=flow)
+    return workflow_service.serialize_run(run)
 
 
 @router.get("/runs/by-request/{request_id}")
-def run_for_request(request_id: str, db: Session = Depends(get_db),
+def run_for_request(request_id: str, workflow_service: WorkflowService = Depends(get_workflow_service),
                     current_user=Depends(require_permission("intake:read"))):
-    run = service.get_run_for_request(db, request_id=request_id, org_id=current_user.org_id)
-    return service.serialize_run(db, run) if run else None
+    run = workflow_service.get_run_for_request(request_id=request_id, org_id=current_user.org_id)
+    return workflow_service.serialize_run(run) if run else None
 
 
 @router.get("/runs/by-contract/{contract_id}")
 def run_for_contract(contract_id: str, db: Session = Depends(get_db),
+                     workflow_service: WorkflowService = Depends(get_workflow_service),
                      current_user=Depends(require_permission("contract:read"))):
     # Row-level access gate (M1): ethical walls + MAC clearance, parity with every
     # other contract-derived read — the capability + org scope alone let a walled/
     # under-cleared user read a matter's governance run. Raises 404 if barred.
     get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    run = service.get_run_for_contract(db, contract_id=contract_id, org_id=current_user.org_id)
-    return service.serialize_run(db, run) if run else None
+    run = workflow_service.get_run_for_contract(contract_id=contract_id, org_id=current_user.org_id)
+    return workflow_service.serialize_run(run) if run else None
 
 
 @router.post("/runs/{run_id}/complete-step")
 async def complete_step(run_id: str, payload: CompleteStepPayload, db: Session = Depends(get_db),
+                        workflow_service: WorkflowService = Depends(get_workflow_service),
                         current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user.org_id, run_id)
-    service.complete_human_step(db, run=run, actor=current_user, note=payload.note, step_idx=payload.step_idx)
-    run = await service.advance_run(db, run=run, actor=current_user)
-    return service.serialize_run(db, run)
+    workflow_service.complete_human_step(run=run, actor=current_user, note=payload.note, step_idx=payload.step_idx)
+    run = await workflow_service.advance_run(run=run, actor=current_user)
+    return workflow_service.serialize_run(run)
 
 
 @router.post("/runs/{run_id}/refresh")
 async def refresh(run_id: str, db: Session = Depends(get_db),
+                  workflow_service: WorkflowService = Depends(get_workflow_service),
                   current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user.org_id, run_id)
-    run = await service.refresh_run(db, run=run, actor=current_user)
-    return service.serialize_run(db, run)
+    run = await workflow_service.refresh_run(run=run, actor=current_user)
+    return workflow_service.serialize_run(run)
 
 
 @router.post("/runs/{run_id}/return")
 async def return_step(run_id: str, payload: ReturnPayload, db: Session = Depends(get_db),
+                      workflow_service: WorkflowService = Depends(get_workflow_service),
                       current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user.org_id, run_id)
-    run = await service.return_run(db, run=run, actor=current_user, to_idx=payload.to_idx, note=payload.note)
-    return service.serialize_run(db, run)
+    run = await workflow_service.return_run(run=run, actor=current_user, to_idx=payload.to_idx, note=payload.note)
+    return workflow_service.serialize_run(run)
 
 
 @router.post("/runs/{run_id}/comment")
 def comment(run_id: str, payload: CommentPayload, db: Session = Depends(get_db),
+            workflow_service: WorkflowService = Depends(get_workflow_service),
             current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user.org_id, run_id)
-    service.add_run_comment(db, run=run, actor=current_user, text=payload.text, idx=payload.idx)
+    workflow_service.add_run_comment(run=run, actor=current_user, text=payload.text, idx=payload.idx)
     db.commit()
     db.refresh(run)
-    return service.serialize_run(db, run)
+    return workflow_service.serialize_run(run)

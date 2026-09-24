@@ -50,34 +50,6 @@ def clearance_permits(user: User, contract: Contract) -> bool:
     return contract_rank <= user_clearance_rank(user)
 
 
-def _is_pending_approver(db: Session, *, contract: Contract, user: User) -> bool:
-    """True if the user is assigned (directly, by role, or via an approver group)
-    to a still-pending approval request on this contract."""
-    from app.approvals.models import ApprovalRequest, ApproverGroup
-    from app.core.enums import ApprovalStatus
-
-    requests = db.scalars(
-        select(ApprovalRequest).where(
-            ApprovalRequest.org_id == user.org_id,
-            ApprovalRequest.contract_id == contract.id,
-            ApprovalRequest.status == ApprovalStatus.PENDING,
-        )
-    ).all()
-    if not requests:
-        return False
-    role_names = {role.name for role in getattr(user, "roles", [])}
-    for req in requests:
-        if req.approver_user_id and req.approver_user_id == user.id:
-            return True
-        if req.approver_role and req.approver_role in role_names:
-            return True
-        if req.approver_group_id:
-            group = db.get(ApproverGroup, req.approver_group_id)
-            if group is not None and any(m.id == user.id for m in group.members):
-                return True
-    return False
-
-
 def accessible_contract_filter(user: User):
     # F-03: org scoping is ALWAYS enforced, including for admins. Previously this
     # returned true() for admins, which dropped the tenant boundary entirely and
@@ -156,59 +128,105 @@ def _log_deny_override(user: User, contract: Contract, reason: str) -> None:
     )
 
 
+class ContractAccessService:
+    """DB-backed contract access checks.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md). The pure predicate
+    builders above (``accessible_contract_filter``, ``clearance_permits``)
+    don't touch the database and stay as module-level functions — only the
+    functions that actually query ``db`` move here.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _is_pending_approver(self, *, contract: Contract, user: User) -> bool:
+        """True if the user is assigned (directly, by role, or via an approver
+        group) to a still-pending approval request on this contract."""
+        from app.approvals.models import ApprovalRequest, ApproverGroup
+        from app.core.enums import ApprovalStatus
+
+        requests = self.db.scalars(
+            select(ApprovalRequest).where(
+                ApprovalRequest.org_id == user.org_id,
+                ApprovalRequest.contract_id == contract.id,
+                ApprovalRequest.status == ApprovalStatus.PENDING,
+            )
+        ).all()
+        if not requests:
+            return False
+        role_names = {role.name for role in getattr(user, "roles", [])}
+        for req in requests:
+            if req.approver_user_id and req.approver_user_id == user.id:
+                return True
+            if req.approver_role and req.approver_role in role_names:
+                return True
+            if req.approver_group_id:
+                group = self.db.get(ApproverGroup, req.approver_group_id)
+                if group is not None and any(m.id == user.id for m in group.members):
+                    return True
+        return False
+
+    def user_can_access_contract(self, *, contract: Contract, user: User) -> bool:
+        db = self.db
+        if contract.org_id != user.org_id:
+            return False
+        # Phase 3 deny-overrides come FIRST and beat every allow — including admin,
+        # owner and creator. An ethical wall or insufficient clearance is absolute.
+        if user_is_walled(db, user=user, contract=contract):
+            _log_deny_override(user, contract, "ethical_wall")
+            return False
+        if not clearance_permits(user, contract):
+            _log_deny_override(user, contract, "insufficient_clearance")
+            return False
+        if is_org_admin(user) or contract.owner_user_id == user.id or contract.created_by_user_id == user.id:
+            return True
+        # An assigned approver can read the contract they're being asked to approve,
+        # while a decision is pending.
+        if self._is_pending_approver(contract=contract, user=user):
+            return True
+        # Phase 2: a direct, time-bound resource grant on this contract.
+        if user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id):
+            return True
+        membership = (
+            select(MatterContract.id)
+            .join(Matter, Matter.id == MatterContract.matter_id)
+            .join(
+                MatterMember,
+                (MatterMember.matter_id == MatterContract.matter_id)
+                & (MatterMember.org_id == MatterContract.org_id),
+            )
+            .where(
+                MatterContract.org_id == user.org_id,
+                MatterContract.contract_id == contract.id,
+                Matter.deleted_at.is_(None),
+                MatterMember.user_id == user.id,
+            )
+            .limit(1)
+        )
+        if db.scalar(membership) is not None:
+            return True
+        return db.scalar(
+            select(MatterContract.id)
+            .join(Matter, Matter.id == MatterContract.matter_id)
+            .join(
+                MatterShare,
+                (MatterShare.matter_id == MatterContract.matter_id)
+                & (MatterShare.org_id == MatterContract.org_id),
+            )
+            .where(
+                MatterContract.org_id == user.org_id,
+                MatterContract.contract_id == contract.id,
+                Matter.deleted_at.is_(None),
+                MatterShare.shared_with_user_id == user.id,
+                MatterShare.revoked_at.is_(None),
+                or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
+            )
+            .limit(1)
+        ) is not None
+
+
+# DI-MIGRATION: temporary wrapper — remove once all callers use
+# get_contract_access_service(). Tracked in backend/DI_MIGRATION.md
 def user_can_access_contract(db: Session, *, contract: Contract, user: User) -> bool:
-    if contract.org_id != user.org_id:
-        return False
-    # Phase 3 deny-overrides come FIRST and beat every allow — including admin,
-    # owner and creator. An ethical wall or insufficient clearance is absolute.
-    if user_is_walled(db, user=user, contract=contract):
-        _log_deny_override(user, contract, "ethical_wall")
-        return False
-    if not clearance_permits(user, contract):
-        _log_deny_override(user, contract, "insufficient_clearance")
-        return False
-    if is_org_admin(user) or contract.owner_user_id == user.id or contract.created_by_user_id == user.id:
-        return True
-    # An assigned approver can read the contract they're being asked to approve,
-    # while a decision is pending.
-    if _is_pending_approver(db, contract=contract, user=user):
-        return True
-    # Phase 2: a direct, time-bound resource grant on this contract.
-    if user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id):
-        return True
-    membership = (
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterMember,
-            (MatterMember.matter_id == MatterContract.matter_id)
-            & (MatterMember.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.org_id == user.org_id,
-            MatterContract.contract_id == contract.id,
-            Matter.deleted_at.is_(None),
-            MatterMember.user_id == user.id,
-        )
-        .limit(1)
-    )
-    if db.scalar(membership) is not None:
-        return True
-    return db.scalar(
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterShare,
-            (MatterShare.matter_id == MatterContract.matter_id)
-            & (MatterShare.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.org_id == user.org_id,
-            MatterContract.contract_id == contract.id,
-            Matter.deleted_at.is_(None),
-            MatterShare.shared_with_user_id == user.id,
-            MatterShare.revoked_at.is_(None),
-            or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
-        )
-        .limit(1)
-    ) is not None
+    return ContractAccessService(db).user_can_access_contract(contract=contract, user=user)

@@ -18,6 +18,7 @@ file, so values set here also override anything stale in a local ``.env``.
 """
 
 import os
+from collections.abc import Generator
 
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("MOCK_CLAUDE", "true")
@@ -28,3 +29,58 @@ os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm",
 )
+
+import pytest
+
+# --- DI migration test harness ---------------------------------------------
+# Added alongside the contracts/ DI conversion (see backend/DI_MIGRATION.md).
+# The suite previously had no TestClient / dependency_overrides fixtures — all
+# existing mocking is monkeypatch on the `settings` singleton or class
+# internals (see e.g. test_phase6_9_integration.py). These fixtures are what
+# make the DI conversion provable: a route's injected service can now be
+# swapped for a fake via `app.dependency_overrides`, per-test, without
+# touching module globals.
+
+@pytest.fixture
+def db_session() -> Generator:
+    """A real DB session for tests that exercise a service against Postgres.
+
+    Rolls back on teardown so tests don't leave rows behind. Requires the
+    DATABASE_URL configured above to point at a reachable Postgres instance —
+    consistent with the rest of this suite's assumptions.
+    """
+    from app.core.database import SessionLocal
+
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.rollback()
+        session.close()
+
+
+@pytest.fixture
+def client() -> Generator:
+    """A TestClient bound to the real app, for exercising routes end-to-end
+    with dependency_overrides. Clears any overrides left by a test on exit so
+    they can't leak into the next one."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def override_dependency(client):
+    """override_dependency(dependency, fake) swaps a FastAPI dependency for the
+    lifetime of the test. `dependency` is the provider function itself (e.g.
+    `get_contract_service`), `fake` is the replacement callable/value."""
+    from app.main import app
+
+    def _override(dependency, fake):
+        app.dependency_overrides[dependency] = lambda: fake
+
+    return _override

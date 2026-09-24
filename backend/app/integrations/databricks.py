@@ -22,13 +22,13 @@ import asyncio
 import json
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
 from app.core.config import settings
 from app.integrations._http_retry import resilient_call
-from app.integrations.ocr import OCRResult
+from app.integrations.ocr import OCRProvider, OCRResult
 
 _API_TIMEOUT = 300.0      # per-HTTP-call timeout
 _POLL_SECONDS = 5.0       # how often to ask whether the statement finished
@@ -136,6 +136,25 @@ _MOCK_FIELDS = {
     "governing_law": ("India", 0.89),
     "liability_cap": ("12 months of fees", 0.58),  # deliberately low
 }
+
+
+@runtime_checkable
+class DatabricksDocumentClient(OCRProvider, Protocol):
+    """DatabricksClient's interface, for DI (see backend/DI_MIGRATION.md):
+    OCR (shared with Reducto via OCRProvider) plus the structured-field
+    extraction Reducto doesn't do."""
+
+    @property
+    def enabled(self) -> bool: ...
+
+    async def extract_fields(
+        self,
+        *,
+        filename: str,
+        content: bytes,
+        schema: dict[str, dict[str, str]] | None = None,
+        precision: bool | None = None,
+    ) -> ExtractedFields: ...
 
 
 class DatabricksClient:

@@ -28,7 +28,7 @@ _CHILD_OF: dict[str, list[str]] = {
 }
 
 # Amendment/renewal language that means "this supersedes an earlier contract".
-_SUPERSEDES = re.compile(r"\b(amendment|amended|renewal|renewed|novation|addendum|supplement)\b", re.I)
+_SUPERSEDES = re.compile(r"\b(amendment|amended|renewal|renewed|novation|addendum|supplement)\b", re.IGNORECASE)
 
 
 def _canon_type(contract_type: str | None, title: str | None) -> str:

@@ -22,48 +22,49 @@ from app.ai.tool_registry import (
     AdvanceContractStageInput,
     AdvanceIntakeWorkflowInput,
     ApprovalSubmitInput,
-    CompleteObligationInput,
-    CompleteTaskInput,
-    CreateWorkflowInput,
-    MatterRef,
-    SignatureStatusInput,
-    CreateIntakeRequestInput,
-    CreateNoticeInput,
-    DecideApprovalInput,
-    IntakeRequestRef,
-    ListNoticesInput,
-    ListRenewalsInput,
-    NoticeRef,
-    ReassignRequestInput,
-    SendForNegotiationInput,
-    SignatureLinkInput,
-    StartIntakeWorkflowInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
+    CompleteObligationInput,
+    CompleteTaskInput,
     ContractHandleInput,
-    ReadContractInput,
+    CreateIntakeRequestInput,
+    CreateNoticeInput,
+    CreateWorkflowInput,
+    DecideApprovalInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
     FindContractsInput,
     FindInContractInput,
     GenerateContractInput,
+    IntakeRequestRef,
+    ListNoticesInput,
     ListObligationsInput,
-    PlaybookToolInput,
+    ListRenewalsInput,
     MatterContractsInput,
-    ReadTableCellsInput,
-    RedraftContractInput,
-    SignatureSendInput,
-    TabularReviewInput,
+    MatterRef,
+    NoticeRef,
+    PlaybookToolInput,
     PromptRunInput,
+    ReadContractInput,
+    ReadTableCellsInput,
+    ReassignRequestInput,
+    RedraftContractInput,
+    SendForNegotiationInput,
+    SignatureLinkInput,
+    SignatureSendInput,
+    SignatureStatusInput,
+    StartIntakeWorkflowInput,
+    TabularReviewInput,
     tool_registry,
 )
 from app.approvals.models import ApprovalRequest
-from app.approvals.service import submit_contract_for_approval
+from app.approvals.service import ApprovalsService
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
 from app.contract_brain.retrieval import assemble_context
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.models import (
     ContractEdit,
     ContractFile,
@@ -72,12 +73,11 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
-from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
+from app.contract_files.service import ContractFilesService
 from app.contracts.access import accessible_contract_filter
-from app.contracts.lifecycle import transition_contract_stage
+from app.contracts.lifecycle import ContractLifecycleService
 from app.contracts.models import Contract
-from app.contracts.service import get_contract_for_user
+from app.contracts.service import ContractService
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.enums import (
@@ -90,26 +90,44 @@ from app.core.enums import (
     TabularCellStatus,
 )
 from app.core.rbac import has_permission
-from app.integrations.docusign import docusign_client
-from app.integrations.resend import resend_client
+from app.integrations.docusign import SignatureProvider, docusign_client
+from app.integrations.resend import EmailSender, resend_client
+from app.integrations.storage import StorageBackend as StorageBackendProtocol
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
-from app.jobs.service import create_job, dispatch_job
-from app.obligations.models import Obligation
-from app.playbooks.models import Playbook, PlaybookVersion
-from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
+from app.jobs.service import JobsService
 from app.matters.access import get_project_for_user
 from app.matters.models import MatterContract
-from app.renewals.models import RenewalEvent
-from app.signatures.models import SignatureRecipient, SignatureRequest
-from app.signatures.service import validate_signature_recipients
-from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
-from app.tabular_review.service import dispatch_cells
+from app.obligations.models import Obligation
+from app.playbooks.models import Playbook, PlaybookVersion
+from app.playbooks.service import PlaybooksService, execute_playbook_run
 from app.prompt_library.builtin import builtin_prompts
 from app.prompt_library.models import Prompt, PromptRun
+from app.renewals.models import RenewalEvent
+from app.signatures.models import SignatureRecipient, SignatureRequest
+from app.signatures.service import SignaturesService
+from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
+from app.tabular_review.service import dispatch_cells
 
 
 class ToolRuntime:
+    """Stateless singleton: `db` is always passed per method call, never
+    stored. Part of the DI migration (see backend/DI_MIGRATION.md) — this
+    constructor accepts the integration clients this file used to import and
+    call as bare module singletons (`docusign_client`, `resend_client`,
+    `storage_service`), defaulting to those same singletons unchanged."""
+
+    def __init__(
+        self,
+        *,
+        docusign: SignatureProvider | None = None,
+        storage: StorageBackendProtocol | None = None,
+        resend: EmailSender | None = None,
+    ):
+        self.docusign = docusign or docusign_client
+        self.storage = storage or storage_service
+        self.resend = resend or resend_client
+
     async def execute(
         self,
         db: Session,
@@ -422,15 +440,15 @@ class ToolRuntime:
         return out
 
     def _create_intake_request(self, db: Session, *, payload: CreateIntakeRequestInput, user: User) -> dict[str, Any]:
-        from app.intake.service import create_request
         from app.intake.schemas import RequestCreate
+        from app.intake.service import IntakeService
 
         rc = RequestCreate(
             type_label=payload.type_label, subject=payload.subject,
             description=payload.description or "", department=payload.department,
             priority=payload.priority, field_values=payload.field_values, source="copilot",
         )
-        result = create_request(db, actor=user, payload=rc)
+        result = IntakeService(db).create_request(actor=user, payload=rc)
         at = result.get("ai_triage") or {}
         return {
             "created": True, "id": result.get("id"), "ref": result.get("ref"),
@@ -447,7 +465,7 @@ class ToolRuntime:
 
     async def _start_intake_workflow(self, db: Session, *, payload: StartIntakeWorkflowInput, user: User) -> dict[str, Any]:
         from app.workflows.models import Workflow
-        from app.workflows.service import start_flow
+        from app.workflows.service import WorkflowService
 
         req = self._resolve_request(db, payload.request_id, user)
         flow = None
@@ -455,13 +473,14 @@ class ToolRuntime:
             flow = db.get(Workflow, payload.workflow_id)
             if flow is None or flow.org_id != user.org_id:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
-        run = await start_flow(db, actor=user, request=req, flow=flow)
+        run = await WorkflowService(db).start_flow(actor=user, request=req, flow=flow)
         db.commit()
         return {"started": True, **self._request_summary(req, run)}
 
     async def _advance_intake_workflow(self, db: Session, *, payload: AdvanceIntakeWorkflowInput, user: User) -> dict[str, Any]:
-        from app.workflows.service import advance_run, complete_human_step, refresh_run
+        from app.workflows.service import WorkflowService
 
+        workflow_service = WorkflowService(db)
         req = self._resolve_request(db, payload.request_id, user)
         run = self._latest_run(db, req.id)
         if run is None:
@@ -470,18 +489,18 @@ class ToolRuntime:
         cur = steps[run.current_index] if 0 <= run.current_index < len(steps) else None
         ctype = cur.get("type") if cur else None
         if ctype in ("approval", "signature"):
-            run = await refresh_run(db, run=run, actor=user)
+            run = await workflow_service.refresh_run(run=run, actor=user)
         else:
-            complete_human_step(db, run=run, actor=user, note=payload.note)
-            run = await advance_run(db, run=run, actor=user)
+            workflow_service.complete_human_step(run=run, actor=user, note=payload.note)
+            run = await workflow_service.advance_run(run=run, actor=user)
         db.commit()
         return {"advanced": True, **self._request_summary(req, run)}
 
     def _create_workflow(self, db: Session, *, payload: CreateWorkflowInput, user: User) -> dict[str, Any]:
-        from app.workflows.service import create_flow
+        from app.workflows.service import WorkflowService
 
         criteria = {"match_type": payload.applies_to.strip().lower()} if payload.applies_to else {}
-        flow = create_flow(db, actor=user, payload={
+        flow = WorkflowService(db).create_flow(actor=user, payload={
             "name": payload.name, "description": payload.description,
             "steps": payload.steps, "criteria": criteria,
         })
@@ -490,7 +509,6 @@ class ToolRuntime:
 
     async def _decide_approval(self, db: Session, *, payload: DecideApprovalInput, user: User) -> dict[str, Any]:
         from app.approvals.models import ApprovalRequest
-        from app.approvals.service import decide_in_app
         from app.core.enums import ApprovalStatus
 
         req = self._resolve_request(db, payload.request_id, user)
@@ -501,14 +519,14 @@ class ToolRuntime:
         )
         if approval is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No pending approval on this request")
-        updated = await decide_in_app(db, user=user, approval=approval, decision=payload.decision, comment=payload.comment)
+        updated = await ApprovalsService(db).decide_in_app(user=user, approval=approval, decision=payload.decision, comment=payload.comment)
         db.commit()
         return {"decided": payload.decision, "request_ref": req.ref, "approval_status": updated.status}
 
     def _reassign_request(self, db: Session, *, payload: ReassignRequestInput, user: User) -> dict[str, Any]:
         from app.auth.models import User as UserModel
         from app.intake.schemas import TriageActionRequest
-        from app.intake.service import record_triage_action
+        from app.intake.service import IntakeService
 
         q = (payload.assignee or "").strip()
         target = db.scalar(select(UserModel).where(
@@ -518,14 +536,14 @@ class ToolRuntime:
         if target is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, f"No user matching '{payload.assignee}'")
         req = self._resolve_request(db, payload.request_id, user)
-        record_triage_action(db, actor=user, request_id=req.id,
+        IntakeService(db).record_triage_action(actor=user, request_id=req.id,
                              payload=TriageActionRequest(action="reassigned", assignee_user_id=target.id))
         db.commit()
         return {"reassigned": True, "request_ref": req.ref, "owner": target.full_name}
 
     def _resolve_contract_id(self, db: Session, *, request_id, contract_id, user: User) -> str:
         if contract_id:
-            get_contract_for_user(db, contract_id=contract_id, user=user)
+            ContractService(db).get_contract_for_user(contract_id=contract_id, user=user)
             return contract_id
         if request_id:
             req = self._resolve_request(db, request_id, user)
@@ -539,7 +557,7 @@ class ToolRuntime:
 
     def _get_signature_link(self, db: Session, *, payload: SignatureLinkInput, user: User) -> dict[str, Any]:
         cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
-        contract = get_contract_for_user(db, contract_id=cid, user=user)
+        contract = ContractService(db).get_contract_for_user(contract_id=cid, user=user)
         return {
             "contract_id": cid, "title": contract.title, "stage": contract.lifecycle_stage,
             "sign_link": f"/contracts/{cid}",
@@ -547,16 +565,16 @@ class ToolRuntime:
         }
 
     def _add_contract_comment(self, db: Session, *, payload: AddCommentInput, user: User) -> dict[str, Any]:
-        from app.contracts.comments_service import create_comment
+        from app.contracts.comments_service import ContractCommentService
 
-        contract = get_contract_for_user(db, contract_id=payload.contract_id, user=user)
-        create_comment(db, contract=contract, user=user, body=payload.body, visibility=payload.visibility)
+        contract = ContractService(db).get_contract_for_user(contract_id=payload.contract_id, user=user)
+        ContractCommentService(db).create_comment(contract=contract, user=user, body=payload.body, visibility=payload.visibility)
         db.commit()
         return {"added": True, "contract_id": payload.contract_id, "visibility": payload.visibility}
 
     def _send_for_negotiation(self, db: Session, *, payload: SendForNegotiationInput, user: User) -> dict[str, Any]:
         cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
-        contract = get_contract_for_user(db, contract_id=cid, user=user)
+        contract = ContractService(db).get_contract_for_user(contract_id=cid, user=user)
         if payload.party == "internal":
             if not payload.team_id:
                 raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "team_id is required for internal negotiation")
@@ -579,6 +597,7 @@ class ToolRuntime:
             return {"sent": "internal", "team": team.name, "notified": len(members)}
         # counterparty → external share link
         import secrets
+
         from app.contract_files.models import ContractShare
         from app.contract_files.routes import _hash_secret
         from app.core.enums import ShareAccessMode
@@ -596,28 +615,28 @@ class ToolRuntime:
                 "note": "Send this link to the counterparty; their returned redline is recorded as the next round."}
 
     def _list_notices(self, db: Session, *, payload: ListNoticesInput, user: User) -> dict[str, Any]:
-        from app.notices.service import list_notices
+        from app.notices.service import NoticesService
 
-        rows = list_notices(db, org_id=user.org_id, status_filter=payload.status, overdue_only=payload.overdue_only)
+        rows = NoticesService(db).list_notices(org_id=user.org_id, status_filter=payload.status, overdue_only=payload.overdue_only)
         return {"count": len(rows), "notices": rows[:25]}
 
     def _create_notice(self, db: Session, *, payload: CreateNoticeInput, user: User) -> dict[str, Any]:
         from app.notices.schemas import NoticeCreate
-        from app.notices.service import create_notice
+        from app.notices.service import NoticesService
 
         nc = NoticeCreate(
             subject=payload.subject, counterparty_name=payload.counterparty_name,
             direction=payload.direction, notice_type=payload.notice_type,
             description=payload.description, contract_id=payload.contract_id,
         )
-        res = create_notice(db, actor=user, payload=nc)
+        res = NoticesService(db).create_notice(actor=user, payload=nc)
         db.commit()
         return {"created": True, **({k: res.get(k) for k in ("id", "ref", "subject", "status")} if isinstance(res, dict) else {})}
 
     def _draft_notice_response(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
-        from app.notices.service import draft_response
+        from app.notices.service import NoticesService
 
-        res = draft_response(db, actor=user, notice_id=payload.notice_id)
+        res = NoticesService(db).draft_response(actor=user, notice_id=payload.notice_id)
         db.commit()
         draft = res.get("draft_response") if isinstance(res, dict) else None
         return {"drafted": True, "notice_id": payload.notice_id, "response": draft}
@@ -669,9 +688,9 @@ class ToolRuntime:
 
     def _complete_task(self, db: Session, *, payload: CompleteTaskInput, user: User) -> dict[str, Any]:
         from app.intake.schemas import TaskUpdateReq
-        from app.intake.service import update_task
+        from app.intake.service import IntakeService
 
-        update_task(db, actor=user, task_id=payload.task_id, payload=TaskUpdateReq(status="done"))
+        IntakeService(db).update_task(actor=user, task_id=payload.task_id, payload=TaskUpdateReq(status="done"))
         db.commit()
         return {"completed": True, "task_id": payload.task_id}
 
@@ -691,12 +710,10 @@ class ToolRuntime:
                 "recipients": [{"name": r.name, "status": r.status} for r in recips]}
 
     def _advance_contract_stage(self, db: Session, *, payload: AdvanceContractStageInput, user: User) -> dict[str, Any]:
-        from app.contracts.lifecycle import transition_contract_stage
-
         cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
-        contract = get_contract_for_user(db, contract_id=cid, user=user)
-        updated = transition_contract_stage(
-            db, contract=contract, to_stage=payload.to_stage.strip().lower(),
+        contract = ContractService(db).get_contract_for_user(contract_id=cid, user=user)
+        updated = ContractLifecycleService(db).transition_contract_stage(
+            contract=contract, to_stage=payload.to_stage.strip().lower(),
             actor_user_id=user.id, reason="Stage moved via Ask Aegis",
         )
         db.commit()
@@ -726,9 +743,9 @@ class ToolRuntime:
         return {"id": p.id, "name": p.name, "description": p.description, "type": p.matter_type}
 
     def _read_notice(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
-        from app.notices.service import get_notice
+        from app.notices.service import NoticesService
 
-        return get_notice(db, org_id=user.org_id, notice_id=payload.notice_id)
+        return NoticesService(db).get_notice(org_id=user.org_id, notice_id=payload.notice_id)
 
     def _read_contract(
         self,
@@ -1061,8 +1078,9 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Prompt not found")
 
         contract_ids = list(dict.fromkeys(payload.contract_ids))
+        contract_service = ContractService(db)
         for contract_id in contract_ids:
-            get_contract_for_user(db, contract_id=contract_id, user=user)
+            contract_service.get_contract_for_user(contract_id=contract_id, user=user)
 
         workflow_name = builtin["name"] if builtin else workflow.name
         workflow_type = builtin["workflow_type"] if builtin else workflow.workflow_type
@@ -1166,6 +1184,7 @@ class ToolRuntime:
             user_id=user.id,
             filename=f"{_safe_filename(payload.title)}.docx",
             content=content,
+            storage=self.storage,
         )
         contract = Contract(
             org_id=user.org_id,
@@ -1251,6 +1270,11 @@ class ToolRuntime:
             actor_user_id=user.id,
             details={"contract_version_id": version.id, "matter_id": payload.matter_id},
         )
+        # Kept as the module-level wrapper (not ContractFilesService directly) —
+        # tests/test_ai_architecture_wiring.py pins this literal assignment via
+        # inspect.getsource(_generate_contract_docx).
+        from app.contract_files.service import _queue_initial_contract_jobs
+
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
         )
@@ -1259,13 +1283,14 @@ class ToolRuntime:
         # Commit so the JobRun rows are visible before the Celery worker
         # picks them up (same ordering guarantee as the upload pipeline).
         db.commit()
+        jobs_service = JobsService(db)
         dispatched_job_types = []
         dispatch_errors = []
         for job_id in queued_job_ids:
             job = db.get(JobRun, job_id)
             if job is not None:
                 try:
-                    dispatch_job(db, job=job)
+                    jobs_service.dispatch_job(job=job)
                     dispatched_job_types.append(job.job_type)
                 except Exception as exc:
                     dispatch_errors.append(
@@ -1376,12 +1401,13 @@ class ToolRuntime:
             user_id=user.id,
             filename=f"{_safe_filename(contract.title)}-assistant-edit-v{version.version_number}.docx",
             content=edit_docx,
+            storage=self.storage,
         )
         edit_version = ContractVersion(
             org_id=user.org_id,
             contract_id=contract.id,
             contract_file_id=contract_file.id,
-            version_number=next_version_number(db, contract_file.id),
+            version_number=ContractFilesService(db).next_version_number(contract_file.id),
             storage_object_id=storage_object.id,
             source=ContractVersionSource.ASSISTANT_EDIT,
             change_summary=(
@@ -1599,6 +1625,7 @@ class ToolRuntime:
             user_id=user.id,
             filename=f"{_safe_filename(contract.title)}-redraft.docx",
             content=content,
+            storage=self.storage,
         )
 
         # Attach the redraft as a new version of the contract's file (create a
@@ -1618,7 +1645,7 @@ class ToolRuntime:
             org_id=user.org_id,
             contract_id=contract.id,
             contract_file_id=contract_file.id,
-            version_number=next_version_number(db, contract_file.id),
+            version_number=ContractFilesService(db).next_version_number(contract_file.id),
             storage_object_id=storage_object.id,
             source=ContractVersionSource.ASSISTANT_GENERATED,
             change_summary=(
@@ -1719,7 +1746,7 @@ class ToolRuntime:
             org_id=user.org_id,
             contract_id=contract.id,
             contract_file_id=contract_file.id,
-            version_number=next_version_number(db, contract_file.id),
+            version_number=ContractFilesService(db).next_version_number(contract_file.id),
             storage_object_id=version.storage_object_id,
             source=ContractVersionSource.ASSISTANT_GENERATED,
             change_summary=f"Replicated from version {version.version_number}",
@@ -1794,9 +1821,9 @@ class ToolRuntime:
         if create_redline and not has_permission(user.permission_values, "contract:redline"):
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Missing permission: contract:redline")
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
-        playbook = get_playbook_for_user(db, playbook_id=payload.playbook_id, user=user)
-        version = select_run_version(
-            db,
+        playbooks_service = PlaybooksService(db)
+        playbook = playbooks_service.get_playbook_for_user(playbook_id=payload.playbook_id, user=user)
+        version = playbooks_service.select_run_version(
             playbook=playbook,
             org_id=user.org_id,
             version_id=payload.playbook_version_id,
@@ -1807,9 +1834,8 @@ class ToolRuntime:
         # real skill call already used by the /run route and auto_review_contract.
         from app.ai.controller import ai_controller
         from app.ai.schemas import PlaybookReviewOutput
-        from app.playbooks.service import _auto_rule_payloads
 
-        rules = _auto_rule_payloads(db, org_id=user.org_id, playbook_version_id=version.id)
+        rules = playbooks_service._auto_rule_payloads(org_id=user.org_id, playbook_version_id=version.id)
         ai_output = None
         ai_error = None
         try:
@@ -1943,8 +1969,7 @@ class ToolRuntime:
         session_id: str,
     ) -> dict[str, Any]:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
-        requests = await submit_contract_for_approval(
-            db,
+        requests = await ApprovalsService(db).submit_contract_for_approval(
             user=user,
             contract=contract,
             contract_version_id=contract.current_authoritative_version_id,
@@ -1987,11 +2012,11 @@ class ToolRuntime:
         storage_object = db.get(StorageObject, version.storage_object_id)
         if storage_object is None or storage_object.org_id != user.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
-        validate_signature_recipients(
-            db, contract=contract, org_id=user.org_id, recipients=payload.recipients
+        SignaturesService(db).validate_signature_recipients(
+            contract=contract, org_id=user.org_id, recipients=payload.recipients
         )
-        content = storage_service.read_bytes(storage_object.storage_key)
-        envelope = await docusign_client.create_envelope(
+        content = self.storage.read_bytes(storage_object.storage_key)
+        envelope = await self.docusign.create_envelope(
             filename=storage_object.filename,
             recipients=[recipient.model_dump(mode="json") for recipient in payload.recipients],
             content=content,
@@ -2027,7 +2052,7 @@ class ToolRuntime:
             try:
                 safe_title = html.escape(contract.title or "Untitled contract")
                 safe_envelope = html.escape(str(envelope.envelope_id or "mock"))
-                await resend_client.send_email(
+                await self.resend.send_email(
                     to=str(recipient.email),
                     subject=f"Signature requested: {contract.title}",
                     html=(
@@ -2044,8 +2069,7 @@ class ToolRuntime:
         # Already in SIGNATURE after approval → no stage change; only move when an
         # override sends from another stage.
         if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE:
-            transition_contract_stage(
-                db,
+            ContractLifecycleService(db).transition_contract_stage(
                 contract=contract,
                 to_stage=ContractLifecycleStage.SIGNATURE,
                 actor_user_id=user.id,
@@ -2075,8 +2099,8 @@ class ToolRuntime:
         snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
         if version is None or snapshot is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no extractable authoritative version")
-        job = create_job(
-            db,
+        jobs_service = JobsService(db)
+        job = jobs_service.create_job(
             org_id=user.org_id,
             job_type="obligation_extraction",
             resource_type="contract",
@@ -2086,7 +2110,7 @@ class ToolRuntime:
             metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
         )
         db.flush()
-        dispatch_job(db, job=job)
+        jobs_service.dispatch_job(job=job)
         db.flush()
         return {"status": "queued", "contract_id": contract.id, "job_id": job.id, "job_type": job.job_type}
 
@@ -2121,8 +2145,9 @@ class ToolRuntime:
                 )
         if not contract_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
+        contract_service = ContractService(db)
         for contract_id in contract_ids:
-            get_contract_for_user(db, contract_id=contract_id, user=user)
+            contract_service.get_contract_for_user(contract_id=contract_id, user=user)
         review = TabularReview(
             org_id=user.org_id,
             name=payload.name,
@@ -2182,8 +2207,9 @@ class ToolRuntime:
         review = db.get(TabularReview, payload.tabular_review_id)
         if review is None or review.org_id != user.org_id or review.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Tabular review not found")
+        contract_service = ContractService(db)
         for contract_id in review.source_contract_ids or []:
-            get_contract_for_user(db, contract_id=contract_id, user=user)
+            contract_service.get_contract_for_user(contract_id=contract_id, user=user)
         columns = db.scalars(
             select(TabularReviewColumn)
             .where(TabularReviewColumn.tabular_review_id == review.id)
@@ -2279,8 +2305,7 @@ class ToolRuntime:
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
         # Archiving = close the contract and flag it as archived (retained but
         # hidden from default views). override=True allows it from any stage.
-        transition_contract_stage(
-            db,
+        ContractLifecycleService(db).transition_contract_stage(
             contract=contract,
             to_stage=ContractLifecycleStage.CLOSED,
             actor_user_id=user.id,
@@ -2320,7 +2345,7 @@ class ToolRuntime:
             contract_id = handle.contract_id
         if not contract_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract_id or contract_handle is required")
-        return get_contract_for_user(db, contract_id=contract_id, user=user)
+        return ContractService(db).get_contract_for_user(contract_id=contract_id, user=user)
 
 
 def _idempotency_key(tool_name: str, session_id: str, payload: dict[str, Any]) -> str:
@@ -2332,8 +2357,11 @@ def _hash_secret(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _store_docx(db: Session, *, org_id: str, user_id: str, filename: str, content: bytes) -> StorageObject:
-    stored = storage_service.save_bytes(
+def _store_docx(
+    db: Session, *, org_id: str, user_id: str, filename: str, content: bytes, storage=None
+) -> StorageObject:
+    storage = storage or storage_service
+    stored = storage.save_bytes(
         org_id=org_id,
         filename=filename,
         mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",

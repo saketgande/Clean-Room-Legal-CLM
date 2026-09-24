@@ -1,5 +1,10 @@
-from app.approvals.models import ApprovalDecision, ApprovalRequest, ApprovalRoutingRule, ApprovalToken
-from app.ai.models import AIConfirmation, AICitation, AIPromptVersion, AISkillRun
+from app.ai.models import AICitation, AIConfirmation, AIPromptVersion, AISkillRun
+from app.approvals.models import (
+    ApprovalDecision,
+    ApprovalRequest,
+    ApprovalRoutingRule,
+    ApprovalToken,
+)
 from app.assistant.models import (
     AssistantContractHandle,
     AssistantMessage,
@@ -17,6 +22,7 @@ from app.auth.models import (
     UserApprovalDecision,
     UserInvitation,
 )
+from app.authority.models import AuthorityGrant
 from app.contract_brain.models import BrainQuery, ClauseExtraction, KnowledgeEdge, KnowledgeNode
 from app.contract_files.models import (
     ContractEdit,
@@ -28,23 +34,15 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
-from app.core.models import AdminSetting, AICallLog, AuditLog, RequestLog, ResourceTimelineEvent, UsageRecord
-from app.jobs.models import JobRun
-from app.notices.models import Notice, NoticeDocument, NoticeEvent
-from app.notifications.models import Notification
-from app.obligations.models import Obligation, ObligationReminder
-from app.organizations.models import Organization
-from app.playbooks.models import (
-    Playbook,
-    PlaybookDecision,
-    PlaybookDeviation,
-    PlaybookRule,
-    PlaybookRun,
-    PlaybookVersion,
+from app.core.models import (
+    AdminSetting,
+    AICallLog,
+    AuditLog,
+    RequestLog,
+    ResourceTimelineEvent,
+    UsageRecord,
 )
 from app.grants.models import ResourceGrant
-from app.walls.models import EthicalWall, EthicalWallPrincipal
-from app.authority.models import AuthorityGrant
 from app.intake.models import (
     IntakeDocument,
     IntakeHandoff,
@@ -58,7 +56,28 @@ from app.intake.models import (
     IntakeTeamMember,
     SanctionsListEntry,
 )
-from app.matters.models import Matter, MatterActivity, MatterContract, MatterFolder, MatterMember, MatterShare
+from app.jobs.models import JobRun
+from app.matters.models import (
+    Matter,
+    MatterActivity,
+    MatterContract,
+    MatterFolder,
+    MatterMember,
+    MatterShare,
+)
+from app.notices.models import Notice, NoticeDocument, NoticeEvent
+from app.notifications.models import Notification
+from app.obligations.models import Obligation, ObligationReminder
+from app.organizations.models import Organization
+from app.playbooks.models import (
+    Playbook,
+    PlaybookDecision,
+    PlaybookDeviation,
+    PlaybookRule,
+    PlaybookRun,
+    PlaybookVersion,
+)
+from app.prompt_library.models import Prompt, PromptRun
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureEvent, SignatureRecipient, SignatureRequest
 from app.tabular_review.models import (
@@ -67,15 +86,39 @@ from app.tabular_review.models import (
     TabularReviewChat,
     TabularReviewColumn,
 )
-from app.prompt_library.models import Prompt, PromptRun
+from app.walls.models import EthicalWall, EthicalWallPrincipal
 from app.workflows.models import Workflow, WorkflowRun, WorkflowStepRun
 
 __all__ = [
-    "Workflow",
-    "WorkflowRun",
-    "WorkflowStepRun",
+    "AICallLog",
+    "AICitation",
+    "AIConfirmation",
+    "AIPromptVersion",
+    "AISkillRun",
     "AdminSetting",
+    "ApiKey",
+    "ApprovalDecision",
+    "ApprovalRequest",
+    "ApprovalRoutingRule",
+    "ApprovalToken",
+    "AssistantContractHandle",
+    "AssistantMessage",
+    "AssistantRun",
+    "AssistantSession",
+    "AssistantToolCall",
+    "AuditLog",
     "AuthorityGrant",
+    "BrainQuery",
+    "ClauseExtraction",
+    "Contract",
+    "ContractEdit",
+    "ContractEmbedding",
+    "ContractFile",
+    "ContractParty",
+    "ContractShare",
+    "ContractStageHistory",
+    "ContractTextSnapshot",
+    "ContractVersion",
     "EthicalWall",
     "EthicalWallPrincipal",
     "IntakeDocument",
@@ -88,38 +131,15 @@ __all__ = [
     "IntakeTask",
     "IntakeTeam",
     "IntakeTeamMember",
-    "SanctionsListEntry",
-    "ResourceGrant",
-    "AIConfirmation",
-    "AICitation",
-    "AICallLog",
-    "AIPromptVersion",
-    "AISkillRun",
-    "ApiKey",
-    "ApprovalDecision",
-    "ApprovalRequest",
-    "ApprovalRoutingRule",
-    "ApprovalToken",
-    "AssistantContractHandle",
-    "AssistantMessage",
-    "AssistantRun",
-    "AssistantSession",
-    "AssistantToolCall",
-    "AuditLog",
-    "BrainQuery",
-    "ClauseExtraction",
-    "Contract",
-    "ContractEdit",
-    "ContractEmbedding",
-    "ContractFile",
-    "ContractParty",
-    "ContractShare",
-    "ContractStageHistory",
-    "ContractTextSnapshot",
-    "ContractVersion",
     "JobRun",
     "KnowledgeEdge",
     "KnowledgeNode",
+    "Matter",
+    "MatterActivity",
+    "MatterContract",
+    "MatterFolder",
+    "MatterMember",
+    "MatterShare",
     "Notice",
     "NoticeDocument",
     "NoticeEvent",
@@ -135,17 +155,15 @@ __all__ = [
     "PlaybookRule",
     "PlaybookRun",
     "PlaybookVersion",
-    "Matter",
-    "MatterActivity",
-    "MatterContract",
-    "MatterFolder",
-    "MatterMember",
-    "MatterShare",
+    "Prompt",
+    "PromptRun",
     "RefreshToken",
     "RenewalEvent",
     "RequestLog",
+    "ResourceGrant",
     "ResourceTimelineEvent",
     "Role",
+    "SanctionsListEntry",
     "SignatureEvent",
     "SignatureRecipient",
     "SignatureRequest",
@@ -158,6 +176,7 @@ __all__ = [
     "User",
     "UserApprovalDecision",
     "UserInvitation",
-    "Prompt",
-    "PromptRun",
+    "Workflow",
+    "WorkflowRun",
+    "WorkflowStepRun",
 ]

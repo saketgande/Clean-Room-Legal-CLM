@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
-from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_current_user, get_db
+from app.core.deps import get_current_user
 from app.core.rate_limit import limiter
+from app.word_addin.dependencies import get_word_addin_service
 from app.word_addin.schemas import LinkResponse
-from app.word_addin.service import resolve_contract_for_document
+from app.word_addin.service import WordAddinService
 
 router = APIRouter(prefix="/word", tags=["word-addin"])
 
@@ -28,11 +28,11 @@ async def link(
     request: Request,
     response: Response,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    service: WordAddinService = Depends(get_word_addin_service),
 ):
     """Auto-link the open document to a contract — match by content, else create."""
     _ = response
-    return await resolve_contract_for_document(
-        db, upload=file, user=current_user, request_id=getattr(request.state, "request_id", None)
+    return await service.resolve_contract_for_document(
+        upload=file, user=current_user, request_id=getattr(request.state, "request_id", None)
     )

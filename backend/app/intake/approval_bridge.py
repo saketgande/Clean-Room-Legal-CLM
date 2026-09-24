@@ -24,7 +24,15 @@ _PRIORITY_TO_BAND = {"critical": "critical", "high": "high", "medium": "medium",
 
 
 class IntakeApprovalSubject:
-    """An intake request driven through the approval ladder."""
+    """An intake request driven through the approval ladder.
+
+    Not part of the DI migration — this is a duck-typed adapter object
+    ``app/approvals`` reads (same protocol as Contract's subject), constructed
+    once per submission and passed around as a value. Each method takes
+    ``db`` explicitly rather than storing it, since the object outlives any
+    single call. See ``ApprovalBridgeService`` below for the db-first
+    functions that build/use it.
+    """
 
     kind = "intake_request"
     allow_fast_lane = False
@@ -204,18 +212,68 @@ class IntakeApprovalSubject:
         )
 
 
-def _type_key_for(db: Session, request: IntakeRequest) -> str | None:
-    if not request.request_type_id:
-        return None
-    rtype = db.get(IntakeRequestType, request.request_type_id)
-    return rtype.key if rtype else None
+class ApprovalBridgeService:
+    """Builds the intake approval subject and starts it through the ladder.
 
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
+    a ``db`` session; the two functions that took ``db`` first are now
+    methods. ``IntakeApprovalSubject`` above is unrelated to this class — it's
+    a value object these methods construct and hand to ``app/approvals``.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    def _type_key_for(self, request: IntakeRequest) -> str | None:
+        if not request.request_type_id:
+            return None
+        rtype = self.db.get(IntakeRequestType, request.request_type_id)
+        return rtype.key if rtype else None
+
+    def build_intake_subject(self, request_id: str, *, org_id: str) -> IntakeApprovalSubject:
+        db = self.db
+        request = db.get(IntakeRequest, request_id)
+        if request is None or request.org_id != org_id:
+            raise HTTPException(404, "Request not found")
+        return IntakeApprovalSubject(request, type_key=self._type_key_for(request))
+
+    async def submit_request_for_approval(
+        self,
+        *,
+        actor: User,
+        request: IntakeRequest,
+        approver_user_id: str | None = None,
+        approver_group_id: str | None = None,
+        approver_role: str | None = None,
+        routing_rule_id: str | None = None,
+        request_id: str | None = None,
+    ):
+        """Start the approval ladder for an intake request — the value/type/risk
+        routing rules decide the rungs (see app/approvals.resolve_chain), unless
+        ``routing_rule_id`` pins a specific route."""
+        from app.approvals.service import submit_subject_for_approval
+
+        subject = IntakeApprovalSubject(request, type_key=self._type_key_for(request))
+        return await submit_subject_for_approval(
+            self.db,
+            user=actor,
+            subject=subject,
+            approver_user_id=approver_user_id,
+            approver_group_id=approver_group_id,
+            approver_role=approver_role,
+            routing_rule_id=routing_rule_id,
+            request_id=request_id,
+        )
+
+
+# --- DI-MIGRATION: temporary wrappers ---------------------------------------
+# build_intake_subject and submit_request_for_approval are imported directly
+# (deferred) by app.approvals.service, app.approvals.routes,
+# app.workflows.service, and app.intake.service. Tracked in
+# backend/DI_MIGRATION.md.
 
 def build_intake_subject(db: Session, request_id: str, *, org_id: str) -> IntakeApprovalSubject:
-    request = db.get(IntakeRequest, request_id)
-    if request is None or request.org_id != org_id:
-        raise HTTPException(404, "Request not found")
-    return IntakeApprovalSubject(request, type_key=_type_key_for(db, request))
+    return ApprovalBridgeService(db).build_intake_subject(request_id, org_id=org_id)
 
 
 async def submit_request_for_approval(
@@ -229,16 +287,9 @@ async def submit_request_for_approval(
     routing_rule_id: str | None = None,
     request_id: str | None = None,
 ):
-    """Start the approval ladder for an intake request — the value/type/risk
-    routing rules decide the rungs (see app/approvals.resolve_chain), unless
-    ``routing_rule_id`` pins a specific route."""
-    from app.approvals.service import submit_subject_for_approval
-
-    subject = IntakeApprovalSubject(request, type_key=_type_key_for(db, request))
-    return await submit_subject_for_approval(
-        db,
-        user=actor,
-        subject=subject,
+    return await ApprovalBridgeService(db).submit_request_for_approval(
+        actor=actor,
+        request=request,
         approver_user_id=approver_user_id,
         approver_group_id=approver_group_id,
         approver_role=approver_role,
