@@ -16,6 +16,7 @@ from app.ai.schemas import (
     SkillInfo,
     TabularCellOutput,
     TabularChatOutput,
+    TabularRowOutput,
 )
 from app.ai.skill import SkillSpec
 
@@ -284,6 +285,23 @@ for registered_spec in [
         feature_flag="feature.ai.tabular_review",
         enabled_by_default=True,
         max_tokens=2048,
+    ),
+    SkillSpec(
+        name="tabular_row_extraction",
+        version="1.0.0",
+        description="Answer all of one contract's tabular-review column questions in one call, with citations.",
+        execution_mode="job",
+        prompt_key="tabular_row_extraction",
+        prompt_version="1.0.0",
+        input_model=None,
+        output_model=TabularRowOutput,
+        required_permission="assistant:use_ai_tools",
+        resource_type="contract",
+        requires_citations=True,
+        allows_mutation=False,
+        feature_flag="feature.ai.tabular_review",
+        enabled_by_default=True,
+        max_tokens=8000,
     ),
     SkillSpec(
         name="tabular_review_chat",

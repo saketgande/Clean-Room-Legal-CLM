@@ -10,7 +10,6 @@ import pytest
 from app.notices.models import REMINDER_STAGE_RANK, REMINDER_STAGES
 from app.notices.service import AT_RISK_DAYS, reminder_stage_for
 
-
 # --- thresholds ------------------------------------------------------------
 
 @pytest.mark.parametrize(

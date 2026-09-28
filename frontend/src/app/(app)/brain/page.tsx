@@ -226,7 +226,7 @@ function AnswerCard({ query }: { query: BrainQuery }) {
         <p className="qecho"><b>Q</b> · {query.question} <span className="dim">· {titleCase(query.query_scope)} scope</span></p>
         <div className="atext"><Markdown>{query.answer}</Markdown></div>
         {m.limitations ? <div className="alimit">{m.limitations}</div> : null}
-        {retrievalBits.length > 0 ? <p className="agrounded">{svg('<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/>')}Grounded in {retrievalBits.join(" · ")}{typeof m.verified_citations === "number" && m.verified_citations > 0 ? <> · <span className="v">{m.verified_citations}/{m.total_citations} verified</span></> : null}</p> : null}
+        {retrievalBits.length > 0 ? <p className="agrounded">{svg('<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/>')}{(m.verified_citations ?? 0) > 0 ? <>Grounded in {retrievalBits.join(" · ")} · <span className="v">{m.verified_citations}/{m.total_citations} verified</span></> : <>Searched {retrievalBits.join(" · ")} · no quote in this answer was verified</>}</p> : null}
       </div>
       {hasSources ? (
         <div className="sec"><div className="seclbl">{svg('<path d="M3 21c0-4 3-7 7-7"/><path d="M14 3a4 4 0 0 0-4 4v3h4"/>')}Sources · the answer is built from these</div><SourcesPanel res={sources} bare /></div>

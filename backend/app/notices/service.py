@@ -12,15 +12,17 @@ Two rules shape this module:
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
-from fastapi import HTTPException, status as http_status
+from fastapi import HTTPException
+from fastapi import status as http_status
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
+from app.core.database import utcnow
 from app.notices.models import (
     REMINDER_STAGE_RANK,
     TERMINAL_STATUSES,
@@ -42,7 +44,7 @@ def _next_ref(db: Session) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def deadline_posture(notice: Notice, *, today: date | None = None) -> tuple[str, int | None]:
@@ -54,7 +56,7 @@ def deadline_posture(notice: Notice, *, today: date | None = None) -> tuple[str,
     """
     if notice.response_due_date is None:
         return "none", None
-    today = today or date.today()
+    today = today or utcnow().date()
     days = (notice.response_due_date - today).days
     if notice.responded_at is not None or notice.status in TERMINAL_STATUSES:
         return "met", days
@@ -228,7 +230,7 @@ def list_notices(
         # Narrow in SQL to what *could* be overdue; posture still decides.
         stmt = stmt.where(
             Notice.response_due_date.is_not(None),
-            Notice.response_due_date < date.today(),
+            Notice.response_due_date < utcnow().date(),
             Notice.responded_at.is_(None),
             Notice.status.not_in(TERMINAL_STATUSES),
         )

@@ -81,7 +81,7 @@ function counterpartyOf(r: IntakeRequest): string | null {
 export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
-  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchInterval: 20_000 });
+  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" ? 3000 : 20_000) });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
   const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });

@@ -52,7 +52,7 @@ def test_offsets_index_into_the_unchanged_snapshot_text():
 
 
 def test_unlocatable_element_reports_failure_so_caller_can_degrade():
-    els, ok = build_elements(
+    _els, ok = build_elements(
         [{"type": "text", "content": "a clause that is not present in the target"}],
         TARGET,
     )

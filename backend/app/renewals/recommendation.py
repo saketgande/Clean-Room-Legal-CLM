@@ -15,6 +15,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.core.database import utcnow
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = {
@@ -38,7 +40,7 @@ _SCHEMA = {
 def _days_until(d: date | None) -> int | None:
     if not d:
         return None
-    return (d - date.today()).days
+    return (d - utcnow().date()).days
 
 
 def _facts(renewal, contract) -> list[str]:
@@ -101,7 +103,6 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract) -> dict:
         return _fallback(renewal, contract)
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     system = (
@@ -115,9 +116,9 @@ def recommend_renewal(db: Session, *, org_id: str, renewal, contract) -> dict:
         _facts(renewal, contract)
     )
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(
             lambda: ClaudeClient().complete_structured(
+                org_id=org_id,
                 system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
                 user_prompt=user,
                 tool_name="recommend_renewal",

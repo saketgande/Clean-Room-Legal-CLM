@@ -1,10 +1,12 @@
+import asyncio
+import hashlib
 import io
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
@@ -20,8 +22,11 @@ from app.contract_files.text_extraction import TextExtractionResult, extract_tex
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
+from app.core.database import utcnow
 from app.core.enums import ContractLifecycleStage, ContractVersionSource, StorageBackend
+from app.core.money import to_money
 from app.integrations.databricks import databricks_client
+from app.integrations.ocr import page_map_from_elements
 from app.integrations.reducto import reducto_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
@@ -68,8 +73,16 @@ def _sniff_mime_type(content: bytes, claimed: str) -> str:
 
     Raises HTTPException(415) on a clear mismatch.
     """
-    # text/* has no reliable magic; accept the claim.
+    # text/* has no magic, but it never contains NUL bytes — that's the same
+    # binary heuristic git and file(1) use. Without it an executable uploaded
+    # as text/plain was stored and served back as a "contract". (UTF-16 text
+    # is rejected too; extraction decodes text as UTF-8 anyway.)
     if claimed.startswith("text/"):
+        if b"\x00" in content[:8192]:
+            raise HTTPException(
+                status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                f"Uploaded file bytes are binary, not the declared {claimed} content-type.",
+            )
         return claimed
     signatures = _MAGIC_BYTE_SIGNATURES.get(claimed)
     if signatures is None:
@@ -162,6 +175,44 @@ async def _read_upload_with_limit(upload: UploadFile, *, limit: int, chunk_size:
     return bytes(buffer)
 
 
+@dataclass(frozen=True)
+class IngestedUpload:
+    filename: str
+    mime_type: str
+    content: bytes
+
+
+# For a browser that sends no (or a generic) content-type on a known extension.
+_MIME_BY_EXTENSION = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".txt": "text/plain",
+    ".md": "text/plain",
+}
+
+
+async def ingest_upload(upload: UploadFile, *, default_name: str = "document") -> IngestedUpload:
+    """The one hardened read every upload endpoint uses: the stream is cut off at
+    the size limit (a huge file never sits in memory), an empty file is refused, the
+    type must be allowed and match the bytes, and the antivirus scan runs before
+    anything is stored or parsed."""
+    filename = upload.filename or default_name
+    mime_type = upload.content_type or ""
+    if not mime_type or mime_type == "application/octet-stream":
+        extension = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
+        mime_type = _MIME_BY_EXTENSION.get(extension, "application/octet-stream")
+    content = await _read_upload_with_limit(
+        upload,
+        limit=settings.max_upload_size_bytes,
+        chunk_size=settings.upload_stream_chunk_bytes,
+    )
+    if not content:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+    mime_type = validate_upload_mime(content, mime_type)
+    await asyncio.to_thread(_scan_for_malware, content)  # network call to clamd when enabled
+    return IngestedUpload(filename=filename, mime_type=mime_type, content=content)
+
+
 INITIAL_CONTRACT_AI_JOB_TYPES = (
     "metadata_extraction",
     "clause_extraction",
@@ -204,7 +255,7 @@ def _persist_document_elements(db, snapshot: ContractTextSnapshot, *, elements: 
             )
         snapshot.structure_status = "structured"
         snapshot.element_count = len(rows)
-    except Exception:  # noqa: BLE001 — structuring is optional, must not break upload
+    except Exception:
         logging.getLogger(__name__).warning(
             "structuring snapshot %s failed; leaving flat_only",
             getattr(snapshot, "id", "?"),
@@ -248,13 +299,31 @@ def backfill_document_elements(db, *, limit: int | None = None, batch_size: int 
     return {"total": len(snapshots), "structured": structured, "skipped": skipped}
 
 
+def _ocr_providers() -> list:
+    """Configured OCR providers in preference order.
+
+    Reducto has no `enabled` flag of its own, so its key is the test. Order is
+    deliberate: Databricks returns page elements that `page_map_from_elements`
+    can turn into page citations, which Reducto does not.
+    """
+    providers = []
+    if databricks_client.enabled:
+        providers.append(databricks_client)
+    if settings.reducto_api_key:
+        providers.append(reducto_client)
+    return providers
+
+
 async def _resolve_extracted_text(
     *, content: bytes, mime_type: str, filename: str
 ) -> _ExtractedText:
     """Run native text extraction and, if the result looks too thin, fall back
     to the OCR provider. Encapsulates the messy OCR-fallback decision tree so
     the upload orchestrator stays linear."""
-    extraction: TextExtractionResult = extract_text(content, mime_type=mime_type, filename=filename)
+    # PDF/DOCX parsing is CPU-bound: run it off the event loop, or every request stalls behind it.
+    extraction: TextExtractionResult = await asyncio.to_thread(
+        extract_text, content, mime_type=mime_type, filename=filename
+    )
     if not extraction.needs_ocr:
         return _ExtractedText(
             method=extraction.method,
@@ -262,37 +331,57 @@ async def _resolve_extracted_text(
             quality_score=extraction.quality_score,
             page_map=extraction.page_map,
         )
-    # Databricks (ai_parse_document) when it is configured, Reducto otherwise.
+    # Every configured provider, best first — not just the best-configured one.
+    # "Enabled" means it has credentials, which says nothing about whether it
+    # works: this deployment's Databricks volume answers 403 to every upload,
+    # and a single-provider choice left every scanned PDF with an empty
+    # snapshot while a working Reducto key sat unused two lines away. A
+    # scanned contract that silently holds no text is the most expensive
+    # failure in this pipeline, so it is worth a second call to avoid.
     # Both return OCRResult, so nothing downstream cares which one ran.
-    ocr_client = databricks_client if databricks_client.enabled else reducto_client
-    try:
-        ocr = await ocr_client.extract_text(
-            filename=filename, mime_type=mime_type, content=content
-        )
-    except Exception as exc:
+    ocr_errors: list[str] = []
+    for ocr_client in _ocr_providers():
+        try:
+            ocr = await ocr_client.extract_text(
+                filename=filename, mime_type=mime_type, content=content
+            )
+        except Exception as exc:
+            ocr_errors.append(f"{ocr_client.provider}: {exc}")
+            continue
+        if ocr.text:
+            return _ExtractedText(
+                method=f"{ocr.provider}_ocr",
+                text=ocr.text,
+                quality_score=ocr.quality_score,
+                # NOT extraction.page_map: those offsets were measured against
+                # the native text we are about to discard. Rebuild from the OCR
+                # provider's own elements, or carry no map at all — a page
+                # citation that points into the wrong string is worse than none.
+                page_map=page_map_from_elements(ocr.text, ocr.elements),
+                ocr_provider=ocr.provider,
+                elements=ocr.elements,
+            )
+        ocr_errors.append(f"{ocr_client.provider}: returned no text")
+    if ocr_errors:
         return _ExtractedText(
             method=f"{extraction.method}_ocr_failed",
             text=extraction.text,
             quality_score=extraction.quality_score,
             page_map=extraction.page_map,
-            ocr_provider=ocr_client.provider,
-            ocr_error=str(exc),
+            ocr_provider=_ocr_providers()[0].provider if _ocr_providers() else None,
+            # Every provider's reason, not just the first: an operator looking
+            # at an empty contract needs to know whether one key is wrong or
+            # the document is genuinely unreadable.
+            ocr_error="; ".join(ocr_errors),
         )
-    if ocr.text:
-        return _ExtractedText(
-            method=f"{ocr.provider}_ocr",
-            text=ocr.text,
-            quality_score=ocr.quality_score,
-            page_map=extraction.page_map,
-            ocr_provider=ocr.provider,
-            elements=ocr.elements,
-        )
+    # No provider is configured at all, so OCR did not fail — it never ran.
+    # Keep the native result unlabelled rather than reporting a broken key
+    # that does not exist.
     return _ExtractedText(
         method=extraction.method,
         text=extraction.text,
         quality_score=extraction.quality_score,
         page_map=extraction.page_map,
-        ocr_provider=ocr.provider,
     )
 
 
@@ -333,7 +422,7 @@ async def _fill_contract_metadata(db, *, contract, filename: str, content: bytes
         contract.contract_type = _confident("agreement_type")
     if contract.value_amount is None:
         value = _confident("total_value")
-        contract.value_amount = float(value) if isinstance(value, (int, float)) else None
+        contract.value_amount = to_money(value) if isinstance(value, (int, float)) else None
     if not contract.currency:
         contract.currency = _confident("currency")
     for attr, key in (("effective_date", "effective_date"), ("expiration_date", "end_date")):
@@ -379,8 +468,8 @@ def _persist_intake_records(
     title: str | None,
     counterparty_name: str | None,
     contract_type: str | None,
-    extracted: _ExtractedText,
-) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot]:
+    extracted: _ExtractedText | None,
+) -> tuple[StorageObject, Contract, ContractFile, ContractVersion, ContractTextSnapshot | None]:
     """Create the storage object → contract → file → version → text snapshot
     chain in one place. Returns the persisted instances so the caller can
     keep wiring them together without re-reading the DB."""
@@ -436,6 +525,21 @@ def _persist_intake_records(
     db.add(version)
     db.flush()
 
+    # A deferred upload has no text yet: process_uploaded_document adds the snapshot.
+    snapshot = (
+        _persist_text_snapshot(db, user=user, contract=contract, version=version, extracted=extracted)
+        if extracted is not None
+        else None
+    )
+    contract_file.current_version_id = version.id
+    contract.current_contract_file_id = contract_file.id
+    contract.current_authoritative_version_id = version.id
+    return storage_object, contract, contract_file, version, snapshot
+
+
+def _persist_text_snapshot(
+    db: Session, *, user: User, contract: Contract, version: ContractVersion, extracted: _ExtractedText
+) -> ContractTextSnapshot:
     snapshot = ContractTextSnapshot(
         org_id=user.org_id,
         contract_id=contract.id,
@@ -452,12 +556,8 @@ def _persist_intake_records(
     db.add(snapshot)
     db.flush()
     _persist_document_elements(db, snapshot, elements=extracted.elements)
-
     version.text_snapshot_id = snapshot.id
-    contract_file.current_version_id = version.id
-    contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = version.id
-    return storage_object, contract, contract_file, version, snapshot
+    return snapshot
 
 
 def _dispatch_initial_jobs(
@@ -498,6 +598,111 @@ def _dispatch_initial_jobs(
     return dispatched, errors
 
 
+def _advance_upload_to_review(db: Session, *, contract: Contract, user: User, request_id: str | None) -> None:
+    """An uploaded document is a real contract in flight, not a blank "intake"
+    request you're about to draft, so send it straight to REVIEW, where the actual
+    work (AI analysis, redlines, comments) happens. The Review stage-entry trigger
+    won't re-dispatch analysis jobs already dispatched (celery_task_id guard in
+    stage_triggers). Best-effort: a hiccup here must never fail the upload."""
+    try:
+        from app.contracts.lifecycle import transition_contract_stage
+
+        transition_contract_stage(
+            db,
+            contract=contract,
+            to_stage=ContractLifecycleStage.REVIEW,
+            actor_user_id=user.id,
+            reason="Uploaded document — moved to review automatically",
+            request_id=request_id,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("auto-advance to review failed for contract %s", contract.id, exc_info=True)
+
+
+def _recent_duplicate_upload(db: Session, *, user: User, content: bytes) -> dict | None:
+    """The same person sending the same file again within a few minutes is a retry
+    (a cut connection, a double click): hand back the contract already created."""
+    digest = hashlib.sha256(content).hexdigest()
+    version = db.scalar(
+        select(ContractVersion)
+        .join(StorageObject, StorageObject.id == ContractVersion.storage_object_id)
+        .where(
+            StorageObject.org_id == user.org_id,
+            StorageObject.created_by_user_id == user.id,
+            StorageObject.sha256_hash == digest,
+            StorageObject.created_at >= utcnow() - timedelta(minutes=10),
+            ContractVersion.source == ContractVersionSource.UPLOAD,
+            ContractVersion.deleted_at.is_(None),
+        )
+        .order_by(StorageObject.created_at.desc())
+        .limit(1)
+    )
+    if version is None:
+        return None
+    contract = db.get(Contract, version.contract_id)
+    if contract is None or contract.deleted_at is not None:
+        return None
+    snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+    return {
+        "contract": contract,
+        "contract_file_id": version.contract_file_id,
+        "contract_version_id": version.id,
+        "text_snapshot_id": version.text_snapshot_id,
+        "extraction_method": snapshot.extraction_method if snapshot else "pending",
+        "extraction_quality_score": snapshot.extraction_quality_score if snapshot else 0.0,
+        "queued_jobs": [],
+        "dispatch_errors": [],
+    }
+
+
+async def process_uploaded_document(db: Session, *, job: JobRun) -> dict:
+    """The background half of an HTTP upload: extract the text (OCR when needed),
+    fill the metadata, queue the AI analysis and move the contract into Review.
+    Safe to re-run: a version that already has its text is left alone."""
+    version = db.get(ContractVersion, (job.metadata_json or {}).get("contract_version_id"))
+    if version is None:
+        raise RuntimeError("Contract version not found for text extraction")
+    if version.text_snapshot_id:
+        return {"text_snapshot_id": version.text_snapshot_id, "already_processed": True}
+    contract = db.get(Contract, version.contract_id)
+    storage_object = db.get(StorageObject, version.storage_object_id)
+    user = db.get(User, job.created_by_user_id) if job.created_by_user_id else None
+    if contract is None or storage_object is None or user is None:
+        raise RuntimeError("Upload records missing for text extraction")
+
+    content = await asyncio.to_thread(storage_service.read_bytes, storage_object.storage_key)
+    extracted = await _resolve_extracted_text(
+        content=content, mime_type=storage_object.mime_type, filename=storage_object.filename
+    )
+    snapshot = _persist_text_snapshot(db, user=user, contract=contract, version=version, extracted=extracted)
+    await _fill_contract_metadata(db, contract=contract, filename=storage_object.filename, content=content)
+    queued_jobs = _queue_initial_contract_jobs(db, user=user, contract=contract, version=version, snapshot=snapshot)
+    details = {
+        "extraction_method": extracted.method,
+        "extraction_quality_score": extracted.quality_score,
+        "validation_status": snapshot.validation_status,
+    }
+    if extracted.ocr_error:
+        details["ocr_error"] = extracted.ocr_error
+    write_timeline_event(
+        db,
+        org_id=contract.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.text_extracted",
+        title="Document text extracted",
+        actor_user_id=user.id,
+        details=details,
+    )
+    db.commit()
+    _dispatch_initial_jobs(db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=None)
+    if contract.lifecycle_stage == ContractLifecycleStage.INTAKE:
+        _advance_upload_to_review(db, contract=contract, user=user, request_id=None)
+    return {"text_snapshot_id": snapshot.id, "extraction_method": extracted.method}
+
+
 async def create_contract_from_upload(
     db: Session,
     *,
@@ -508,6 +713,7 @@ async def create_contract_from_upload(
     counterparty_name: str | None = None,
     contract_type: str | None = None,
     request_id: str | None = None,
+    defer_processing: bool = False,
 ) -> dict:
     """Orchestrate a contract intake: validate, store, extract text, persist
     rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
@@ -518,28 +724,29 @@ async def create_contract_from_upload(
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
         )
-    content = await _read_upload_with_limit(
-        upload,
-        limit=settings.max_upload_size_bytes,
-        chunk_size=settings.upload_stream_chunk_bytes,
-    )
-    # Re-verify MIME against actual bytes — client content-type is untrusted.
-    mime_type = _sniff_mime_type(content, mime_type)
-    # Optional antivirus scan (no-op unless settings.enable_clamav). Runs before
-    # we persist any bytes so an infected upload never lands in storage.
-    _scan_for_malware(content)
+    ingested = await ingest_upload(upload, default_name="contract")
+    content, mime_type = ingested.content, ingested.mime_type
     if matter_id:
         get_project_for_user(db, matter_id=matter_id, user=user, access="update")
+    if defer_processing:
+        duplicate = _recent_duplicate_upload(db, user=user, content=content)
+        if duplicate is not None:
+            return duplicate
 
-    stored = storage_service.save_bytes(
+    stored = await asyncio.to_thread(
+        storage_service.save_bytes,
         org_id=user.org_id,
         filename=upload.filename or "contract",
         mime_type=mime_type,
         content=content,
     )
     try:
-        extracted = await _resolve_extracted_text(
-            content=content, mime_type=mime_type, filename=stored.filename
+        # Deferred (the HTTP upload): extraction, OCR and metadata run in a background
+        # job, so the request returns in seconds instead of timing out.
+        extracted = (
+            None
+            if defer_processing
+            else await _resolve_extracted_text(content=content, mime_type=mime_type, filename=stored.filename)
         )
         storage_object, contract, contract_file, version, snapshot = _persist_intake_records(
             db,
@@ -563,12 +770,26 @@ async def create_contract_from_upload(
             )
         # Read the key terms off the document and fill the blanks on the
         # contract row. Never overwrites a value a human supplied.
-        await _fill_contract_metadata(
-            db, contract=contract, filename=stored.filename, content=content
-        )
-        queued_jobs = _queue_initial_contract_jobs(
-            db, user=user, contract=contract, version=version, snapshot=snapshot
-        )
+        if defer_processing:
+            queued_jobs = [
+                create_job(
+                    db,
+                    org_id=user.org_id,
+                    job_type="document_text_extraction",
+                    resource_type="contract",
+                    resource_id=contract.id,
+                    created_by_user_id=user.id,
+                    idempotency_key=f"document_text_extraction:{version.id}",
+                    metadata={"contract_version_id": version.id},
+                )
+            ]
+        else:
+            await _fill_contract_metadata(
+                db, contract=contract, filename=stored.filename, content=content
+            )
+            queued_jobs = _queue_initial_contract_jobs(
+                db, user=user, contract=contract, version=version, snapshot=snapshot
+            )
         write_audit_log(
             db,
             action="contract.uploaded",
@@ -583,15 +804,17 @@ async def create_contract_from_upload(
                 "storage_object_id": storage_object.id,
             },
         )
-        timeline_details: dict = {
-            "filename": stored.filename,
-            "mime_type": mime_type,
-            "extraction_method": extracted.method,
-            "extraction_quality_score": extracted.quality_score,
-            "validation_status": snapshot.validation_status,
-        }
-        if extracted.ocr_error:
-            timeline_details["ocr_error"] = extracted.ocr_error
+        timeline_details: dict = {"filename": stored.filename, "mime_type": mime_type}
+        if extracted is not None:
+            timeline_details.update(
+                extraction_method=extracted.method,
+                extraction_quality_score=extracted.quality_score,
+                validation_status=snapshot.validation_status,
+            )
+            if extracted.ocr_error:
+                timeline_details["ocr_error"] = extracted.ocr_error
+        else:
+            timeline_details["text_extraction"] = "queued"
         write_timeline_event(
             db,
             org_id=user.org_id,
@@ -615,40 +838,17 @@ async def create_contract_from_upload(
         db, queued_jobs=queued_jobs, user=user, contract=contract, request_id=request_id
     )
 
-    # An uploaded document is a real contract in flight, not a blank "intake"
-    # request you're about to draft — so send it straight to REVIEW, where the
-    # actual work (AI analysis, redlines, comments) happens. Without this, every
-    # upload (web AND Word add-in) sits in intake until someone manually clicks
-    # through. The Review stage-entry trigger won't re-dispatch the analysis
-    # jobs we just queued above (celery_task_id guard in stage_triggers). This
-    # is best-effort: a hiccup here must never fail the upload itself.
-    try:
-        from app.contracts.lifecycle import transition_contract_stage
-        from app.core.enums import ContractLifecycleStage
-
-        transition_contract_stage(
-            db,
-            contract=contract,
-            to_stage=ContractLifecycleStage.REVIEW,
-            actor_user_id=user.id,
-            reason="Uploaded document — moved to review automatically",
-            request_id=request_id,
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.warning(
-            "auto-advance to review failed for contract %s", contract.id, exc_info=True
-        )
+    if not defer_processing:
+        _advance_upload_to_review(db, contract=contract, user=user, request_id=request_id)
 
     db.refresh(contract)
     return {
         "contract": contract,
         "contract_file_id": contract_file.id,
         "contract_version_id": version.id,
-        "text_snapshot_id": snapshot.id,
-        "extraction_method": extracted.method,
-        "extraction_quality_score": extracted.quality_score,
+        "text_snapshot_id": snapshot.id if snapshot else None,
+        "extraction_method": extracted.method if extracted else "pending",
+        "extraction_quality_score": extracted.quality_score if extracted else 0.0,
         "queued_jobs": [job.job_type for job in queued_jobs],
         # Surface dispatch errors so the API client can detect a partial
         # success (intake landed; one or more AI jobs failed to enqueue).
@@ -811,6 +1011,31 @@ def _resolve_contract_file(db: Session, *, contract: Contract, org_id: str) -> C
     return contract_file
 
 
+def promote_version(db: Session, *, contract: Contract, version: ContractVersion, actor_user_id: str | None) -> None:
+    """Make ``version`` the contract's one authoritative version.
+
+    Demote the others and flush FIRST: the database allows a single authoritative
+    version per contract (uq_contract_version_authoritative), so promoting before
+    demoting is rejected.
+    """
+    db.execute(
+        update(ContractVersion)
+        .where(
+            ContractVersion.contract_id == contract.id,
+            ContractVersion.id != version.id,
+            ContractVersion.is_authoritative.is_(True),
+        )
+        .values(is_authoritative=False, updated_by_user_id=actor_user_id)
+        .execution_options(synchronize_session="fetch")
+    )
+    db.flush()
+    version.is_authoritative = True
+    version.updated_by_user_id = actor_user_id
+    db.flush()
+    contract.current_authoritative_version_id = version.id
+    contract.updated_by_user_id = actor_user_id
+
+
 async def add_version_from_upload(
     db: Session,
     *,
@@ -833,17 +1058,13 @@ async def add_version_from_upload(
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, f"Unsupported MIME type: {mime_type}"
         )
-    content = await _read_upload_with_limit(
-        upload,
-        limit=settings.max_upload_size_bytes,
-        chunk_size=settings.upload_stream_chunk_bytes,
-    )
-    mime_type = _sniff_mime_type(content, mime_type)
-    _scan_for_malware(content)
+    ingested = await ingest_upload(upload, default_name="contract.docx")
+    content, mime_type = ingested.content, ingested.mime_type
 
     contract_file = _resolve_contract_file(db, contract=contract, org_id=user.org_id)
 
-    stored = storage_service.save_bytes(
+    stored = await asyncio.to_thread(
+        storage_service.save_bytes,
         org_id=user.org_id,
         filename=upload.filename or "contract.docx",
         mime_type=mime_type,
@@ -875,7 +1096,7 @@ async def add_version_from_upload(
             storage_object_id=storage_object.id,
             source=source,
             change_summary=change_summary or "New version uploaded from Word",
-            is_authoritative=True,
+            is_authoritative=False,  # promoted below, once the current one is demoted
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -902,23 +1123,10 @@ async def add_version_from_upload(
         _persist_document_elements(db, snapshot, elements=extracted.elements)
         version.text_snapshot_id = snapshot.id
 
-        # Promote the new version to authoritative; demote the rest (mirrors
-        # restore_contract_version / accept_contract_edit).
-        existing_versions = db.scalars(
-            select(ContractVersion).where(
-                ContractVersion.org_id == user.org_id,
-                ContractVersion.contract_id == contract.id,
-                ContractVersion.deleted_at.is_(None),
-            )
-        ).all()
-        for row in existing_versions:
-            row.is_authoritative = row.id == version.id
-            row.updated_by_user_id = user.id
+        promote_version(db, contract=contract, version=version, actor_user_id=user.id)
         contract_file.current_version_id = version.id
         contract_file.updated_by_user_id = user.id
         contract.current_contract_file_id = contract_file.id
-        contract.current_authoritative_version_id = version.id
-        contract.updated_by_user_id = user.id
 
         write_audit_log(
             db,

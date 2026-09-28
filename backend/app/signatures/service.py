@@ -14,6 +14,7 @@ from app.contract_files.models import (
 )
 from app.contract_files.service import (
     next_version_number,
+    promote_version,
     queue_activation_ai_jobs,
     requeue_contract_ai_jobs,
 )
@@ -104,7 +105,7 @@ def _create_signed_version(
             if artifact_is_executed
             else "Signature completion record (executed copy not downloaded)"
         ),
-        is_authoritative=True,
+        is_authoritative=False,  # promoted below, once the current one is demoted
         created_by_user_id=user.id,
         updated_by_user_id=user.id,
     )
@@ -132,21 +133,10 @@ def _create_signed_version(
         db.add(snapshot)
         db.flush()
         signed.text_snapshot_id = snapshot.id
-    versions = db.scalars(
-        select(ContractVersion).where(
-            ContractVersion.org_id == user.org_id,
-            ContractVersion.contract_id == contract.id,
-            ContractVersion.deleted_at.is_(None),
-        )
-    ).all()
-    for row in versions:
-        row.is_authoritative = row.id == signed.id
-        row.updated_by_user_id = user.id
+    promote_version(db, contract=contract, version=signed, actor_user_id=user.id)
     contract_file.current_version_id = signed.id
     contract_file.updated_by_user_id = user.id
     contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = signed.id
-    contract.updated_by_user_id = user.id
     return signed
 
 

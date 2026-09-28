@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Numeric, String, Text
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -34,7 +34,7 @@ class AuthorityGrant(
     principal_type = Column(String(40), index=True, nullable=False)  # 'user' | 'role'
     principal_id = Column(String(36), index=True, nullable=False)
     action = Column(String(60), index=True, nullable=False)  # 'contract:approve' | 'contract:sign'
-    max_value = Column(Float, nullable=True)  # NULL = unlimited
+    max_value = Column(Numeric(18, 2), nullable=True)  # NULL = unlimited; exact money
     currency = Column(String(3), nullable=True)
     allowed_contract_types = Column(JSON, nullable=True)  # list[str]; NULL/[] = any
     allowed_jurisdictions = Column(JSON, nullable=True)  # list[str]; NULL/[] = any

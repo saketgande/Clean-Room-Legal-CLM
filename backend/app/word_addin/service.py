@@ -3,7 +3,6 @@ import logging
 
 from fastapi import UploadFile
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from app.contract_files.models import ContractVersion, StorageObject
 from app.contract_files.service import _read_upload_with_limit, create_contract_from_upload

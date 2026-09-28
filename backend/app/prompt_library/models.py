@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import JSON, Column, ForeignKey, Integer, String, Text
 
 from app.core.database import (
     ActorTrackedMixin,

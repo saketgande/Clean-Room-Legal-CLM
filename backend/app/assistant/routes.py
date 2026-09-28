@@ -41,7 +41,8 @@ class AssistantSessionCreate(BaseModel):
 
 
 class AssistantStreamRequest(BaseModel):
-    message: str = Field(min_length=1)
+    # Same reason as BrainAskRequest.question: this is prompt input.
+    message: str = Field(min_length=1, max_length=8000)
     contract_ids: list[str] = Field(default_factory=list)
     matter_id: str | None = None
     resume_run_id: str | None = None

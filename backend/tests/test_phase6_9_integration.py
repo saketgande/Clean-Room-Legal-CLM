@@ -71,7 +71,7 @@ def test_later_phase_routes_reuse_contract_and_project_access_checks():
     assert "get_contract_for_user" in combined
     assert "accessible_contract_filter(current_user)" in combined
     assert "_review_is_accessible" in combined
-    assert "_can_view_brain_query" in combined
+    assert "_visible_brain_queries" in combined
 
 
 def test_approval_decisions_are_assignment_limited():

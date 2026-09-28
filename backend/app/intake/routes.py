@@ -1,9 +1,13 @@
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_db, require_permission
+from app.core.rate_limit import limiter
 from app.intake import copilot as copilot_mod
+from app.intake import drafts as drafts_mod
 from app.intake import routing as routing_mod
 from app.intake import service
 from app.intake import teams as teams_mod
@@ -12,6 +16,8 @@ from app.intake.schemas import (
     CopilotFileRequest,
     CopilotTurnRequest,
     CopilotTurnResponse,
+    DraftResponse,
+    DraftSave,
     HandoffCreate,
     HandoffResponse,
     KbCreate,
@@ -92,6 +98,31 @@ def delete_request_type(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+# ---- drafts (agreement wizard "Save as Draft") ------------------------------
+# Private to whoever saved them; anyone who may file a request may keep drafts.
+
+@router.get("/drafts", response_model=list[DraftResponse])
+def list_drafts(db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    return drafts_mod.list_mine(db, actor=current_user)
+
+
+@router.post("/drafts", response_model=DraftResponse, status_code=status.HTTP_201_CREATED)
+def create_draft(payload: DraftSave, db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    return drafts_mod.save(db, actor=current_user, payload=payload)
+
+
+@router.put("/drafts/{draft_id}", response_model=DraftResponse)
+def update_draft(draft_id: str, payload: DraftSave, db: Session = Depends(get_db),
+                 current_user=Depends(_CREATE)):
+    return drafts_mod.save(db, actor=current_user, payload=payload, draft_id=draft_id)
+
+
+@router.delete("/drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_draft(draft_id: str, db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    drafts_mod.delete(db, actor=current_user, draft_id=draft_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 # ---- requests -------------------------------------------------------------
 
 @router.post("/requests", response_model=RequestResponse, status_code=status.HTTP_201_CREATED)
@@ -102,7 +133,8 @@ def create_request(
     current_user=Depends(_CREATE),
 ):
     return service.create_request(
-        db, actor=current_user, payload=payload, request_id=_req_id(request)
+        db, actor=current_user, payload=payload, request_id=_req_id(request),
+        defer_triage=True,  # AI triage, screening and workflow autostart run in a background job
     )
 
 
@@ -517,6 +549,7 @@ from app.intake import screening as screening_mod
 
 
 @router.post("/email-webhook", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.rate_limit_intake_webhook)
 def email_webhook(
     request: Request,
     payload: dict = Body(...),
@@ -524,8 +557,14 @@ def email_webhook(
     db: Session = Depends(get_db),
 ):
     """Inbound email → intake request. curl-demoable:
-    {from_email, subject, body, external_message_id}."""
-    ingest_mod.rate_limit(f"email:{request.client.host if request.client else 'x'}")
+    {from_email, subject, body, external_message_id}.
+
+    The shared secret authenticates the *relay*, not the sender: `from_email`
+    is still whatever the message claimed. A relay that wants the request
+    attributed to that address must forward the receiving server's
+    `authentication_results` header with it; without one the sender is treated
+    as unverified and the request files under the fallback owner.
+    """
     ingest_mod.check_webhook_secret(x_intake_secret)
     ext = str(payload.get("external_message_id") or "").strip()
     if not ext:
@@ -537,18 +576,20 @@ def email_webhook(
         subject=str(payload.get("subject") or ""),
         body=str(payload.get("body") or ""),
         external_message_id=ext,
+        auth_results=(payload.get("authentication_results") or None),
     )
 
 
 @router.post("/teams-webhook")
+@limiter.limit(settings.rate_limit_intake_webhook)
 async def teams_webhook(request: Request, db: Session = Depends(get_db)):
     """Microsoft Teams outgoing-webhook bot (HMAC-verified)."""
     raw = await request.body()
-    ingest_mod.rate_limit(f"teams:{request.client.host if request.client else 'x'}")
     ingest_mod.verify_teams_hmac(raw, request.headers.get("authorization"))
     import json as _json
     activity = _json.loads(raw or b"{}")
-    return ingest_mod.handle_teams_activity(db, activity)
+    # Handling the activity files a request (AI triage): blocking work, so off the event loop.
+    return await run_in_threadpool(ingest_mod.handle_teams_activity, db, activity)
 
 
 @router.post("/mailbox/poll")

@@ -17,7 +17,6 @@ The shape seeded:
 import uuid
 
 import pytest
-
 from sqlalchemy import text
 
 from app.contract_brain.models import KnowledgeEdge, KnowledgeNode
@@ -71,7 +70,7 @@ def graph():
     exp = {"msa": soon}                           # only the master expires soon
     ids = {c: str(uuid.uuid4()) for c in ("c1", "c2", "c3", "sow", "msa")}
     for c, cid in ids.items():
-        db.add(Contract(id=cid, org_id=org, title=f"TRAVERSAL_TEST_{c}",
+        db.add(Contract(id=cid, org_id=org, title=f"TRAVERSAL_TEST_{c}", lifecycle_stage="active",
                         owner_user_id=owner_id, expiration_date=exp.get(c, far)))
         contract_ids_made.append(cid)
     db.flush()
@@ -127,7 +126,7 @@ def graph():
 class TestSharedEntityLinks:
     def test_finds_other_contracts_sharing_a_counterparty(self, graph):
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         party = [f for f in facts if f["entity_type"] == "party"]
         assert len(party) == 1
         assert party[0]["shared_with_count"] == 1          # only c2 also touches Contoso
@@ -136,7 +135,7 @@ class TestSharedEntityLinks:
 
     def test_finds_other_contracts_sharing_a_rule_with_severity(self, graph):
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         rule = [f for f in facts if f["entity_type"] == "playbook_rule"]
         assert len(rule) == 1
         assert rule[0]["shared_with_count"] == 1           # c3 also breaks it
@@ -146,7 +145,7 @@ class TestSharedEntityLinks:
     def test_finds_other_contracts_a_person_touched(self, graph):
         """The people dimension: 'which other contracts did this signer sign'."""
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         person = [f for f in facts if f["entity_type"] == "person"]
         assert len(person) == 1
         assert person[0]["shared_with_count"] == 1          # c2 shares the signer
@@ -156,7 +155,7 @@ class TestSharedEntityLinks:
     def test_finds_other_contracts_under_the_same_law(self, graph):
         """The jurisdiction dimension: 'what else is under Delaware law'."""
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         juris = [f for f in facts if f["entity_type"] == "jurisdiction"]
         assert len(juris) == 1
         assert ids["c3"] in juris[0]["contract_ids"]
@@ -164,7 +163,7 @@ class TestSharedEntityLinks:
 
     def test_excludes_the_asking_contract_itself(self, graph):
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         for f in facts:
             assert ids["c1"] not in f["contract_ids"]
 
@@ -172,7 +171,7 @@ class TestSharedEntityLinks:
         """c2 shares the party and the signer with c1, but NOT the rule
         (c2 never deviated from it). So the rule must not appear."""
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c2"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c2"]], accessible_ids=set(ids.values()))
         types = {f["entity_type"] for f in facts}
         assert types == {"party", "person"}
         assert "playbook_rule" not in types
@@ -180,13 +179,13 @@ class TestSharedEntityLinks:
     def test_ranked_by_breadth(self, graph):
         """More widely shared entities come first."""
         db, org, ids = graph
-        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         counts = [f["shared_with_count"] for f in facts]
         assert counts == sorted(counts, reverse=True)
 
     def test_empty_scope_returns_nothing(self, graph):
         db, org, _ = graph
-        assert shared_entity_links(db, org_id=org, contract_ids=[]) == []
+        assert shared_entity_links(db, org_id=org, contract_ids=[], accessible_ids=set()) == []
 
 
 class TestCohort:
@@ -195,7 +194,7 @@ class TestCohort:
         jurisdiction (c3). c2 shares party + signer = 2 entities, one of them
         high-signal, so it qualifies as a cohort member."""
         db, org, ids = graph
-        facts = cohort_facts(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = cohort_facts(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         members = {f["contract_id"]: f for f in facts}
         assert ids["c2"] in members
         assert members[ids["c2"]]["shared_count"] >= 2
@@ -206,19 +205,19 @@ class TestCohort:
         and the jurisdiction with c1, so it qualifies via jurisdiction; a
         rule-only contract would not."""
         db, org, ids = graph
-        facts = cohort_facts(db, org_id=org, contract_ids=[ids["c1"]])
+        facts = cohort_facts(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values()))
         for f in facts:
             assert f["high_signal_count"] >= 1          # every member has a real signal
 
     def test_empty_scope_returns_nothing(self, graph):
         db, org, _ = graph
-        assert cohort_facts(db, org_id=org, contract_ids=[]) == []
+        assert cohort_facts(db, org_id=org, contract_ids=[], accessible_ids=set()) == []
 
 
 class TestTemporal:
     def test_expiring_contract_is_flagged(self, graph):
         db, org, ids = graph
-        facts = temporal_facts(db, org_id=org, contract_ids=[ids["msa"]])
+        facts = temporal_facts(db, org_id=org, contract_ids=[ids["msa"]], accessible_ids=set(ids.values()))
         expiring = [f for f in facts if f["kind"] == "expiring"]
         assert len(expiring) == 1
         assert "expires" in expiring[0]["fact"]
@@ -227,7 +226,7 @@ class TestTemporal:
         """The graph-native temporal fact: the MSA expires soon and the SoW
         that is governed_by it is named as affected."""
         db, org, ids = graph
-        facts = temporal_facts(db, org_id=org, contract_ids=[ids["msa"]])
+        facts = temporal_facts(db, org_id=org, contract_ids=[ids["msa"]], accessible_ids=set(ids.values()))
         cascade = [f for f in facts if f["kind"] == "cascade"]
         assert len(cascade) == 1
         assert "RENEWAL CASCADE" in cascade[0]["fact"]
@@ -236,17 +235,17 @@ class TestTemporal:
     def test_a_contract_far_from_expiry_has_no_temporal_facts(self, graph):
         db, org, ids = graph
         # c1 expires far out and has no dependents
-        assert temporal_facts(db, org_id=org, contract_ids=[ids["c1"]]) == []
+        assert temporal_facts(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values())) == []
 
     def test_empty_scope_returns_nothing(self, graph):
         db, org, _ = graph
-        assert temporal_facts(db, org_id=org, contract_ids=[]) == []
+        assert temporal_facts(db, org_id=org, contract_ids=[], accessible_ids=set()) == []
 
 
 class TestLineageFacts:
     def test_upward_from_the_child(self, graph):
         db, org, ids = graph
-        facts = lineage_facts(db, org_id=org, contract_ids=[ids["sow"]])
+        facts = lineage_facts(db, org_id=org, contract_ids=[ids["sow"]], accessible_ids=set(ids.values()))
         parent = [f for f in facts if f["direction"] == "parent"]
         assert len(parent) == 1
         assert "governed by" in parent[0]["fact"]
@@ -254,15 +253,46 @@ class TestLineageFacts:
 
     def test_downward_from_the_parent(self, graph):
         db, org, ids = graph
-        facts = lineage_facts(db, org_id=org, contract_ids=[ids["msa"]])
+        facts = lineage_facts(db, org_id=org, contract_ids=[ids["msa"]], accessible_ids=set(ids.values()))
         child = [f for f in facts if f["direction"] == "child"]
         assert len(child) == 1
         assert "affected if it is amended or terminated" in child[0]["fact"]
 
     def test_a_contract_with_no_lineage_gets_nothing(self, graph):
         db, org, ids = graph
-        assert lineage_facts(db, org_id=org, contract_ids=[ids["c1"]]) == []
+        assert lineage_facts(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=set(ids.values())) == []
 
     def test_empty_scope_returns_nothing(self, graph):
         db, org, _ = graph
-        assert lineage_facts(db, org_id=org, contract_ids=[]) == []
+        assert lineage_facts(db, org_id=org, contract_ids=[], accessible_ids=set()) == []
+
+
+class TestAccessBoundary:
+    """AUTH-02: traversal reaches OTHER contracts by design, so it must never name
+    one outside the user's accessible set (walls, clearance)."""
+
+    def test_shared_entities_skip_contracts_the_user_cannot_open(self, graph):
+        db, org, ids = graph
+        visible = set(ids.values()) - {ids["c2"]}
+        facts = shared_entity_links(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=visible)
+        assert facts, "c3 is still visible, so the rule and jurisdiction links remain"
+        for f in facts:
+            assert ids["c2"] not in f["contract_ids"]
+            assert "TRAVERSAL_TEST_c2" not in f["fact"]
+
+    def test_cohort_skips_contracts_the_user_cannot_open(self, graph):
+        db, org, ids = graph
+        visible = set(ids.values()) - {ids["c2"]}
+        facts = cohort_facts(db, org_id=org, contract_ids=[ids["c1"]], accessible_ids=visible)
+        assert all(f["contract_id"] != ids["c2"] for f in facts)
+
+    def test_lineage_hides_a_parent_the_user_cannot_open(self, graph):
+        db, org, ids = graph
+        visible = set(ids.values()) - {ids["msa"]}
+        assert lineage_facts(db, org_id=org, contract_ids=[ids["sow"]], accessible_ids=visible) == []
+
+    def test_renewal_cascade_hides_dependents_the_user_cannot_open(self, graph):
+        db, org, ids = graph
+        visible = set(ids.values()) - {ids["sow"]}
+        facts = temporal_facts(db, org_id=org, contract_ids=[ids["msa"]], accessible_ids=visible)
+        assert not [f for f in facts if f["kind"] == "cascade"]

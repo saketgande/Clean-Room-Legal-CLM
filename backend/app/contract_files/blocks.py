@@ -106,15 +106,16 @@ def split_blocks(text: str | None) -> list[Block]:
 
 def anchor_quote(blocks: list[Block], quote: str | None) -> str | None:
     """Resolve a (possibly paraphrased) quote to the block it belongs to.
-    Verbatim containment first; else best token-Jaccard block above a 0.5 floor
-    so an unrelated clause never silently absorbs the edit. None == no credible
-    block; the caller should fall back rather than guess."""
+    Verbatim containment first; else the block with the best token-overlap score
+    (shared words over the smaller word set) above a 0.6 floor, so an unrelated
+    clause never silently absorbs the edit. None == no credible block, or several
+    equally credible ones (repeated text): the caller should fall back, not guess."""
     needle = _norm(quote or "")
     if not needle:
         return None
-    for b in blocks:
-        if needle in _norm(b.text):
-            return b.id
+    containing = [b.id for b in blocks if needle in _norm(b.text)]
+    if containing:
+        return containing[0] if len(containing) == 1 else None
     nt = _tokens(quote or "")
     if not nt:
         return None
@@ -122,15 +123,13 @@ def anchor_quote(blocks: list[Block], quote: str | None) -> str | None:
     # usually longer than the quote, and Jaccard would punish that length even
     # when every quote word is present. Floor at 0.6 so an unrelated clause
     # sharing a few stopwords never absorbs the edit.
-    best: tuple[str, float] | None = None
+    scores = []
     for b in blocks:
         bt = _tokens(b.text)
-        inter = len(nt & bt)
-        score = inter / min(len(nt), len(bt)) if bt else 0.0
-        if best is None or score > best[1]:
-            best = (b.id, score)
-    return best[0] if best and best[1] >= 0.6 else None
-
+        scores.append((len(nt & bt) / min(len(nt), len(bt)) if bt else 0.0, b.id))
+    best = max((score for score, _ in scores), default=0.0)
+    top = [block_id for score, block_id in scores if score == best]
+    return top[0] if best >= 0.6 and len(top) == 1 else None
 
 def block_by_id(blocks: list[Block], block_id: str | None) -> Block | None:
     if not block_id:
@@ -139,3 +138,46 @@ def block_by_id(blocks: list[Block], block_id: str | None) -> Block | None:
         if b.id == block_id:
             return b
     return None
+
+
+def find_phrase(text: str, phrase: str) -> tuple[int, int] | None:
+    """Exact span of `phrase` in `text`, tolerating whitespace/case differences."""
+    if not phrase or not text:
+        return None
+    normalized = re.escape(" ".join(phrase.split()))
+    pattern = re.compile(normalized.replace(r"\ ", r"\s+"), flags=re.IGNORECASE)
+    match = pattern.search(text)
+    return (match.start(), match.end()) if match else None
+
+
+def align_phrase(text: str, phrase: str, threshold: float = 82.0) -> tuple[int, int] | None:
+    """Fuzzy fallback for find_phrase: LLMs paraphrase the clause they quote
+    (drop a word, tweak punctuation), so an exact search misses even when the
+    clause is genuinely there. Align the quote to the best-matching real span so
+    the caller anchors to actual document text instead of guessing."""
+    if not phrase or not text:
+        return None
+    try:
+        from rapidfuzz import fuzz
+
+        alignment = fuzz.partial_ratio_alignment(phrase.lower(), text.lower())
+        if alignment is not None and alignment.score >= threshold:
+            return alignment.dest_start, alignment.dest_end
+    except Exception:  # pragma: no cover - rapidfuzz optional / defensive
+        pass
+    return None
+
+
+def locate_phrase(text: str, phrase: str | None) -> tuple[int, int] | None:
+    """Where does `phrase` actually sit in `text`? Exact first, then fuzzy.
+
+    Use this instead of an offset the model reported. A model reads text but
+    cannot count characters: measured across this corpus its span *lengths* were
+    right to within a character while its *positions* drifted further the deeper
+    into the document a clause sat (median 6 chars off in the first 500, 188 by
+    6k). Searching for the text the model returned is exact wherever the text is
+    real, and None — not a wrong number — wherever it isn't.
+    """
+    if not phrase or not text:
+        return None
+    return find_phrase(text, phrase) or align_phrase(text, phrase)

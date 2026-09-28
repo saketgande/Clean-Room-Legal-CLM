@@ -98,6 +98,9 @@ import type {
   IntakeKbArticle,
   IntakePoolOps,
   IntakeDocument,
+  IntakeDraft,
+  LegalEntity,
+  Counterparty,
   CopilotTurn,
   Trademark,
   TrademarkCreatePayload,
@@ -1144,27 +1147,31 @@ export const debugApi = {
 };
 
 // ---- External share (public, counterparty — no account) ------------------
-function shareQs(passcode?: string) {
-  return passcode ? `?passcode=${encodeURIComponent(passcode)}` : "";
+// The passcode travels in a header, never the URL, so it can't end up in server or proxy logs.
+function sharePasscode(passcode?: string): Record<string, string> {
+  return passcode ? { "X-Share-Passcode": passcode } : {};
 }
 export const externalShareApi = {
   view: (token: string, passcode?: string) =>
-    apiFetch<ExternalShareView>(`/external-shares/${token}${shareQs(passcode)}`, {
+    apiFetch<ExternalShareView>(`/external-shares/${token}`, {
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
   comments: (token: string, passcode?: string) =>
-    apiFetch<ExternalComment[]>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+    apiFetch<ExternalComment[]>(`/external-shares/${token}/comments`, {
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
   addComment: (
     token: string,
     payload: { author_name?: string; body: string },
     passcode?: string,
   ) =>
-    apiFetch<ExternalComment>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+    apiFetch<ExternalComment>(`/external-shares/${token}/comments`, {
       method: "POST",
       body: payload,
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
 };
 
@@ -1172,6 +1179,22 @@ export const externalShareApi = {
 const intakeQs = (o: Record<string, string | undefined>) => {
   const p = Object.entries(o).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v!)}`);
   return p.length ? `?${p.join("&")}` : "";
+};
+
+// Legal entities (ours) and counterparties (theirs) — the party register.
+export const partiesApi = {
+  entities: (q = "", includeInactive = false) =>
+    apiFetch<LegalEntity[]>(`/legal-entities?q=${encodeURIComponent(q)}${includeInactive ? "&include_inactive=true" : ""}`),
+  createEntity: (payload: Record<string, unknown>) =>
+    apiFetch<LegalEntity>("/legal-entities", { method: "POST", body: payload }),
+  updateEntity: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<LegalEntity>(`/legal-entities/${id}`, { method: "PATCH", body: payload }),
+  counterparties: (q = "", includeInactive = false, limit = 20) =>
+    apiFetch<Counterparty[]>(`/counterparties?q=${encodeURIComponent(q)}&limit=${limit}${includeInactive ? "&include_inactive=true" : ""}`),
+  createCounterparty: (payload: Record<string, unknown>) =>
+    apiFetch<Counterparty>("/counterparties", { method: "POST", body: payload }),
+  updateCounterparty: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<Counterparty>(`/counterparties/${id}`, { method: "PATCH", body: payload }),
 };
 
 export const intakeApi = {
@@ -1183,6 +1206,14 @@ export const intakeApi = {
   updateType: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequestType>(`/intake/request-types/${id}`, { method: "PATCH", body: payload }),
   deleteType: (id: string) => apiFetch<void>(`/intake/request-types/${id}`, { method: "DELETE" }),
+
+  // agreement-wizard drafts (private to the current user)
+  listDrafts: () => apiFetch<IntakeDraft[]>("/intake/drafts"),
+  createDraft: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeDraft>("/intake/drafts", { method: "POST", body: payload }),
+  updateDraft: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeDraft>(`/intake/drafts/${id}`, { method: "PUT", body: payload }),
+  deleteDraft: (id: string) => apiFetch<void>(`/intake/drafts/${id}`, { method: "DELETE" }),
 
   // requests
   list: (statusFilter?: string) =>

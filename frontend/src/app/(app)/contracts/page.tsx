@@ -13,7 +13,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Plus, ChevronDown, FileText } from "lucide-react";
 import { contractsApi, usersApi } from "@/lib/endpoints";
 import type { ContractResponse } from "@/lib/types";
-import { titleCase, fmtDate, fmtMoney, riskTone, STAGE_ORDER } from "@/lib/utils";
+import {
+  titleCase,
+  fmtDate,
+  fmtMoney,
+  riskTone,
+  STAGE_ORDER,
+  contractDisplayName,
+  looksLikeFilename,
+} from "@/lib/utils";
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import { ImportContractModal } from "@/components/import-contract-modal";
 import { cn } from "@/lib/utils";
@@ -394,23 +402,27 @@ export default function ContractsPage() {
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                            <span className="nm">{c.title}</span>
+                            <span className="nm">{contractDisplayName(c)}</span>
                           </div>
-                          <div className="prev">
-                            {c.contract_type ? titleCase(c.contract_type) : "—"} · {c.counterparty_name ?? "—"}
-                          </div>
+                          {/* The upload it came from — worth keeping, but as
+                              provenance under the name, not as the name. */}
+                          {looksLikeFilename(c.title) && c.title ? (
+                            <div className="prev">{c.title}</div>
+                          ) : c.contract_type ? (
+                            <div className="prev">{titleCase(c.contract_type)}</div>
+                          ) : null}
                         </div>
                       </div>
                     </td>
                     <td className="c-cp">
                       <div className="cp">{c.counterparty_name ?? <span className="dim">—</span>}</div>
-                      <div className="ty">
-                        {c.value_amount != null ? (
+                      {/* Only say something when there is a value. "no value" on
+                          every row is a column that reads as data but carries none. */}
+                      {c.value_amount != null && (
+                        <div className="ty">
                           <span className="val">{fmtMoney(c.value_amount, c.currency)}</span>
-                        ) : (
-                          <span className="dim">no value</span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div className="stagewrap">
@@ -427,18 +439,16 @@ export default function ContractsPage() {
                             />
                           ))}
                         </div>
-                        <div className="wflabel">
-                          {c.contract_type ? titleCase(c.contract_type) : "Contract"} lifecycle
-                        </div>
+                        {/* Was "<type> lifecycle" — the type is already on the
+                            row, so this line repeated it 83 times and said
+                            nothing about where the contract actually is. */}
                       </div>
                     </td>
                     <td>
                       <div className="flags">
-                        {risk ? (
-                          <span className={`tag ${riskTone(risk)}`}>{titleCase(risk)}</span>
-                        ) : (
-                          <span className="tag slate">Unrated</span>
-                        )}
+                        {/* No badge when unrated: a pill on 80 of 83 rows reads
+                            as a finding when it only means "not scored yet". */}
+                        {risk && <span className={`tag ${riskTone(risk)}`}>{titleCase(risk)}</span>}
                         {isExpiring(c) && <span className="tag amber">expires {dleft}d</span>}
                         {c.renewal_due && <span className="tag blue">renewal due</span>}
                       </div>

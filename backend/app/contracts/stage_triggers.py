@@ -23,6 +23,13 @@ from app.core.enums import ContractLifecycleStage
 logger = logging.getLogger(__name__)
 
 _DISPATCH_DELAY_SECONDS = 4
+# Entering these stages means approvals were requested or decided, or signing
+# finished; leaving them back to Review means a rejection or pull-back.
+_GRAPH_REFRESH_STAGES = {
+    ContractLifecycleStage.APPROVAL,
+    ContractLifecycleStage.SIGNATURE,
+    ContractLifecycleStage.ACTIVE,
+}
 
 
 def fire_stage_entry_triggers(
@@ -40,6 +47,10 @@ def fire_stage_entry_triggers(
             _on_enter_signature(db, contract=contract, actor_user_id=actor_user_id)
         elif to_stage == ContractLifecycleStage.ACTIVE:
             _on_enter_active(db, contract=contract, actor_user_id=actor_user_id)
+        if to_stage in _GRAPH_REFRESH_STAGES or (
+            to_stage == ContractLifecycleStage.REVIEW and from_stage in _GRAPH_REFRESH_STAGES
+        ):
+            _schedule_graph_refresh(db, contract=contract, actor_user_id=actor_user_id, to_stage=to_stage)
         # Auto-resume any workflow run waiting on this contract's stage.
         from app.workflows.service import advance_flow_for_contract
         advance_flow_for_contract(db, contract=contract, actor_user_id=actor_user_id)
@@ -100,9 +111,37 @@ def _queue_and_schedule(db: Session, *, contract: Contract, actor_user_id: str |
             # (which also queues these jobs with the same idempotency key). The
             # celery_task_id guard prevents a second dispatch of the same job.
             continue
-        run_ai_job.apply_async(args=[job.id], countdown=_DISPATCH_DELAY_SECONDS)
+        job.celery_task_id = run_ai_job.apply_async(args=[job.id], countdown=_DISPATCH_DELAY_SECONDS).id
         scheduled.append(job_type)
     return scheduled
+
+
+def _schedule_graph_refresh(db: Session, *, contract: Contract, actor_user_id: str | None, to_stage: str) -> None:
+    """Rebuild the knowledge graph after approvals, rejections and signatures, not
+    only after extraction jobs, so it never keeps asserting an outdated outcome."""
+    from app.core.database import utcnow
+    from app.jobs.service import create_job
+    from app.jobs.tasks import run_ai_job
+
+    version, snapshot = _authoritative_artifacts(db, contract)
+    if version is None:
+        return
+    job = create_job(
+        db,
+        org_id=contract.org_id,
+        job_type="contract_brain_ingestion",
+        resource_type="contract",
+        resource_id=contract.id,
+        created_by_user_id=actor_user_id,
+        idempotency_key=f"contract_brain_ingestion:{version.id}:stage:{to_stage}:{utcnow().timestamp()}",
+        metadata={
+            "contract_version_id": version.id,
+            "text_snapshot_id": snapshot.id if snapshot else None,
+            "trigger_reason": f"entered_{to_stage}",
+        },
+    )
+    db.flush()
+    job.celery_task_id = run_ai_job.apply_async(args=[job.id], countdown=_DISPATCH_DELAY_SECONDS).id
 
 
 def _notify_owner(

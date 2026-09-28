@@ -254,7 +254,7 @@ class CreateWorkflowInput(BaseModel):
 # other Admin-config changes (teams, roles, authority, ethical walls, users) stay
 # UI/admin-only — Ask Aegis operates the app, it does not reconfigure those.
 _register("create_workflow", "Create a new governance workflow (the engine kind) with ordered steps. Step types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify.", AssistantToolCategory.MUTATING, "admin_panel:access", CreateWorkflowInput)
-_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "contract:approve", DecideApprovalInput)
+_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "approval:decide", DecideApprovalInput)
 _register("reassign_request", "Reassign an intake request to a different owner, given their name or email.", AssistantToolCategory.MUTATING, "intake:update", ReassignRequestInput)
 
 

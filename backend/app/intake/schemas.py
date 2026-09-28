@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 # ---- request types --------------------------------------------------------
@@ -20,6 +22,7 @@ class RequestTypeCreate(BaseModel):
     description: str | None = None
     stages: list[str] | None = None
     sort_order: int = 100
+    sla_hours: int | None = Field(default=None, ge=1, le=8760)
     fields: list[FieldSpec] = Field(default_factory=list)
 
 
@@ -30,6 +33,7 @@ class RequestTypeUpdate(BaseModel):
     active: bool | None = None
     stages: list[str] | None = None
     sort_order: int | None = None
+    sla_hours: int | None = Field(default=None, ge=1, le=8760)
     fields: list[FieldSpec] | None = None  # replaced wholesale when provided
 
 
@@ -42,10 +46,18 @@ class RequestTypeResponse(BaseModel):
     active: bool
     stages: list[str] | None = None
     sort_order: int
+    sla_hours: int | None = None
+    form_key: str | None = None
     fields: list[FieldSpec] = Field(default_factory=list)
 
 
 # ---- requests -------------------------------------------------------------
+
+class AttachmentIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=300)
+    mime_type: str = "application/octet-stream"
+    content_b64: str
+
 
 class RequestCreate(BaseModel):
     type_label: str
@@ -57,6 +69,30 @@ class RequestCreate(BaseModel):
     field_values: dict | None = None
     requester_name: str | None = None
     source: str = Field(default="form", pattern="^(form|copilot|email|api|seed)$")
+    # Files sent with the filing itself: every one is checked before anything is
+    # saved, so a bad file files nothing instead of leaving a half-made request.
+    attachments: list[AttachmentIn] = Field(default_factory=list, max_length=5)
+
+
+class DraftSave(BaseModel):
+    form_key: str
+    title: str | None = None
+    values: dict = Field(default_factory=dict)
+    parent_contract_id: str | None = None
+    page_index: int = Field(default=0, ge=0, le=7)
+    visited: int = Field(default=1, ge=1, le=8)
+
+
+class DraftResponse(BaseModel):
+    id: str
+    form_key: str
+    title: str | None = None
+    values: dict
+    parent_contract_id: str | None = None
+    page_index: int
+    visited: int
+    created_at: datetime
+    updated_at: datetime
 
 
 class RequestUpdate(BaseModel):
@@ -331,6 +367,8 @@ class RequestResponse(BaseModel):
     requester_name: str | None = None
     department: str | None = None
     request_type_id: str | None = None
+    counterparty_id: str | None = None
+    legal_entity_id: str | None = None
     type_label: str
     subject: str | None = None
     description: str

@@ -8,9 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
-from app.ai.cost_guard import enforce_daily_token_cap, record_token_usage
 from app.ai.fallback import fallback_metadata_from_text
-from app.ai.models import AIConfirmation, AICitation, AISkillRun
+from app.ai.models import AICitation, AIConfirmation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
 from app.ai.redaction import redact_ai_payload
@@ -26,27 +25,27 @@ from app.ai.skill import SkillSpec
 from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
-from app.auth.models import User
 from app.assistant.models import (
     AssistantContractHandle,
     AssistantMessage,
     AssistantRun,
     AssistantToolCall,
 )
+from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
+from app.contract_files.blocks import locate_phrase
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
-from app.obligations.models import Obligation, ObligationReminder
-from app.renewals.models import RenewalEvent
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
-from app.core.models import AICallLog, AdminSetting, UsageRecord
+from app.core.models import AdminSetting, AICallLog, UsageRecord
 from app.core.rbac import has_permission
 from app.integrations.claude import ClaudeProviderResponse, claude_client
 from app.jobs.models import JobRun
-
+from app.obligations.models import Obligation, ObligationReminder
+from app.renewals.models import RenewalEvent
 
 INTERNAL_RESULT_KEYS = {
     "text_snapshot_id",
@@ -84,6 +83,13 @@ def _safe_tool_error(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         return "Tool input validation failed"
     return "Tool execution failed"
+
+
+# Contract fields the metadata extractor may fill. risk_level is deliberately absent.
+AI_FILLABLE_CONTRACT_FIELDS = (
+    "contract_type", "counterparty_name", "jurisdiction", "value_amount",
+    "currency", "effective_date", "expiration_date",
+)
 
 
 class AIController:
@@ -235,7 +241,7 @@ class AIController:
         db.flush()
         db.commit()
 
-        contract_summaries = self._contract_context_summaries(db, org_id=org_id, handles=handles)
+        contract_summaries = self._contract_context_summaries(db, user=user, org_id=org_id, handles=handles)
         contract_inventory = self._contract_inventory(db, user=user)
         # Prior conversation turns give the assistant in-session memory. The
         # current user message was already persisted by the route, so exclude it
@@ -273,9 +279,9 @@ class AIController:
 
         try:
             for iteration in range(settings.ai_max_tool_iterations):
-                enforce_daily_token_cap(org_id)
                 provider_response = None
                 async for chunk in claude_client.stream_with_tools(
+                    org_id=org_id,
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=tools,
@@ -571,9 +577,9 @@ class AIController:
         final_answer_parts: list[str] = []
         try:
             for _iteration in range(settings.ai_max_tool_iterations):
-                enforce_daily_token_cap(user.org_id)
                 provider_response = None
                 async for chunk in claude_client.stream_with_tools(
+                    org_id=user.org_id,
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
@@ -764,8 +770,11 @@ class AIController:
             self._json_tool_result(scope),
             "Contract status context:",
             self._json_tool_result(contract_summaries or []),
-            "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
-            "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
+            (
+                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+                "use my_attention_items for what-needs-attention questions and list_obligations "
+                "for due-date questions):"
+            ),
             self._json_tool_result(contract_inventory or []),
             "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
         ]
@@ -774,6 +783,7 @@ class AIController:
     def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
         """A compact list of contracts the user can access."""
         from sqlalchemy import select as _select
+
         from app.contracts.models import Contract as _Contract
 
         rows = db.scalars(
@@ -904,6 +914,7 @@ class AIController:
         self,
         db: Session,
         *,
+        user: User | None,
         org_id: str,
         handles: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
@@ -916,7 +927,7 @@ class AIController:
             if contract is None or contract.org_id != org_id or contract.deleted_at is not None:
                 continue
             try:
-                ctx = build_contract_context(db, org_id=org_id, contract_id=contract_id)
+                ctx = build_contract_context(db, user=user, org_id=org_id, contract_id=contract_id)
             except Exception:
                 ctx = None
             parties = db.scalars(
@@ -1034,8 +1045,12 @@ class AIController:
             default_version=spec.prompt_version,
             model_config=model_config,
         )
+        # Whose walls and clearance apply to the contract text this skill reads. A
+        # background job has no live actor: it was authorized when it was queued.
+        actor = None if job_id else (db.get(User, created_by_user_id) if created_by_user_id else None)
         contract_context = self._maybe_contract_context(
             db,
+            user=actor,
             org_id=org_id,
             input_payload=input_payload,
             resource_type=resource_type,
@@ -1090,8 +1105,8 @@ class AIController:
 
         ai_call_log: AICallLog | None = None
         try:
-            enforce_daily_token_cap(org_id)
             provider_response = await claude_client.complete_structured(
+                org_id=org_id,
                 system_prompt=built_prompt.system_prompt,
                 user_prompt=built_prompt.user_prompt,
                 tool_name=spec.return_tool_name,
@@ -1253,6 +1268,7 @@ class AIController:
         self,
         db: Session,
         *,
+        user: User | None,
         org_id: str,
         input_payload: dict[str, Any],
         resource_type: str | None,
@@ -1265,6 +1281,7 @@ class AIController:
             return None
         return build_contract_context(
             db,
+            user=user,
             org_id=org_id,
             contract_id=contract_id,
             contract_version_id=input_payload.get("contract_version_id"),
@@ -1439,21 +1456,23 @@ class AIController:
         existing_metadata = dict(contract.metadata_json or {})
         existing_metadata.setdefault("ai_suggestions", {})["metadata"] = suggestions
         existing_metadata["latest_metadata_skill_run_id"] = skill_run.id
-        contract.metadata_json = existing_metadata
+        # AI values are suggestions (kept above). One is written onto the contract
+        # only to fill a blank, or to refresh a value the AI itself wrote earlier,
+        # never over a value a person entered. risk_level belongs to the weighted
+        # risk score (contracts/risk.py), not to this extractor.
+        applied: list[str] = []
         if metadata.confidence == "high" and metadata.citations:
-            for field in [
-                "contract_type",
-                "counterparty_name",
-                "jurisdiction",
-                "risk_level",
-                "value_amount",
-                "currency",
-                "effective_date",
-                "expiration_date",
-            ]:
+            sources = dict(existing_metadata.get("field_sources") or {})
+            for field in AI_FILLABLE_CONTRACT_FIELDS:
                 value = getattr(metadata, field)
-                if value is not None:
+                if value is None:
+                    continue
+                if getattr(contract, field) in (None, "") or sources.get(field) == "ai":
                     setattr(contract, field, value)
+                    sources[field] = "ai"
+                    applied.append(field)
+            existing_metadata["field_sources"] = sources
+        contract.metadata_json = existing_metadata
         contract.updated_by_user_id = created_by_user_id
         write_audit_log(
             db,
@@ -1479,7 +1498,7 @@ class AIController:
             skill_run_id=skill_run.id,
             details={
                 "confidence": metadata.confidence,
-                "applied_to_contract": metadata.confidence == "high" and bool(metadata.citations),
+                "applied_fields": applied,
                 "fields": sorted(suggestions.keys()),
             },
         )
@@ -1495,6 +1514,16 @@ class AIController:
         clauses = output if isinstance(output, ClauseExtractionOutput) else ClauseExtractionOutput.model_validate(output)
         if context.version is None or context.snapshot is None:
             return
+        # Lock the contract so two extractions can't replace the index at once, and
+        # let only its current version replace it: an older version's extraction
+        # finishing last must not bring its clauses back.
+        current_version_id = db.scalar(
+            select(Contract.current_authoritative_version_id)
+            .where(Contract.id == context.contract.id)
+            .with_for_update()
+        )
+        if current_version_id != context.version.id:
+            return
         existing = db.scalars(
             select(ClauseExtraction).where(
                 ClauseExtraction.org_id == context.contract.org_id,
@@ -1502,12 +1531,28 @@ class AIController:
                 ClauseExtraction.is_stale.is_(False),
             )
         ).all()
+        if not clauses.clauses:
+            if existing:
+                # Validate the replacement before the destructive swap: an empty
+                # extraction must not wipe the clauses search, risk and the graph use.
+                raise ValueError(
+                    f"Clause extraction returned no clauses; kept the {len(existing)} existing clause(s)."
+                )
+            return
         for clause in existing:
             clause.is_stale = True
             clause.updated_by_user_id = created_by_user_id
         from app.contract_brain.clause_taxonomy import canonical_clause_type
 
         for clause in clauses.clauses:
+            # Never store the model's own start_char/end_char: it reads the text
+            # but cannot count it, and the error compounds with depth (measured
+            # on this corpus: 57% of stored offsets pointed at the wrong span,
+            # median 68 chars off and growing to 188 past 6k). Locate the text it
+            # returned instead — exact, or None so a citation that cannot be
+            # resolved shows as unlocated rather than quoting the wrong clause.
+            span = locate_phrase(context.snapshot.text, clause.text)
+            start_char, end_char = span if span else (None, None)
             db.add(
                 ClauseExtraction(
                     org_id=context.contract.org_id,
@@ -1517,8 +1562,8 @@ class AIController:
                     clause_type=canonical_clause_type(clause.clause_type),
                     heading=clause.heading,
                     text=clause.text,
-                    start_char=clause.start_char,
-                    end_char=clause.end_char,
+                    start_char=start_char,
+                    end_char=end_char,
                     confidence=clause.confidence,
                     created_by_user_id=created_by_user_id,
                     updated_by_user_id=created_by_user_id,
@@ -1555,9 +1600,6 @@ class AIController:
                     updated_by_user_id=created_by_user_id,
                 )
             )
-        # Accumulate this call's tokens into the per-org daily cap counter so the
-        # next enforce_daily_token_cap() sees today's running spend (fail-open).
-        record_token_usage(org_id, provider_response.token_usage.get("total_tokens"))
 
     def _finish_job(self, db: Session, *, job_id: str, status: str, error_message: str | None) -> None:
         job = db.get(JobRun, job_id)
@@ -1631,8 +1673,7 @@ class AIController:
             created += 1
             if item.due_date is not None:
                 remind_at = item.due_date - timedelta(days=7)
-                if remind_at < today:
-                    remind_at = today
+                remind_at = max(remind_at, today)
                 db.add(
                     ObligationReminder(
                         org_id=contract.org_id,
@@ -1775,7 +1816,7 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
     root_citations = getattr(output, "citations", None)
     if root_citations:
         citations.extend(root_citations)
-    for item_name in ["clauses", "edits", "deviations", "obligations"]:
+    for item_name in ["clauses", "edits", "deviations", "obligations", "answers"]:
         for item in getattr(output, item_name, []) or []:
             citations.extend(getattr(item, "citations", []) or [])
     return citations

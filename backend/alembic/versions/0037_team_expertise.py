@@ -9,6 +9,7 @@ Back-fills the seeded tiers so existing orgs route by expertise immediately:
 tier1 (paralegals) → lighter matters, tier2 (counsel) → the rest.
 """
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "0037_team_expertise"

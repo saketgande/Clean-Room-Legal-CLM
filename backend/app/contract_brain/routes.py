@@ -1,9 +1,9 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
@@ -11,6 +11,7 @@ from app.ai.schemas import BrainAnswerOutput
 from app.contract_brain.grounding import ground_answer
 from app.contract_brain.models import BrainQuery
 from app.contract_brain.retrieval import (
+    accessible_contract_ids,
     aggregate_answer,
     hybrid_sources,
     precedent_contracts,
@@ -22,11 +23,15 @@ from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
+from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
+from app.core.enums import JobStatus
+from app.core.rate_limit import limiter
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.matters.access import get_project_for_user
+from app.matters.access import get_project_for_user, project_scope_query
+from app.matters.models import Matter
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +39,10 @@ router = APIRouter(prefix="/contract-brain", tags=["contract-brain"])
 
 
 class BrainAskRequest(BaseModel):
-    question: str = Field(min_length=3)
+    # Uncapped free text lands straight in a Claude prompt, so one request
+    # could burn an org's whole daily token budget. 8k chars is far longer
+    # than any real question and still cheap to embed.
+    question: str = Field(min_length=3, max_length=8000)
     query_scope: str = Field(default="portfolio", pattern="^(contract|project|portfolio)$")
     contract_id: str | None = None
     matter_id: str | None = None
@@ -150,6 +158,7 @@ async def ask_contract_brain(
         org_id=current_user.org_id,
         contract_ids=contract_ids,
         question=payload.question,
+        user=current_user,
     )
     source_text = sources_to_context(sources)
 
@@ -218,25 +227,27 @@ async def ask_contract_brain(
 @router.get("/queries")
 def list_brain_queries(
     contract_id: str | None = None,
-    limit: int = 50,
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
-    from sqlalchemy import select
-
-    q = select(BrainQuery).where(BrainQuery.org_id == current_user.org_id)
+    q = select(BrainQuery).where(
+        BrainQuery.org_id == current_user.org_id,
+        _visible_brain_queries(db, current_user),
+    )
     if contract_id:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
         q = q.where(BrainQuery.contract_id == contract_id)
     rows = db.scalars(q.order_by(BrainQuery.created_at.desc()).limit(min(limit, 200))).all()
-    return [row for row in rows if _can_view_brain_query(db, query=row, current_user=current_user)]
+    accessible = accessible_contract_ids(db, user=current_user)
+    return [_viewer_copy(row, viewer_id=current_user.id, accessible_ids=accessible) for row in rows]
 
 
 @router.get("/precedents")
 def get_precedents(
     query: str,
     contract_id: str | None = None,
-    limit: int = 5,
+    limit: int = Query(default=5, ge=1, le=50),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
@@ -254,7 +265,7 @@ def get_precedents(
 @router.get("/search")
 def brain_search(
     q: str,
-    limit: int = 8,
+    limit: int = Query(default=8, ge=1, le=50),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
@@ -275,16 +286,18 @@ def brain_search(
         ).all()
     )
     sources = hybrid_sources(
-        db, org_id=current_user.org_id, contract_ids=ids, question=q, limit=limit
+        db, org_id=current_user.org_id, contract_ids=ids, question=q, limit=limit, user=current_user
     )
     return {"query": q, **sources}
 
 
 @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.rate_limit_ai_skill)
 def trigger_brain_ingestion(
+    request: Request,
     contract_id: str,
     db: Session = Depends(get_db),
-    current_user=Depends(require_permission("contract:read")),
+    current_user=Depends(require_permission("contract:update")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     version = (
@@ -299,6 +312,9 @@ def trigger_brain_ingestion(
         if version.text_snapshot_id
         else None
     )
+    active = _active_ingestion_job(db, org_id=current_user.org_id, contract_id=contract.id)
+    if active is not None:
+        return {"job_id": active.id, "status": active.status}
     job = create_job(
         db,
         org_id=current_user.org_id,
@@ -319,19 +335,79 @@ def trigger_brain_ingestion(
     return {"job_id": job.id, "status": job.status}
 
 
-def _can_view_brain_query(db: Session, *, query: BrainQuery, current_user) -> bool:
-    if is_org_admin(current_user) or query.created_by_user_id == current_user.id:
-        return True
-    if query.contract_id:
-        try:
-            get_contract_for_user(db, contract_id=query.contract_id, user=current_user)
-        except HTTPException:
-            return False
-        return True
-    if query.matter_id:
-        try:
-            get_project_for_user(db, matter_id=query.matter_id, user=current_user)
-        except HTTPException:
-            return False
-        return True
-    return False
+def _active_ingestion_job(db: Session, *, org_id: str, contract_id: str) -> JobRun | None:
+    """A rebuild already queued or running answers a repeat click, so clicks can't
+    pile jobs onto the worker. Once it finishes, a later rebuild is allowed again."""
+    return db.scalar(
+        select(JobRun)
+        .where(
+            JobRun.org_id == org_id,
+            JobRun.job_type == "contract_brain_ingestion",
+            JobRun.resource_id == contract_id,
+            JobRun.status.in_([JobStatus.QUEUED, JobStatus.RUNNING]),
+        )
+        .order_by(JobRun.created_at.desc())
+        .limit(1)
+    )
+
+
+def _visible_brain_queries(db: Session, current_user):
+    """Which saved answers this user may see, as a SQL condition so the limit counts
+    only those — filtering after the limit hid a user's own older questions behind
+    the org's newest 200. Their own; contract- or matter-scoped answers they can
+    open (ethical walls bind admins too); portfolio-wide answers only for admins."""
+    clauses = [
+        BrainQuery.created_by_user_id == current_user.id,
+        BrainQuery.contract_id.in_(
+            select(Contract.id).where(
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(current_user),
+            )
+        ),
+        and_(
+            BrainQuery.contract_id.is_(None),
+            BrainQuery.matter_id.in_(
+                project_scope_query(db, user=current_user).with_only_columns(Matter.id)
+            ),
+        ),
+    ]
+    if is_org_admin(current_user):
+        # A portfolio-wide answer names no record whose access could be checked.
+        clauses.append(and_(BrainQuery.contract_id.is_(None), BrainQuery.matter_id.is_(None)))
+    return or_(*clauses)
+
+_WITHHELD_ANSWER = "This answer drew on contracts you don't have access to, so it isn't shown."
+
+
+def _viewer_copy(query: BrainQuery, *, viewer_id: str, accessible_ids: set[str]) -> dict:
+    """A saved answer as this viewer may see it. Access was checked for whoever
+    asked; anyone else gets only the sources they can open, and no answer text if
+    it drew on a contract they can't. Builds a new dict: the stored row is untouched."""
+    data = {column.name: getattr(query, column.name) for column in BrainQuery.__table__.columns}
+    if query.created_by_user_id == viewer_id:
+        return data
+    meta = dict(query.retrieval_metadata or {})
+    used = set(meta.get("contract_ids") or [])
+    if isinstance(meta.get("sources"), dict):
+        sources = dict(meta["sources"])
+        for lens in ("semantic", "clauses", "text"):
+            items = [s for s in (sources.get(lens) or []) if isinstance(s, dict)]
+            used |= {s["contract_id"] for s in items if s.get("contract_id")}
+            sources[lens] = [s for s in items if s.get("contract_id") in accessible_ids]
+        graph = []
+        for fact in sources.get("graph") or []:
+            if not isinstance(fact, dict):
+                continue
+            ids = set(fact.get("contract_ids") or []) | ({fact["contract_id"]} if fact.get("contract_id") else set())
+            used |= ids
+            if ids and ids <= accessible_ids:
+                graph.append(fact)  # facts naming no contract id can't be checked, so they're withheld
+        sources["graph"] = graph
+        meta["sources"] = sources
+    meta["contract_ids"] = [cid for cid in (meta.get("contract_ids") or []) if cid in accessible_ids]
+    if used - accessible_ids:
+        data["answer"] = _WITHHELD_ANSWER
+        data["citations"] = []
+        meta["withheld_for_viewer"] = True
+    data["retrieval_metadata"] = meta
+    return data

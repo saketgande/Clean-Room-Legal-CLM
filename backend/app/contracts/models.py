@@ -4,9 +4,9 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -59,7 +59,7 @@ class Contract(
     risk_score = Column(Integer, nullable=True)
     risk_band = Column(String(40), nullable=True)
     risk_summary = Column(JSON, nullable=True)
-    value_amount = Column(Float, nullable=True)
+    value_amount = Column(Numeric(18, 2), nullable=True)  # exact money, not binary float
     currency = Column(String(3), nullable=True)
     effective_date = Column(Date, nullable=True)
     expiration_date = Column(Date, nullable=True)

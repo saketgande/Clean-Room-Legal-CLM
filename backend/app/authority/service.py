@@ -24,6 +24,7 @@ from app.auth.models import Role, User
 from app.authority.models import AuthorityGrant
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
+from app.core.money import to_money
 
 # Business actions the gate governs (decoupled from the RBAC permission strings).
 ACTIONS = {"contract:approve", "contract:sign"}
@@ -73,7 +74,7 @@ class AuthorityDecision:
 
 def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
     """Does one policy's limits cover this contract? Returns (ok, miss_reason)."""
-    value = contract.value_amount or 0.0
+    value = to_money(contract.value_amount)
     if grant.max_value is not None:
         # If both carry a currency and they differ, the limit can't be compared —
         # treat as not covering (a $-limit doesn't authorise a €-contract).
@@ -81,7 +82,7 @@ def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
             return False, (
                 f"authority is in {grant.currency} but the contract is in {contract.currency}"
             )
-        if value > grant.max_value:
+        if value > to_money(grant.max_value):
             cur = contract.currency or grant.currency or ""
             return False, (
                 f"contract value {cur}{value:,.0f} exceeds the authority limit "

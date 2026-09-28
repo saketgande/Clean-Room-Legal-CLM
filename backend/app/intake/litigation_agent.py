@@ -142,7 +142,6 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
         return baseline
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     ids = {c["id"] for c in catalog}
@@ -150,8 +149,8 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
     bundle = get_agent_prompt(db, agent_id="litigation_intake_agent", org_id=request.org_id)
     user_prompt = _prompt(request, catalog)
     try:
-        enforce_daily_token_cap(request.org_id)
         resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            org_id=request.org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="assess_litigation", input_schema=_SCHEMA,

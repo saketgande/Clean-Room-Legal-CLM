@@ -45,11 +45,31 @@ export interface IntakeRequestType {
   id: ID; key: string; name: string; workstream: string | null;
   description: string | null; active: boolean; stages: string[] | null;
   sort_order: number; fields: IntakeFieldSpec[];
+  /** Set on the agreement-wizard forms; their fields are defined in code. */
+  form_key?: string | null;
+}
+/** One of our own companies — the contracting entity on an agreement. */
+export interface LegalEntity {
+  id: ID; name: string; jurisdiction: string | null; registered_address: string | null;
+  authorised_signatory: string | null; active: boolean; source: string; external_ref: string | null;
+  created_at: string; updated_at: string;
+}
+/** The other side of an agreement. */
+export interface Counterparty {
+  id: ID; name: string; jurisdiction: string | null; address: string | null; contact_email: string | null;
+  active: boolean; source: string; external_ref: string | null; created_at: string; updated_at: string;
+}
+/** A half-filled agreement-wizard form saved with "Save as Draft". */
+export interface IntakeDraft {
+  id: ID; form_key: string; title: string | null; values: Record<string, string>;
+  parent_contract_id: ID | null; page_index: number; visited: number;
+  created_at: string; updated_at: string;
 }
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
   requester_user_id: ID; requester_name: string | null; department: string | null;
   request_type_id: ID | null; type_label: string; subject: string | null; description: string;
+  counterparty_id?: ID | null; legal_entity_id?: ID | null;
   field_values: Record<string, unknown> | null;
   priority: "Critical" | "High" | "Medium" | "Low";
   status: IntakeStatus; stage: string; work_status: string | null;
@@ -348,6 +368,7 @@ export interface UnfiledItem {
   kind: "contract" | "intake";
   title: string;
   subtitle: string | null;
+  contract_type?: string | null;
   suggested_matter_id: string | null;
   suggested_matter_label: string | null;
 }
@@ -545,6 +566,9 @@ export interface ExtractedDoc {
   filename: string;
   content: string;
   chars: number;
+  /** "unreadable" when no text could be read (a scanned PDF, say); see reason. */
+  status?: "ok" | "unreadable";
+  reason?: string | null;
 }
 
 export interface BuildChatResponse {
@@ -583,6 +607,7 @@ export interface ContractRiskSummary {
   drivers: RiskDriver[];
   counts: { high: number; medium: number; low: number };
   clause_count: number;
+  assessed_count?: number;
   summary?: string | null;
   computed_at?: string | null;
   note?: string | null;
@@ -1032,6 +1057,9 @@ export interface ApprovalRequest {
   id: ID;
   org_id: ID;
   contract_id: ID;
+  contract_title?: string | null;
+  contract_type?: string | null;
+  contract_archived?: boolean;
   contract_version_id: ID | null;
   status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
   requested_by_user_id: ID;

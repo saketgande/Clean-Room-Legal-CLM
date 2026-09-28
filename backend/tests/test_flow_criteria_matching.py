@@ -7,8 +7,8 @@ regressing back to substring matching reintroduces the misroute."""
 
 from types import SimpleNamespace
 
-from app.flows.service import _matches
 from app.intake.drafting import resolve_doc_type
+from app.workflows.service import _matches
 
 
 def _request(type_label="Litigation", description="", priority=None, department=None, field_values=None):

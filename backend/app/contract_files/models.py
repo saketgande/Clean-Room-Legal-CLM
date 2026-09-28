@@ -1,9 +1,23 @@
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
+from sqlalchemy.orm import validates
 
 try:
     from pgvector.sqlalchemy import Vector
 except Exception:  # pragma: no cover - used only if pgvector is missing in a dev shell
-    Vector = lambda dimensions: JSON  # noqa: E731
+    Vector = lambda dimensions: JSON
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -63,6 +77,14 @@ class ContractVersion(
 ):
     __table_args__ = (
         UniqueConstraint("contract_file_id", "version_number", name="uq_contract_version_file_number"),
+        # One authoritative version per contract — the rule several call sites used to
+        # keep on their own (see contract_files.service.promote_version).
+        Index(
+            "uq_contract_version_authoritative",
+            "contract_id",
+            unique=True,
+            postgresql_where=text("is_authoritative AND deleted_at IS NULL"),
+        ),
     )
 
     contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
@@ -101,6 +123,13 @@ class ContractTextSnapshot(
     # "structured" = elements exist and `text` is their derived concatenation.
     structure_status = Column(String(20), nullable=False, default="flat_only")
     element_count = Column(Integer, nullable=False, default=0)
+
+    @validates("text")
+    def _strip_nul(self, _key, value):
+        # Postgres TEXT rejects NUL bytes, and pypdf/OCR/docx output can carry
+        # them; stripping on assignment covers every snapshot writer, and runs
+        # before offsets are derived from the stored text.
+        return value.replace("\x00", "") if value else value
 
 
 class ContractDocumentElement(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):

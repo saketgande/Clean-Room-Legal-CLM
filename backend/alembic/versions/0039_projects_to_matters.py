@@ -12,8 +12,9 @@ One matter -> many: `contract` gains a nullable `matter_id`; existing many-to-ma
 most-recently-updated wins. `intake_request` already had a project link, now
 renamed to matter_id.
 """
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "0039_projects_to_matters"
 down_revision = "0038_team_departments"

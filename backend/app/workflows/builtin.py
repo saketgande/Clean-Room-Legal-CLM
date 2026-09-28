@@ -7,7 +7,7 @@ and mapped onto our flow-step schema:
   their HUMAN @ signature_screen -> our "signature"
   their AGENT step             -> our "ai_task"     (agent, escalate_role,
                                    escalate_below_confidence, sla_hours)
-  their metadataJson.skip_if   -> preserved on config.skip_if (field/op/value)
+  their metadataJson.skip_if   -> config.skip_when (field/op/value)
 
 Selection ``criteria`` were added per ladder so the engine picks the right one
 by request type/keyword. Seeding is idempotent (by name)."""
@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.workflows.models import Workflow
 
 
-# (kind, name, screenKey, approverRole, slaHours, agentKey, minConfidence, skip_if)
+# (kind, name, screenKey, approverRole, slaHours, agentKey, minConfidence, skip_when)
 def _h(name, screen, role, sla=None, skip=None):
     return ("HUMAN", name, screen, role, sla, None, None, skip)
 
@@ -41,7 +41,7 @@ _LIBRARY = [
      ]),
     ("data_breach", "Data Privacy Incident (DPDP)",
      "Personal-data breach response. The 72-hour notification clock makes the first stages the tightest SLAs in the library.",
-     {"match_type": "dpa"}, 15, [
+     {"match_type": "privacy incident"}, 15, [
          _h("Incident Logging", "breach_intake", "legal_ops", 4),
          _a("AI Severity & Notification Assessment", "legal_ops", "privacy-assessment-agent", 0.85, 4),
          _h("Containment & Legal Position", "legal_review", "attorney", 24),
@@ -146,7 +146,7 @@ def _to_steps(raw):
         else:
             t, cfg = "human_task", {"approver_role": role, "sla_hours": sla}
         if skip:
-            cfg["skip_if"] = skip
+            cfg["skip_when"] = skip
         cfg = {k: v for k, v in cfg.items() if v is not None}
         out.append({"id": str(uuid.uuid4()), "type": t, "name": name, "config": cfg})
     return out
@@ -188,7 +188,7 @@ _MSA_STEPS = [
     _msa("human_task", "Legal review", "Legal & IP", _LOADED, 48, ["approve", "request_changes", "need_info", "escalate"], "Review scope, liability and IP against the playbook."),
     _msa("human_task", "Quality review", "Quality & Compliance", _HEAD, 48, ["approve", "request_changes"], "Confirm GxP obligations.", cond={"field": "gxp", "op": "eq", "value": "true"}),
     _msa("human_task", "Privacy review", "Privacy / DPO", _HEAD, 48, ["approve", "request_changes"], "Check data-processing terms.", parallel=True, cond={"field": "personal_data", "op": "eq", "value": "true"}),
-    _msa("approval", "Finance approval", "Finance & Tax", _HEAD, 24, ["approve", "reject", "escalate"], "Approve the contract value.", cond={"field": "high_value", "op": "eq", "value": "true"}),
+    _msa("approval", "Finance approval", "Finance & Tax", _HEAD, 24, ["approve", "reject", "escalate"], "Approve the contract value.", cond={"field": "contract_value", "op": "gte", "value": 10000}),
     _msa("counterparty", "Counterparty negotiation", "Counterparty", _SPECIFIC, 120, ["approve", "request_changes"], "Exchange redlines with the counterparty until both sides agree."),
     _msa("signature", "Internal signature", "Signatory", _SPECIFIC, 24, ["sign", "decline"], "Sign the executed agreement."),
     _msa("ai_task", "Activate & track", "System (automated)", _LOADED, 0, [], "File the contract and start obligation tracking."),

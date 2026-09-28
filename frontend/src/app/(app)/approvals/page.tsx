@@ -12,7 +12,7 @@ import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
 import { can } from "@/lib/intake";
 import { RoutingTab as IntakeRoutingTab } from "../intake/_phase1";
 import { RulesTab } from "./_rules-builder";
-import { fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { contractDisplayName, fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
@@ -40,6 +40,12 @@ export default function ApprovalsPage() {
   const { user } = useAuth();
   const isAdmin = can(user, "admin_panel:access");
 
+  // Same query key as RequestsTab, so react-query serves both from one fetch.
+  const { data: allReqs } = useQuery({ queryKey: ["approvals"], queryFn: approvalsApi.list });
+  const pending = (allReqs ?? []).filter((r) => r.status === "pending").length;
+  const overdue = (allReqs ?? []).filter((r) => r.overdue).length;
+  const mine = (allReqs ?? []).filter((r) => r.can_decide).length;
+
   const tabs = [
     { id: "requests", label: "Requests" },
     { id: "rules", label: "Approval routing" },
@@ -51,11 +57,19 @@ export default function ApprovalsPage() {
     <div className="apprv">
       <style dangerouslySetInnerHTML={{ __html: APPRV_CSS }} />
       <div className="hd">
-        <div>
-          <h1>Approvals &amp; routing</h1>
-          <p className="sub">
-            Route contracts through a multi-step sign-off chain, and route incoming legal requests to the right team.
-          </p>
+        <h1>Approvals &amp; routing</h1>
+        <span className="sub">every sign-off in flight, and where each one is waiting</span>
+        <div className="sp" />
+        <div className="stat">
+          <span>
+            <b>{pending}</b> pending
+          </span>
+          <span className="crit">
+            <b>{overdue}</b> overdue
+          </span>
+          <span>
+            <b>{mine}</b> yours to action
+          </span>
         </div>
       </div>
 
@@ -113,7 +127,9 @@ function RequestsTab() {
 
   const titleMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of contracts ?? []) m.set(c.id, c.title);
+    // Name the agreement, not the upload it arrived as — the same rule the
+    // contract register uses, so a row reads identically in both places.
+    for (const c of contracts ?? []) m.set(c.id, contractDisplayName(c));
     return m;
   }, [contracts]);
   // Resolve approver ids to names (falls back to the eligible-approver pool).
@@ -219,11 +235,24 @@ function RequestsTab() {
                 .map((req) => (
                   <tr key={req.id}>
                     <td className="c-strong">
-                      <Link href={`/contracts/${req.contract_id}`} className="lnk">
-                        {titleMap.get(req.contract_id) ?? "Untitled contract"}
-                      </Link>
+                      {req.contract_id ? (
+                        <Link href={`/contracts/${req.contract_id}`} className="lnk">
+                          {/* The row carries its own title now, so an approval
+                              against an archived contract still shows the name
+                              instead of falling through to "Untitled". */}
+                          {req.contract_title
+                            ? contractDisplayName({
+                                title: req.contract_title,
+                                contract_type: req.contract_type,
+                              })
+                            : titleMap.get(req.contract_id) ?? "Contract unavailable"}
+                        </Link>
+                      ) : (
+                        <span className="dim">No contract linked</span>
+                      )}
+                      {req.contract_archived && <span className="pill neutral">archived</span>}
                     </td>
-                    <td>
+                    <td className="c-nw">
                       <span className="stepcell">
                         {req.step_order ? `Step ${req.step_order}` : "—"}
                         {(req.needed ?? 1) > 1 && (
@@ -239,7 +268,7 @@ function RequestsTab() {
                         {req.overdue && <span className="pill crit">Overdue</span>}
                       </span>
                     </td>
-                    <td>
+                    <td className="c-nw">
                       {req.approver_role
                         ? titleCase(req.approver_role)
                         : req.approver_group_name ??
@@ -249,7 +278,7 @@ function RequestsTab() {
                               ? nameMap.get(req.approver_user_id) ?? "Assigned approver"
                               : "—")}
                     </td>
-                    <td className={req.overdue ? "c-danger" : undefined}>{fmtDate(req.due_at)}</td>
+                    <td className={req.overdue ? "c-nw c-danger" : "c-nw"}>{fmtDate(req.due_at)}</td>
                     <td className="c-r">
                       {req.status === "pending" && canDecide(req) ? (
                         <div className="rowact">
@@ -813,9 +842,16 @@ const APPRV_CSS = `
 .apprv .dim{color:var(--ink-3)}
 .apprv .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
 
-.apprv .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.apprv .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em}
-.apprv .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
+/* Same top bar as Contracts and Legal Intake: title and subtitle on one line,
+   live counters pushed right. Was a stacked 19px title with the subtitle below,
+   which is why this page read as a different app from the rest of the shell. */
+.apprv .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.apprv .hd h1{margin:0;font-size:16px;font-weight:660;letter-spacing:-.015em}
+.apprv .hd .sub{margin:0;font-size:12.5px;font-weight:500;color:var(--ink-3)}
+.apprv .hd .sp{flex:1}
+.apprv .hd .stat{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink-2)}
+.apprv .hd .stat b{color:var(--ink);font-weight:650}
+.apprv .hd .stat .warn{color:var(--warn)} .apprv .hd .stat .crit{color:var(--crit)}
 
 .apprv .tabrow{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:16px}
 .apprv .tabp{padding:8px 12px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:var(--ink-2);font-weight:600;font-size:12.5px;cursor:pointer}
@@ -843,6 +879,11 @@ const APPRV_CSS = `
 .apprv tbody tr:last-child td{border-bottom:0}
 .apprv tbody tr:hover td{background:var(--inset)}
 .apprv .c-r{text-align:right}
+/* Real agreement names are longer than the filenames this column used to show,
+   so give it the slack and keep the short cells on one line — otherwise every
+   row grows to two lines and the table loses half its rows per screen. */
+.apprv td:first-child{width:38%}
+.apprv .c-nw{white-space:nowrap}
 .apprv .c-strong{font-weight:600;color:var(--ink)}
 .apprv .c-sub{font-size:11.5px;color:var(--ink-3);margin-top:2px}
 .apprv .c-danger{font-weight:600;color:var(--crit)}

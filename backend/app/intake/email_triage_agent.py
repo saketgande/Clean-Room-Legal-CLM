@@ -142,14 +142,13 @@ def _llm_classify(db: Session, org_id: str, subject: str, text: str) -> dict | N
     raises) if the call fails or returns unusable data — callers fall back to
     the deterministic heuristic above."""
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     bundle = get_agent_prompt(db, agent_id="email_triage_agent", org_id=org_id)
     user_prompt = _prompt(subject, text)
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            org_id=org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="classify_email", input_schema=_SCHEMA,
@@ -235,6 +234,8 @@ def _match_configured_type(db: Session, org_id: str, category: str) -> dict | No
     if not hints:
         return None
     for t in list_types(db, org_id=org_id):
+        if t.get("form_key"):
+            continue  # agreement-wizard forms need wizard-only fields an email can't supply
         name_lower = t["name"].lower()
         if any(hint in name_lower for hint in hints):
             return t

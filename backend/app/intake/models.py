@@ -19,9 +19,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -49,6 +51,19 @@ class IntakeRequestType(
     active = Column(Boolean, nullable=False, default=True)
     stages = Column(JSON, nullable=True)  # ordered custom mid-stage names; NULL = default spine
     sort_order = Column(Integer, nullable=False, default=100)
+    # BUSINESS hours, not wall-clock. NULL falls back to
+    # settings.intake_default_sla_hours — a Critical escalation and a routine
+    # NDA had the same 24 hours hardcoded before this existed.
+    sla_hours = Column(Integer, nullable=True)
+    # Set on the nine agreement forms the wizard renders (new_agreement, sow, …).
+    # Their fields come from code (agreement_forms.json), so the server can
+    # validate wizard submissions; admins may rename, re-time or deactivate
+    # them but not edit or delete their fields. NULL for admin-built types.
+    form_key = Column(String(60), nullable=True)
+    __table_args__ = (
+        Index("uq_intake_request_type_org_form_key", "org_id", "form_key", unique=True,
+              postgresql_where=text("form_key IS NOT NULL")),
+    )
 
     fields = relationship(
         "IntakeRequestField",
@@ -197,6 +212,14 @@ class IntakeRequest(
     contract_id = Column(
         String(36), ForeignKey("contract.id", ondelete="SET NULL"), nullable=True
     )
+    # The records picked in the wizard's lookups (the names are also kept in
+    # field_values for display). Checked to exist in this org when filed.
+    counterparty_id = Column(
+        String(36), ForeignKey("counterparty.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    legal_entity_id = Column(
+        String(36), ForeignKey("legal_entity.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
 
 
@@ -263,3 +286,20 @@ class IntakeKbArticle(
     body = Column(Text, nullable=False)
     tags = Column(JSON, nullable=True)  # string[] retrieval keywords
     active = Column(Boolean, nullable=False, default=True)
+
+
+class IntakeDraft(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
+    """A half-filled agreement-wizard form, saved by "Save as Draft".
+
+    Deliberately not an IntakeRequest: a filed request starts triage, the SLA
+    clock, board counts and approvals, and a draft must do none of that until
+    it is submitted. Private to the person who saved it.
+    """
+
+    user_id = Column(String(36), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    form_key = Column(String(60), nullable=False)  # agreement_forms.json key
+    title = Column(String(200), nullable=True)  # shown in the drafts list
+    values = Column(JSON, nullable=False, default=dict)  # the wizard's answers
+    parent_contract_id = Column(String(36), nullable=True)  # picker selection, resolved on resume
+    page_index = Column(Integer, nullable=False, default=0)  # step to reopen on
+    visited = Column(Integer, nullable=False, default=1)  # furthest step reached

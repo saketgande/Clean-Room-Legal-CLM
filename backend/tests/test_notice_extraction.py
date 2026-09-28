@@ -9,7 +9,6 @@ deliberately unwilling to invent a deadline it cannot literally see.
 
 from app.notices.extraction import _clean_date, _clean_str, _heuristic
 
-
 # --- date sanitising -------------------------------------------------------
 
 def test_clean_date_accepts_iso():

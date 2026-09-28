@@ -14,6 +14,7 @@ from app.approvals.models import (
 )
 from app.approvals.service import (
     _quorum_needed,
+    _user_eligible_to_decide,
     decide_in_app,
     get_review_context_for_token,
     reassign_rung,
@@ -28,7 +29,6 @@ from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractLifecycleStage, UserStatus
 from app.core.rate_limit import limiter
-from app.core.rbac import has_permission
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 
@@ -236,6 +236,7 @@ def list_approvals(
             db=db,
             can_decide=_can_decide_approval(db, approval=row, user=current_user, contracts=contracts),
             group_names=group_names,
+            contracts=contracts,
         )
         for row in rows
         if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
@@ -243,15 +244,30 @@ def list_approvals(
 
 
 def _serialize_approval(
-    req: ApprovalRequest, *, db: Session, can_decide: bool, group_names: dict[str, str] | None = None
+    req: ApprovalRequest,
+    *,
+    db: Session,
+    can_decide: bool,
+    group_names: dict[str, str] | None = None,
+    contracts: dict[str, Contract] | None = None,
 ) -> dict:
     """Approval row + a server-computed can_decide (so the UI shows the
-    Approve/Reject buttons for group members, not just role/user matches)."""
+    Approve/Reject buttons for group members, not just role/user matches).
+
+    Carries the contract's own title and type: the queue previously resolved
+    names against the contracts *list*, which excludes soft-deleted rows, so an
+    approval still in flight against an archived contract rendered as "Untitled
+    contract" even though the contract had a perfectly good name.
+    """
     meta = req.metadata_json or {}
+    contract = (contracts or {}).get(req.contract_id or "")
     return {
         "id": req.id,
         "org_id": req.org_id,
         "contract_id": req.contract_id,
+        "contract_title": contract.title if contract else None,
+        "contract_type": contract.contract_type if contract else None,
+        "contract_archived": bool(contract is not None and contract.deleted_at is not None),
         "contract_version_id": req.contract_version_id,
         "status": req.status,
         "requested_by_user_id": req.requested_by_user_id,
@@ -690,34 +706,8 @@ async def decide_approval(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
     if not _can_decide_approval(db, approval=approval, user=current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
-    # Phase 4 ABAC gate: approving commits the company — verify the decider's
-    # delegated authority covers this contract's value/type/jurisdiction/risk.
-    # Rejections are never gated. Dormant until a policy for the action exists.
-    if payload.decision == "approve":
-        from app.authority.service import enforce_authority
-        from app.contracts.models import Contract
-
-        # DoA gate reads value/type/jurisdiction/risk off the subject — a contract
-        # or (duck-typed identically) an intake-request approval subject.
-        gate_subject = None
-        if approval.contract_id:
-            gate_subject = db.get(Contract, approval.contract_id)
-        elif approval.intake_request_id:
-            from app.intake.approval_bridge import build_intake_subject
-
-            gate_subject = build_intake_subject(
-                db, approval.intake_request_id, org_id=current_user.org_id
-            )
-        if gate_subject is not None:
-            enforce_authority(
-                db,
-                user=current_user,
-                action="contract:approve",
-                contract=gate_subject,
-                resource_type="approval_request",
-                resource_id=approval.id,
-                request_id=getattr(request.state, "request_id", None),
-            )
+    # decide_in_app re-checks eligibility and applies the delegated-authority gate,
+    # so every entry point (this route, the assistant tool) gets both.
     await decide_in_app(
         db,
         user=current_user,
@@ -800,31 +790,6 @@ def review_via_token(
     they're approving. Token-authenticated, no login; does not consume the token."""
     _ = response
     return get_review_context_for_token(db, token=token)
-
-
-def _user_role_names(user) -> set[str]:
-    return {role.name for role in getattr(user, "roles", [])}
-
-
-def _user_eligible_to_decide(db: Session, *, approval: ApprovalRequest, user) -> bool:
-    """Who is *allowed* to decide this step (identity/role/group), ignoring stage."""
-    if has_permission(user.permission_values, "approval:admin"):
-        return True
-    if approval.requested_by_user_id == user.id:
-        return False
-    if approval.approver_user_id and approval.approver_user_id == user.id:
-        return True
-    if approval.approver_role and approval.approver_role in _user_role_names(user):
-        return True
-    if approval.approver_group_id:
-        group = db.get(ApproverGroup, approval.approver_group_id)
-        if (
-            group is not None
-            and group.org_id == user.org_id
-            and any(member.id == user.id for member in group.members)
-        ):
-            return True
-    return False
 
 
 def _can_decide_approval(

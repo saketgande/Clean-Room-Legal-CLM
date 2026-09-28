@@ -98,6 +98,12 @@ def update_contract_metadata(
     for key, value in updates.items():
         if value is not None and hasattr(contract, key):
             setattr(contract, key, value)
+    human_fields = [k for k, v in updates.items() if v is not None and k != "metadata_json" and hasattr(contract, k)]
+    if human_fields:
+        # A person set these: record it so the AI metadata extractor never overwrites them.
+        meta = dict(contract.metadata_json or {})
+        meta["field_sources"] = {**(meta.get("field_sources") or {}), **{k: "user" for k in human_fields}}
+        contract.metadata_json = meta
     contract.updated_by_user_id = user.id
     write_audit_log(
         db,

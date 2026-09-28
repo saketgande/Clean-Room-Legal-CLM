@@ -1,4 +1,3 @@
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -6,12 +5,15 @@ from sqlalchemy.orm import Session
 
 from app.approvals.models import ApprovalRequest
 from app.auth.models import User
+from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.intake.models import IntakeRequest
+from app.intake.service import _accessible as intake_accessible
+from app.intake.service import get_request
 from app.matters.access import get_project_for_user, project_scope_query
 from app.matters.models import (
     Matter,
@@ -195,6 +197,7 @@ def unfiled_items(
                 Contract.org_id == org_id,
                 Contract.matter_id.is_(None),
                 Contract.deleted_at.is_(None),
+                accessible_contract_filter(current_user),
             )
             .order_by(Contract.updated_at.desc())
             .limit(50)
@@ -220,6 +223,7 @@ def unfiled_items(
                     kind="contract",
                     title=c.title,
                     subtitle=c.counterparty_name,
+                    contract_type=c.contract_type,
                     suggested_matter_id=sid,
                     suggested_matter_label=slabel,
                 )
@@ -229,6 +233,7 @@ def unfiled_items(
             select(IntakeRequest)
             .where(
                 IntakeRequest.org_id == org_id,
+                intake_accessible(current_user),
                 IntakeRequest.matter_id.is_(None),
                 IntakeRequest.status.in_(("open", "escalated")),
             )
@@ -253,7 +258,7 @@ def matter_overview(
     intake requests."""
     matter = _get_project(db, matter_id=matter_id, current_user=current_user)
     org_id = current_user.org_id
-    today = date.today()
+    today = utcnow().date()
 
     contracts = db.scalars(
         select(Contract)
@@ -261,6 +266,7 @@ def matter_overview(
             Contract.org_id == org_id,
             Contract.matter_id == matter.id,
             Contract.deleted_at.is_(None),
+            accessible_contract_filter(current_user),
         )
         .order_by(Contract.updated_at.desc())
     ).all()
@@ -295,7 +301,11 @@ def matter_overview(
     )
     intake = db.scalars(
         select(IntakeRequest)
-        .where(IntakeRequest.org_id == org_id, IntakeRequest.matter_id == matter.id)
+        .where(
+            IntakeRequest.org_id == org_id,
+            IntakeRequest.matter_id == matter.id,
+            intake_accessible(current_user),
+        )
         .order_by(IntakeRequest.created_at.desc())
     ).all()
 
@@ -380,17 +390,14 @@ def assign_item_to_matter(
     matter = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
     )
-    org_id = current_user.org_id
     if payload.item_type == "contract":
-        obj = db.get(Contract, payload.item_id)
-        if obj is None or obj.org_id != org_id or obj.deleted_at is not None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
+        # The same gate as opening the item: filing it under a matter must not reach
+        # past an ethical wall, clearance, or a record the user can't see.
+        obj = get_contract_for_user(db, contract_id=payload.item_id, user=current_user)
         obj.matter_id = matter.id
         title = obj.title
     elif payload.item_type == "intake":
-        obj = db.get(IntakeRequest, payload.item_id)
-        if obj is None or obj.org_id != org_id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Request not found")
+        obj = get_request(db, user=current_user, request_id=payload.item_id)
         obj.matter_id = matter.id
         title = obj.subject or obj.type_label
     else:
@@ -850,7 +857,12 @@ def list_project_contracts(
     _get_project(db, matter_id=matter_id, current_user=current_user)
     return db.scalars(
         select(MatterContract)
-        .where(MatterContract.org_id == current_user.org_id, MatterContract.matter_id == matter_id)
+        .join(Contract, Contract.id == MatterContract.contract_id)
+        .where(
+            MatterContract.org_id == current_user.org_id,
+            MatterContract.matter_id == matter_id,
+            accessible_contract_filter(current_user),
+        )
         .order_by(MatterContract.created_at.asc())
     ).all()
 

@@ -79,7 +79,6 @@ def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
     if settings.mock_claude:
         return None
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     schema = {
@@ -104,8 +103,8 @@ def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
     bundle = get_agent_prompt(db, agent_id="intake_gate_classifier", org_id=org_id)
     user_prompt = text[:4000]
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            org_id=org_id,
             system_prompt=bundle.skill_prompt + "\nGates:\n" + catalog + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="intake_gate_classifier", input_schema=schema,

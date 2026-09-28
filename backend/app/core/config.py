@@ -3,7 +3,15 @@ from pathlib import Path
 from typing import Annotated
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+try:
+    from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+except ImportError as exc:  # only when run outside the project's environment
+    raise ImportError(
+        f"This Python environment doesn't match the backend's locked dependencies ({exc}). "
+        "Run the command inside the backend container (docker compose exec backend ...), "
+        "or create a virtual environment and install backend/requirements.lock into it."
+    ) from exc
 
 
 class Settings(BaseSettings):
@@ -24,7 +32,7 @@ class Settings(BaseSettings):
     # refresh_cookie_samesite below) — no X-CSRF-Token header is generated or
     # checked anywhere, so advertising one here would be decorative and
     # misleading about what actually protects this app.
-    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID"
+    cors_allow_headers: str = "Authorization,Content-Type,X-Request-ID,X-Share-Passcode"
     allowed_hosts: str = "*"
     force_https: bool = False
 
@@ -67,6 +75,10 @@ class Settings(BaseSettings):
     rate_limit_assistant_stream: str = "10/minute"
     rate_limit_contract_upload: str = "20/minute"
     rate_limit_ai_skill: str = "20/minute"
+    # Public intake webhooks (email relay, Teams bot). Shared-secret /
+    # HMAC authenticated, but unauthenticated as far as the limiter is
+    # concerned, so they key on the client IP.
+    rate_limit_intake_webhook: str = "30/minute"
     rate_limit_enabled: bool = True
 
     # Default SLA for approval requests. Used to populate ApprovalRequest.due_at
@@ -144,7 +156,13 @@ class Settings(BaseSettings):
     voyage_rerank_model: str = "rerank-2"
     #   contextual_chunking: prepend a short "[Contract: title]" context marker to
     #     each embedded chunk so passages disambiguate across contracts (free).
-    contextual_chunking: bool = False
+    #     On by default: contracts are full of near-identical boilerplate, so an
+    #     un-tagged chunk can't be told apart from the same clause in 50 other
+    #     contracts — the dominant retrieval failure on legal corpora. Only the
+    #     EMBEDDED text is prefixed; the chunk shown to the user stays clean.
+    #     Turning this on mid-life leaves a mixed corpus (old vectors unprefixed,
+    #     new ones prefixed) — run backfill_embeddings to re-embed.
+    contextual_chunking: bool = True
 
     # Per-stage lifecycle SLAs (days). The daily sweep notifies the contract
     # owner when a stage SLA is breached and escalates to org admins after
@@ -204,8 +222,9 @@ class Settings(BaseSettings):
     intake_gmail_folder: str = "INBOX"
     intake_gmail_max_messages: int = 20  # cap per sync click
     # Non-production-ready agents stay hidden unless demo agents are enabled,
-    # so users never see fabricated analysis in production.
-    intake_demo_agents: bool = True
+    # so users never see fabricated analysis in production. Defaults off like
+    # every other unsafe flag here; dev turns it back on in the compose override.
+    intake_demo_agents: bool = False
 
     verbose_debug_logging: bool = False
     allow_dev_reset: bool = False
@@ -227,12 +246,37 @@ class Settings(BaseSettings):
     upload_stream_chunk_bytes: int = 1024 * 1024  # 1 MB chunks
     pdf_max_extracted_text_bytes: int = 8 * 1024 * 1024  # 8 MB cap per contract
 
+    # Intake SLA clock. Measured in BUSINESS hours by default: a request filed
+    # at 17:00 on Friday with a 24-hour SLA is not overdue on Saturday, when
+    # nobody is working. Turn the switch off for a team that genuinely runs a
+    # round-the-clock desk.
+    #
+    # ponytail: no holiday calendar — weekends and nights are the bulk of the
+    # error, and holidays need a per-jurisdiction source. Add a date set to
+    # BusinessCalendar and skip those days in `_windows` when one exists.
+    intake_business_hours_enabled: bool = True
+    intake_business_timezone: str = "UTC"
+    intake_business_day_start_hour: int = 9
+    intake_business_day_end_hour: int = 17
+    intake_business_days: str = "0,1,2,3,4"  # Monday=0 … Sunday=6
+    # Used when a request type does not set its own.
+    intake_default_sla_hours: int = 24
+
     # Object storage backend. "local" writes under storage_root (default,
     # dev-friendly); "s3" targets the bucket/endpoint/region below.
     storage_backend: str = "local"  # "local" | "s3"
     s3_bucket: str | None = None
     s3_endpoint_url: str | None = None
     s3_region: str | None = None
+    # Local disk only works when every instance sees the same files, so production
+    # refuses it unless a single-host deployment opts in.
+    allow_local_storage_in_production: bool = False
+
+    # Turns every permission check into an unconditional pass (see
+    # core/rbac.has_permission). It exists so local dev can click through every
+    # screen without seeding roles; it makes each authenticated user an org
+    # admin, so validate_runtime_settings() refuses to boot production with it.
+    disable_rbac: bool = False
 
     # Optional ClamAV antivirus scan on upload. Off by default so local dev
     # and CI don't need a clamd sidecar; the host/port target a clamd daemon.
@@ -328,6 +372,20 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append(f"disable mock integrations {', '.join(enabled_mocks)}")
 
     # Security flags that must be tightened before going live.
+    # DISABLE_RBAC makes every authenticated user an org admin, which also
+    # disables confidentiality/MAC clearance checks that route through
+    # is_org_admin(). Never serve real tenants with it on.
+    if settings.disable_rbac:
+        problems.append("disable DISABLE_RBAC (every user is an org admin while it is on)")
+    # Same class as the MOCK_* flags above: random vectors are written silently
+    # (embeddings.py only warns), so every retrieval and every cited answer built
+    # on them is noise that still looks like a real embedding.
+    if settings.allow_mock_embeddings:
+        problems.append("disable ALLOW_MOCK_EMBEDDINGS (writes meaningless vectors)")
+    # The not-production-ready gate in intake/agents.py is a no-op while this is
+    # on, so a demo agent added later would reach real tenants by default.
+    if settings.intake_demo_agents:
+        problems.append("disable INTAKE_DEMO_AGENTS (unhides not-production-ready agents)")
     if settings.expose_password_reset_token_in_response:
         problems.append("disable EXPOSE_PASSWORD_RESET_TOKEN_IN_RESPONSE")
     if settings.expose_refresh_token_in_body:
@@ -340,6 +398,16 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append("set ALLOWED_HOSTS to a non-wildcard list")
     if "*" in settings.cors_origins.split(","):
         problems.append("set CORS_ORIGINS to an explicit list")
+
+    # Files on one machine's disk 404 on every other instance and vanish with the
+    # volume, so production needs shared object storage (or a single-host opt-in).
+    backend = settings.storage_backend.lower()
+    if backend == "local" and not settings.allow_local_storage_in_production:
+        problems.append(
+            "set STORAGE_BACKEND=s3 (or ALLOW_LOCAL_STORAGE_IN_PRODUCTION=true for a single-host deployment)"
+        )
+    if backend == "s3" and not settings.s3_bucket:
+        problems.append("set S3_BUCKET (required when STORAGE_BACKEND=s3)")
 
     # When DocuSign is live (not mocked) the Connect webhook MUST verify its
     # HMAC signature, otherwise anyone can forge envelope status callbacks.

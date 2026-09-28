@@ -21,6 +21,7 @@ const GROUPS: { sec: string; items: Item[] }[] = [
     { href: "/notifications", label: "Notifications", icon: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>' },
     { href: "/contracts", label: "Contracts", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>' },
     { href: "/matters", label: "Matters", icon: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>' },
+    { href: "/docstudio", label: "Documents", icon: '<path d="M4 4h10l6 6v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"/><path d="M14 4v6h6"/><path d="M7 14h8M7 17h5"/>', perm: "contract_file:read" },
     { href: "/search", label: "Search", icon: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>' },
   ] },
   { sec: "Intelligence", items: [

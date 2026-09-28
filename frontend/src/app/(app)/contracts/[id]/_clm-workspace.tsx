@@ -219,7 +219,7 @@ export function ClmWorkspace({ id }: { id: string }) {
                 {tab === "sources" && (
                   <div className="list">
                     <div className="src"><div className="st">This contract — current draft<span className="stag">draft</span></div><div className="sx">{contract?.title ?? "The working draft"} · {(contract?.lifecycle_stage ?? "draft").replace(/_/g, " ")}. The agent reads the live document text.</div></div>
-                    <div className="src"><div className="st">Playbook risk analysis<span className="stag">playbook</span></div><div className="sx">{risk?.summary ?? "The AI risk review scores each clause against the playbook."}{risk?.clause_count ? ` (${risk.clause_count} clauses assessed)` : ""}</div></div>
+                    <div className="src"><div className="st">Playbook risk analysis<span className="stag">playbook</span></div><div className="sx">{risk?.summary ?? "The AI risk review scores each clause against the playbook."}{risk?.clause_count ? ` (${risk.assessed_count ?? risk.clause_count} of ${risk.clause_count} clauses assessed)` : ""}</div></div>
                   </div>
                 )}
               </div>

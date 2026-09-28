@@ -116,20 +116,17 @@ def register(
     # injects the rate-limit headers (X-RateLimit-*, Retry-After) into it —
     # the decorator raises if the parameter isn't there.
     _ = response
-    status, user = register_user(db, payload)
-    # Generic, identical message for every outcome (new pending user, domain
-    # rejected → join request, or email collision). The response body alone
-    # cannot be used to enumerate which emails are already registered.
-    generic_message = (
-        "If the address is eligible, registration has been received and is "
-        "pending administrator review."
-    )
-    if user is None:
-        return {"status": status, "message": generic_message, "user": None}
+    status, _user = register_user(db, payload)
+    # Identical body for every outcome. The user is never echoed: returning it
+    # for a new address but null for a collision let an unauthenticated caller
+    # enumerate registered emails (and leaked the org_id to them).
     return {
         "status": status,
-        "message": generic_message,
-        "user": as_user_response(user),
+        "message": (
+            "If the address is eligible, registration has been received and is "
+            "pending administrator review."
+        ),
+        "user": None,
     }
 
 

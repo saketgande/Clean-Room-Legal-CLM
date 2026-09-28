@@ -49,3 +49,7 @@ frontend/.env.production
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# `make phase1` output. Every report carries a contract's full text, so it must
+# never be committed.
+backend/docstudio_out/

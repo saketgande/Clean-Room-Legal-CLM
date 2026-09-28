@@ -10,18 +10,26 @@ to a closed request and writes the immutable audit + timeline rows.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
+from datetime import date, timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.core.access import is_org_admin
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.database import utcnow
-from app.intake import agents, routing
+from app.intake.business_time import (
+    business_deadline,
+    business_ms_between,
+    calendar_from_settings,
+)
 
 # --- status / stage constants (shared, see constants.py) -------------------
 from app.intake.constants import (
@@ -50,6 +58,9 @@ _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 # --- small helpers ---------------------------------------------------------
 
+logger = logging.getLogger(__name__)
+
+
 def _next_ref(db: Session) -> str:
     n = db.execute(select(func.nextval("intake_ref_seq"))).scalar_one()
     return f"REQ-{n}"
@@ -72,12 +83,19 @@ def _iso(dt) -> str | None:
 
 
 def _elapsed_and_window_ms(r: IntakeRequest, now) -> tuple[float, float]:
+    """Working time elapsed, and the working-time budget.
+
+    Both sides are business time: `sla_hours` on a request means working hours,
+    so the elapsed side has to be measured the same way or a Friday-evening
+    request is overdue by Saturday lunchtime with nobody having been at a desk.
+    """
+    cal = calendar_from_settings()
     submitted = r.submitted_at or r.created_at or now
     end = r.closed_at if (r.status in TERMINAL_STATUSES and r.closed_at) else now
     paused = float(r.paused_ms_total or 0)
     if r.paused_at and not (r.status in TERMINAL_STATUSES):
-        paused += (now - r.paused_at).total_seconds() * 1000.0
-    elapsed = max(0.0, (end - submitted).total_seconds() * 1000.0 - paused)
+        paused += business_ms_between(r.paused_at, now, cal)
+    elapsed = max(0.0, business_ms_between(submitted, end, cal) - paused)
     window = max(0, r.sla_hours or 0) * 3_600_000.0
     return elapsed, window
 
@@ -139,6 +157,8 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "requester_name": r.requester_name or _user_label(db, r.requester_user_id),
         "department": r.department,
         "request_type_id": r.request_type_id,
+        "counterparty_id": r.counterparty_id,
+        "legal_entity_id": r.legal_entity_id,
         "type_label": r.type_label,
         "subject": r.subject,
         "description": r.description,
@@ -205,6 +225,8 @@ def serialize_type(t: IntakeRequestType) -> dict:
         "active": t.active,
         "stages": t.stages,
         "sort_order": t.sort_order,
+        "sla_hours": t.sla_hours,
+        "form_key": t.form_key,
         "fields": [
             {
                 "key": f.key,
@@ -220,6 +242,12 @@ def serialize_type(t: IntakeRequestType) -> dict:
 
 
 def list_types(db: Session, *, org_id: str, include_inactive: bool = False) -> list[dict]:
+    # The agreement-wizard forms are request types too; make sure this org has
+    # them before listing, so Operations shows them and filed requests link up.
+    from app.intake.agreement_forms import ensure_agreement_types
+
+    ensure_agreement_types(db, org_id)
+    db.commit()
     q = select(IntakeRequestType).where(IntakeRequestType.org_id == org_id)
     if not include_inactive:
         q = q.where(IntakeRequestType.active.is_(True))
@@ -266,6 +294,7 @@ def create_type(db: Session, *, actor: User, payload) -> dict:
         org_id=actor.org_id, key=key, name=payload.name.strip(),
         workstream=(payload.workstream or None), description=(payload.description or None),
         stages=payload.stages or None, sort_order=payload.sort_order,
+        sla_hours=payload.sla_hours,
         created_by_user_id=actor.id, updated_by_user_id=actor.id,
     )
     _apply_fields(db, t, actor.org_id, payload.fields)
@@ -288,11 +317,14 @@ def _get_type(db: Session, org_id: str, type_id: str) -> IntakeRequestType:
 
 def update_type(db: Session, *, actor: User, type_id: str, payload) -> dict:
     t = _get_type(db, actor.org_id, type_id)
-    for attr in ("name", "workstream", "description", "sort_order", "active", "stages"):
+    for attr in ("name", "workstream", "description", "sort_order", "active", "stages",
+                 "sla_hours"):
         val = getattr(payload, attr, None)
         if val is not None:
             setattr(t, attr, val)
-    if payload.fields is not None:
+    # An agreement form's fields belong to the wizard's code; editing them here
+    # would be overwritten on the next sync, so they are left as they are.
+    if payload.fields is not None and not t.form_key:
         _apply_fields(db, t, actor.org_id, payload.fields)
     t.updated_by_user_id = actor.id
     db.flush()
@@ -306,6 +338,8 @@ def update_type(db: Session, *, actor: User, type_id: str, payload) -> dict:
 
 def delete_type(db: Session, *, actor: User, type_id: str) -> None:
     t = _get_type(db, actor.org_id, type_id)
+    if t.form_key:
+        raise HTTPException(409, "Agreement forms can't be deleted — deactivate the type instead")
     write_audit_log(db, action="intake.request_type.deleted", resource_type="intake_request_type",
                     resource_id=t.id, org_id=actor.org_id, actor_user_id=actor.id,
                     before={"key": t.key})
@@ -340,6 +374,11 @@ def _transition(
         request.status = to_status
         if to_status in TERMINAL_STATUSES and request.closed_at is None:
             request.closed_at = utcnow()
+        if to_status == "closed":
+            from app.workflows.service import cancel_runs_for_request
+
+            cancel_runs_for_request(db, request_id=request.id, org_id=request.org_id,
+                                    actor_user_id=actor.id if actor else None)
     if actor:
         request.updated_by_user_id = actor.id
     write_audit_log(
@@ -358,15 +397,106 @@ def _transition(
 
 # --- field validation ------------------------------------------------------
 
-def _validate_field_values(rtype: IntakeRequestType | None, values: dict | None) -> None:
+_TRUE = {"true", "yes", "y", "1", "on"}
+_FALSE = {"false", "no", "n", "0", "off"}
+
+
+def _coerce_field(f: IntakeRequestField, raw):
+    """Return ``raw`` as the type the field declares, or raise 422.
+
+    Forms post everything as strings, so a `number` arrives as "1500" and a
+    `boolean` as "true". Those are coerced rather than rejected — the value is
+    unambiguous and refusing it would break every HTML form. Anything that
+    isn't the declared type is refused outright: the point of a typed field is
+    that what comes back out is the type it claims.
+    """
+    kind = (f.kind or "text").lower()
+
+    if kind == "number":
+        if isinstance(raw, bool):  # bool is an int subclass; not a number here
+            raise HTTPException(422, f'Field "{f.label}" must be a number')
+        if isinstance(raw, int | float):
+            return raw
+        try:
+            text = str(raw).strip().replace(",", "")
+            return int(text) if re.fullmatch(r"-?\d+", text) else float(text)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(422, f'Field "{f.label}" must be a number') from exc
+
+    if kind == "boolean":
+        if isinstance(raw, bool):
+            return raw
+        text = str(raw).strip().lower()
+        if text in _TRUE:
+            return True
+        if text in _FALSE:
+            return False
+        raise HTTPException(422, f'Field "{f.label}" must be true or false')
+
+    if kind == "date":
+        text = str(raw).strip()
+        try:
+            # Stored as an ISO date string: the column is JSON, and a date
+            # object would not survive the round trip.
+            return date.fromisoformat(text[:10]).isoformat()
+        except ValueError as exc:
+            raise HTTPException(
+                422, f'Field "{f.label}" must be a date in YYYY-MM-DD form'
+            ) from exc
+
+    if kind == "select":
+        allowed = [
+            str(o.get("value")) for o in (f.options or []) if isinstance(o, dict) and "value" in o
+        ]
+        text = str(raw).strip()
+        if allowed and text not in allowed:
+            raise HTTPException(
+                422, f'Field "{f.label}" must be one of: {", ".join(allowed)}'
+            )
+        return text
+
+    # text / textarea. Capped so a pasted contract cannot land in a label-sized
+    # field and push the row past what the JSON column should carry.
+    text = str(raw)
+    if len(text) > _FIELD_TEXT_MAX:
+        raise HTTPException(
+            422, f'Field "{f.label}" is longer than {_FIELD_TEXT_MAX} characters'
+        )
+    return text
+
+
+_FIELD_TEXT_MAX = 20_000
+
+
+def _validate_field_values(rtype: IntakeRequestType | None, values: dict | None) -> dict | None:
+    """Enforce what the request type declares, and return the cleaned values.
+
+    Previously this checked required-ness and nothing else, so a `number` field
+    accepted "banana" and a `select` accepted any string at all — the form
+    builder promised typed fields and stored untyped JSON. Anything reading
+    those values back (arithmetic, date comparison, filtering by option) was
+    working on whatever the caller happened to send.
+
+    Keys the type does not declare are passed through untouched: channel intake
+    legitimately stores `channel_from`, `counterparty` and `gmail_thread_id`
+    alongside the declared fields, and rejecting them would break email and
+    Gmail ingestion.
+    """
     if rtype is None:
-        return
-    values = values or {}
+        return values
+    cleaned = dict(values or {})
     for f in rtype.fields:
-        if f.required:
-            v = values.get(f.key)
-            if v is None or (isinstance(v, str) and not v.strip()):
+        raw = cleaned.get(f.key)
+        missing = raw is None or (isinstance(raw, str) and not raw.strip())
+        if missing:
+            if f.required:
                 raise HTTPException(422, f'Field "{f.label}" is required')
+            # An optional field left blank is absent, not an empty string —
+            # otherwise "" would later fail the type check it skipped here.
+            cleaned.pop(f.key, None)
+            continue
+        cleaned[f.key] = _coerce_field(f, raw)
+    return cleaned
 
 
 # --- request create / list / get -------------------------------------------
@@ -441,7 +571,9 @@ def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
     when there's a match. Falls back to the complexity→tier heuristic when
     nothing has expertise for the category (so orgs that haven't tagged teams
     still get an owner)."""
-    from sqlalchemy import func, select as _select
+    from sqlalchemy import func
+    from sqlalchemy import select as _select
+
     from app.intake.models import IntakeTeam
 
     teams = db.scalars(
@@ -509,9 +641,9 @@ def _maybe_autostart_workflow(db: Session, request: IntakeRequest, actor: User) 
     if not fid or fs.get("needs_human") or (fs.get("confidence") or 0.0) < 0.75:
         return
     try:
+        from app.integrations.claude import run_coro_blocking
         from app.workflows.models import Workflow
         from app.workflows.service import start_flow
-        from app.integrations.claude import run_coro_blocking
 
         flow = db.get(Workflow, fid)
         if not flow or flow.org_id != request.org_id:
@@ -525,11 +657,41 @@ def _maybe_autostart_workflow(db: Session, request: IntakeRequest, actor: User) 
 
 
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
-                   conversation: list | None = None) -> dict:
+                   conversation: list | None = None, defer_triage: bool = False,
+                   external_message_id: str | None = None) -> dict:
+    """File a request.
+
+    ``external_message_id`` is a channel's idempotency key and MUST be set here
+    rather than stamped on afterwards: the row is committed inside this
+    function, so a key applied later leaves a window in which the request
+    exists with nothing to dedupe against. The partial unique index
+    ``uq_intake_request_org_extmsg`` then does the real work — callers catch
+    IntegrityError and treat it as "already filed".
+    """
     rtype = None
     if payload.request_type_id:
         rtype = _get_type(db, actor.org_id, payload.request_type_id)
-    _validate_field_values(rtype, payload.field_values)
+    else:
+        # The agreement wizard identifies its form by `request_form`; resolve it
+        # to the backing request type so its required fields are enforced here
+        # and not only in the browser.
+        from app.intake.agreement_forms import type_for_form
+
+        rtype = type_for_form(db, actor.org_id, (payload.field_values or {}).get("request_form"))
+    field_values = _validate_field_values(rtype, payload.field_values)
+    counterparty_id, legal_entity_id = _resolve_party_records(db, actor.org_id, field_values)
+    # Check every attached file before anything is saved: a file that is too
+    # big or the wrong type must stop the filing, not leave a request behind
+    # without its attachment (which is what made people retry and duplicate).
+    raw = [(a, _decode_b64(a.content_b64, a.filename)) for a in (getattr(payload, "attachments", None) or [])]
+    if sum(len(content) for _, content in raw) > _FILING_MAX_BYTES:
+        raise HTTPException(413, "Attachments add up to more than 40 MB — file the largest ones separately")
+    attachments = [_prepare_attachment(a.filename, a.mime_type, content) for a, content in raw]
+    if defer_triage:
+        duplicate = _recent_duplicate_request(db, actor=actor, payload=payload,
+                                              field_values=field_values)
+        if duplicate is not None:
+            return serialize_request(db, duplicate)
     now = utcnow()
     r = IntakeRequest(
         org_id=actor.org_id, ref=_next_ref(db), source=payload.source,
@@ -538,8 +700,12 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
         type_label=payload.type_label.strip(),
         subject=_derive_subject(getattr(payload, "subject", None), payload.description, payload.type_label),
         description=payload.description or "",
-        field_values=payload.field_values, priority=payload.priority,
-        status="open", stage="new", sla_hours=24,
+        field_values=field_values, priority=payload.priority,
+        status="open", stage="new",
+        sla_hours=(rtype.sla_hours if rtype and rtype.sla_hours
+                   else settings.intake_default_sla_hours),
+        external_message_id=external_message_id,
+        counterparty_id=counterparty_id, legal_entity_id=legal_entity_id,
         submitted_at=now, handoff_holder="queue", conversation=conversation,
         stage_timestamps=[{"stage": "new", "at": now.isoformat()}],
         created_by_user_id=actor.id, updated_by_user_id=actor.id,
@@ -547,54 +713,182 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     # Context-aware triage first: the AI reads the WHOLE request and decides
     # category/complexity/risk/urgency + the workflow pick, driving the gates,
     # priority and owner below. Falls back to the keyword classifier on failure.
-    cp = (payload.field_values or {}).get("counterparty") if payload.field_values else None
+    cp = (field_values or {}).get("counterparty")
     # Seed the parties list from the captured counterparty so it's editable and
     # conflict-screenable; adverse/related parties can be added later.
     if cp and str(cp).strip():
-        r.parties = [{"name": str(cp).strip(), "role": "counterparty", "is_person": False}]
-    from app.intake import triage_agent
-
-    r.ai_triage = triage_agent.triage(db, r)
-    _urgency = (r.ai_triage.get("understanding") or {}).get("urgency")
-    if _urgency in ("Low", "Medium", "High"):
-        r.priority = _urgency
-    # Tier-0 hard gates: AI classifier (keyword fallback) forces senior rungs into
-    # the approval ladder; litigation/etc. also escalate here, before routing runs.
-    from app.intake import gates as gates_mod
-
-    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(db, r), "gate_overrides": []}
-    gates_mod.apply_gate_side_effects(r)
+        party = {"name": str(cp).strip(), "role": "counterparty", "is_person": False}
+        if counterparty_id:
+            party["counterparty_id"] = counterparty_id
+        r.parties = [party]
+    if defer_triage:
+        r.ai_triage = {"status": "pending"}  # run_intake_triage fills this in the background
+    else:
+        _apply_ai_triage(db, r)
     db.add(r)
     db.flush()
+    # Saved in the same transaction as the request and before triage is queued,
+    # so triage can read what was attached.
+    for att in attachments:
+        _attach(db, actor=actor, r=r, att=att)
     write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
                     org_id=actor.org_id, actor_user_id=actor.id, request_id=request_id,
                     after={"ref": r.ref, "type": r.type_label, "priority": r.priority})
     write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
                          event_type="intake.created", title=f"Request filed — {r.type_label}",
                          actor_user_id=actor.id, request_id=request_id)
-    # Auto-assign the owner from the triage read (replaces the keyword routing
-    # rules): complexity picks the tier pool, least-loaded within. Expertise /
-    # business-unit routing refines this later.
+    # Conflicts/sanctions screening is queued HERE, inside the request's own
+    # transaction: if the request exists, its screening job exists. Queued
+    # after the enrichment that used to run it inline, it can no longer be
+    # lost to a crash or swallowed by a bare except.
+    r.screening = {"status": "pending", "note": "Screening queued."}
+    screening_job = queue_screening(db, r, actor.id)
+    if defer_triage:
+        from app.jobs.service import create_job, dispatch_job
+
+        job = create_job(
+            db, org_id=actor.org_id, job_type="intake_triage", resource_type="intake_request",
+            resource_id=r.id, created_by_user_id=actor.id, idempotency_key=f"intake_triage:{r.id}",
+            metadata={"intake_request_id": r.id},
+        )
+        db.commit()
+        db.refresh(r)
+        try:
+            dispatch_job(db, job=job)
+            db.commit()
+        except Exception:
+            # The request is saved; the reclaim sweep re-dispatches the queued job.
+            logger.warning("could not dispatch intake triage for request %s", r.id, exc_info=True)
+        dispatch_screening(db, screening_job)
+        return serialize_request(db, r)
+    _assign_and_notify(db, r, actor)
+    db.commit()
+    db.refresh(r)
+    dispatch_screening(db, screening_job)
+    _enrich_after_commit(db, r, actor)
+    return serialize_request(db, r)
+
+
+def _apply_ai_triage(db: Session, r: IntakeRequest) -> None:
+    """Context-aware triage: the AI reads the WHOLE request and decides category,
+    complexity, risk, urgency and the workflow pick, which drive the gates,
+    priority and owner. Tier-0 hard gates then force senior rungs into the
+    approval ladder (litigation etc. escalate here, before routing runs)."""
+    from app.intake import gates as gates_mod
+    from app.intake import triage_agent
+
+    r.ai_triage = triage_agent.triage(db, r)
+    _urgency = (r.ai_triage.get("understanding") or {}).get("urgency")
+    if _urgency in ("Low", "Medium", "High"):
+        r.priority = _urgency
+    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(db, r), "gate_overrides": []}
+    gates_mod.apply_gate_side_effects(r)
+
+
+def _assign_and_notify(db: Session, r: IntakeRequest, actor: User) -> None:
+    """Auto-assign the owner from the triage read: complexity picks the tier pool,
+    least-loaded within."""
     _assign_owner_from_triage(db, r)
     if r.assigned_to_user_id and r.assigned_to_user_id != actor.id:
         _notify(db, r, r.assigned_to_user_id, "intake.assigned",
                 f"{r.ref} assigned to you", f"{r.type_label} — priority {r.priority}.")
-    db.commit()
-    db.refresh(r)
-    # Third-party screening is best-effort ENRICHMENT — run it in its OWN
-    # transaction after the request is safely persisted. Running it inline (after
-    # the create path's hash-chained audit writes) let the JSON assignment get
-    # lost to a mid-transaction flush; isolating it — like the /screen endpoint —
-    # makes it reliable and can never leave the request half-written.
-    _run_screening_safe(db, r, actor.id)
-    # The triage already set ai_triage.flow_suggestion pre-commit; only the
-    # litigation path needs the extra deep assessment (branch-field pre-fill).
+
+
+def _enrich_after_commit(db: Session, r: IntakeRequest, actor: User) -> None:
+    """Enrichment once the request is safely persisted: the deep litigation
+    assessment and the confidence-gated workflow autostart.
+
+    Screening is NOT here any more — it is a durable job queued in the
+    request's own transaction and dispatched at creation, so it can no longer
+    be lost to a crash on this path."""
     from app.intake.litigation_agent import is_litigation
 
     if is_litigation(r):
         _attach_flow_suggestion(db, r)
     _maybe_autostart_workflow(db, r, actor)
-    return serialize_request(db, r)
+
+
+def run_intake_triage(db: Session, *, request_id: str, actor_id: str | None) -> None:
+    """The background half of a web-form submission: AI triage, gates, owner
+    assignment, screening and workflow autostart. A no-op once triage has run."""
+    r = db.get(IntakeRequest, request_id)
+    actor = db.get(User, actor_id) if actor_id else None
+    if r is None or actor is None:
+        raise RuntimeError("Intake request or requester not found for triage")
+    if (r.ai_triage or {}).get("status") != "pending":
+        return
+    _apply_ai_triage(db, r)
+    _assign_and_notify(db, r, actor)
+    write_timeline_event(db, org_id=r.org_id, resource_type="intake_request", resource_id=r.id,
+                         event_type="intake.triaged", title="AI triage complete", actor_user_id=actor.id)
+    db.commit()
+    db.refresh(r)
+    _enrich_after_commit(db, r, actor)
+
+
+# (id key, name key, record kind, label) for the wizard's party lookups.
+_PARTY_REFS = (
+    ("entity_id", "entity", "legal_entity", "legal entity"),
+    ("entity_2_id", "entity_2", "legal_entity", "second legal entity"),
+    ("counterparty_id", "counterparty", "counterparty", "counterparty"),
+    ("counterparty_2_id", "counterparty_2", "counterparty", "second counterparty"),
+)
+
+
+def _resolve_party_records(db: Session, org_id: str, field_values: dict | None) -> tuple[str | None, str | None]:
+    """Check every picked entity / counterparty exists in this org and is active,
+    and store its registered name next to the id (the browser's copy of the
+    name is not trusted). Returns (counterparty_id, legal_entity_id)."""
+    from app.parties import service as parties
+
+    fv = field_values if field_values is not None else {}
+    for id_key, name_key, kind, label in _PARTY_REFS:
+        rid = fv.get(id_key)
+        if not rid:
+            continue
+        row = parties.get(db, org_id=org_id, kind=kind, record_id=str(rid))
+        if row is None or not row.active:
+            raise HTTPException(422, f"The selected {label} is no longer in the register — pick it again")
+        fv[name_key] = row.name
+    return (fv.get("counterparty_id") or None), (fv.get("entity_id") or None)
+
+
+def _recent_duplicate_request(db: Session, *, actor: User, payload,
+                              field_values: dict | None = None) -> IntakeRequest | None:
+    """The same person filing the same request again within a couple of minutes is a
+    retry (a cut connection, a double click), not a second ticket.
+
+    "The same" means every answer matches, not just the type and the note: two
+    different agreements filed with the same quick-phrase note used to be merged
+    into the first, silently losing the second."""
+    same_answers = func.coalesce(cast(IntakeRequest.field_values, JSONB), cast({}, JSONB)) == cast(
+        field_values or {}, JSONB
+    )
+    return db.scalar(
+        select(IntakeRequest)
+        .where(
+            IntakeRequest.org_id == actor.org_id,
+            IntakeRequest.requester_user_id == actor.id,
+            IntakeRequest.type_label == payload.type_label.strip(),
+            IntakeRequest.description == (payload.description or ""),
+            IntakeRequest.subject == _derive_subject(getattr(payload, "subject", None),
+                                                     payload.description, payload.type_label),
+            same_answers,
+            IntakeRequest.submitted_at >= utcnow() - timedelta(minutes=2),
+        )
+        .order_by(IntakeRequest.submitted_at.desc())
+        .limit(1)
+    )
+
+
+def _decode_b64(content_b64: str, filename: str) -> bytes:
+    import base64
+    import binascii
+
+    try:
+        return base64.b64decode(content_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(422, f'"{filename}" could not be read — please attach it again') from exc
 
 
 _PARTY_ROLES = {"counterparty", "adverse", "related", "our_side"}
@@ -620,27 +914,78 @@ def set_parties(db: Session, *, actor: User, request_id: str, parties: list) -> 
     write_audit_log(db, action="intake.parties.updated", resource_type="intake_request",
                     resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                     after={"count": len(clean)})
+    # A changed party list must actually re-screen, so this job is deliberately
+    # NOT idempotent against the original — folding into it would return the
+    # verdict for the parties the reviewer just replaced.
+    r.screening = {"status": "pending", "note": "Re-screening queued."}
+    rescreen_job = queue_screening(db, r, actor.id, idempotent=False)
     db.commit()
     db.refresh(r)
-    _run_screening_safe(db, r, actor.id)
+    dispatch_screening(db, rescreen_job)
     _attach_flow_suggestion(db, r)
     return serialize_request(db, r)
 
 
-def _run_screening_safe(db: Session, r: IntakeRequest, actor_id: str | None) -> None:
-    """Best-effort screening enrichment, isolated after the request is committed."""
-    from app.intake.screening import run_screening
+def queue_screening(db: Session, r: IntakeRequest, actor_id: str | None,
+                    *, idempotent: bool = True):
+    """Enqueue conflicts/sanctions screening as a durable job.
+
+    Screening used to run inline after the request had already been committed,
+    in a try/except that wrote ``{"status": "error"}`` and stopped there. Two
+    ways a request ended up permanently unscreened: the process dying between
+    the commit and the enrichment, and the screen simply failing — with no
+    retry, no queue and no way to find the requests it had happened to. An
+    unscreened request looked exactly like one that had passed.
+
+    As a job it is durable instead: the row is written in the SAME transaction
+    as the request, so if the request exists the job exists. A dispatch that
+    fails leaves it QUEUED for the reclaim sweep, and a run that fails leaves
+    it FAILED and visible rather than silent.
+
+    ``idempotent=False`` for a re-screen (the party list changed), where the
+    point is to run again rather than fold into the original job.
+    """
+    from app.jobs.service import create_job
+
+    return create_job(
+        db, org_id=r.org_id, job_type="intake_screening",
+        resource_type="intake_request", resource_id=r.id,
+        created_by_user_id=actor_id,
+        idempotency_key=f"intake_screening:{r.id}" if idempotent else None,
+        metadata={"intake_request_id": r.id},
+    )
+
+
+def dispatch_screening(db: Session, job) -> None:
+    """Hand a committed screening job to a worker.
+
+    Best-effort on purpose: the row is already durable, so a broker that is
+    down costs a few minutes rather than the screen — `reclaim_stale_jobs`
+    re-dispatches anything left QUEUED.
+    """
+    from app.jobs.service import dispatch_job
+
+    if job is None:
+        return
     try:
-        run_screening(db, r, actor_user_id=actor_id)
+        dispatch_job(db, job=job)
         db.commit()
-        db.refresh(r)
     except Exception:
         db.rollback()
-        r.screening = {"status": "error", "note": "Screening failed — re-run from the request."}
-        try:
-            db.commit()
-        except Exception:
-            db.rollback()
+        logger.warning("could not dispatch screening job %s", getattr(job, "id", "?"),
+                       exc_info=True)
+
+
+def run_intake_screening(db: Session, *, request_id: str, actor_id: str | None) -> None:
+    """Job body. Exceptions propagate on purpose — a failed screen must fail
+    its job, so it is retried and then visible, not swallowed into a status
+    field nobody queries."""
+    from app.intake.screening import run_screening
+
+    r = db.get(IntakeRequest, request_id)
+    if r is None:
+        return  # request deleted before the job ran; nothing to screen
+    run_screening(db, r, actor_user_id=actor_id)
 
 
 def _notify(db: Session, r: IntakeRequest, user_id: str | None, event_type: str,
@@ -1164,11 +1509,17 @@ def build_sla_legs(db: Session, *, request: IntakeRequest, now=None) -> dict:
     submitted = _ms(request.submitted_at or request.created_at or now)
     closed_ts = _ms(request.closed_at) if (request.status in TERMINAL_STATUSES and request.closed_at) else None
     end = max(closed_ts or now_ms, submitted)
+    cal = calendar_from_settings()
     sla_ms = max(0, request.sla_hours or 0) * 3_600_000.0
     pause = float(request.paused_ms_total or 0)
     if request.paused_at and not closed_ts:
-        pause += now_ms - _ms(request.paused_at)
-    breach_ts = submitted + sla_ms + pause
+        pause += business_ms_between(request.paused_at, now, cal)
+    # The breach is a point on the WALL clock, so the working-time budget has
+    # to be projected onto it — `submitted + sla_hours` is only that point for
+    # a team that works round the clock.
+    breach_ts = _ms(business_deadline(
+        request.submitted_at or request.created_at or now, sla_ms + pause, cal
+    ))
     handoffs = db.scalars(
         select(IntakeHandoff).where(IntakeHandoff.request_id == request.id)
         .order_by(IntakeHandoff.created_at)
@@ -1224,7 +1575,12 @@ def set_pause(db: Session, *, actor: User, request_id: str, paused: bool,
                             resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id)
     else:
         if r.paused_at is not None:
-            r.paused_ms_total = int((r.paused_ms_total or 0) + (now - r.paused_at).total_seconds() * 1000)
+            # Business ms, because this is subtracted from a business-ms
+            # elapsed. Counting a pause over a weekend in wall-clock time
+            # would credit hours the clock never charged.
+            r.paused_ms_total = int(
+                (r.paused_ms_total or 0) + business_ms_between(r.paused_at, now)
+            )
             r.paused_at = None
             write_audit_log(db, action="intake.resumed", resource_type="intake_request",
                             resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id)
@@ -1501,7 +1857,11 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
         if val is not None:
             setattr(r, attr, val)
     if payload.field_values is not None:
-        r.field_values = payload.field_values
+        # Validated here too: the update path wrote straight through, so a
+        # required field could be emptied and a typed one replaced with
+        # anything after the request was filed.
+        rtype = db.get(IntakeRequestType, r.request_type_id) if r.request_type_id else None
+        r.field_values = _validate_field_values(rtype, payload.field_values)
     if payload.stage is not None and payload.stage != r.stage:
         rtype = db.get(IntakeRequestType, r.request_type_id) if r.request_type_id else None
         valid = stages_for(rtype)
@@ -1530,26 +1890,51 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
 
 # ---- gap-fill: agent observability + documents (reference parity) ------------
 
-_DOC_MAX_BYTES = 3 * 1024 * 1024  # 3 MB inline cap, mirrors the reference
+# Per file, and per filing. Files travel base64-encoded inside the JSON filing
+# (a third bigger on the wire), and nginx accepts request bodies up to 60 MB
+# (deploy/nginx/aegis.conf), so 40 MB of files per filing stays under it.
+_DOC_MAX_BYTES = 25 * 1024 * 1024
+_FILING_MAX_BYTES = 40 * 1024 * 1024
+_DOC_MAX_LABEL = "25 MB"
 
 
-def add_document(db: Session, *, actor: User, request_id: str, filename: str,
-                 mime_type: str, content: bytes) -> dict:
-    """Attach a document; extract its text and fold a capped excerpt into the
-    request description so triage agents read what the requester attached."""
-    from app.contract_files.service import validate_upload_mime
+_SUPPORTED_ATTACHMENTS = "PDF, Word (DOC or DOCX), plain text, PNG or JPEG"
+
+
+@dataclass
+class _PreparedAttachment:
+    filename: str
+    mime_type: str
+    size_bytes: int
+    extracted_text: str | None
+    extraction_quality: float | None
+
+
+def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
+    """Check one attachment and read its text, or raise an error that names the file.
+
+    Runs before anything is saved, so a bad file stops the filing instead of
+    leaving a request behind with its attachment missing."""
+    from app.contract_files.service import _scan_for_malware, validate_upload_mime
     from app.contract_files.text_extraction import extract_text
-    from app.intake.models import IntakeDocument
 
+    name = (filename or "attachment")[:300]
+    if not content:
+        raise HTTPException(422, f'"{name}" is empty')
     if len(content) > _DOC_MAX_BYTES:
-        raise HTTPException(status_code=413, detail="Attachment over the 3 MB inline limit")
+        raise HTTPException(413, f'"{name}" is larger than the {_DOC_MAX_LABEL} limit for request attachments')
     # Enforce the shared MIME allowlist + magic-byte check on every attachment —
     # the caller's declared content-type (form upload or email) is untrusted.
-    mime_type = validate_upload_mime(content, mime_type)
-    r = get_request(db, user=actor, request_id=request_id)
+    try:
+        mime_type = validate_upload_mime(content, mime_type)
+    except HTTPException as exc:
+        raise HTTPException(
+            exc.status_code, f'"{name}" is not a supported file type — use {_SUPPORTED_ATTACHMENTS}'
+        ) from exc
+    _scan_for_malware(content)  # no-op unless ClamAV is switched on
     extracted, quality = "", None
     try:
-        result = extract_text(content, mime_type=mime_type, filename=filename)
+        result = extract_text(content, mime_type=mime_type, filename=name)
         # Postgres TEXT/VARCHAR columns can never store a NUL byte — some PDF
         # extractors emit them for certain font encodings, which would
         # otherwise fail this insert.
@@ -1557,9 +1942,15 @@ def add_document(db: Session, *, actor: User, request_id: str, filename: str,
         quality = result.quality_score
     except Exception:
         extracted = ""
-    doc = IntakeDocument(org_id=actor.org_id, request_id=r.id, filename=filename[:300],
-                         mime_type=mime_type[:120], size_bytes=len(content),
-                         extracted_text=extracted or None, extraction_quality=quality,
+    return _PreparedAttachment(name, mime_type[:120], len(content), extracted or None, quality)
+
+
+def _attach(db: Session, *, actor: User, r: IntakeRequest, att: _PreparedAttachment):
+    from app.intake.models import IntakeDocument
+
+    doc = IntakeDocument(org_id=actor.org_id, request_id=r.id, filename=att.filename,
+                         mime_type=att.mime_type, size_bytes=att.size_bytes,
+                         extracted_text=att.extracted_text, extraction_quality=att.extraction_quality,
                          created_by_user_id=actor.id, updated_by_user_id=actor.id)
     db.add(doc)
     # The extracted text stays on the document (surfaced in the Attachments panel).
@@ -1567,8 +1958,17 @@ def add_document(db: Session, *, actor: User, request_id: str, filename: str,
     # the requester's short ask with a wall of document text.
     write_audit_log(db, action="intake.document.added", resource_type="intake_request",
                     resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
-                    after={"filename": filename, "bytes": len(content),
-                           "extracted_chars": len(extracted)})
+                    after={"filename": att.filename, "bytes": att.size_bytes,
+                           "extracted_chars": len(att.extracted_text or "")})
+    return doc
+
+
+def add_document(db: Session, *, actor: User, request_id: str, filename: str,
+                 mime_type: str, content: bytes) -> dict:
+    """Attach a document to a request that is already filed."""
+    att = _prepare_attachment(filename, mime_type, content)
+    r = get_request(db, user=actor, request_id=request_id)
+    doc = _attach(db, actor=actor, r=r, att=att)
     db.commit()
     db.refresh(doc)
     return serialize_document(doc)

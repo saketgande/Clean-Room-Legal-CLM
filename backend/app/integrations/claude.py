@@ -10,11 +10,15 @@ from typing import Any
 import anthropic
 import httpx
 
+from app.ai.cost_guard import reserve_tokens, settle_tokens
 from app.core.config import settings
 from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
 from app.integrations._http_retry import resilient_call
 
 logger = logging.getLogger(__name__)
+
+
+_BLOCKING_CALL_TIMEOUT_SECONDS = 300
 
 
 def run_coro_blocking(make_coro):
@@ -34,8 +38,16 @@ def run_coro_blocking(make_coro):
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(make_coro())  # no loop on this thread — the common case
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(lambda: asyncio.run(make_coro())).result()
+    # A running loop means this call blocks that loop until the coroutine finishes.
+    # Async callers should hand the whole sync call to a thread (run_in_threadpool)
+    # instead; the warning makes regressions visible and the timeout bounds the
+    # stall. shutdown(wait=False): a `with` block would wait for the thread anyway.
+    logger.warning("run_coro_blocking called from a running event loop; it blocks that loop")
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return ex.submit(lambda: asyncio.run(make_coro())).result(timeout=_BLOCKING_CALL_TIMEOUT_SECONDS)
+    finally:
+        ex.shutdown(wait=False)
 
 
 @dataclass(frozen=True)
@@ -122,12 +134,37 @@ def _cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return marked
 
 
+def _total_tokens(raw_response: dict[str, Any]) -> int:
+    usage = raw_response.get("usage") or {}
+    return (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+
+
+def _estimated_tokens(json_payload: dict[str, Any]) -> int:
+    """What to reserve against the daily cap before a request: roughly four
+    characters per token for everything sent, plus the longest reply allowed.
+    Image bytes are skipped (billed per image, far below their size). The real
+    total replaces this estimate as soon as the call returns."""
+
+    def chars(value: Any) -> int:
+        if isinstance(value, str):
+            return len(value)
+        if isinstance(value, dict):
+            return 0 if value.get("type") == "base64" else sum(chars(v) for v in value.values())
+        if isinstance(value, list):
+            return sum(chars(v) for v in value)
+        return 0
+
+    sent = chars([json_payload.get("system"), json_payload.get("messages"), json_payload.get("tools")])
+    return sent // 4 + int(json_payload.get("max_tokens") or 0)
+
+
 class ClaudeClient:
     provider = "claude"
 
     async def complete_structured(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         tool_name: str,
@@ -141,6 +178,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -169,6 +207,7 @@ class ClaudeClient:
     async def complete_vision_structured(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         image_bytes: bytes,
@@ -189,6 +228,7 @@ class ClaudeClient:
         started = time.perf_counter()
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -230,6 +270,7 @@ class ClaudeClient:
     async def complete_text(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         max_tokens: int,
@@ -248,6 +289,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -266,6 +308,7 @@ class ClaudeClient:
     async def complete_with_tools(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
@@ -275,6 +318,7 @@ class ClaudeClient:
     ) -> ClaudeProviderResponse:
         if not tools:
             return await self.complete_text(
+                org_id=org_id,
                 system_prompt=system_prompt,
                 user_prompt=_last_user_text(messages),
                 max_tokens=max_tokens,
@@ -286,6 +330,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -306,6 +351,7 @@ class ClaudeClient:
     async def stream_with_tools(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
@@ -332,6 +378,7 @@ class ClaudeClient:
                 self._mock_tool_response(messages=messages, tools=tools, model=model or settings.claude_model)
                 if tools
                 else await self.complete_text(
+                    org_id=org_id,
                     system_prompt=system_prompt,
                     user_prompt=_last_user_text(messages),
                     max_tokens=max_tokens,
@@ -360,14 +407,17 @@ class ClaudeClient:
             json_payload["tool_choice"] = {"type": "auto"}
 
         client = _anthropic_client()
+        reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
+        used = 0
         started = time.perf_counter()
         try:
             async with client.messages.stream(**json_payload) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
                         yield {"type": "text_delta", "text": event.delta.text}
-                final_message = await stream.get_final_message()
+                final_message = (await stream.get_final_message()).to_dict()
                 request_id = stream.request_id
+            used = _total_tokens(final_message)
         except anthropic.APIStatusError as exc:
             logger.error(
                 "Anthropic /v1/messages %s (model=%s, max_tokens=%s): %s",
@@ -381,18 +431,20 @@ class ClaudeClient:
                 },
             )
             raise
+        finally:
+            settle_tokens(reservation, used)
 
         yield {
             "type": "final",
             "response": self._to_provider_response(
-                final_message.to_dict(),
+                final_message,
                 latency_ms=(time.perf_counter() - started) * 1000,
                 provider_request_id=request_id,
                 model=model or settings.claude_model,
             ),
         }
 
-    async def _post_messages(self, *, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    async def _post_messages(self, *, org_id: str | None, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         if not settings.claude_api_key:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
         client = _anthropic_client()
@@ -431,7 +483,15 @@ class ClaudeClient:
                 raise
             return final_message.to_dict(), request_id
 
-        return await _do_request()
+        # Metered here, once around all retries, so no caller can skip the daily cap.
+        reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
+        used = 0
+        try:
+            response_json, request_id = await _do_request()
+            used = _total_tokens(response_json)
+        finally:
+            settle_tokens(reservation, used)
+        return response_json, request_id
 
     def _to_provider_response(
         self,
@@ -452,7 +512,7 @@ class ClaudeClient:
             token_usage={
                 "prompt_tokens": usage.get("input_tokens"),
                 "completion_tokens": usage.get("output_tokens"),
-                "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0),
+                "total_tokens": _total_tokens(raw_response),
                 # Prompt-cache accounting: cache_creation is billed once (a bit
                 # above normal input), cache_read is the cheap hit on later turns.
                 "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),

@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- Runs inside the editor, hidden: the page next to it asks for words, this
+     finds and selects them there. Free ONLYOFFICE has no way to drive the
+     editor from outside — that is its Developer Edition — and a plugin is the
+     way it leaves open. Installed into the editor's own plugin folder by a
+     mount (docker-compose.override.yml), because a plugin loaded from
+     elsewhere is started only now and then in 8.2 and later. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Aegis</title>
+    <!-- The editor serves plugin files with a year's immutable caching, so the
+         browser never sees a change to this plugin unless its address changes:
+         ?v= is bumped whenever code.js or this file is edited. -->
+    <script src="./../v1/plugins.js"></script>
+    <script src="code.js?v=4"></script>
+  </head>
+  <body></body>
+</html>

@@ -1,7 +1,7 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.approvals.models import ApprovalRequest
+from app.approvals.models import ApprovalDecision, ApprovalRequest
 from app.auth.models import User
 from app.contract_brain.entities import (
     clause_for_quote,
@@ -9,10 +9,12 @@ from app.contract_brain.entities import (
     party_entity_key,
     person_entity_key,
 )
+from app.contract_brain.lineage import child_parent_kind, infer_parent
 from app.contract_brain.models import ClauseExtraction, KnowledgeEdge, KnowledgeNode
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.enums import ApprovalStatus, SignatureStatus
 from app.obligations.models import Obligation
 from app.playbooks.models import PlaybookDeviation
 from app.signatures.models import SignatureRecipient, SignatureRequest
@@ -42,6 +44,7 @@ def ingest_contract_brain(
     ):
         edge.is_stale = True
         edge.updated_by_user_id = created_by_user_id
+    old_hub_ids: list[str] = []
     for node in db.scalars(
         select(KnowledgeNode).where(
             KnowledgeNode.org_id == org_id,
@@ -49,6 +52,8 @@ def ingest_contract_brain(
             KnowledgeNode.is_stale.is_(False),
         )
     ):
+        if node.node_type == "contract":
+            old_hub_ids.append(node.id)
         node.is_stale = True
         node.updated_by_user_id = created_by_user_id
     db.flush()
@@ -94,6 +99,24 @@ def ingest_contract_brain(
         cached = shared_cache.get((node_type, entity_key))
         if cached is not None:
             return cached
+        # A parallel ingestion may be creating this entity right now. Take the org's
+        # shared-entity lock (held until this transaction ends), then look again.
+        # ponytail: one lock per org; per-key locks in sorted order if ingestion throughput matters.
+        db.execute(select(func.pg_advisory_xact_lock(func.hashtext(f"knowledge_node:{org_id}"))))
+        existing = db.scalar(
+            select(KnowledgeNode)
+            .where(
+                KnowledgeNode.org_id == org_id,
+                KnowledgeNode.contract_id.is_(None),
+                KnowledgeNode.is_stale.is_(False),
+                KnowledgeNode.node_type == node_type,
+                KnowledgeNode.properties["entity_key"].as_string() == entity_key,
+            )
+            .limit(1)
+        )
+        if existing is not None:
+            shared_cache[(node_type, entity_key)] = existing
+            return existing
         node = KnowledgeNode(
             org_id=org_id,
             node_type=node_type,
@@ -140,6 +163,21 @@ def ingest_contract_brain(
             "counterparty_name": contract.counterparty_name,
         },
     )
+
+    # Other contracts' lineage edges (a SoW governed_by this MSA) point at this
+    # contract's hub node. Re-ingestion replaces the hub, so move those edges onto
+    # the new one; otherwise "what depends on this MSA?" goes silent.
+    if old_hub_ids:
+        for incoming in db.scalars(
+            select(KnowledgeEdge).where(
+                KnowledgeEdge.org_id == org_id,
+                KnowledgeEdge.to_node_id.in_(old_hub_ids),
+                KnowledgeEdge.contract_id != contract.id,
+                KnowledgeEdge.is_stale.is_(False),
+            )
+        ):
+            incoming.to_node_id = contract_node.id
+            incoming.updated_by_user_id = created_by_user_id
 
     # Jurisdiction as a shared entity: "Delaware", "State of Delaware" and
     # "Delaware, USA" resolve to one node, so "every contract under Delaware
@@ -217,52 +255,77 @@ def ingest_contract_brain(
         # source quote is a verbatim span from the contract, so the clause whose
         # text contains it is the source — evidence, not a type guess. Char
         # offsets settle ties when a short quote sits inside several clauses.
-        quote = (ob.source_citation or {}).get("quote") if isinstance(ob.source_citation, dict) else None
-        hit = clause_for_quote(quote, [(cn, ctext) for cn, ctext, _, _ in clause_nodes])
+        citation = ob.source_citation if isinstance(ob.source_citation, dict) else {}
+        hit = clause_for_quote(citation.get("quote"), clause_nodes, start_char=citation.get("start_char"))
         if hit is not None:
             add_edge("creates_obligation", hit, onode,
                      {"obligation_type": ob.obligation_type})
             counts["provenance"] = counts.get("provenance", 0) + 1
 
     # Approvers — shared PERSON nodes, so "every contract Jane approved" is one
-    # traversal. The approval status stays on the edge; the person is the node.
-    for appr in db.scalars(
+    # traversal. An approved_by / rejected_by edge exists only for a real decision,
+    # from the person who made it; a rung still waiting names who was ASKED.
+    approvals = db.scalars(
         select(ApprovalRequest).where(
             ApprovalRequest.org_id == org_id, ApprovalRequest.contract_id == contract.id
         )
-    ):
-        approver = db.get(User, appr.approver_user_id) if appr.approver_user_id else None
-        key = person_entity_key(
-            email=approver.email if approver else None,
-            name=approver.full_name if approver else None,
-        )
-        if key is None:
-            continue                       # an approval with no identified approver yet
-        pnode = shared_node("person", approver.full_name, key,
-                            {"email": approver.email, "role": "approver"})
-        add_edge("approved_by", contract_node, pnode,
-                 {"status": appr.status, "approval_request_id": appr.id})
-        counts["person"] = counts.get("person", 0) + 1
+    ).all()
+    decisions_by_rung: dict[str, list] = {}
+    if approvals:
+        for decision in db.scalars(
+            select(ApprovalDecision).where(
+                ApprovalDecision.approval_request_id.in_([a.id for a in approvals])
+            )
+        ):
+            decisions_by_rung.setdefault(decision.approval_request_id, []).append(decision)
+    for appr in approvals:
+        people = [
+            (db.get(User, d.approver_user_id), "approved_by" if d.decision == "approve" else "rejected_by",
+             {"decided_at": str(d.decided_at) if d.decided_at else None})
+            for d in decisions_by_rung.get(appr.id, [])
+            if d.approver_user_id and d.decision in ("approve", "reject")
+        ]
+        if not people and appr.approver_user_id and appr.status in (ApprovalStatus.PENDING, ApprovalStatus.WAITING):
+            people = [(db.get(User, appr.approver_user_id), "approval_requested_from", {})]
+        for person, edge_type, extra in people:
+            key = person_entity_key(
+                email=person.email if person else None,
+                name=person.full_name if person else None,
+            )
+            if key is None:
+                continue
+            pnode = shared_node("person", person.full_name, key,
+                                {"email": person.email, "role": "approver"})
+            add_edge(edge_type, contract_node, pnode,
+                     {"status": appr.status, "approval_request_id": appr.id,
+                      "step_order": appr.step_order, **extra})
+            counts["person"] = counts.get("person", 0) + 1
 
-    # Signatories — shared PERSON nodes from the recipients on each signature
-    # request (counterparty and our own signers alike).
-    for sig in db.scalars(
+    # Signatories — shared PERSON nodes. signed_by only once the signature is
+    # actually complete; until then the recipient was only asked to sign.
+    signature_requests = db.scalars(
         select(SignatureRequest).where(
             SignatureRequest.org_id == org_id, SignatureRequest.contract_id == contract.id
         )
-    ):
+    ).all()
+    recipients_by_request: dict[str, list] = {}
+    if signature_requests:
         for recip in db.scalars(
             select(SignatureRecipient).where(
-                SignatureRecipient.signature_request_id == sig.id
+                SignatureRecipient.signature_request_id.in_([s.id for s in signature_requests])
             )
         ):
+            recipients_by_request.setdefault(recip.signature_request_id, []).append(recip)
+    for sig in signature_requests:
+        for recip in recipients_by_request.get(sig.id, []):
             key = person_entity_key(email=recip.email, name=recip.name)
             if key is None:
                 continue
+            signed = sig.status == SignatureStatus.COMPLETED or (recip.status or "").lower() == "completed"
             pnode = shared_node("person", recip.name, key,
                                 {"email": recip.email, "role": recip.role or "signatory"})
-            add_edge("signed_by", contract_node, pnode,
-                     {"status": sig.status, "role": recip.role})
+            add_edge("signed_by" if signed else "signature_requested_from", contract_node, pnode,
+                     {"status": recip.status or sig.status, "role": recip.role})
             counts["person"] = counts.get("person", 0) + 1
 
     for dev in db.scalars(
@@ -311,6 +374,44 @@ def ingest_contract_brain(
                  "parent_contract_id": parent_id},
             )
             counts["lineage"] = counts.get("lineage", 0) + 1
+    elif child_parent_kind(contract.contract_type, contract.title) is not None and contract.counterparty_name:
+        # No stated parent: infer one (same counterparty, a parent contract type,
+        # started first). The edge says it was inferred and how sure it is.
+        candidates = [
+            {"id": c.id, "contract_type": c.contract_type, "title": c.title,
+             "counterparty_key": party_entity_key(c.counterparty_name), "effective_date": c.effective_date}
+            for c in db.scalars(
+                select(Contract).where(
+                    Contract.org_id == org_id,
+                    Contract.id != contract.id,
+                    Contract.deleted_at.is_(None),
+                    Contract.counterparty_name.isnot(None),
+                )
+            )
+        ]
+        child = {"id": contract.id, "contract_type": contract.contract_type, "title": contract.title,
+                 "counterparty_key": party_entity_key(contract.counterparty_name),
+                 "effective_date": contract.effective_date}
+        inferred = infer_parent(child, candidates)
+        if inferred is not None:
+            parent, confidence = inferred
+            parent_hub = db.scalars(
+                select(KnowledgeNode).where(
+                    KnowledgeNode.org_id == org_id,
+                    KnowledgeNode.node_type == "contract",
+                    KnowledgeNode.contract_id == parent["id"],
+                    KnowledgeNode.is_stale.is_(False),
+                )
+            ).first()
+            if parent_hub is not None:
+                add_edge(
+                    "governed_by",
+                    contract_node,
+                    parent_hub,
+                    {"inferred": True, "confidence": confidence,
+                     "basis": "same counterparty and a parent contract type", "parent_contract_id": parent["id"]},
+                )
+                counts["lineage"] = counts.get("lineage", 0) + 1
 
     write_audit_log(
         db,

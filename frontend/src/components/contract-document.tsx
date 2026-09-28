@@ -209,6 +209,12 @@ export function ContractDocument({
   const { data: versions } = useQuery({
     queryKey: ["contract", contractId, "versions"],
     queryFn: () => contractsApi.versions(contractId),
+    // A fresh upload's text is extracted in the background: check again until it lands.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const pending = !!data && data.length > 0 && !data.some((v) => v.text_snapshot_id);
+      return pending && query.state.dataUpdateCount < 100 ? 3000 : false;
+    },
   });
   const { data: comments } = useQuery({
     queryKey: ["contract-comments", contractId],
@@ -269,6 +275,7 @@ export function ContractDocument({
   const shownVersion = (versions ?? []).find(
     (v) => v.id === resolved?.versionId,
   );
+
 
   // Redlines anchor to the version they were created against. Render that base
   // text so accepted edits still show as struck original + inserted
@@ -388,14 +395,14 @@ export function ContractDocument({
       setSelection(null);
       return;
     }
-    const start = docText.indexOf(quote);
+    const holder = scrollRef.current;
+    if (!holder) return;
+    const start = selectionOffset(docText, quote, holder, sel.getRangeAt(0));
     if (start < 0) {
       // Selection crossed redline markup or reflowed text — can't anchor it.
       setSelection(null);
       return;
     }
-    const holder = scrollRef.current;
-    if (!holder) return;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     const box = holder.getBoundingClientRect();
     const x = Math.min(
@@ -819,4 +826,27 @@ export function ContractDocument({
       </div>
     </div>
   );
+}
+
+/** Where the selected quote starts in the document text. A repeated passage
+ *  ("Intentionally omitted", a notice address) is told apart by counting the
+ *  quote in the rendered text before the selection; -1 when that can't settle it. */
+function selectionOffset(docText: string, quote: string, holder: HTMLElement, range: Range): number {
+  let seen = -1;
+  try {
+    const before = document.createRange();
+    before.selectNodeContents(holder);
+    before.setEnd(range.startContainer, range.startOffset);
+    seen = before.toString().split(quote).length - 1;
+  } catch {
+    seen = -1;
+  }
+  let at = -1;
+  for (let i = 0; seen >= 0 && i <= seen; i++) {
+    at = docText.indexOf(quote, at + 1);
+    if (at < 0) break;
+  }
+  if (at >= 0) return at;
+  const first = docText.indexOf(quote);
+  return first >= 0 && first === docText.lastIndexOf(quote) ? first : -1;
 }

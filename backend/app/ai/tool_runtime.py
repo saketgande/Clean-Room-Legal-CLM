@@ -4,59 +4,59 @@ import json
 import logging
 import re
 import secrets
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
 
 from fastapi import HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.confirmations import create_confirmation
 from app.ai.models import AIConfirmation
 from app.ai.redaction import redact_ai_payload
-from app.ai.schemas import BrainQueryParseOutput
 from app.ai.tool_policy import is_tool_enabled
 from app.ai.tool_registry import (
     AddCommentInput,
     AdvanceContractStageInput,
     AdvanceIntakeWorkflowInput,
     ApprovalSubmitInput,
-    CompleteObligationInput,
-    CompleteTaskInput,
-    CreateWorkflowInput,
-    MatterRef,
-    SignatureStatusInput,
-    CreateIntakeRequestInput,
-    CreateNoticeInput,
-    DecideApprovalInput,
-    IntakeRequestRef,
-    ListNoticesInput,
-    ListRenewalsInput,
-    NoticeRef,
-    ReassignRequestInput,
-    SendForNegotiationInput,
-    SignatureLinkInput,
-    StartIntakeWorkflowInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
+    CompleteObligationInput,
+    CompleteTaskInput,
     ContractHandleInput,
-    ReadContractInput,
+    CreateIntakeRequestInput,
+    CreateNoticeInput,
+    CreateWorkflowInput,
+    DecideApprovalInput,
     EditContractInput,
     ExternalShareInput,
     ExtractObligationsInput,
     FindContractsInput,
     FindInContractInput,
     GenerateContractInput,
+    IntakeRequestRef,
+    ListNoticesInput,
     ListObligationsInput,
-    PlaybookToolInput,
+    ListRenewalsInput,
     MatterContractsInput,
-    ReadTableCellsInput,
-    RedraftContractInput,
-    SignatureSendInput,
-    TabularReviewInput,
+    MatterRef,
+    NoticeRef,
+    PlaybookToolInput,
     PromptRunInput,
+    ReadContractInput,
+    ReadTableCellsInput,
+    ReassignRequestInput,
+    RedraftContractInput,
+    SendForNegotiationInput,
+    SignatureLinkInput,
+    SignatureSendInput,
+    SignatureStatusInput,
+    StartIntakeWorkflowInput,
+    TabularReviewInput,
     tool_registry,
 )
 from app.approvals.models import ApprovalRequest
@@ -64,6 +64,7 @@ from app.approvals.service import submit_contract_for_approval
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
 from app.contract_brain.retrieval import assemble_context
+from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.models import (
     ContractEdit,
     ContractFile,
@@ -72,7 +73,6 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.service import _queue_initial_contract_jobs, next_version_number
 from app.contracts.access import accessible_contract_filter
 from app.contracts.lifecycle import transition_contract_stage
@@ -90,23 +90,24 @@ from app.core.enums import (
     TabularCellStatus,
 )
 from app.core.rbac import has_permission
+from app.core.security import hash_password
 from app.integrations.docusign import docusign_client
 from app.integrations.resend import resend_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
+from app.matters.access import get_project_for_user
+from app.matters.models import MatterContract
 from app.obligations.models import Obligation
 from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
+from app.prompt_library.builtin import builtin_prompts
+from app.prompt_library.models import Prompt, PromptRun
 from app.renewals.models import RenewalEvent
 from app.signatures.models import SignatureRecipient, SignatureRequest
 from app.signatures.service import validate_signature_recipients
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 from app.tabular_review.service import dispatch_cells
-from app.prompt_library.builtin import builtin_prompts
-from app.prompt_library.models import Prompt, PromptRun
 
 
 class ToolRuntime:
@@ -131,6 +132,12 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {tool_name}")
         validated_input = spec.input_model.model_validate(tool_input)
         validated_args = validated_input.model_dump(mode="json")
+        idempotency_key = _idempotency_key(tool_name, session_id, validated_args)
+        replay = self._replayed_call(
+            db, spec=spec, org_id=user.org_id, session_id=session_id, idempotency_key=idempotency_key
+        )
+        if replay is not None:
+            return replay
         call = AssistantToolCall(
             org_id=user.org_id,
             session_id=session_id,
@@ -144,7 +151,7 @@ class ToolRuntime:
             arguments=redact_ai_payload(validated_args),
             status=AssistantToolCallStatus.RUNNING,
             confirmation_required=spec.requires_confirmation,
-            idempotency_key=_idempotency_key(tool_name, session_id, validated_args),
+            idempotency_key=idempotency_key,
             output_schema_name=spec.output_model.__name__,
             started_at=utcnow(),
             created_by_user_id=user.id,
@@ -195,6 +202,49 @@ class ToolRuntime:
             except Exception:
                 db.rollback()
             raise
+
+    def _replayed_call(
+        self, db: Session, *, spec, org_id: str, session_id: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        """A side-effecting tool call replayed with identical arguments in the same
+        session (a retry, a reconnect, the model repeating itself) must not act
+        twice: hand back what the first call produced. Read-only tools always run
+        fresh so repeated questions see current data."""
+        from datetime import timedelta
+
+        from app.core.enums import AIConfirmationStatus, AssistantToolCategory
+
+        if spec.category == AssistantToolCategory.READ_ONLY:
+            return None
+        prior = db.scalar(
+            select(AssistantToolCall)
+            .where(
+                AssistantToolCall.org_id == org_id,
+                AssistantToolCall.session_id == session_id,
+                AssistantToolCall.idempotency_key == idempotency_key,
+                AssistantToolCall.status.notin_(
+                    [AssistantToolCallStatus.FAILED, AssistantToolCallStatus.REJECTED]
+                ),
+                AssistantToolCall.created_at >= utcnow() - timedelta(minutes=10),
+            )
+            .order_by(AssistantToolCall.created_at.desc())
+            .limit(1)
+        )
+        if prior is None:
+            return None
+        if prior.status == AssistantToolCallStatus.SUCCEEDED:
+            return prior.result or {}
+        if prior.status == AssistantToolCallStatus.CONFIRMATION_REQUIRED:
+            pending = db.scalar(
+                select(AIConfirmation).where(
+                    AIConfirmation.tool_call_id == prior.id,
+                    AIConfirmation.status == AIConfirmationStatus.PENDING,
+                )
+            )
+            if pending is None:
+                return None  # that confirmation expired or was decided: allow a fresh call
+            return {"confirmation_required": True, "tool_call_id": prior.id, "confirmation_id": pending.id}
+        raise HTTPException(status.HTTP_409_CONFLICT, "This action is already in progress.")
 
     async def execute_confirmed(
         self,
@@ -330,7 +380,8 @@ class ToolRuntime:
         if tool_name == "list_obligations":
             return self._list_obligations(db, payload=payload, user=user)
         if tool_name == "create_intake_request":
-            return self._create_intake_request(db, payload=payload, user=user)
+            # These three call the AI synchronously; run them off the event loop.
+            return await run_in_threadpool(self._create_intake_request, db, payload=payload, user=user)
         if tool_name == "get_intake_request":
             return self._get_intake_request(db, payload=payload, user=user)
         if tool_name == "start_intake_workflow":
@@ -352,9 +403,9 @@ class ToolRuntime:
         if tool_name == "list_notices":
             return self._list_notices(db, payload=payload, user=user)
         if tool_name == "create_notice":
-            return self._create_notice(db, payload=payload, user=user)
+            return await run_in_threadpool(self._create_notice, db, payload=payload, user=user)
         if tool_name == "draft_notice_response":
-            return self._draft_notice_response(db, payload=payload, user=user)
+            return await run_in_threadpool(self._draft_notice_response, db, payload=payload, user=user)
         if tool_name == "complete_obligation":
             return self._complete_obligation(db, payload=payload, user=user)
         if tool_name == "list_renewals":
@@ -422,8 +473,8 @@ class ToolRuntime:
         return out
 
     def _create_intake_request(self, db: Session, *, payload: CreateIntakeRequestInput, user: User) -> dict[str, Any]:
-        from app.intake.service import create_request
         from app.intake.schemas import RequestCreate
+        from app.intake.service import create_request
 
         rc = RequestCreate(
             type_label=payload.type_label, subject=payload.subject,
@@ -450,6 +501,8 @@ class ToolRuntime:
         from app.workflows.service import start_flow
 
         req = self._resolve_request(db, payload.request_id, user)
+        if req.contract_id:
+            get_contract_for_user(db, contract_id=req.contract_id, user=user)
         flow = None
         if payload.workflow_id:
             flow = db.get(Workflow, payload.workflow_id)
@@ -466,6 +519,8 @@ class ToolRuntime:
         run = self._latest_run(db, req.id)
         if run is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No workflow is running on this request")
+        if run.contract_id:
+            get_contract_for_user(db, contract_id=run.contract_id, user=user)
         steps = run.steps or []
         cur = steps[run.current_index] if 0 <= run.current_index < len(steps) else None
         ctype = cur.get("type") if cur else None
@@ -534,6 +589,9 @@ class ToolRuntime:
                 run = self._latest_run(db, req.id)
                 cid = run.contract_id if run else None
             if cid:
+                # Same row-level gate as the contract_id branch: reaching a contract
+                # through its intake request must not bypass walls or clearance.
+                get_contract_for_user(db, contract_id=cid, user=user)
                 return cid
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No contract is linked to that request yet")
 
@@ -579,6 +637,7 @@ class ToolRuntime:
             return {"sent": "internal", "team": team.name, "notified": len(members)}
         # counterparty → external share link
         import secrets
+
         from app.contract_files.models import ContractShare
         from app.contract_files.routes import _hash_secret
         from app.core.enums import ShareAccessMode
@@ -628,10 +687,11 @@ class ToolRuntime:
         ob = db.get(Obligation, payload.obligation_id)
         if ob is None or ob.org_id != user.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
-        ob.status = "completed"
-        ob.updated_by_user_id = user.id
+        from app.obligations.service import complete_and_schedule_next
+
+        successor = complete_and_schedule_next(db, ob=ob, actor_user_id=user.id)
         db.commit()
-        return {"completed": True, "obligation_id": ob.id}
+        return {"completed": True, "obligation_id": ob.id, "next_obligation_id": successor.id if successor else None}
 
     def _list_renewals(self, db: Session, *, payload: ListRenewalsInput, user: User) -> dict[str, Any]:
         from app.renewals.models import RenewalEvent
@@ -795,7 +855,11 @@ class ToolRuntime:
             )
         ).all()
         contracts = db.scalars(
-            select(Contract).where(Contract.org_id == user.org_id, Contract.id.in_(contract_ids))
+            select(Contract).where(
+                Contract.org_id == user.org_id,
+                Contract.id.in_(contract_ids),
+                accessible_contract_filter(user),
+            )
         ).all() if contract_ids else []
         return {
             "matter_id": payload.matter_id,
@@ -812,7 +876,7 @@ class ToolRuntime:
 
     # --- Spec A: read-only portfolio tools ---
     def _my_attention_items(self, db: Session, *, payload: AttentionItemsInput, user: User) -> dict[str, Any]:
-        today = date.today()
+        today = utcnow().date()
         window_end = today + timedelta(days=payload.window_days)
         org = user.org_id
         contracts = {
@@ -953,7 +1017,7 @@ class ToolRuntime:
             )
         )
         if payload.due_within_days is not None:
-            today = date.today()
+            today = utcnow().date()
             query = query.where(
                 Obligation.due_date.isnot(None),
                 Obligation.due_date >= today,
@@ -1888,15 +1952,15 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
         if payload.matter_id:
             get_project_for_user(db, matter_id=payload.matter_id, user=user)
-        parsed = BrainQueryParseOutput(query_scope=payload.query_scope)
-        context = assemble_context(
+        # The Brain page's retrieval, off the event loop (DB queries plus an embedding call).
+        context = await run_in_threadpool(
+            assemble_context,
             db,
             user=user,
             question=payload.question,
             scope=payload.query_scope,
             contract_id=contract_id,
             matter_id=payload.matter_id,
-            parsed=parsed,
         )
         source_text = context["context_text"]
         # Grounded answer — the SAME engine the Brain page uses. Retrieve (incl.
@@ -2232,7 +2296,7 @@ class ToolRuntime:
             contract_id=contract.id,
             contract_version_id=version.id if version else None,
             token_hash=_hash_secret(token),
-            passcode_hash=_hash_secret(payload.passcode) if payload.passcode else None,
+            passcode_hash=hash_password(payload.passcode) if payload.passcode else None,
             access_mode=ShareAccessMode.DOWNLOAD_ALLOWED if payload.download_allowed else ShareAccessMode.VIEW_ONLY,
             expires_at=expires_at,
             download_allowed=payload.download_allowed,
@@ -2400,16 +2464,23 @@ def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
     match (the model may quote across reflowed line breaks)."""
     if not needle:
         return None
-    i = haystack.find(needle)
-    if i != -1:
+    # Repeated text can't be placed by searching for it: return nothing rather than
+    # the first occurrence, so the edit is reported unplaced instead of misplaced.
+    exact = haystack.count(needle)
+    if exact > 1:
+        return None
+    if exact == 1:
+        i = haystack.find(needle)
         return (i, i + len(needle))
     tokens = needle.split()
     if not tokens:
         return None
     pattern = re.compile(r"\s+".join(re.escape(t) for t in tokens))
-    m = pattern.search(haystack)
-    if m is not None:
-        return (m.start(), m.end())
+    matches = list(pattern.finditer(haystack))
+    if len(matches) > 1:
+        return None
+    if matches:
+        return (matches[0].start(), matches[0].end())
     # Fuzzy fallback: the model routinely paraphrases the clause it quotes
     # (drops a word, tweaks punctuation), so exact/whitespace search misses even
     # when the clause is genuinely present. Align to the best real span so the
@@ -2464,7 +2535,7 @@ def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[s
                 # span (the model may have paraphrased), so the tracked change
                 # removes exactly what the reader sees — not a near-quote.
                 rec["original_text"] = source_text[span[0] : span[1]]
-            else:
+            elif source_text.count(original) < 2:  # repeated text stays unplaced
                 # Quote drifted too far to char-locate. Snap to the clause it
                 # belongs to and strike that whole real block — instead of
                 # dropping it as unlocatable, which makes _edit_contract raise
@@ -2513,6 +2584,8 @@ def _build_redline_docx(
     base_version_number: int,
     source_text: str,
     anchored: list[dict[str, Any]],
+    author: str = "Legal AI Assistant",
+    notes: str | None = None,
 ) -> bytes:
     """Render the full source as a Word document with native tracked changes
     at each edit's true position — deletions struck, insertions marked."""
@@ -2527,6 +2600,9 @@ def _build_redline_docx(
         f"Tracked-change redline against V{base_version_number}. "
         "Use accept/reject to adopt or close this proposal."
     )
+    if notes:
+        document.add_heading("Findings", level=2)
+        document.add_paragraph(notes)
 
     nodes: list[tuple[str, str]] = []
     cursor = 0
@@ -2562,7 +2638,7 @@ def _build_redline_docx(
             _append_deleted_text(
                 paragraph,
                 value,
-                author="Legal AI Assistant",
+                author=author,
                 revision_id=str(revision_id),
                 OxmlElement=OxmlElement,
                 qn=qn,
@@ -2572,7 +2648,7 @@ def _build_redline_docx(
             _append_inserted_text(
                 paragraph,
                 value,
-                author="Legal AI Assistant",
+                author=author,
                 revision_id=str(revision_id),
                 OxmlElement=OxmlElement,
                 qn=qn,

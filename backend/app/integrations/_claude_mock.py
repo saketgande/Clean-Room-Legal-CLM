@@ -44,6 +44,7 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "confidence": "low",
             "citations": [],
         },
+        "return_tabular_row_extraction": {"answers": []},
         "return_tabular_review_chat": {
             "answer": "Mock Claude mode is enabled, so no live tabular-review answer was generated.",
             "citations": [],

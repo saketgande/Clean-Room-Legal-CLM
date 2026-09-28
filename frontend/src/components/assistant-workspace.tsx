@@ -466,7 +466,12 @@ export function AssistantWorkspace() {
       else await contractsApi.rejectEdit(contractId, editId);
       qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
-      notify(accept ? "Edit accepted" : "Edit rejected", "success");
+      notify(
+        accept
+          ? "Edit accepted. The contract updates once every change in this redline is decided."
+          : "Edit rejected",
+        "success",
+      );
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed", "error");
     }

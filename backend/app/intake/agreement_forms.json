@@ -1,0 +1,1489 @@
+[
+ {
+  "key": "new_agreement",
+  "name": "New agreement",
+  "group": "New paper",
+  "parent": "none",
+  "sort_order": 10,
+  "fields": [
+   {
+    "key": "entity",
+    "label": "Legal entity",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "entity_id",
+    "label": "Legal entity (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty",
+    "label": "Counterparty",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty_id",
+    "label": "Counterparty (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "country",
+    "label": "Country",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "India",
+     "United Kingdom",
+     "United States",
+     "Germany",
+     "Singapore"
+    ]
+   },
+   {
+    "key": "agreement_type",
+    "label": "Agreement type",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Confidentiality agreement — India",
+     "Consultancy agreement — India",
+     "Master Services Agreement",
+     "Review / drafting by legal counsel",
+     "Service agreement — advertising, media, facilities",
+     "Vendor / supplier agreement",
+     "Customer / sales agreement",
+     "SaaS or software licence",
+     "Others — India"
+    ]
+   },
+   {
+    "key": "area",
+    "label": "Area",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "North",
+     "South",
+     "East",
+     "West"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_sub_category",
+    "label": "Agreement sub-category",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Professional services",
+     "Managed services",
+     "Licence",
+     "Maintenance"
+    ]
+   },
+   {
+    "key": "plant",
+    "label": "Plant",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Hyderabad — Unit 1",
+     "Hyderabad — Unit 2",
+     "Bengaluru — R&D",
+     "Vizag — Unit 6"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "effective_date",
+    "label": "Agreement effective date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "end_date",
+    "label": "Agreement end date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "existing_contract",
+    "label": "Any existing contract",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No",
+     "Yes"
+    ]
+   },
+   {
+    "key": "vendor_code",
+    "label": "Vendor code",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "origin",
+    "label": "Origin of agreement",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Our template",
+     "Counterparty paper",
+     "From a precedent"
+    ]
+   },
+   {
+    "key": "auto_renewal",
+    "label": "Auto-renewal",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "No",
+     "Annual",
+     "Evergreen"
+    ]
+   },
+   {
+    "key": "purpose",
+    "label": "Other information / comments",
+    "kind": "textarea",
+    "required": false
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "sow",
+  "name": "Statement of Work",
+  "group": "New paper",
+  "parent": "contract",
+  "sort_order": 11,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "sow_title",
+    "label": "SoW title",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "services_start",
+    "label": "Services start",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "services_end",
+    "label": "Services end",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "pricing_model",
+    "label": "Pricing model",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed fee",
+     "Time and materials",
+     "Milestone-based",
+     "Retainer"
+    ]
+   },
+   {
+    "key": "rates",
+    "label": "Rates",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master rate card",
+     "Rates specific to this SoW"
+    ]
+   },
+   {
+    "key": "scope",
+    "label": "Scope of services",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "deliverables",
+    "label": "Deliverables and acceptance",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "personnel",
+    "label": "Key personnel / resources",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "dpa",
+  "name": "Data Processing Agreement",
+  "group": "New paper",
+  "parent": "contract",
+  "sort_order": 12,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "their_role",
+    "label": "Counterparty's role",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Processor — they process on our instructions",
+     "Sub-processor",
+     "Joint controller"
+    ]
+   },
+   {
+    "key": "our_role",
+    "label": "Our role",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Controller",
+     "Processor",
+     "Joint controller"
+    ]
+   },
+   {
+    "key": "privacy_contact",
+    "label": "Their data protection contact",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "purpose_of_processing",
+    "label": "Purpose of processing",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "data_categories",
+    "label": "Categories of personal data",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Contact and identity data",
+     "Employment and HR data",
+     "Financial data",
+     "Customer and usage data",
+     "Mixed — several categories"
+    ]
+   },
+   {
+    "key": "data_subjects",
+    "label": "Data subjects",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Employees",
+     "Customers",
+     "Suppliers and contractors",
+     "Patients or trial subjects",
+     "Mixed"
+    ]
+   },
+   {
+    "key": "special_category",
+    "label": "Special category data involved?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No",
+     "Yes"
+    ]
+   },
+   {
+    "key": "scale",
+    "label": "Scale of processing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Limited — under 10,000 data subjects",
+     "Moderate — 10,000 to 100,000",
+     "Large scale — over 100,000 data subjects"
+    ]
+   },
+   {
+    "key": "monitoring",
+    "label": "Systematic monitoring or profiling?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No",
+     "Yes"
+    ]
+   },
+   {
+    "key": "location",
+    "label": "Where is data processed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India only",
+     "India and EEA",
+     "United States",
+     "Multiple regions"
+    ]
+   },
+   {
+    "key": "retention",
+    "label": "Retention period",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Duration of the contract only",
+     "Contract plus 1 year",
+     "Contract plus 3 years",
+     "Contract plus 7 years — statutory"
+    ]
+   },
+   {
+    "key": "sub_processors",
+    "label": "Sub-processors used?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "None",
+     "Named list attached",
+     "To be approved case by case"
+    ]
+   },
+   {
+    "key": "breach_window",
+    "label": "Breach notification window",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "24 hours",
+     "48 hours",
+     "72 hours — regulatory minimum"
+    ]
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "amendment",
+  "name": "Amendment",
+  "group": "Change an existing agreement",
+  "parent": "contract",
+  "sort_order": 13,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "what_changes",
+    "label": "What is changing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Commercial terms",
+     "Scope of services",
+     "Term / dates",
+     "Parties or entity details",
+     "Other"
+    ]
+   },
+   {
+    "key": "effective_date",
+    "label": "Amendment effective date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "revised_end_date",
+    "label": "Revised end date",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "reason",
+    "label": "Reason for the amendment",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "renewal",
+  "name": "Renewal",
+  "group": "Change an existing agreement",
+  "parent": "contract",
+  "sort_order": 14,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "renewal_type",
+    "label": "Type of renewal",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Straight extension — same terms",
+     "Renew with commercial changes",
+     "Renew with scope changes"
+    ]
+   },
+   {
+    "key": "new_start",
+    "label": "New term starts",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "new_end",
+    "label": "New term ends",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "auto_renewal",
+    "label": "Auto-renewal after this term",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "No",
+     "Annual",
+     "Evergreen"
+    ]
+   },
+   {
+    "key": "reason",
+    "label": "Reason for renewing",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "termination",
+  "name": "Termination",
+  "group": "Change an existing agreement",
+  "parent": "contract",
+  "sort_order": 15,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "grounds",
+    "label": "Grounds for termination",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "For convenience",
+     "For breach",
+     "By mutual agreement",
+     "Non-renewal at expiry"
+    ]
+   },
+   {
+    "key": "termination_date",
+    "label": "Proposed termination date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "clause_breached",
+    "label": "Clause breached",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "cure_period",
+    "label": "Cure period served",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "reason",
+    "label": "Reason",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "novation",
+  "name": "Novation",
+  "group": "Change an existing agreement",
+  "parent": "contract",
+  "sort_order": 16,
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Parent agreement",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "transferring_side",
+    "label": "Which side is transferring?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "The counterparty is transferring out",
+     "We are transferring out"
+    ]
+   },
+   {
+    "key": "outgoing_party",
+    "label": "Outgoing party",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "incoming_party",
+    "label": "Incoming party — the entity taking over",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "remaining_party",
+    "label": "Remaining party",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "reason",
+    "label": "Reason for the novation",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Counterparty acquired or merged",
+     "Internal group restructuring",
+     "Supplier transferring the contract",
+     "Business or asset sale"
+    ]
+   },
+   {
+    "key": "effective_date",
+    "label": "Novation effective date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "liabilities",
+    "label": "Accrued liabilities",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Transfer to the incoming party",
+     "Stay with the outgoing party",
+     "Split at the effective date"
+    ]
+   },
+   {
+    "key": "consent",
+    "label": "Has the outgoing party agreed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes — in writing",
+     "Yes — verbally, written to follow",
+     "Not yet"
+    ]
+   },
+   {
+    "key": "background",
+    "label": "Background",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "regularize",
+  "name": "Regularize an agreement executed outside the CLM",
+  "group": "Records & corrections",
+  "parent": "upload",
+  "sort_order": 17,
+  "fields": [
+   {
+    "key": "counterparty",
+    "label": "Counterparty",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "agreement_type",
+    "label": "Agreement type",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "date_signed",
+    "label": "Date signed",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "effective_date",
+    "label": "Effective date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "end_date",
+    "label": "End date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "value",
+    "label": "Total value",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "entity",
+    "label": "Our entity",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "signed_by_us",
+    "label": "Who signed for us?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "signed_by_them",
+    "label": "Who signed for the counterparty?",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "country",
+    "label": "Country",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "India",
+     "United Kingdom",
+     "United States",
+     "Germany",
+     "Singapore"
+    ]
+   },
+   {
+    "key": "area",
+    "label": "Area",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "North",
+     "South",
+     "East",
+     "West"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_sub_category",
+    "label": "Agreement sub-category",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Professional services",
+     "Managed services",
+     "Licence",
+     "Maintenance"
+    ]
+   },
+   {
+    "key": "plant",
+    "label": "Plant",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Hyderabad — Unit 1",
+     "Hyderabad — Unit 2",
+     "Bengaluru — R&D",
+     "Vizag — Unit 6"
+    ]
+   },
+   {
+    "key": "why_outside",
+    "label": "Why was it signed outside the CLM?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Urgency — no time to route it",
+     "Counterparty insisted on their process",
+     "The team was unaware of the CLM requirement",
+     "Signed before the CLM was introduced",
+     "Low value — assumed not required"
+    ]
+   },
+   {
+    "key": "prior_approval",
+    "label": "Were the usual approvals obtained at the time?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No approvals were sought",
+     "Approved informally by email",
+     "Fully approved outside the system"
+    ]
+   },
+   {
+    "key": "signer_authority",
+    "label": "Did the signer have authority under the delegation?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No",
+     "Not sure"
+    ]
+   },
+   {
+    "key": "circumstances",
+    "label": "Circumstances",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ },
+ {
+  "key": "cancellation",
+  "name": "Cancel a request in the CLM",
+  "group": "Records & corrections",
+  "parent": "request",
+  "sort_order": 18,
+  "fields": [
+   {
+    "key": "cancel_request_ref",
+    "label": "Request to cancel",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "region",
+    "label": "Region",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "EMEA",
+     "North America",
+     "APAC"
+    ]
+   },
+   {
+    "key": "department",
+    "label": "Department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "country",
+    "label": "Country",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "India",
+     "United Kingdom",
+     "United States",
+     "Germany",
+     "Singapore"
+    ]
+   },
+   {
+    "key": "agreement_type",
+    "label": "Agreement type",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Confidentiality agreement — India",
+     "Consultancy agreement — India",
+     "Master Services Agreement",
+     "Review / drafting by legal counsel",
+     "Service agreement — advertising, media, facilities",
+     "Vendor / supplier agreement",
+     "Customer / sales agreement",
+     "SaaS or software licence",
+     "Others — India"
+    ]
+   },
+   {
+    "key": "area",
+    "label": "Area",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "North",
+     "South",
+     "East",
+     "West"
+    ]
+   },
+   {
+    "key": "agreement_category",
+    "label": "Agreement category",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Master Service Agreement",
+     "Services — inbound",
+     "Services — outbound",
+     "Technology",
+     "Facilities",
+     "Marketing"
+    ]
+   },
+   {
+    "key": "business_unit",
+    "label": "Business unit",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Corporate",
+     "Global Generics",
+     "Pharmaceutical Services",
+     "Biologics"
+    ]
+   },
+   {
+    "key": "agreement_sub_category",
+    "label": "Agreement sub-category",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Professional services",
+     "Managed services",
+     "Licence",
+     "Maintenance"
+    ]
+   },
+   {
+    "key": "plant",
+    "label": "Plant",
+    "kind": "select",
+    "required": false,
+    "options": [
+     "Not applicable",
+     "Hyderabad — Unit 1",
+     "Hyderabad — Unit 2",
+     "Bengaluru — R&D",
+     "Vizag — Unit 6"
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total monetary value of agreement",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "reason",
+    "label": "Reason for cancelling",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No longer needed",
+     "Duplicate of another request",
+     "Superseded by a different request",
+     "Business change — project stopped",
+     "Raised in error",
+     "Counterparty withdrew"
+    ]
+   },
+   {
+    "key": "superseded_by",
+    "label": "Superseded by",
+    "kind": "text",
+    "required": false
+   },
+   {
+    "key": "notify_counterparty",
+    "label": "Notify the counterparty?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No — they were never contacted",
+     "Yes — they have the paper already"
+    ]
+   },
+   {
+    "key": "note",
+    "label": "Anything the approvers should know",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": true
+   }
+  ]
+ }
+]

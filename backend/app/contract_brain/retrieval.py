@@ -1,23 +1,26 @@
 import logging
 import re
-from datetime import date, timedelta
+from datetime import timedelta
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.embeddings import _embed
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction, KnowledgeEdge, KnowledgeNode
-from app.contract_files.models import ContractEmbedding, ContractTextSnapshot
-from app.obligations.models import Obligation
+from app.contract_files.models import ContractEmbedding, ContractTextSnapshot, ContractVersion
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.database import utcnow
+from app.core.enums import ContractLifecycleStage, ObligationStatus
 from app.matters.access import get_project_for_user
+from app.obligations.models import Obligation
 from app.search.fts import (
     clause_vector,
     fts_usable,
     like_contains,
+    or_terms,
     snapshot_headline,
     snapshot_vector,
     text_matches,
@@ -26,12 +29,45 @@ from app.search.fts import (
 logger = logging.getLogger(__name__)
 
 
+def _current_clauses():
+    """Clauses from the contract's current authoritative version only (callers
+    join Contract). One definition of "current text" for every clause lens."""
+    return and_(
+        ClauseExtraction.is_stale.is_(False),
+        ClauseExtraction.contract_version_id == Contract.current_authoritative_version_id,
+    )
+
+
+def accessible_contract_ids(db: Session, *, user: User) -> set[str]:
+    """Every contract this user may open (org, ethical walls, clearance). Lenses
+    that reach OTHER contracts than the ones in scope must stay inside this set."""
+    return set(
+        db.scalars(
+            select(Contract.id).where(
+                Contract.org_id == user.org_id,
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(user),
+            )
+        ).all()
+    )
+
+
+def _reaches_inaccessible(nodes: dict, node_ids, accessible_ids: set[str]) -> bool:
+    """True if any of these graph nodes belongs to a contract the user can't open."""
+    for node_id in node_ids:
+        node = nodes.get(node_id)
+        if node is not None and node.contract_id and node.contract_id not in accessible_ids:
+            return True
+    return False
+
+
 def hybrid_sources(
     db: Session,
     *,
     org_id: str,
     contract_ids: list[str],
     question: str,
+    user: User,
     limit: int = 8,
 ) -> dict:
     """The ONE hybrid retrieval used by both /search ("Find sources only") and
@@ -53,7 +89,8 @@ def hybrid_sources(
             )
         ).all()
     )
-    ids = list(titles)
+    accessible = accessible_contract_ids(db, user=user)
+    ids = [cid for cid in titles if cid in accessible]
 
     from app.contract_brain.rerank import rerank_enabled, rerank_order
 
@@ -99,30 +136,46 @@ def hybrid_sources(
 
     use_fts = fts_usable(db, question)
     tsq = func.websearch_to_tsquery("english", question)
+    # /ask always sends a natural-language question, and websearch_to_tsquery
+    # ANDs every term — one word absent from the corpus ("MSAs", "our") silently
+    # zeroes both keyword lenses and leaves the answer on the vector lens alone.
+    # Tried only when the strict AND form matched nothing, so exact keyword
+    # queries keep their precision.
+    tsq_or = func.websearch_to_tsquery("english", or_terms(question))
     q_like = like_contains(question)
 
-    clause_query = (
+    clause_base = (
         select(ClauseExtraction, Contract.title)
         .join(Contract, Contract.id == ClauseExtraction.contract_id)
         .where(
             ClauseExtraction.org_id == org_id,
-            ClauseExtraction.is_stale.is_(False),
+            _current_clauses(),
             ClauseExtraction.contract_id.in_(ids),
         )
     )
     if use_fts:
         cvec = clause_vector()
-        clause_query = clause_query.where(
-            or_(cvec.op("@@")(tsq), ClauseExtraction.clause_type.ilike(q_like, escape="\\"))
-        ).order_by(func.ts_rank(cvec, tsq).desc())
+
+        def _clause_rows(query):
+            return db.execute(
+                clause_base.where(
+                    or_(cvec.op("@@")(query), ClauseExtraction.clause_type.ilike(q_like, escape="\\"))
+                )
+                .order_by(func.ts_rank(cvec, query).desc())
+                .limit(limit)
+            ).all()
+
+        clause_rows = _clause_rows(tsq) or _clause_rows(tsq_or)
     else:
-        clause_query = clause_query.where(
-            or_(
-                ClauseExtraction.text.ilike(q_like, escape="\\"),
-                ClauseExtraction.heading.ilike(q_like, escape="\\"),
-                ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
-            )
-        )
+        clause_rows = db.execute(
+            clause_base.where(
+                or_(
+                    ClauseExtraction.text.ilike(q_like, escape="\\"),
+                    ClauseExtraction.heading.ilike(q_like, escape="\\"),
+                    ClauseExtraction.clause_type.ilike(q_like, escape="\\"),
+                )
+            ).limit(limit)
+        ).all()
     clauses = [
         {
             "clause_id": clause.id,
@@ -132,41 +185,68 @@ def hybrid_sources(
             "heading": clause.heading,
             "excerpt": clause.text[:600],
         }
-        for clause, title in db.execute(clause_query.limit(limit)).all()
+        for clause, title in clause_rows
     ]
 
-    headline = (
-        snapshot_headline(tsq)
-        if use_fts
-        else func.substr(ContractTextSnapshot.text, 1, 0)
-    )
-    text_query = (
-        select(ContractTextSnapshot, Contract.title, headline.label("headline"))
-        .join(Contract, Contract.id == ContractTextSnapshot.contract_id)
-        .where(
-            ContractTextSnapshot.org_id == org_id,
-            ContractTextSnapshot.deleted_at.is_(None),
-            ContractTextSnapshot.contract_id.in_(ids),
+    def _text_base(query):
+        return (
+            select(
+                ContractTextSnapshot,
+                Contract.title,
+                (
+                    snapshot_headline(query)
+                    if use_fts
+                    else func.substr(ContractTextSnapshot.text, 1, 0)
+                ).label("headline"),
+            )
+            .join(Contract, Contract.id == ContractTextSnapshot.contract_id)
+            .join(ContractVersion, ContractVersion.id == Contract.current_authoritative_version_id)
+            .where(
+                ContractTextSnapshot.org_id == org_id,
+                ContractTextSnapshot.deleted_at.is_(None),
+                ContractTextSnapshot.contract_id.in_(ids),
+                # The contract's current text only: the authoritative version's own
+                # snapshot, never a rejected proposal or a superseded version.
+                ContractTextSnapshot.id == ContractVersion.text_snapshot_id,
+            )
         )
-    )
-    if use_fts:
-        svec = snapshot_vector()
-        text_query = text_query.where(svec.op("@@")(tsq)).order_by(
-            func.ts_rank(svec, tsq).desc()
-        )
-    else:
-        text_query = text_query.where(
-            ContractTextSnapshot.text.ilike(q_like, escape="\\")
-        )
+
+    def _text_rows(query):
+        text_query = _text_base(query)
+        if use_fts:
+            svec = snapshot_vector()
+            text_query = text_query.where(svec.op("@@")(query)).order_by(
+                func.ts_rank(svec, query).desc()
+            )
+        else:
+            text_query = text_query.where(
+                ContractTextSnapshot.text.ilike(q_like, escape="\\")
+            )
+        return db.execute(text_query.limit(limit)).all()
+
+    # Same AND-then-OR fallback as the clause lens above.
+    text_rows = _text_rows(tsq) or (_text_rows(tsq_or) if use_fts else [])
     text_hits = []
-    for snapshot, title, headline_text in db.execute(text_query.limit(limit)).all():
+    for snapshot, title, headline_text in text_rows:
         matches = text_matches(snapshot.text, question)
         if not matches and headline_text:
-            matches = [
-                {"start_char": -1, "end_char": -1, "excerpt": frag.strip()}
-                for frag in str(headline_text).split(" ... ")
-                if frag.strip()
-            ]
+            # ts_headline runs with empty StartSel/StopSel, so each fragment is a
+            # verbatim substring of the snapshot: find it to recover real offsets.
+            # Without this the text lens cites excerpts that anchor nowhere, and
+            # a multi-word question almost never hits the exact-substring path.
+            matches = []
+            for frag in str(headline_text).split(" ... "):
+                frag = frag.strip()
+                if not frag:
+                    continue
+                start = snapshot.text.find(frag)
+                matches.append(
+                    {
+                        "start_char": start if start >= 0 else None,
+                        "end_char": start + len(frag) if start >= 0 else None,
+                        "excerpt": frag,
+                    }
+                )
         text_hits.append(
             {
                 "contract_id": snapshot.contract_id,
@@ -183,12 +263,12 @@ def hybrid_sources(
     # tail rather than dropping them. One cap here means the answer context and
     # the source cards see the identical bounded set — no count drift.
     graph = (
-        lineage_facts(db, org_id=org_id, contract_ids=ids)
-        + temporal_facts(db, org_id=org_id, contract_ids=ids)
-        + clause_language_matches(db, org_id=org_id, contract_ids=ids)
-        + cohort_facts(db, org_id=org_id, contract_ids=ids)
-        + shared_entity_links(db, org_id=org_id, contract_ids=ids)
-        + _graph_facts(db, contract_ids=ids, clause_types=[])
+        lineage_facts(db, org_id=org_id, contract_ids=ids, accessible_ids=accessible)
+        + temporal_facts(db, org_id=org_id, contract_ids=ids, accessible_ids=accessible)
+        + clause_language_matches(db, org_id=org_id, contract_ids=ids, accessible_ids=accessible)
+        + cohort_facts(db, org_id=org_id, contract_ids=ids, accessible_ids=accessible)
+        + shared_entity_links(db, org_id=org_id, contract_ids=ids, accessible_ids=accessible)
+        + _graph_facts(db, contract_ids=ids, clause_types=[], accessible_ids=accessible)
     )[:MAX_GRAPH_FACTS]
 
     return {"semantic": semantic, "clauses": clauses, "text": text_hits, "graph": graph}
@@ -222,12 +302,9 @@ def sources_to_context(sources: dict) -> str:
             parts.append(f"[text · {t['contract_title']}] {m['excerpt']}")
     return "\n\n".join(parts)
 
-MAX_VECTOR_CHUNKS = 8
 MAX_GRAPH_FACTS = 40
-MAX_CLAUSES = 12
-# Candidate clauses pulled before relevance ranking (portfolio scope spans
-# many contracts, so the ranked top-N must be chosen from a wide pool).
-CLAUSE_CANDIDATE_POOL = 600
+# ponytail: capped pairwise scan; precompute similarity signatures at ingestion if books outgrow it.
+_REUSE_CLAUSE_CAP = 2000
 
 
 def resolve_scope_contract_ids(
@@ -331,94 +408,9 @@ def aggregate_answer(
     }
 
 
-def _vector_chunks(db: Session, *, question: str, contract_ids: list[str]) -> list[dict]:
-    if not contract_ids:
-        return []
-    try:
-        from app.contract_brain.rerank import rerank_enabled, rerank_order
-
-        # Same second-stage reranking the /ask page path uses — over-fetch a
-        # wider pool, then let the cross-encoder pick the true top-N. Previously
-        # the assistant path took raw cosine order with no rerank.
-        do_rerank = rerank_enabled()
-        candidate_limit = MAX_VECTOR_CHUNKS * 4 if do_rerank else MAX_VECTOR_CHUNKS
-        query_vec = _embed([question])[0]
-        distance = ContractEmbedding.embedding.cosine_distance(query_vec)
-        rows = db.execute(
-            select(
-                ContractEmbedding.contract_id,
-                ContractEmbedding.chunk_text,
-                distance.label("distance"),
-            )
-            .join(Contract, Contract.id == ContractEmbedding.contract_id)
-            .where(
-                ContractEmbedding.contract_id.in_(contract_ids),
-                ContractEmbedding.contract_version_id == Contract.current_authoritative_version_id,
-            )
-            .order_by(distance)
-            .limit(candidate_limit)
-        ).all()
-        chunks = [
-            {"contract_id": cid, "text": text, "score": round(1.0 - float(dist), 4)}
-            for cid, text, dist in rows
-        ]
-        if do_rerank and chunks:
-            order = rerank_order(question, [c["text"] for c in chunks], MAX_VECTOR_CHUNKS)
-            chunks = [chunks[i] for i in order]
-        return chunks[:MAX_VECTOR_CHUNKS]
-    except Exception:
-        # Vector store failures are recoverable — the chat path can still
-        # return a hedged answer — but we want a signal in the logs so we
-        # can detect a broken vector index rather than silently degrading.
-        logger.warning("vector retrieval failed", exc_info=True)
-        return []
-
-
-def _fulltext_clauses(db: Session, *, question: str, contract_ids: list[str]) -> list[dict]:
-    if not contract_ids:
-        return []
-    terms = [t for t in question.lower().split() if len(t) > 3][:8]
-    # Score across a broad candidate pool, THEN take the best — applying
-    # the small cap at the DB level returned ~MAX_CLAUSES arbitrary clauses
-    # (so portfolio-wide questions matched almost nothing and the answer
-    # hedged). Pull a wide pool scoped to the contracts and rank in Python.
-    query = (
-        select(ClauseExtraction)
-        .where(
-            ClauseExtraction.contract_id.in_(contract_ids),
-            ClauseExtraction.is_stale.is_(False),
-        )
-        .limit(CLAUSE_CANDIDATE_POOL)
-    )
-    clauses = db.scalars(query).all()
-    scored = []
-    for cl in clauses:
-        text_l = (cl.text or "").lower()
-        type_l = (cl.clause_type or "").lower().replace("_", " ")
-        hits = sum(1 for t in terms if t in text_l)
-        hits += sum(2 for t in terms if t in type_l)  # clause-type match weighs more
-        scored.append((hits, cl))
-    scored.sort(key=lambda x: x[0], reverse=True)
-
-    def _fmt(cl) -> dict:
-        return {
-            "contract_id": cl.contract_id,
-            "clause_type": cl.clause_type,
-            "clause_id": cl.id,
-            "text": (cl.text or "")[:1200],
-        }
-
-    matched = [_fmt(cl) for hits, cl in scored if hits > 0][:MAX_CLAUSES]
-    if matched:
-        return matched
-    # No keyword hits: still return a representative slice so the answer
-    # is grounded rather than a hedge.
-    return [_fmt(cl) for _, cl in scored[:MAX_CLAUSES]]
-
-
-
-
-def lineage_facts(db: Session, *, org_id: str, contract_ids: list[str]) -> list[dict]:
+def lineage_facts(
+    db: Session, *, org_id: str, contract_ids: list[str], accessible_ids: set[str]
+) -> list[dict]:
     """Lineage in both directions for the contracts in scope:
 
       - upward:   "this SoW is likely governed by <MSA>"
@@ -459,13 +451,16 @@ def lineage_facts(db: Session, *, org_id: str, contract_ids: list[str]) -> list[
         return []
 
     node_ids = {e.from_node_id for e in edges} | {e.to_node_id for e in edges}
-    labels = {
-        n.id: n.label
+    nodes = {
+        n.id: n
         for n in db.scalars(select(KnowledgeNode).where(KnowledgeNode.id.in_(node_ids)))
     }
+    labels = {node_id: n.label for node_id, n in nodes.items()}
 
     facts = []
     for e in edges:
+        if _reaches_inaccessible(nodes, (e.from_node_id, e.to_node_id), accessible_ids):
+            continue
         conf = (e.properties or {}).get("confidence")
         hedge = f" (inferred, {conf})" if (e.properties or {}).get("inferred") else ""
         child, parent = labels.get(e.from_node_id), labels.get(e.to_node_id)
@@ -480,7 +475,8 @@ def lineage_facts(db: Session, *, org_id: str, contract_ids: list[str]) -> list[
 
 
 def temporal_facts(
-    db: Session, *, org_id: str, contract_ids: list[str], horizon_days: int = 90
+    db: Session, *, org_id: str, contract_ids: list[str], accessible_ids: set[str],
+    horizon_days: int = 90,
 ) -> list[dict]:
     """Time as a first-class dimension: expiry proximity, upcoming obligations,
     and — the graph-native one — renewal cascades.
@@ -492,18 +488,25 @@ def temporal_facts(
     """
     if not contract_ids:
         return []
-    today = date.today()
+    today = utcnow().date()
     soon = today + timedelta(days=horizon_days)
     facts: list[dict] = []
 
+    # Deadlines only matter for contracts in force: no expiry or overdue warnings
+    # for drafts or contracts that are already closed.
     contracts = {
         c.id: c
         for c in db.scalars(
-            select(Contract).where(Contract.id.in_(contract_ids))
+            select(Contract).where(
+                Contract.id.in_(contract_ids),
+                Contract.lifecycle_stage == ContractLifecycleStage.ACTIVE,
+            )
         )
     }
+    if not contracts:
+        return []
 
-    for cid, c in contracts.items():
+    for c in contracts.values():
         exp = c.expiration_date
         if exp is None:
             continue
@@ -517,7 +520,8 @@ def temporal_facts(
     due = db.scalars(
         select(Obligation).where(
             Obligation.org_id == org_id,
-            Obligation.contract_id.in_(contract_ids),
+            Obligation.contract_id.in_(list(contracts)),
+            Obligation.status.notin_((ObligationStatus.COMPLETED, ObligationStatus.CANCELLED)),
             Obligation.due_date.isnot(None),
             Obligation.due_date <= soon,
             Obligation.deleted_at.is_(None),
@@ -534,7 +538,7 @@ def temporal_facts(
         for n in db.scalars(
             select(KnowledgeNode).where(
                 KnowledgeNode.node_type == "contract",
-                KnowledgeNode.contract_id.in_(contract_ids),
+                KnowledgeNode.contract_id.in_(list(contracts)),
                 KnowledgeNode.is_stale.is_(False),
             )
         )
@@ -554,6 +558,8 @@ def temporal_facts(
         by_parent: dict[str, list[str]] = {}
         parent_of_hub = {hub_id: cid for cid, hub_id in hubs.items()}
         for parent_hub_id, child_cid in children:
+            if child_cid not in accessible_ids:
+                continue  # never name, or count, a dependent the user can't open
             by_parent.setdefault(parent_of_hub[parent_hub_id], []).append(child_cid)
         for parent_cid, child_cids in by_parent.items():
             parent = contracts.get(parent_cid)
@@ -574,7 +580,7 @@ def temporal_facts(
 
 
 def clause_language_matches(
-    db: Session, *, org_id: str, contract_ids: list[str],
+    db: Session, *, org_id: str, contract_ids: list[str], accessible_ids: set[str],
     threshold: int = 80, limit: int = 8
 ) -> list[dict]:
     """Where else the SAME wording appears. For each clause on the scoped
@@ -588,10 +594,10 @@ def clause_language_matches(
     contracts is exactly what naive similarity conflates, so we surface it as an
     explicit, contract-named relationship instead.
     """
-    if not contract_ids:
+    if not contract_ids or threshold > 100:
         return []
     try:
-        from rapidfuzz import fuzz
+        from rapidfuzz import fuzz, process
     except ImportError:                                   # pragma: no cover
         return []
 
@@ -603,6 +609,7 @@ def clause_language_matches(
             ClauseExtraction.is_stale.is_(False),
             ClauseExtraction.text.isnot(None),
         )
+        .limit(_REUSE_CLAUSE_CAP)
     ).all()
     if not mine:
         return []
@@ -616,25 +623,31 @@ def clause_language_matches(
             ClauseExtraction.org_id == org_id,
             ClauseExtraction.clause_type.in_(my_types),
             ClauseExtraction.contract_id.notin_(contract_ids),
+            ClauseExtraction.contract_id.in_(accessible_ids),
             ClauseExtraction.is_stale.is_(False),
             ClauseExtraction.text.isnot(None),
         )
+        .order_by(ClauseExtraction.created_at.desc())
+        .limit(_REUSE_CLAUSE_CAP)
     ).all()
     if not candidates:
         return []
-    by_type: dict[str, list[tuple[str, str]]] = {}
+    by_type: dict[str, tuple[list[str], list[str]]] = {}
     for ct, txt, title in candidates:
-        by_type.setdefault(ct, []).append((txt, title))
+        texts, titles = by_type.setdefault(ct, ([], []))
+        texts.append(txt)
+        titles.append(title)
 
     facts: list[dict] = []
     seen: set = set()
     for ct, mytext, heading in mine:
-        best_score, best_title = 0, None
-        for cand_text, cand_title in by_type.get(ct, []):
-            score = int(fuzz.token_sort_ratio(mytext, cand_text))
-            if score > best_score:
-                best_score, best_title = score, cand_title
-        if best_score >= threshold and (ct, best_title) not in seen:
+        texts, titles = by_type.get(ct, ([], []))
+        # extractOne compares in C and skips anything below the threshold.
+        best = process.extractOne(mytext, texts, scorer=fuzz.token_sort_ratio, score_cutoff=threshold) if texts else None
+        if best is None:
+            continue
+        best_score, best_title = int(best[1]), titles[best[2]]
+        if (ct, best_title) not in seen:
             seen.add((ct, best_title))
             label = heading or ct.replace("_", " ")
             facts.append({
@@ -648,7 +661,7 @@ def clause_language_matches(
 
 
 def cohort_facts(
-    db: Session, *, org_id: str, contract_ids: list[str], limit: int = 8
+    db: Session, *, org_id: str, contract_ids: list[str], accessible_ids: set[str], limit: int = 8
 ) -> list[dict]:
     """Two hops: contracts that share MORE THAN ONE shared entity with the ones
     in scope. This is the multi-hop step — a contract sharing the counterparty
@@ -687,6 +700,7 @@ def cohort_facts(
             KnowledgeEdge.org_id == org_id,
             KnowledgeEdge.to_node_id.in_(my_entities),
             KnowledgeEdge.contract_id.notin_(contract_ids),
+            KnowledgeEdge.contract_id.in_(accessible_ids),
             KnowledgeEdge.is_stale.is_(False),
         )
     ).all()
@@ -728,7 +742,7 @@ def cohort_facts(
         strong.items(), key=lambda kv: (len(kv[1][1]), len(kv[1][0])), reverse=True
     ):
         # lead with the high-signal overlap (the counterparty / signer / law)
-        high_labels = [labels[n][1] for n in high if n in labels]
+        high_labels = list(dict.fromkeys(labels[n][1] for n in high if n in labels))
         facts.append(
             {
                 "fact": f"{titles.get(cid) or cid} is closely related — shares "
@@ -743,7 +757,7 @@ def cohort_facts(
 
 
 def shared_entity_links(
-    db: Session, *, org_id: str, contract_ids: list[str], limit: int = 12
+    db: Session, *, org_id: str, contract_ids: list[str], accessible_ids: set[str], limit: int = 12
 ) -> list[dict]:
     """One hop out: from the contracts in scope, to the shared entities they
     touch, to the OTHER contracts touching the same entity.
@@ -784,6 +798,7 @@ def shared_entity_links(
             KnowledgeEdge.org_id == org_id,
             KnowledgeEdge.to_node_id.in_(shared_ids),
             KnowledgeEdge.contract_id.notin_(contract_ids),
+            KnowledgeEdge.contract_id.in_(accessible_ids),
             KnowledgeEdge.is_stale.is_(False),
         )
     ).all()
@@ -809,26 +824,30 @@ def shared_entity_links(
             continue
         # Rank by how widely shared the entity is — a rule 20 contracts deviate
         # from is a portfolio problem; one contract deviating is a one-off.
-        sample = [titles.get(cid) or cid for cid, _ in others][:5]
+        # One contract can reach the entity through several edges: count contracts, not edges.
+        other_ids = list(dict.fromkeys(cid for cid, _ in others))
+        sample = list(dict.fromkeys(titles.get(cid) or cid for cid in other_ids))[:5]
         severities = sorted({(p.get("severity") or "").lower() for _, p in others} - {""})
         facts.append(
             {
                 "entity": node.label,
                 "entity_type": node.node_type,
-                "shared_with_count": len(others),
+                "shared_with_count": len(other_ids),
                 "fact": (
-                    f"{node.label} — also affects {len(others)} other contract(s): "
+                    f"{node.label} — also affects {len(other_ids)} other contract(s): "
                     + ", ".join(sample)
                     + (f" [severity: {', '.join(severities)}]" if severities else "")
                 ),
-                "contract_ids": [cid for cid, _ in others],
+                "contract_ids": other_ids,
             }
         )
     facts.sort(key=lambda f: f["shared_with_count"], reverse=True)
     return facts[:limit]
 
 
-def _graph_facts(db: Session, *, contract_ids: list[str], clause_types: list[str]) -> list[dict]:
+def _graph_facts(
+    db: Session, *, contract_ids: list[str], clause_types: list[str], accessible_ids: set[str]
+) -> list[dict]:
     if not contract_ids:
         return []
     edges = db.scalars(
@@ -859,12 +878,15 @@ def _graph_facts(db: Session, *, contract_ids: list[str], clause_types: list[str
         dst = nodes_by_id.get(edge.to_node_id)
         if src is None or dst is None:
             continue
+        if _reaches_inaccessible(nodes_by_id, (edge.from_node_id, edge.to_node_id), accessible_ids):
+            continue
         if clause_types and dst.node_type == "clause" and dst.properties.get("clause_type") not in clause_types:
             continue
         facts.append(
             {
                 "contract_id": edge.contract_id,
-                "fact": f"{src.label} --{edge.edge_type}--> {dst.label}",
+                "fact": f"{src.label} --{edge.edge_type}--> {dst.label}"
+                + (f" (status: {edge.properties['status']})" if (edge.properties or {}).get("status") else ""),
                 "edge_type": edge.edge_type,
             }
         )
@@ -879,37 +901,22 @@ def assemble_context(
     scope: str,
     contract_id: str | None,
     matter_id: str | None,
-    parsed,
 ) -> dict:
+    """The assistant's Contract Brain context: the same hybrid retrieval and the
+    same text block the Brain page grounds its answers in, so the two surfaces
+    can't disagree. A question nothing matches gets an empty context (and a
+    "not found" answer), never a filler slice of unrelated clauses."""
     contract_ids = resolve_scope_contract_ids(
         db, user=user, scope=scope, contract_id=contract_id, matter_id=matter_id
     )
-    graph = _graph_facts(db, contract_ids=contract_ids, clause_types=getattr(parsed, "target_clause_types", []) or [])
-    vectors = (
-        _vector_chunks(db, question=question, contract_ids=contract_ids)
-        if getattr(parsed, "needs_vector_search", True)
-        else []
+    sources = hybrid_sources(
+        db, org_id=user.org_id, contract_ids=contract_ids, question=question, user=user
     )
-    fulltext = (
-        _fulltext_clauses(db, question=question, contract_ids=contract_ids)
-        if (not vectors or getattr(parsed, "needs_full_text_search", True))
-        else []
-    )
-    parts: list[str] = []
-    for g in graph:
-        parts.append(f"[graph] {g['fact']}")
-    for v in vectors:
-        parts.append(f"[snippet] {v['text']}")
-    for f in fulltext:
-        parts.append(f"[clause:{f['clause_type']}] {f['text']}")
-    context_text = "\n\n".join(parts)
     return {
         "contract_ids": contract_ids,
-        "graph_facts": graph,
-        "vector_chunks": vectors,
-        "fulltext_clauses": fulltext,
-        "context_text": context_text,
-        "source_count": len(graph) + len(vectors) + len(fulltext),
+        "graph_facts": sources["graph"],
+        "context_text": sources_to_context(sources),
+        "source_count": sum(len(sources[lens]) for lens in ("semantic", "clauses", "text", "graph")),
     }
 
 

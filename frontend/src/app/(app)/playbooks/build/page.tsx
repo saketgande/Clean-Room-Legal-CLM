@@ -48,8 +48,16 @@ export default function BuildPlaybookPage() {
       const form = new FormData();
       Array.from(files).forEach((f) => form.append("files", f));
       const out = await playbooksApi.buildExtract(form);
-      setDocs((d) => [...d, ...out]);
-      notify(`Attached ${out.length} file(s)`, "success");
+      const readable = out.filter((d) => d.status !== "unreadable");
+      const unreadable = out.filter((d) => d.status === "unreadable");
+      setDocs((d) => [...d, ...readable]);
+      if (readable.length) notify(`Attached ${readable.length} file(s)`, "success");
+      if (unreadable.length) {
+        notify(
+          `Couldn't read ${unreadable.map((d) => `${d.filename}${d.reason ? ` (${d.reason})` : ""}`).join(", ")}`,
+          "error",
+        );
+      }
     } catch (e) {
       notify(e instanceof Error ? e.message : "Upload failed", "error");
     } finally {

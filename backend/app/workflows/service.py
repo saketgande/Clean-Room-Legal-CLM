@@ -14,13 +14,16 @@ import re
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.audit import write_timeline_event
+from app.ai.schemas import confidence_score
+from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
-from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
+from app.core.rbac import has_permission
 from app.intake.models import IntakeRequest, IntakeTeam
+from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,28 @@ _FLOW_ROLE_GROUP = {
     "board": "Executive",
     "attorney": "Legal Counsel",
     "legal_ops": "Compliance",
+    # Product role tokens and the department names the built-in MSA flow uses.
+    "legal_counsel": "Legal Counsel",
+    "legal & ip": "Legal Counsel",
+    "finance": "Finance",
+    "finance & tax": "Finance",
+    "procurement": "Procurement",
+    "compliance": "Compliance",
+    "quality & compliance": "Compliance",
+    "privacy / dpo": "Compliance",
+    "executive": "Executive",
 }
+
+
+def _flow_role_group(db: Session, *, org_id: str, role: str | None):
+    """The approver group a flow's role token stands for. Library tokens like
+    "gc" are not product roles, so a rung routed to them could never be decided."""
+    from app.approvals.models import ApproverGroup
+
+    name = _FLOW_ROLE_GROUP.get(str(role or "").strip().lower())
+    if not name:
+        return None
+    return db.scalar(select(ApproverGroup).where(ApproverGroup.org_id == org_id, ApproverGroup.name == name))
 
 # Registered AI agents for ai_task steps: maps the ported library's agent keys
 # (github.com/Letscode82/aegis) AND our own ids/short names onto an intake
@@ -85,36 +109,163 @@ def _matches(criteria: dict | None, request: IntakeRequest) -> bool:
     if md and (request.department or "").lower() != md:
         return False
     mk = (c.get("match_keyword") or "").strip().lower()
-    if mk and not re.search(rf"\b{re.escape(mk)}\b", (request.description or "").lower()):
+    if mk and not re.search(rf"\b{re.escape(mk)}\b", f"{request.type_label or ''} {request.description or ''}".lower()):
         return False
-    # Field condition (used by step skip_when): {field, op, value} against the
-    # request's structured answers. An absent field is treated as not-equal.
-    fld = c.get("field")
-    if fld:
-        op = (c.get("op") or "eq").lower()
-        have = (request.field_values or {}).get(fld)
-        want = c.get("value")
-        if op == "eq" and have != want:
+    # Field condition {field, op, value} against the request's structured answers.
+    # For flow selection, a condition that can't be evaluated doesn't match.
+    return not c.get("field") or _field_condition(c, request) is True
+
+
+_CONDITION_OPS = ("eq", "ne", "lt", "lte", "gt", "gte")
+_TRUE_WORDS = {"true", "yes", "y"}
+_FALSE_WORDS = {"false", "no", "n"}
+
+
+def _typed(value):
+    """Normalize a condition operand: booleans and yes/no words to bool, numbers
+    (including "$25,000") to float, other text to lowercase."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _TRUE_WORDS:
+            return True
+        if text in _FALSE_WORDS:
             return False
-        if op == "ne" and have == want:
-            return False
-    return True
+        try:
+            return float(text.replace(",", "").replace("$", ""))
+        except ValueError:
+            return text
+    return value
+
+
+def _field_condition(cond: dict, request) -> bool | None:
+    """Evaluate {field, op, value} against the request's answers. None means it
+    can't be evaluated (unknown operator, unanswered field, or operands of
+    different kinds); each caller decides what that means."""
+    field = (cond.get("field") or "").strip()
+    op = (cond.get("op") or "eq").strip().lower()
+    if not field or op not in _CONDITION_OPS or request is None:
+        return None
+    raw = (request.field_values or {}).get(field)
+    if raw is None and field == "contract_value":
+        from app.intake.approval_bridge import IntakeApprovalSubject
+
+        raw = IntakeApprovalSubject(request, type_key=None).value_amount  # value / amount / deal_value …
+    if raw is None or raw == "":
+        return None
+    have, want = _typed(raw), _typed(cond.get("value"))
+    if type(have) is not type(want):
+        return None
+    if op == "eq":
+        return have == want
+    if op == "ne":
+        return have != want
+    if not isinstance(have, float):
+        return None
+    return {"lt": have < want, "lte": have <= want, "gt": have > want, "gte": have >= want}[op]
+
+
+def _condition_holds(criteria: dict, request) -> bool | None:
+    """Step rules use the flow-selection shape; the field part is tri-state."""
+    if request is None:
+        return None
+    other = {k: v for k, v in criteria.items() if k not in ("field", "op", "value")}
+    if other and not _matches(other, request):
+        return False
+    return _field_condition(criteria, request) if criteria.get("field") else True
+
+
+def _skip_reason(step: dict, request) -> str | None:
+    """Why this step should be skipped for this request, or None to run it. A rule
+    that can't be evaluated never skips: running an extra review or approval is
+    safe, silently skipping one is not."""
+    cfg = step.get("config") or {}
+    # skip_if is the key the ported library stored (and flows seeded before this fix still hold).
+    skip = cfg.get("skip_when") or cfg.get("skip_if") or {}
+    if skip and _condition_holds(skip, request) is True:
+        return "Skipped by rule"
+    cond = step.get("cond") or cfg.get("cond") or {}
+    if cond and _condition_holds(cond, request) is False:
+        return "Condition not met"
+    return None
+
+
+def _validate_condition(cond: dict, step_name: str) -> None:
+    op = (cond.get("op") or "eq").strip().lower()
+    if op not in _CONDITION_OPS:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Step '{step_name}': unsupported condition operator '{op}'. Use one of: {', '.join(_CONDITION_OPS)}.",
+        )
+    if op in ("lt", "lte", "gt", "gte") and not isinstance(_typed(cond.get("value")), float):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            f"Step '{step_name}': '{op}' needs a number to compare against.",
+        )
 
 
 def select_flow(db: Session, *, request: IntakeRequest) -> Workflow | None:
     """First enabled flow (lowest eval_order) whose criteria match. An empty
     criteria dict matches everything, so a high-eval_order catch-all is the
-    default workflow."""
+    default workflow. A request for a document only picks a flow that drafts one,
+    so a DPA to draft can't land in the privacy-incident flow because both say "DPA"."""
+    from app.intake.drafting import resolve_doc_type
+
+    wants_document = resolve_doc_type(request) is not None
     flows = db.scalars(
         select(Workflow).where(Workflow.org_id == request.org_id, Workflow.enabled.is_(True)).order_by(Workflow.eval_order.asc())
     ).all()
     for f in flows:
+        if wants_document and not any((st or {}).get("type") == "clm_draft" for st in (f.steps or [])):
+            continue
         if _matches(f.criteria, request):
             return f
     return None
 
 
 # --------------------------------------------------------------------------- run lifecycle
+
+def cancel_runs_for_request(db: Session, *, request_id: str, org_id: str, actor_user_id: str | None) -> int:
+    """A closed request's workflow stops: its active runs are cancelled, their open
+    steps skipped, and the pending approvals they raised (on the request or its
+    contract) cancelled, so nobody keeps being asked to decide. Returns the runs cancelled."""
+    from app.approvals.models import ApprovalRequest
+    from app.core.enums import ApprovalStatus
+
+    runs = db.scalars(
+        select(WorkflowRun).where(
+            WorkflowRun.org_id == org_id,
+            WorkflowRun.request_id == request_id,
+            WorkflowRun.status.in_(("running", "waiting")),
+        )
+    ).all()
+    if not runs:
+        return 0
+    for run in runs:
+        run.status = "cancelled"
+        for sr in _step_runs(db, run):
+            if sr.status in ("pending", "running", "waiting_human", "waiting_job"):
+                sr.status = "skipped"; sr.note = "Request closed — workflow cancelled."
+    contract_ids = [run.contract_id for run in runs if run.contract_id]
+    for appr in db.scalars(
+        select(ApprovalRequest).where(
+            ApprovalRequest.org_id == org_id,
+            or_(ApprovalRequest.intake_request_id == request_id, ApprovalRequest.contract_id.in_(contract_ids)),
+            ApprovalRequest.status.in_([ApprovalStatus.PENDING, ApprovalStatus.WAITING]),
+        )
+    ).all():
+        appr.status = ApprovalStatus.CANCELLED
+        appr.updated_by_user_id = actor_user_id
+    write_timeline_event(
+        db, org_id=org_id, resource_type="intake_request", resource_id=request_id,
+        event_type="flow.cancelled", title="Workflow cancelled: the request was closed",
+        actor_user_id=actor_user_id, details={"flow_run_ids": [run.id for run in runs]},
+    )
+    return len(runs)
+
 
 def get_run_for_request(db: Session, *, request_id: str, org_id: str) -> WorkflowRun | None:
     return db.scalars(
@@ -165,10 +316,15 @@ def _group_done(db: Session, run: WorkflowRun, start: int, end: int) -> bool:
     )
 
 
-async def start_flow(db: Session, *, actor, request: IntakeRequest, flow: Workflow | None = None) -> WorkflowRun:
+async def start_flow(
+    db: Session, *, actor, request: IntakeRequest, flow: Workflow | None = None, request_id: str | None = None
+) -> WorkflowRun:
     """Pick (or use the given) flow, create the run + one step-run per step, then
     drive it to the first waiting step. Idempotent-ish: returns the existing run
     if one is already open for the request."""
+    # Lock the request row first, so two starts at once can't both find no open run
+    # and both create one. The lock is released when this transaction ends.
+    db.execute(select(IntakeRequest.id).where(IntakeRequest.id == request.id).with_for_update())
     existing = get_run_for_request(db, request_id=request.id, org_id=request.org_id)
     if existing and existing.status in ("running", "waiting"):
         return existing
@@ -176,6 +332,10 @@ async def start_flow(db: Session, *, actor, request: IntakeRequest, flow: Workfl
     flow = flow or select_flow(db, request=request)
     if flow is None:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No workflow matches this request.")
+    if not flow.enabled:
+        # A flow picked by id (manual start, Ask Aegis, auto-start) honours the same
+        # switch that automatic selection does.
+        raise HTTPException(status.HTTP_409_CONFLICT, "This workflow is disabled. Enable it or choose another one.")
 
     steps = list(flow.steps or [])
     run = WorkflowRun(
@@ -196,10 +356,16 @@ async def start_flow(db: Session, *, actor, request: IntakeRequest, flow: Workfl
         event_type="flow.started", title=f"Workflow started: {flow.name}", actor_user_id=actor.id,
         details={"flow_id": flow.id, "flow_run_id": run.id, "steps": len(steps)},
     )
+    write_audit_log(
+        db, action="workflow.started", resource_type="workflow_run", resource_id=run.id,
+        org_id=request.org_id, actor_user_id=actor.id, request_id=request_id,
+        after={"flow_id": flow.id, "flow_name": flow.name, "flow_version": flow.version,
+               "intake_request_id": request.id},
+    )
     return await advance_run(db, run=run, actor=actor)
 
 
-def _record_step_finding(run: WorkflowRun, step: dict, sr: "WorkflowStepRun | None") -> None:
+def _record_step_finding(run: WorkflowRun, step: dict, sr: WorkflowStepRun | None) -> None:
     """Aggregate each completed step's result into a run-level BRIEF — the shared
     "what the agents have established" trace that flows across the whole workflow.
     This is the hand-off substrate: the review step's finding, the drafting
@@ -262,10 +428,15 @@ async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
         start = run.current_index
         end = _group_end(steps, start)
         any_wait = False
+        current = start
         try:
             for gi in range(start, end):
+                current = gi
                 sr = _sr_at(db, run, gi)
                 if sr and sr.status in ("done", "skipped", "failed"):
+                    continue
+                if sr and sr.status in ("waiting_human", "waiting_job"):
+                    any_wait = True  # already executed, waiting on a person or subsystem: never re-run it
                     continue
                 outcome = await _execute_step(db, run=run, step=steps[gi], sr=sr, actor=actor)
                 if outcome == "advance":
@@ -274,12 +445,18 @@ async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
                     _record_step_finding(run, steps[gi], sr)
                 elif outcome == "wait":
                     any_wait = True
+                    if sr and sr.status == "waiting_human" and steps[gi].get("type") == "ai_task" and not sr.assignee_user_id:
+                        _assign_escalation(db, run=run, sr=sr, cfg=steps[gi].get("config") or {})
                 # "yield": step is mid-beat (an ai_task animating its running
                 # state); leave it running — a refresh tick resumes it.
         except HTTPException:
             raise
         except Exception as exc:  # a broken step must not wedge the whole run
-            sr = _sr_at(db, run, start)
+            if isinstance(exc, SQLAlchemyError):
+                # A failed statement leaves the transaction unusable: roll it back
+                # and record the failure in a fresh one.
+                db.rollback()
+            sr = _sr_at(db, run, current)  # the step that raised, not the group's first
             if sr:
                 sr.status = "failed"; sr.note = str(exc)[:500]
             run.status = "failed"; run.error = str(exc)[:500]
@@ -289,9 +466,8 @@ async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
             continue
         if any_wait:
             run.status = "waiting"
-        # else only "yield" steps remain running; stop and let a refresh tick
-        # pump them (the UI pumps it when the ticket is viewed).
-        # ponytail: add a periodic sweep resume if headless progress matters.
+        # else only "yield" steps remain running; stop and let the next refresh
+        # tick pump them (the open ticket, or the scheduled resume_workflow_runs task).
         break
     db.commit()
     db.refresh(run)
@@ -408,27 +584,33 @@ def _assign_step(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dic
         sr.result = {**(sr.result or {}), "role": role, "assign_by": cfg.get("assign_by")}
 
 
+def _assign_escalation(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dict) -> None:
+    """An AI step that stopped for a human lands in a real person's queue: someone on
+    the escalation role's team (else the request's owner), who is told about it."""
+    from app.notifications.models import Notification
+
+    _assign_step(db, run=run, sr=sr, cfg={"approver_role": cfg.get("escalate_role") or cfg.get("approver_role")})
+    if sr.assignee_user_id:
+        db.add(Notification(
+            org_id=run.org_id, user_id=sr.assignee_user_id, channel="in_app", event_type="workflow.step_escalated",
+            subject=f"Needs your review: {sr.step_name}",
+            body=sr.note or f'"{sr.step_name}" in {run.flow_name} was escalated to you.', status="sent",
+        ))
+
+
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
     """Returns 'advance' | 'wait'. Each branch is a thin call into an existing
     subsystem."""
     t = step.get("type", "notify")
     cfg = step.get("config") or {}
 
-    # Per-step skip rule (same criteria shape as flow selection).
-    sw = cfg.get("skip_when") or {}
-    if sw and _matches(sw, db.get(IntakeRequest, run.request_id)):
-        if sr:
-            sr.status = "skipped"; sr.note = "Skipped by rule"
-        return "advance"
-
-    # Per-step run-only-when condition (the designer's "only when X"): the
-    # inverse of skip_when — run this step only when the condition matches,
-    # otherwise skip it. Same {field, op, value} criteria shape.
-    cond = step.get("cond") or cfg.get("cond") or {}
-    if cond and not _matches(cond, db.get(IntakeRequest, run.request_id)):
-        if sr:
-            sr.status = "skipped"; sr.note = "Condition not met"
-        return "advance"
+    # Per-step skip rule and run-only-when condition (the designer's "only when X").
+    if cfg.get("skip_when") or cfg.get("skip_if") or step.get("cond") or cfg.get("cond"):
+        reason = _skip_reason(step, db.get(IntakeRequest, run.request_id))
+        if reason:
+            if sr:
+                sr.status = "skipped"; sr.note = reason
+            return "advance"
 
     if t == "notify":
         write_timeline_event(
@@ -461,6 +643,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         agent_val = (cfg.get("agent") or cfg.get("skill") or "").strip()
         mapped = _AGENT_KEY_MAP.get(agent_val.lower())
         conf = None
+        ran_analysis = True  # False when only the keyword classifier ran
         if mapped == "contract_review_agent" and run.contract_id:
             # The weighted risk score (contracts/risk.py) is genuinely real — but
             # it depends on clause extraction having already run, and both that
@@ -493,6 +676,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                     request = db.get(IntakeRequest, run.request_id)
                     cls = intake_agents.classify(request.type_label or "", request.description or "")
                     conf = cls.get("confidence")
+                    ran_analysis = False  # a keyword match on the ticket text is not a review
                     if sr:
                         sr.result = {
                             "agent": mapped, "category": cls.get("category"), "confidence": conf,
@@ -603,6 +787,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                     # fall back to the regex classifier rather than stall.
                     cls = intake_agents.classify(request.type_label or "", request.description or "")
                     conf = cls.get("confidence")
+                    ran_analysis = False  # a keyword match on the ticket text is not a review
                     if sr:
                         sr.result = {"agent": mapped, "category": cls.get("category"),
                                      "confidence": conf, "source": cls.get("source", "regex")}
@@ -621,7 +806,18 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                     sr.result = data or {"ran": True}
             except Exception as exc:
                 return _ai_agent_failed(sr, exc, "AI skill")
-        thr = cfg.get("escalate_below_confidence")
+        if not ran_analysis:
+            # The classifier's confidence answers "what kind of ticket is this?",
+            # not "did the review pass?" -- never let it clear the step.
+            if sr:
+                sr.status = "waiting_human"
+                who = cfg.get("escalate_role") or "a human"
+                base = f"No analysis ran for this step (only a keyword match) -- escalated to {who}"
+                detail = (sr.result or {}).get("note") if isinstance(sr.result, dict) else None
+                sr.note = f"{base} ({detail})" if detail else base
+            return "wait"
+        thr = confidence_score(cfg.get("escalate_below_confidence"))
+        conf = confidence_score(conf)
         if thr is not None and conf is not None and conf < thr:
             if sr:
                 sr.status = "waiting_human"
@@ -641,6 +837,13 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         # the requester to upload their own NDA. Only fast-lane auto-drafts.
         req = db.get(IntakeRequest, run.request_id)
         path = str(((req.field_values or {}).get("draft_path")) or cfg.get("mode") or "fast_lane").lower()
+        if path not in ("custom", "attach"):
+            from app.intake.drafting import resolve_doc_type
+
+            if resolve_doc_type(req) is None:
+                # No standard template for this kind (a distribution or licence agreement,
+                # say): draft it fresh instead of failing the flow on its first step.
+                path = "custom"
         if path == "custom":
             # Create a real, editable draft SHELL now (captured details + an
             # attorney-fill canvas) and link it, so the contract is visible from
@@ -652,6 +855,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 sr.status = "waiting_human"
                 sr.note = "Draft the custom document in the editor, then mark this step done."
                 sr.result = {"contract_id": contract.id}
+                _assign_step(db, run=run, sr=sr, cfg=cfg)
             return "wait"
         if path == "attach":
             # The contract is created when the requester uploads their document
@@ -673,22 +877,10 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
             # rather than silently skipping. Its routing rules + Tier-0 gates
             # decide the rungs; the flow role token maps to a functional group
             # as the decidable fallback.
-            from app.approvals.models import ApproverGroup
             from app.intake.approval_bridge import submit_request_for_approval
 
             req = db.get(IntakeRequest, run.request_id)
-            role = str(cfg.get("approver_role") or "").lower()
-            gname = _FLOW_ROLE_GROUP.get(role)
-            group = (
-                db.scalar(
-                    select(ApproverGroup).where(
-                        ApproverGroup.org_id == run.org_id,
-                        ApproverGroup.name == gname,
-                    )
-                )
-                if gname
-                else None
-            )
+            group = _flow_role_group(db, org_id=run.org_id, role=cfg.get("approver_role"))
             reqs = await submit_request_for_approval(
                 db, actor=actor, request=req,
                 approver_group_id=group.id if group else None,
@@ -706,9 +898,13 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         contract = _get_contract(db, run.contract_id)
         _advance_contract_to(db, contract=contract, target="approval", actor=actor, reason=f"workflow: {run.flow_name}")
         from app.approvals.service import submit_contract_for_approval
+        role = cfg.get("approver_role") or "legal_counsel"
+        group = _flow_role_group(db, org_id=run.org_id, role=role)
         await submit_contract_for_approval(
             db, user=actor, contract=contract, contract_version_id=None,
-            approver_user_id=cfg.get("approver_user_id"), approver_role=cfg.get("approver_role", "legal_counsel"),
+            approver_user_id=cfg.get("approver_user_id"),
+            approver_group_id=group.id if group else None,
+            approver_role=None if group else role,
             routing_rule_id=cfg.get("routing_rule_id") or None,
         )
         if sr:
@@ -724,11 +920,14 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         _advance_contract_to(db, contract=contract, target="signature", actor=actor, reason=f"workflow: {run.flow_name}")
         if sr:
             sr.status = "waiting_job"
+            if (contract.lifecycle_stage or "").lower() == "approval":
+                sr.note = "Signing starts once this version is fully approved (resubmit it if it changed after approval)."
         return "wait"
 
     if t == "counterparty":
         if sr:
             sr.status = "waiting_human"; sr.note = "Awaiting counterparty response."
+            _assign_step(db, run=run, sr=sr, cfg=cfg)  # someone owns the negotiation
         return "wait"
 
     # unknown step type — record and skip rather than wedge
@@ -739,12 +938,44 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
 
 # --------------------------------------------------------------------------- resume + human actions
 
-def complete_human_step(db: Session, *, run: WorkflowRun, actor, note: str | None = None, step_idx: int | None = None):
+def _require_step_actor(db: Session, *, sr: WorkflowStepRun | None, actor) -> None:
+    """Only the step's assignee, an active member of its team, or intake staff
+    (intake:update) may complete or send back a step. The engine models who should
+    act; this enforces it instead of trusting the UI to hide the button.
+    Note: while RBAC is disabled (core/rbac.has_permission returns True for
+    everyone) the intake:update override admits every user; the audit rows still
+    record who acted."""
+    if actor is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "A signed-in user is required to act on this step")
+    if sr is not None and sr.assignee_user_id and sr.assignee_user_id == actor.id:
+        return
+    if sr is not None and sr.team_id:
+        from app.intake.models import IntakeTeamMember
+
+        member = db.scalar(
+            select(IntakeTeamMember.id).where(
+                IntakeTeamMember.team_id == sr.team_id,
+                IntakeTeamMember.user_id == actor.id,
+                IntakeTeamMember.active.is_(True),
+            )
+        )
+        if member:
+            return
+    if has_permission(actor.permission_values, "intake:update"):
+        return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Only this step's assignee or its team can act on it")
+
+
+def complete_human_step(
+    db: Session, *, run: WorkflowRun, actor, note: str | None = None, step_idx: int | None = None,
+    request_id: str | None = None,
+):
     # In a parallel group the human may resolve any of the concurrent steps, so
     # accept an explicit idx; default to the current step for sequential flows.
     idx = step_idx if step_idx is not None else run.current_index
     sr = _sr_at(db, run, idx)
     if sr and sr.status == "waiting_human":
+        _require_step_actor(db, sr=sr, actor=actor)
         sr.status = "done"; sr.note = note or sr.note
         steps = list(run.steps or [])
         start = run.current_index
@@ -753,7 +984,19 @@ def complete_human_step(db: Session, *, run: WorkflowRun, actor, note: str | Non
         # otherwise it stays in flight for its remaining steps.
         if _group_done(db, run, start, end):
             run.current_index = end
-        run.status = "running"
+            run.status = "running"
+        # Otherwise the group's other steps are still in flight: the run stays as it is,
+        # so the executor doesn't re-enter them (and, say, reassign a parallel reviewer).
+        write_audit_log(
+            db, action="workflow.step_completed", resource_type="workflow_run", resource_id=run.id,
+            org_id=run.org_id, actor_user_id=actor.id, request_id=request_id,
+            after={"step_idx": idx, "step_name": sr.step_name, "note": note},
+        )
+        write_timeline_event(
+            db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+            event_type="flow.step_completed", title=f"Step completed: {sr.step_name}",
+            actor_user_id=actor.id, request_id=request_id, details={"flow_run_id": run.id, "idx": idx},
+        )
         db.flush()
     return run
 
@@ -767,7 +1010,10 @@ def _configured_return_to(steps: list, current: int) -> int:
     return max(0, min(target, current - 1))
 
 
-async def return_run(db: Session, *, run: WorkflowRun, actor, to_idx: int | None = None, note: str | None = None) -> WorkflowRun:
+async def return_run(
+    db: Session, *, run: WorkflowRun, actor, to_idx: int | None = None, note: str | None = None,
+    request_id: str | None = None,
+) -> WorkflowRun:
     """Send the workflow BACK to an earlier step for rework — the missing dynamic
     edge. Reopens every step from `to_idx` onward (their old results stay on the
     step rows as history), points the run there, and re-drives it. A returned
@@ -782,6 +1028,8 @@ async def return_run(db: Session, *, run: WorkflowRun, actor, to_idx: int | None
         to_idx = _configured_return_to(steps, run.current_index)
     if to_idx < 0 or to_idx >= len(steps) or to_idx >= run.current_index:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Can only return to an earlier step.")
+    _require_step_actor(db, sr=_sr_at(db, run, run.current_index), actor=actor)
+    from_idx = run.current_index
     for sr in _step_runs(db, run):
         if sr.idx >= to_idx:
             sr.status = "pending"
@@ -789,12 +1037,89 @@ async def return_run(db: Session, *, run: WorkflowRun, actor, to_idx: int | None
     run.current_index = to_idx
     run.status = "running"
     run.error = None
+    rework = _rewind_contract_for_rework(
+        db, run=run, steps=steps, from_idx=from_idx, to_idx=to_idx, actor=actor, note=note
+    )
     write_timeline_event(
         db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
         event_type="flow.returned", title=f"Returned to “{steps[to_idx].get('name', 'step')}”",
         actor_user_id=actor.id if actor else None, details={"flow_run_id": run.id, "to_idx": to_idx, "note": note},
     )
-    return await advance_run(db, run=run, actor=actor)
+    write_audit_log(
+        db, action="workflow.step_returned", resource_type="workflow_run", resource_id=run.id,
+        org_id=run.org_id, actor_user_id=actor.id, request_id=request_id,
+        after={"from_idx": from_idx, "to_idx": to_idx, "note": note, **rework},
+    )
+    run = await advance_run(db, run=run, actor=actor)
+    await _void_envelopes(rework["voided_envelopes"])  # external action, after the commit
+    return run
+
+
+def _rewind_contract_for_rework(
+    db: Session, *, run: WorkflowRun, steps: list, from_idx: int, to_idx: int, actor, note: str | None
+) -> dict:
+    """Rework that re-opens an approval or signature step must take the contract
+    back too, or the contract stays in Approval/Signature and every later step
+    409s. Cancels pending approvals, marks in-flight envelopes voided, and moves
+    the contract back to Review with the reason on its stage history."""
+    rework = {"cancelled_approvals": 0, "voided_envelopes": []}
+    reopened = {(steps[i] or {}).get("type") for i in range(to_idx, min(from_idx, len(steps) - 1) + 1)}
+    if not run.contract_id or not reopened & {"approval", "signature"}:
+        return rework
+    contract = _get_contract(db, run.contract_id)
+    stage = (contract.lifecycle_stage or "").lower()
+    if stage in ("active", "closed"):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This contract is already signed, so the workflow can't be sent back past signature. "
+            "Start an amendment instead.",
+        )
+    if stage not in ("approval", "signature"):
+        return rework
+    from app.approvals.models import ApprovalRequest
+    from app.contracts.lifecycle import transition_contract_stage
+    from app.core.enums import ApprovalStatus, SignatureStatus
+    from app.signatures.models import SignatureRequest
+
+    for appr in db.scalars(
+        select(ApprovalRequest).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.status.in_([ApprovalStatus.PENDING, ApprovalStatus.WAITING]),
+        )
+    ).all():
+        appr.status = ApprovalStatus.CANCELLED
+        appr.updated_by_user_id = actor.id
+        rework["cancelled_approvals"] += 1
+    for sig in db.scalars(
+        select(SignatureRequest).where(
+            SignatureRequest.contract_id == contract.id,
+            SignatureRequest.status.in_([SignatureStatus.DRAFT, SignatureStatus.SENT, SignatureStatus.DELIVERED]),
+        )
+    ).all():
+        sig.status = SignatureStatus.VOIDED
+        sig.updated_by_user_id = actor.id
+        if sig.provider_envelope_id:
+            rework["voided_envelopes"].append(sig.provider_envelope_id)
+    transition_contract_stage(
+        db, contract=contract, to_stage="review", actor_user_id=actor.id,
+        reason=f"Workflow sent back for rework: {note or 'no reason given'}",
+        override=True, override_authorized=True,
+    )
+    return rework
+
+
+async def _void_envelopes(envelope_ids: list[str]) -> None:
+    """Void envelopes that were out for signature when the workflow was sent back.
+    Best-effort: the local record already says voided."""
+    if not envelope_ids:
+        return
+    from app.integrations.docusign import docusign_client
+
+    for envelope_id in envelope_ids:
+        try:
+            await docusign_client.void_envelope(envelope_id=envelope_id, reason="workflow_sent_back_for_rework")
+        except Exception:
+            logger.warning("could not void envelope %s after rework", envelope_id, exc_info=True)
 
 
 def add_run_comment(db: Session, *, run: WorkflowRun, actor, text: str, idx: int | None = None, kind: str = "comment") -> WorkflowRun:
@@ -830,73 +1155,95 @@ async def refresh_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
     steps = list(run.steps or [])
     if run.current_index >= len(steps):
         return run
-    step = steps[run.current_index]
-    t = step.get("type")
-
-    # No-contract intake approval: advance when the tracked chain terminates.
-    # Multi-gate flows are safe — the bridge's on_complete only records each
-    # gate while a flow is active; the flow finalizes the request on completion
-    # (_finalize_intake_if_approved).
-    if not run.contract_id:
-        if t == "approval":
-            sr = next((s for s in _step_runs(db, run) if s.idx == run.current_index), None)
-            ids = (sr.result or {}).get("approval_ids") if sr and sr.result else None
-            if ids:
-                from app.approvals.models import ApprovalRequest
-                from app.core.enums import ApprovalStatus
-
-                chain = db.scalars(
-                    select(ApprovalRequest).where(ApprovalRequest.id.in_(ids))
-                ).all()
-                if chain and all(a.status == ApprovalStatus.APPROVED for a in chain):
-                    if sr:
-                        sr.status = "done"
-                    run.status = "running"
-                    run.current_index += 1
-                    return await advance_run(db, run=run, actor=actor)
-                if any(a.status == ApprovalStatus.REJECTED for a in chain):
-                    if sr:
-                        sr.status = "failed"
-                        sr.note = "Approval rejected — returned to queue."
-                    run.status = "failed"
-                    run.error = "Approval rejected"
-                    # M4: persist the failed run. Every other branch commits via
-                    # advance_run; get_db never commits on success, so without this
-                    # the rejection rolls back and the run stays 'waiting' forever.
-                    db.commit()
+    outcome = _resolve_waiting_group(db, run=run, steps=steps)
+    if outcome == "failed":
+        _fail_run_after_rejection(db, run=run, actor_user_id=actor.id if actor else None)
+        db.commit()
         return run
-
-    contract = _get_contract(db, run.contract_id)
-    stage = (contract.lifecycle_stage or "").lower()
-    # Group-aware: resolve every approval/signature step in the current group
-    # the contract's stage has cleared, then advance once the whole group is done.
-    start = run.current_index
-    end = _group_end(steps, start)
-    resolved = False
-    for gi in range(start, end):
-        st = (steps[gi] or {}).get("type")
-        cleared = (st == "approval" and stage in ("signature", "active", "closed")) or (
-            st == "signature" and stage in ("active", "closed")
-        )
-        if cleared:
-            sr = _sr_at(db, run, gi)
-            if sr and sr.status not in ("done", "skipped", "failed"):
-                sr.status = "done"; resolved = True
-    if resolved and _group_done(db, run, start, end):
+    if outcome == "advance":
         run.status = "running"
-        run.current_index = end
+        run.current_index = _group_end(steps, run.current_index)
+        return await advance_run(db, run=run, actor=actor)
+    if outcome == "rerun":
+        run.status = "running"
         return await advance_run(db, run=run, actor=actor)
     return run
+
+
+def _fail_run_after_rejection(db: Session, *, run: WorkflowRun, actor_user_id: str | None) -> None:
+    run.status = "failed"
+    run.error = (
+        "An approval was rejected or the contract was pulled back. "
+        "Send the workflow back for rework, or start a new one."
+    )
+    write_timeline_event(
+        db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+        event_type="flow.failed", title=f"Workflow stopped: {run.flow_name}", actor_user_id=actor_user_id,
+        details={"flow_run_id": run.id, "reason": "approval_rejected_or_pulled_back"},
+    )
+
+
+def _resolve_waiting_group(db: Session, *, run: WorkflowRun, steps: list) -> str:
+    """Settle the current group's waiting approval/signature steps from the state
+    of what they wait on. The one resolver both resume paths share. Returns
+    "failed" (an approval was rejected or the contract pulled back), "advance"
+    (the whole group is done), "rerun" (an AI step in the group is mid-run), or
+    "wait"."""
+    from app.approvals.models import ApprovalRequest
+    from app.contracts.lifecycle import _current_version_approved
+    from app.core.enums import ApprovalStatus
+
+    start = run.current_index
+    end = _group_end(steps, start)
+    contract = _get_contract(db, run.contract_id) if run.contract_id else None
+    stage = (contract.lifecycle_stage or "").lower() if contract is not None else None
+    for gi in range(start, end):
+        st = (steps[gi] or {}).get("type")
+        sr = _sr_at(db, run, gi)
+        if sr is None or sr.status in ("done", "skipped", "failed"):
+            continue
+        if st == "approval":
+            ids = (sr.result or {}).get("approval_ids") if isinstance(sr.result, dict) else None
+            if ids:  # an intake-request (no-contract) approval chain
+                chain = db.scalars(select(ApprovalRequest).where(ApprovalRequest.id.in_(ids))).all()
+                if chain and all(a.status == ApprovalStatus.APPROVED for a in chain):
+                    sr.status = "done"
+                elif any(a.status == ApprovalStatus.REJECTED for a in chain):
+                    sr.status = "failed"; sr.note = "Approval rejected."
+                    return "failed"
+            elif stage in ("signature", "active", "closed") or (stage == "approval" and _current_version_approved(db, contract)):
+                # Approved but not signing yet: the workflow's later steps (e.g. counterparty
+                # negotiation, then its own signature step) move the contract on.
+                sr.status = "done"
+            elif stage in ("intake", "drafting", "review") and sr.status == "waiting_job":
+                sr.status = "failed"; sr.note = "Approval rejected: the contract went back to Review."
+                return "failed"
+        elif st == "signature":
+            if stage in ("active", "closed"):
+                sr.status = "done"
+            elif stage == "approval" and sr.status == "waiting_job" and _current_version_approved(db, contract):
+                sr.status = "pending"  # re-approved after a change: run the step again so signing starts
+            elif stage in ("intake", "drafting", "review") and sr.status == "waiting_job":
+                sr.status = "failed"; sr.note = "The contract was pulled back from signature."
+                return "failed"
+    if _group_done(db, run, start, end):
+        return "advance"
+    if any(s.status in ("running", "pending") for s in _step_runs(db, run) if start <= s.idx < end):
+        return "rerun"
+    return "wait"
 
 
 # --------------------------------------------------------------------------- auto-resume (sync)
 
 def advance_flow_for_contract(db: Session, *, contract, actor_user_id: str | None) -> None:
-    """Sync auto-resume, called from the contract stage-entry triggers. When a
-    contract's stage advances past a waiting approval/signature step (the
-    subsystems auto-cascade), advance the run and run any subsequent *synchronous*
-    steps (notify/end/signature/human). Async steps (draft/AI/approval-submit) are
-    left waiting for the UI/job path. Best-effort — never raises."""
+    """Called from the contract stage-entry triggers and when an approval chain
+    completes. Settles the waiting approval/signature group from the contract's
+    state; when the flow can move on, marks the run running and hands it to the one
+    step executor (advance_run, via the resume task), so every later step has its
+    condition checked and its assignee picked. Best-effort — never raises.
+
+    No commit here: this runs inside the caller's transaction (a stage transition
+    or an approval decision), and committing would break that transaction's atomicity."""
     run = db.scalars(
         select(WorkflowRun).where(WorkflowRun.contract_id == contract.id, WorkflowRun.status == "waiting")
         .order_by(WorkflowRun.created_at.desc())
@@ -906,86 +1253,42 @@ def advance_flow_for_contract(db: Session, *, contract, actor_user_id: str | Non
     steps = list(run.steps or [])
     if run.current_index >= len(steps):
         return
-    stage = (contract.lifecycle_stage or "").lower()
-    # Group-aware: clear every approval/signature step in the current group the
-    # contract's stage has passed; only advance once the whole group is done.
-    start = run.current_index
-    end = _group_end(steps, start)
-    resolved = False
-    for gi in range(start, end):
-        st = (steps[gi] or {}).get("type")
-        cleared = (st == "approval" and stage in ("signature", "active", "closed")) or (
-            st == "signature" and stage in ("active", "closed")
-        )
-        if cleared:
-            sr = _sr_at(db, run, gi)
-            if sr and sr.status not in ("done", "skipped", "failed"):
-                sr.status = "done"; resolved = True
-    if not (resolved and _group_done(db, run, start, end)):
+    outcome = _resolve_waiting_group(db, run=run, steps=steps)
+    if outcome == "failed":
+        _fail_run_after_rejection(db, run=run, actor_user_id=actor_user_id)
         return
-    run.current_index = end
+    if outcome == "wait":
+        return
+    if outcome == "advance":
+        run.current_index = _group_end(steps, run.current_index)
     run.status = "running"
-    _run_sync_steps(db, run=run, contract=contract, actor_user_id=actor_user_id)
-    # M11: no commit here. This runs inside a stage-entry trigger whose enclosing
-    # transaction is owned by the caller (transition_contract_stage) — the same
-    # commit that lands the queued AI jobs also lands these flow mutations. An
-    # internal commit here would break the transition's atomicity.
+    _schedule_resume()
 
 
-def _run_sync_steps(db: Session, *, run: WorkflowRun, contract, actor_user_id: str | None) -> None:
-    """Walk steps that can run without awaiting a subsystem; stop at the first
-    async or waiting step."""
-    steps = list(run.steps or [])
-    guard = 0
-    while run.status == "running":
-        guard += 1
-        if guard > 50:
-            run.status = "failed"; run.error = "sync-resume guard"; break
-        if run.current_index >= len(steps):
-            run.status = "complete"
-            write_timeline_event(
-                db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
-                event_type="flow.completed", title=f"Workflow complete: {run.flow_name}",
-                actor_user_id=actor_user_id, details={"flow_run_id": run.id},
-            )
-            break
-        # A multi-step parallel group can't run through this sequential cascade
-        # walker — leave it running so the next refresh/advance tick executes the
-        # whole group at once (its steps are still pending).
-        if _group_end(steps, run.current_index) > run.current_index + 1:
-            break
-        step = steps[run.current_index]
-        t = step.get("type"); cfg = step.get("config") or {}
-        sr = next((s for s in _step_runs(db, run) if s.idx == run.current_index), None)
-        if t == "notify":
-            write_timeline_event(
-                db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
-                event_type="flow.notify", title=cfg.get("message") or step.get("name") or "Notification",
-                actor_user_id=actor_user_id, details={"flow_run_id": run.id},
-            )
-            if sr:
-                sr.status = "done"
-            run.current_index += 1
-        elif t == "signature":
-            if (contract.lifecycle_stage or "").lower() in ("review", "approval"):
-                try:
-                    from app.contracts.lifecycle import transition_contract_stage
-                    transition_contract_stage(db, contract=contract, to_stage="signature",
-                        actor_user_id=actor_user_id or run.created_by_user_id, reason=f"workflow: {run.flow_name}")
-                except Exception:
-                    logger.warning(
-                        "workflow %s: transition to signature failed for contract %s",
-                        run.flow_name, contract.id, exc_info=True,
-                    )
-            if sr:
-                sr.status = "waiting_job"
-            run.status = "waiting"; break
-        elif t in ("human_task", "counterparty"):
-            if sr:
-                sr.status = "waiting_human"
-            run.status = "waiting"; break
-        else:  # approval / clm_draft / ai_task — need the async path; leave for UI/job
-            run.status = "waiting"; break
+def _schedule_resume() -> None:
+    """Run the step executor shortly, after the caller's commit. The scheduled
+    resume_workflow_runs beat is the fallback if this can't be queued."""
+    try:
+        from app.jobs.tasks import resume_workflow_runs
+
+        resume_workflow_runs.apply_async(countdown=5)
+    except Exception:
+        logger.warning("could not queue a workflow resume", exc_info=True)
+
+
+def workflow_holds_signature(db: Session, *, contract_id: str) -> bool:
+    """True when an active workflow drives this contract and still has its own
+    signature step ahead. That step, not the approval engine, then moves the
+    contract to signing, so the steps in between (counterparty negotiation, say)
+    happen first, and anything they change must be approved again."""
+    run = db.scalars(
+        select(WorkflowRun)
+        .where(WorkflowRun.contract_id == contract_id, WorkflowRun.status.in_(("running", "waiting")))
+        .order_by(WorkflowRun.created_at.desc())
+    ).first()
+    if run is None:
+        return False
+    return any((st or {}).get("type") == "signature" for st in list(run.steps or [])[run.current_index + 1:])
 
 
 # --------------------------------------------------------------------------- contract helpers
@@ -999,15 +1302,23 @@ def _get_contract(db: Session, contract_id: str):
 
 
 def _advance_contract_to(db: Session, *, contract, target: str, actor, reason: str):
-    """Walk the contract forward one lifecycle edge at a time up to `target`
-    (never past SIGNATURE — reaching ACTIVE is the signature subsystem's job)."""
-    from app.contracts.lifecycle import transition_contract_stage
+    """Walk the contract forward one allowed lifecycle edge at a time up to
+    `target` (never past SIGNATURE — reaching ACTIVE is the signature subsystem's
+    job). Never walks THROUGH Approval: a contract leaves Approval only once its
+    current version's chain is fully approved (the lifecycle refuses otherwise). A
+    flow with no approval step takes the direct review → signature edge instead,
+    so the stage history shows approval was skipped rather than implying it happened."""
+    from app.contracts.lifecycle import _current_version_approved, transition_contract_stage
     cur = _STAGE_ORDER.index((contract.lifecycle_stage or "intake").lower())
     tgt = _STAGE_ORDER.index(target)
     while cur < tgt:
+        if _STAGE_ORDER[cur] == "approval" and not _current_version_approved(db, contract):
+            return  # mid-approval: the approval step keeps waiting for the chain
         nxt = _STAGE_ORDER[cur + 1]
+        if nxt == "approval" and target != "approval":
+            nxt = target
         transition_contract_stage(db, contract=contract, to_stage=nxt, actor_user_id=actor.id, reason=reason)
-        cur += 1
+        cur = _STAGE_ORDER.index(nxt)
 
 
 async def _draft_contract(db: Session, *, run: WorkflowRun, mode: str, actor):
@@ -1040,7 +1351,15 @@ def create_flow(db: Session, *, actor, payload: dict) -> Workflow:
     return f
 
 
-def update_flow(db: Session, *, actor, flow: Workflow, payload: dict) -> Workflow:
+def _flow_snapshot(flow: Workflow) -> dict:
+    return {"name": flow.name, "enabled": flow.enabled, "criteria": flow.criteria,
+            "steps": flow.steps, "version": flow.version}
+
+
+def update_flow(
+    db: Session, *, actor, flow: Workflow, payload: dict, request_id: str | None = None
+) -> Workflow:
+    before = _flow_snapshot(flow)
     for k in ("name", "description", "enabled", "eval_order"):
         if k in payload and payload[k] is not None:
             setattr(flow, k, payload[k])
@@ -1050,6 +1369,11 @@ def update_flow(db: Session, *, actor, flow: Workflow, payload: dict) -> Workflo
         flow.steps = _clean_steps(payload["steps"] or [])
     flow.version = (flow.version or 1) + 1
     flow.updated_by_user_id = actor.id
+    write_audit_log(
+        db, action="workflow.updated", resource_type="workflow", resource_id=flow.id,
+        org_id=flow.org_id, actor_user_id=actor.id, request_id=request_id,
+        before=before, after=_flow_snapshot(flow),
+    )
     db.commit(); db.refresh(flow)
     return flow
 
@@ -1079,6 +1403,11 @@ def _clean_steps(steps: list) -> list:
                 "op": (cond.get("op") or "eq").strip().lower(),
                 "value": cond.get("value"),
             }
+            _validate_condition(step["cond"], step["name"])
+        for key in ("skip_when", "skip_if"):
+            rule = step["config"].get(key)
+            if isinstance(rule, dict) and rule.get("field"):
+                _validate_condition(rule, step["name"])
         out.append(step)
     return out
 

@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import io
 import re
-from datetime import date
 
 from starlette.datastructures import Headers, UploadFile
 
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.database import utcnow
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
 
@@ -276,9 +276,15 @@ def resolve_doc_type(request: IntakeRequest) -> str | None:
     text = f"{request.type_label} {request.description or ''}".lower()
     category = (classify(request.type_label, request.description or "").get("category") or "").lower()
 
+    # A privacy incident or breach names DPAs, vendors and GDPR, but it's a response
+    # to run, not a document to draft ("breach notification" terms in a DPA are fine).
+    if re.search(r"\bincident\b|\bbreach\b(?!\s+notif)", text):
+        return None
     if re.search(r"\b(nda|non-disclosure|non disclosure)\b", text) or category == "nda":
         return "nda"
-    if re.search(r"\b(dpa|data processing|data protection|gdpr)\b", text) or category == "privacy":
+    # A DPA is the document itself; "data protection", GDPR or the privacy category
+    # describe a privacy matter, which isn't something to draft.
+    if re.search(r"\b(dpa|data processing (agreement|addendum))\b", text):
         return "dpa"
     if re.search(r"\b(msa|master service|master services|services agreement|statement of work|sow)\b", text):
         return "msa"
@@ -385,9 +391,11 @@ async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, cou
             f"Purpose / context: {purpose}" if purpose else "",
             "Captured requirements from the intake request:" if reqs else "",
             *reqs,
-            "Produce complete, professional contract sections with real operative "
-            "language a lawyer can review and refine. Where a term wasn't specified, "
-            "use a sensible market-standard default and record it as an assumption.",
+            (
+                "Produce complete, professional contract sections with real operative "
+                "language a lawyer can review and refine. Where a term wasn't specified, "
+                "use a sensible market-standard default and record it as an assumption."
+            ),
         ]
         if line
     )
@@ -448,7 +456,7 @@ async def draft_contract_for_request(
     fv = request.field_values or {}
     # Prefer the details captured on the intake form; fall back to screening / today.
     counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
-    effective = str(fv.get("effective_date") or "").strip() or date.today().isoformat()
+    effective = str(fv.get("effective_date") or "").strip() or utcnow().date().isoformat()
     if custom:
         # Real AI generation for bespoke drafts (was a placeholder skeleton).
         # Skeleton only survives as the safety net if the model is unavailable.

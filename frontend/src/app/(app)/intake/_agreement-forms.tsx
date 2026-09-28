@@ -10,17 +10,18 @@
  * a second org ever needs different ones.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, FileText, Info, Paperclip, Search, TriangleAlert } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, Field, Input, Select, Textarea,
 } from "@/components/ui";
-import { contractsApi, intakeApi } from "@/lib/endpoints";
+import { contractsApi, intakeApi, partiesApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/utils";
-import type { ContractResponse, IntakeRequest } from "@/lib/types";
+import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment } from "@/lib/intake";
+import type { ContractResponse, Counterparty, IntakeDraft, IntakeRequest, LegalEntity } from "@/lib/types";
 
 // ---------------------------------------------------------------- types ----
 
@@ -97,7 +98,7 @@ const CLASSIFY_CHILD: FieldSpec[] = [
   { k: "value", label: "Total monetary value of agreement", kind: "money", req: true, help: "Sets the approval tier under the delegation of authority." },
 ];
 
-function classifyFor(def: AgreementFormDef): FieldSpec[] {
+export function classifyFor(def: AgreementFormDef): FieldSpec[] {
   return def.parent === "contract" ? CLASSIFY_CHILD : CLASSIFY;
 }
 
@@ -358,12 +359,6 @@ export const AGREEMENT_FORMS: AgreementFormDef[] = [
   },
 ];
 
-/** ponytail: the entity register has no endpoint yet — swap for one when it exists. */
-const ENTITIES = [
-  { name: "Acme Laboratories Limited", address: "8-2-337, Road No. 3, Banjara Hills, Hyderabad 500034", signatory: "Erez Israeli", jurisdiction: "India" },
-  { name: "Acme Pharma UK Ltd", address: "5th Floor, 20 St Andrew Street, London EC4A 3AG", signatory: "Sarah Whitfield", jurisdiction: "England & Wales" },
-  { name: "Acme Life Sciences Inc", address: "107 College Road East, Princeton, NJ 08540", signatory: "Michael Reyes", jurisdiction: "Delaware, USA" },
-];
 
 // ------------------------------------------------------------- approvals ----
 
@@ -498,25 +493,119 @@ function FieldLabel({ label, req }: { label: string; req?: boolean }) {
   );
 }
 
-/** Text field with the Look-up control attached to its right edge. */
-function LookupInput({ value, onChange, placeholder = "Type something", bad, list }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; bad?: boolean; list?: string;
+type RegisterRecord = LegalEntity | Counterparty;
+
+/**
+ * Search the party register as you type and pick a real record. Picking stores
+ * both the name (for display) and the record id (what the server checks); typing
+ * after a pick clears the id, so a hand-edited name is never filed as a record.
+ * Counterparties that don't exist yet can be created in place; legal entities
+ * are maintained by admins under Operations → Entities & counterparties.
+ */
+function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
+  kind: "entity" | "counterparty";
+  name: string;
+  recordId: string;
+  onPick: (record: RegisterRecord | null, typed?: string) => void;
+  bad?: boolean;
+  label: string;
 }) {
+  const { notify } = useToast();
+  const qc = useQueryClient();
+  const [text, setText] = useState(name);
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState(name);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ jurisdiction: "", contact_email: "" });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setQ(text.trim()), 200); return () => clearTimeout(t); }, [text]);
+  const { data: hits, isFetching } = useQuery({
+    queryKey: ["party-lookup", kind, q],
+    queryFn: () => (kind === "entity" ? partiesApi.entities(q) : partiesApi.counterparties(q)) as Promise<RegisterRecord[]>,
+    enabled: open,
+  });
+  const exact = (hits ?? []).find((h) => h.name.toLowerCase() === text.trim().toLowerCase());
+
+  function pick(r: RegisterRecord) {
+    setText(r.name); setOpen(false); setCreating(false); onPick(r);
+  }
+  async function create() {
+    setBusy(true);
+    try {
+      const made = await partiesApi.createCounterparty({
+        name: text.trim(), jurisdiction: form.jurisdiction || null, contact_email: form.contact_email || null,
+      });
+      qc.invalidateQueries({ queryKey: ["party-lookup"] });
+      notify(`Added ${made.name} to the counterparty register`, "success");
+      pick(made);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't create the counterparty", "error");
+    } finally { setBusy(false); }
+  }
+
   return (
-    <div className={cn(
-      "flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
-      bad ? "border-danger bg-danger-subtle" : "border-slate-300",
-    )}>
-      <input
-        list={list}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
-      />
-      <span className="flex shrink-0 items-center gap-1.5 border-l border-slate-300 bg-slate-50 px-3 text-[12px] font-medium text-slate-600">
-        Look-up <Search className="h-3.5 w-3.5" />
-      </span>
+    <div className="relative">
+      <div className={cn(
+        "flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
+        bad ? "border-danger bg-danger-subtle" : "border-slate-300",
+      )}>
+        <input
+          aria-label={label}
+          value={text}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { setText(e.target.value); setOpen(true); if (recordId) onPick(null, e.target.value); }}
+          placeholder={kind === "entity" ? "Search our legal entities" : "Search the counterparty register"}
+          className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+        />
+        <span className={cn("flex shrink-0 items-center gap-1.5 border-l border-slate-300 px-3 text-[12px] font-medium",
+          recordId ? "bg-success-subtle text-success" : "bg-slate-50 text-slate-600")}>
+          {recordId ? <><Check className="h-3.5 w-3.5" />In register</> : <>Look-up <Search className="h-3.5 w-3.5" /></>}
+        </span>
+      </div>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50 shadow-pop">
+          {(hits ?? []).length === 0 && !isFetching && (
+            <div className="px-3 py-2.5 text-[12.5px] text-slate-500">
+              {kind === "entity"
+                ? (text.trim() ? `No legal entity matches "${text.trim()}". An admin adds entities under Operations → Entities & counterparties.` : "No legal entities set up yet. An admin adds them under Operations → Entities & counterparties.")
+                : text.trim() ? `No counterparty matches "${text.trim()}".` : "Type a name to search."}
+            </div>
+          )}
+          <ul className="max-h-60 overflow-auto">
+            {(hits ?? []).map((h) => (
+              <li key={h.id}>
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(h)}
+                  className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-[13px] hover:bg-brand-50">
+                  <span className="font-medium text-slate-900">{h.name}</span>
+                  <span className="shrink-0 text-[11.5px] text-slate-500">{h.jurisdiction ?? ""}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {kind === "counterparty" && text.trim() && !exact && (
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setCreating(true); setOpen(false); }}
+              className="w-full border-t border-slate-200 px-3 py-2 text-left text-[12.5px] font-medium text-brand-700 hover:bg-brand-50">
+              + Create "{text.trim()}" as a new counterparty
+            </button>
+          )}
+        </div>
+      )}
+      {creating && (
+        <div className="mt-2 space-y-2 rounded-lg border border-brand-200 bg-brand-50 p-3">
+          <div className="text-[12.5px] font-medium text-slate-800">New counterparty: {text.trim() || "—"}</div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Input aria-label="Jurisdiction" placeholder="Jurisdiction (e.g. India)" value={form.jurisdiction}
+              onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))} />
+            <Input aria-label="Contact email" type="email" placeholder="Contact email (for signature)" value={form.contact_email}
+              onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" loading={busy} disabled={!text.trim()} onClick={create}>Create counterparty</Button>
+            <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -585,8 +674,10 @@ function FieldGrid({ specs, values, errors, onChange }: {
 
 // --------------------------------------------------------------- wizard ----
 
-export function AgreementWizard({ def, onFiled, onBack }: {
+export function AgreementWizard({ def, draft, onFiled, onBack }: {
   def: AgreementFormDef;
+  /** Reopen a saved draft exactly where it was left. */
+  draft?: IntakeDraft | null;
   onFiled: (id: string) => void;
   onBack: () => void;
 }) {
@@ -596,15 +687,21 @@ export function AgreementWizard({ def, onFiled, onBack }: {
 
   // One step per page — the requester answers one question at a time.
   const PAGES: number[][] = [[1], [2], [3], [4], [5], [6], [7], [8]];
-  const [pageIndex, setPageIndex] = useState(0);
-  const [values, setValues] = useState<Values>({});
+  const [pageIndex, setPageIndex] = useState(draft?.page_index ?? 0);
+  const [values, setValues] = useState<Values>(draft?.values ?? {});
   const [errors, setErrors] = useState<Set<string>>(new Set());
-  const [parentId, setParentId] = useState<string>("");
+  const [parentId, setParentId] = useState<string>(draft?.parent_contract_id ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [ladderOpen, setLadderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errBar, setErrBar] = useState<string>("");
-  const [visited, setVisited] = useState(1);
+  const [visited, setVisited] = useState(draft?.visited ?? 1);
+  // Save as Draft: the draft this form is stored as, and whether it has
+  // changes since the last save. "Saved automatically" used to be fixed text.
+  const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
+  const [savedAt, setSavedAt] = useState<string | null>(draft?.updated_at ?? null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const LABELS = useMemo(() => stepLabels(def), [def]);
   const needsContract = def.parent === "contract";
@@ -624,6 +721,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
   );
 
   const set = (k: string, v: string) => {
+    setDirty(true);
     setValues((prev) => ({ ...prev, [k]: v }));
     setErrors((prev) => {
       if (!prev.has(k)) return prev;
@@ -643,7 +741,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
     if (n === 4) return classifyFor(def).filter((f) => f.req);
     if (n === 5) return def.detail.filter((f) => f.req);
     if (n === 1 && def.parentFields) return def.parentFields.filter((f) => f.req);
-    if (n === 2 && def.parent === "none") return [{ k: "counterparty", label: "Counterparty", req: true }, ...(def.partyFields ?? []).filter((f) => f.req)];
+    if (n === 2 && def.parent === "none") return [{ k: "counterparty_id", label: "Counterparty (pick it from the register)", req: true }, ...(def.partyFields ?? []).filter((f) => f.req)];
     if (n === 2) return (def.partyFields ?? []).filter((f) => f.req);
     if (n === 7) return [{ k: "note_approvers", label: "Note to approvers", req: true }];
     return [];
@@ -653,8 +751,9 @@ export function AgreementWizard({ def, onFiled, onBack }: {
       setErrBar("Pick the agreement this request relates to — everything else is read from it.");
       return false;
     }
-    if (n === 1 && def.parent === "none" && !values.entity?.trim()) {
-      setErrBar("Choose the legal entity that will be a party to this agreement.");
+    if (n === 1 && def.parent === "none" && !values.entity_id) {
+      setErrors(new Set(["entity_id"]));
+      setErrBar("Pick the legal entity from the register — search by name and choose it from the list.");
       return false;
     }
     if (n === 1 && def.parent === "request" && !values.cancel_request_ref) {
@@ -684,7 +783,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
       if (needsContract) return !!parentId;
       if (def.parent === "upload") return !!file && (def.parentFields ?? []).every((f) => !f.req || !!values[f.k]?.trim());
       if (def.parent === "request") return !!values.cancel_request_ref;
-      return !!values.entity?.trim();
+      return !!values.entity_id;
     }
     return requiredFor(n).every((f) => String(values[f.k] ?? "").trim());
   });
@@ -715,8 +814,53 @@ export function AgreementWizard({ def, onFiled, onBack }: {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // Refuse a file the server would refuse, the moment it's chosen.
+  function pickFile(f: File | null) {
+    const problem = f ? attachmentProblem(f) : null;
+    if (problem) { setErrBar(problem); return; }
+    setErrBar("");
+    setFile(f);
+  }
+
+  async function saveDraft() {
+    setSaving(true);
+    try {
+      const payload = {
+        form_key: def.key, title: subjectLine(def, values, parent), values,
+        parent_contract_id: parentId || null, page_index: pageIndex, visited,
+      };
+      const saved = draftId ? await intakeApi.updateDraft(draftId, payload) : await intakeApi.createDraft(payload);
+      setDraftId(saved.id);
+      setSavedAt(saved.updated_at);
+      setDirty(false);
+      qc.invalidateQueries({ queryKey: ["intake-drafts"] });
+      notify(file
+        ? "Draft saved. Attached files aren't kept in drafts yet — attach it again when you continue."
+        : "Draft saved — find it under Your drafts on the New request page.", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't save the draft", "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function submit() {
-    if (!validatePage()) return;
+    // The stepper lets you jump ahead, so check every step, not just this one,
+    // and take the requester to the first step that still needs something.
+    const firstBad = LABELS.findIndex((_, i) => !validate(i + 1));
+    if (firstBad >= 0) {
+      const target = PAGES.findIndex((page) => page.includes(firstBad + 1));
+      if (target >= 0 && target !== pageIndex) {
+        setPageIndex(target);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      return;
+    }
+    const fileProblem = file ? attachmentProblem(file) : null;
+    if (fileProblem) {
+      setErrBar(fileProblem);
+      return;
+    }
     setBusy(true);
     try {
       const payload: Record<string, string> = { ...values, request_form: def.key };
@@ -733,14 +877,11 @@ export function AgreementWizard({ def, onFiled, onBack }: {
         requester_name: user?.full_name ?? null,
         description: values.note_approvers || values.reason || values.purpose || def.name,
         field_values: payload,
+        // Sent with the filing: the server checks the file first, so a bad file
+        // files nothing, and the request never exists without its attachment.
+        attachments: file ? [await toAttachment(file)] : [],
       });
       if (file) {
-        const b64 = await fileToB64(file);
-        await intakeApi.uploadDocument(created.id, {
-          filename: file.name,
-          mime_type: file.type || "application/octet-stream",
-          content_b64: b64,
-        });
         // Only treat the attachment AS the contract where that is what it is:
         // an already-executed agreement, or the counterparty's own paper. A
         // budget approval or a screenshot is supporting material, not the deal.
@@ -754,6 +895,11 @@ export function AgreementWizard({ def, onFiled, onBack }: {
             notify(`${created.ref} filed. The attachment could not be read automatically — legal will open it manually.`, "info");
           }
         }
+      }
+      // The draft has become a real request, so it leaves the drafts list.
+      if (draftId) {
+        await intakeApi.deleteDraft(draftId).catch(() => undefined);
+        qc.invalidateQueries({ queryKey: ["intake-drafts"] });
       }
       qc.invalidateQueries({ queryKey: ["intake-mine"] });
       qc.invalidateQueries({ queryKey: ["intake-list"] });
@@ -782,7 +928,9 @@ export function AgreementWizard({ def, onFiled, onBack }: {
             on <b className="font-medium text-slate-700">{parent.title}</b>
           </span>
         )}
-        <span className="ml-auto text-[12px] text-slate-400">Saved automatically</span>
+        <span className={cn("ml-auto text-[12px]", dirty && savedAt ? "text-warning" : "text-slate-400")}>
+          {!savedAt ? "Not saved yet" : dirty ? "Unsaved changes" : `Draft saved ${new Date(savedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`}
+        </span>
       </header>
 
       <Stepper labels={LABELS} current={pageSteps[pageSteps.length - 1]} complete={complete} onGo={goToStep} />
@@ -814,9 +962,9 @@ export function AgreementWizard({ def, onFiled, onBack }: {
                     def={def}
                     contracts={contracts ?? []}
                     parentId={parentId}
-                    onPick={setParentId}
+                    onPick={(id) => { setParentId(id); setDirty(true); }}
                     file={file}
-                    onFile={setFile}
+                    onFile={pickFile}
                     values={values}
                     errors={errors}
                     onChange={set}
@@ -900,7 +1048,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
 
                 {n === 7 && <StepMessage def={def} values={values} parent={parent} errors={errors} onChange={set} approvers={approvers} />}
 
-                {n === 8 && <StepFiles def={def} file={file} onFile={setFile} values={values} onChange={set} />}
+                {n === 8 && <StepFiles def={def} file={file} onFile={pickFile} values={values} onChange={set} />}
               </section>
             ))}
           </CardBody>
@@ -911,7 +1059,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
               <b className="font-semibold text-slate-900">{complete.filter(Boolean).length} of 8</b> steps complete
             </span>
             <div className="ml-auto flex gap-2">
-              <Button variant="outline" className="rounded-full px-5" onClick={onBack}>Save as Draft</Button>
+              <Button variant="outline" className="rounded-full px-5" loading={saving} onClick={saveDraft}>Save as Draft</Button>
               {pageIndex === PAGES.length - 1
                 ? <Button loading={busy} className="rounded-full px-6" onClick={submit}>Submit</Button>
                 : <Button className="rounded-full px-6" onClick={() => goPage(pageIndex + 1)}>Proceed</Button>}
@@ -978,16 +1126,21 @@ function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, 
 }) {
   const [search, setSearch] = useState("");
   const [extraEntity, setExtraEntity] = useState(false);
+  const { data: entities = [] } = useQuery({
+    queryKey: ["party-lookup", "entity", ""],
+    queryFn: () => partiesApi.entities(""),
+    enabled: def.parent === "none",
+  });
   if (def.parent === "upload") {
     return (
       <>
         <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center hover:border-brand-600 hover:bg-brand-50">
-          <input type="file" className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+          <input type="file" accept={ATTACHMENT_ACCEPT} className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
           <Paperclip className="mx-auto mb-2 h-5 w-5 text-slate-500" />
           <div className="text-[13px] font-medium text-slate-900">
             {file ? file.name : "Drop the executed agreement here, or browse"}
           </div>
-          <div className="mt-1 text-[11.5px] text-slate-500">Signed PDF or DOCX · Aegis reads the parties, dates and value from it</div>
+          <div className="mt-1 text-[11.5px] text-slate-500">Signed PDF or Word document · up to 25 MB · Aegis reads the parties, dates and value from it</div>
         </label>
         {file && def.parentFields && (
           <div className="mt-5">
@@ -1049,27 +1202,25 @@ function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, 
     );
   }
   if (def.parent === "none") {
-    const chosen = ENTITIES.find((e) => e.name.toLowerCase() === (values.entity ?? "").trim().toLowerCase()) ?? null;
+    // The panel shows the real record picked in the lookup, not a guess from its name.
+    const chosen = entities.find((e) => e.id === values.entity_id) ?? null;
+    const pickEntity = (idKey: string, nameKey: string) => (r: RegisterRecord | null, typed?: string) => {
+      onChange(idKey, r?.id ?? "");
+      onChange(nameKey, r?.name ?? typed ?? "");
+    };
     return (
       <>
         <div className="flex flex-col gap-4">
           <div className="max-w-[520px] space-y-1.5">
             <FieldLabel label="Entity1" req />
-            <LookupInput
-              list="aegis-entity-register"
-              value={values.entity ?? ""}
-              onChange={(v) => onChange("entity", v)}
-              bad={errors.has("entity")}
-            />
+            <RegisterLookup kind="entity" label="Entity1" name={values.entity ?? ""} recordId={values.entity_id ?? ""}
+              onPick={pickEntity("entity_id", "entity")} bad={errors.has("entity_id")} />
           </div>
-          <datalist id="aegis-entity-register">
-            {ENTITIES.map((e) => <option key={e.name} value={e.name} />)}
-          </datalist>
-
           {extraEntity && (
             <div className="max-w-[520px] space-y-1.5">
               <FieldLabel label="Entity2" />
-              <LookupInput list="aegis-entity-register" value={values.entity_2 ?? ""} onChange={(v) => onChange("entity_2", v)} />
+              <RegisterLookup kind="entity" label="Entity2" name={values.entity_2 ?? ""} recordId={values.entity_2_id ?? ""}
+                onPick={pickEntity("entity_2_id", "entity_2")} />
             </div>
           )}
         </div>
@@ -1079,10 +1230,10 @@ function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, 
             <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
               From the entity record
             </div>
-            {([["Registered address", chosen.address], ["Authorised signatory", chosen.signatory], ["Jurisdiction", chosen.jurisdiction]] as [string, string][]).map(([k, v]) => (
+            {([["Registered address", chosen.registered_address], ["Authorised signatory", chosen.authorised_signatory], ["Jurisdiction", chosen.jurisdiction]] as [string, string | null][]).map(([k, v]) => (
               <div key={k} className="grid grid-cols-[190px_minmax(0,1fr)] gap-3 border-b border-slate-200 px-4 py-2.5 text-[12.8px] last:border-b-0">
                 <span className="text-slate-500">{k}</span>
-                <span className="font-medium text-slate-900">{v}</span>
+                <span className={cn("font-medium", v ? "text-slate-900" : "text-slate-400")}>{v || "Not recorded"}</span>
               </div>
             ))}
           </div>
@@ -1092,7 +1243,7 @@ function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, 
           <Button variant="outline" size="sm" className="mt-4 rounded-full border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setExtraEntity(true)}>+ Add Entity</Button>
         )}
         <Note>
-          You can add multiple entities for both our side and the counterparty. If you are unsure, it is best to consult your legal counsel.
+          Pick the entity from the register. If yours is missing, an admin adds it under Operations → Entities &amp; counterparties.
         </Note>
       </>
     );
@@ -1150,6 +1301,10 @@ function StepParties({ def, parent, values, errors, onChange }: {
   def: AgreementFormDef; parent: ContractResponse | null; values: Values; errors: Set<string>; onChange: (k: string, v: string) => void;
 }) {
   const [second, setSecond] = useState(false);
+  const pickCounterparty = (idKey: string, nameKey: string) => (r: RegisterRecord | null, typed?: string) => {
+    onChange(idKey, r?.id ?? "");
+    onChange(nameKey, r?.name ?? typed ?? "");
+  };
   if (def.parent === "contract" && parent) {
     const rows: [string, string][] = [
       ["Parent agreement", parent.title],
@@ -1181,25 +1336,24 @@ function StepParties({ def, parent, values, errors, onChange }: {
     <>
       <div className="flex flex-col gap-4">
         <div className="max-w-[520px] space-y-1.5">
-          <FieldLabel label="Name of Counterparty1" req />
-          <LookupInput value={values.counterparty ?? ""} onChange={(v) => onChange("counterparty", v)} bad={errors.has("counterparty")} />
+          <FieldLabel label="Name of Counterparty1" req={def.parent === "none"} />
+          <RegisterLookup kind="counterparty" label="Counterparty1" name={values.counterparty ?? ""} recordId={values.counterparty_id ?? ""}
+            onPick={pickCounterparty("counterparty_id", "counterparty")} bad={errors.has("counterparty_id")} />
         </div>
         {second && (
           <div className="max-w-[520px] space-y-1.5">
             <FieldLabel label="Name of Counterparty2" />
-            <LookupInput value={values.counterparty_2 ?? ""} onChange={(v) => onChange("counterparty_2", v)} />
+            <RegisterLookup kind="counterparty" label="Counterparty2" name={values.counterparty_2 ?? ""} recordId={values.counterparty_2_id ?? ""}
+              onPick={pickCounterparty("counterparty_2_id", "counterparty_2")} />
           </div>
         )}
       </div>
       <div className="mt-4 flex flex-wrap items-center gap-3">
-        {!second && <Button variant="outline" size="sm" className="rounded-full border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setSecond(true)}>+ Add Entity</Button>}
-        <button type="button" className="border-b border-brand-200 text-[12.5px] font-medium text-brand-700">
-          Create counterparty
-        </button>
+        {!second && <Button variant="outline" size="sm" className="rounded-full border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setSecond(true)}>+ Add counterparty</Button>}
       </div>
       <Note>
-        If your counterparty does not exist in the CLM system, or needs to be updated or otherwise corrected, request it
-        using the link above before you proceed.
+        Search the register by name. If the counterparty isn&apos;t there, type its full legal name and choose
+        &quot;Create … as a new counterparty&quot;.
       </Note>
     </>
   );
@@ -1367,10 +1521,10 @@ function StepFiles({ def, file, onFile, values, onChange }: {
         </div>
       )}
       <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-7 text-center hover:border-brand-600 hover:bg-brand-50">
-        <input type="file" className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+        <input type="file" accept={ATTACHMENT_ACCEPT} className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
         <FileText className="mx-auto mb-2 h-5 w-5 text-slate-500" />
         <div className="text-[13px] font-medium text-slate-900">{file ? file.name : "Drag and drop, or browse files"}</div>
-        <div className="mt-1 text-[11.5px] text-slate-500">PDF, DOC, DOCX, XLSX, PNG · up to 25 MB each</div>
+        <div className="mt-1 text-[11.5px] text-slate-500">{ATTACHMENT_LIMITS_TEXT}</div>
       </label>
       <div className="mt-4">
         <Field label="File description">
@@ -1639,10 +1793,3 @@ function subjectLine(def: AgreementFormDef, v: Values, parent: ContractResponse 
   return `${def.name}${cp ? ` — ${cp}` : ""}`;
 }
 
-async function fileToB64(f: File): Promise<string> {
-  const buf = await f.arrayBuffer();
-  let bin = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.byteLength; i += 1) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}

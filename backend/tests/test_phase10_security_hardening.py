@@ -90,6 +90,16 @@ def test_mime_sniff_passes_through_text_plain():
     assert _sniff_mime_type(b"hello world", "text/plain") == "text/plain"
 
 
+def test_mime_sniff_rejects_binary_claimed_as_text_plain():
+    """An executable declared text/plain was accepted because text/* skipped
+    sniffing entirely, so arbitrary binaries landed in contract storage."""
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        _sniff_mime_type(b"MZ\x90\x00\x03\x00\x00\x00fake-exe", "text/plain")
+    assert exc_info.value.status_code == 415
+
+
 # --- Query-string redaction (#14) ----------------------------------------
 
 
@@ -155,6 +165,8 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
         refresh_cookie_samesite="strict",
         expose_refresh_token_in_body=False,
         expose_password_reset_token_in_response=False,
+        storage_backend="s3",
+        s3_bucket="clm-contracts",
     )
     # Must not raise.
     validate_runtime_settings(settings)

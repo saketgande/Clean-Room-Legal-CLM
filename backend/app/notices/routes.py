@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
+from app.contract_files.service import ingest_upload
 from app.core.deps import get_db, require_permission
 from app.notices import service
 from app.notices.schemas import (
@@ -78,12 +80,14 @@ async def extract_from_document(
 ):
     """Read an uploaded notice and propose register fields. Creates nothing —
     the filer reviews the suggestions in the New Notice form and saves there."""
-    content = await file.read()
-    return service.extract_from_upload(
+    upload = await ingest_upload(file, default_name="notice")
+    # Parsing the document is blocking work: keep it off the event loop.
+    return await run_in_threadpool(
+        service.extract_from_upload,
         db, actor=current_user,
-        filename=file.filename or "notice",
-        mime_type=file.content_type or "application/octet-stream",
-        content=content,
+        filename=upload.filename,
+        mime_type=upload.mime_type,
+        content=upload.content,
     )
 
 
@@ -158,12 +162,13 @@ async def add_document(
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
 ):
-    content = await file.read()
-    return service.add_document(
+    upload = await ingest_upload(file, default_name="attachment")
+    return await run_in_threadpool(
+        service.add_document,
         db, actor=current_user, notice_id=notice_id,
-        filename=file.filename or "attachment",
-        mime_type=file.content_type or "application/octet-stream",
-        content=content,
+        filename=upload.filename,
+        mime_type=upload.mime_type,
+        content=upload.content,
     )
 
 

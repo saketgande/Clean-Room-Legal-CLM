@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -6,13 +8,11 @@ from sqlalchemy.orm import Session
 from app.ai.controller import ai_controller
 from app.ai.schemas import PlaybookReviewOutput
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
-from app.contract_files.service import validate_upload_mime
-from app.contract_files.text_extraction import extract_text
+from app.contract_files.service import _resolve_extracted_text, ingest_upload
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log
-from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import PlaybookStatus
@@ -43,13 +43,13 @@ from app.playbooks.schemas import (
     PlaybookVersionResponse,
 )
 from app.playbooks.service import (
-    expand_playbook,
     apply_playbook_recommendation,
     chat_build_playbook,
     clone_playbook_version,
     compute_playbook_insights,
     create_initial_playbook,
     execute_playbook_run,
+    expand_playbook,
     generate_playbook_from_text,
     generated_default_rules,
     get_playbook_for_user,
@@ -57,6 +57,8 @@ from app.playbooks.service import (
     save_built_playbook,
     select_run_version,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
 
@@ -112,14 +114,6 @@ def generate_playbook(
     return playbook
 
 
-_DOC_MIME_BY_EXT = {
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".txt": "text/plain",
-    ".md": "text/plain",
-}
-
-
 async def _resolve_source_text(
     db: Session,
     *,
@@ -129,18 +123,10 @@ async def _resolve_source_text(
     source_contract_id: str | None,
 ) -> str:
     if file is not None:
-        content = await file.read()
-        if not content:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
-        if len(content) > settings.max_upload_size_bytes:
-            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "The uploaded file is too large")
-        filename = file.filename or "document"
-        mime = file.content_type or ""
-        if not mime or mime == "application/octet-stream":
-            ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
-            mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
-        mime = validate_upload_mime(content, mime)
-        result = extract_text(content, mime_type=mime, filename=filename)
+        upload = await ingest_upload(file)
+        result = await _resolve_extracted_text(
+            content=upload.content, mime_type=upload.mime_type, filename=upload.filename
+        )
         if not result.text or not result.text.strip():
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -287,35 +273,36 @@ async def build_extract_documents(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("playbook:create")),
 ):
-    """Extract text from uploaded files for the conversational playbook builder."""
+    """Extract text from uploaded files for the conversational playbook builder.
+    Each file says whether it was read, so an unreadable scan is flagged rather
+    than silently counted as an empty document."""
     extracted: list[dict] = []
-    for upload in files:
-        content = await upload.read()
-        if not content:
-            continue
-        if len(content) > settings.max_upload_size_bytes:
-            raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                f"{upload.filename or 'A file'} is too large",
-            )
-        filename = upload.filename or "document"
-        mime = upload.content_type or ""
-        if not mime or mime == "application/octet-stream":
-            ext = ("." + filename.rsplit(".", 1)[-1].lower()) if "." in filename else ""
-            mime = _DOC_MIME_BY_EXT.get(ext, "text/plain")
-        mime = validate_upload_mime(content, mime)
+    for file in files:
+        filename = file.filename or "document"
         try:
-            result = extract_text(content, mime_type=mime, filename=filename)
+            upload = await ingest_upload(file)
+            result = await _resolve_extracted_text(
+                content=upload.content, mime_type=upload.mime_type, filename=upload.filename
+            )
             text = result.text or ""
+            reason = None if text.strip() else "No text could be read from this file (scanned or empty?)."
+        except HTTPException as exc:
+            text, reason = "", str(exc.detail)
         except Exception:
-            text = ""
+            logger.warning("playbook builder could not read %s", filename, exc_info=True)
+            text, reason = "", "This file couldn't be read."
         extracted.append(
-            {"filename": filename, "content": text[:_BUILD_MAX_DOC_CHARS], "chars": len(text)}
+            {
+                "filename": filename,
+                "content": text[:_BUILD_MAX_DOC_CHARS],
+                "chars": len(text),
+                "status": "unreadable" if reason else "ok",
+                "reason": reason,
+            }
         )
-    if not extracted:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No readable files uploaded")
+    if not any(doc["status"] == "ok" for doc in extracted):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "None of the uploaded files could be read")
     return extracted
-
 
 @router.post("/build/chat")
 async def build_chat(

@@ -21,10 +21,9 @@ from app.core.deps import get_current_user
 from app.ideal import intake as I
 from app.ideal.library import LIBRARY
 from app.ideal.roster import Member, Roster, auto_assigner
-from app.ideal.store import InMemoryEventStore, inbox
+from app.ideal.store import InMemoryEventStore
 from app.ideal.workflow import (
     advance,
-    matches,
     record_change,
     start,
     step_report,

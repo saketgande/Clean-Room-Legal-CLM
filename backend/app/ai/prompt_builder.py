@@ -1,10 +1,10 @@
 import json
 from dataclasses import dataclass
+import logging
 from typing import Any
 
 from app.ai.context import ContractAIContext
 from app.ai.prompt_versions import PromptBundle
-from app.ai.redaction import SENSITIVE_KEYS
 from app.ai.skill import SkillSpec
 
 
@@ -28,8 +28,11 @@ class PromptBuilder:
             f"Skill: {spec.name} v{spec.version}",
             prompt_bundle.skill_prompt,
             "Input payload:",
-            json.dumps(_redacted_payload(input_payload), indent=2, sort_keys=True, default=str),
+            # The model sees the input as given; redaction happens only where it is
+            # stored (controller._redacted_input), never in the prompt itself.
+            json.dumps(input_payload, indent=2, sort_keys=True, default=str),
         ]
+        logging.debug("Building prompt for skill %s v%s with input %s", spec.name, spec.version, input_payload)
         manifest: dict[str, Any] = {"skill_name": spec.name}
         if contract_context is not None:
             manifest.update(contract_context.manifest)
@@ -49,22 +52,6 @@ class PromptBuilder:
             user_prompt="\n\n".join(sections),
             context_manifest=manifest,
         )
-
-
-def _redacted_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Placeholder-out raw document bodies the model doesn't need duplicated
-    (already covered by `contract_context.text` when present) — NOT a filter
-    on what the model receives generally. Must match `SENSITIVE_KEYS` exactly:
-    a substring check like `"text" in key.lower()` also matches keys such as
-    `retrieved_context` or `table_context` — a skill's actual retrieved
-    content — and silently replaces it with a length-only placeholder in the
-    real prompt, leaving the model to answer with no context at all.
-    """
-    redacted = dict(payload)
-    for key in list(redacted.keys()):
-        if key.lower() in SENSITIVE_KEYS and isinstance(redacted[key], str) and len(redacted[key]) > 500:
-            redacted[key] = f"<redacted text length={len(redacted[key])}>"
-    return redacted
 
 
 prompt_builder = PromptBuilder()

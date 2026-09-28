@@ -363,6 +363,10 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                             <select className="inp op" value={cur.cond.op} onChange={(e) => patchStep(sel!, { cond: { field: cur.cond?.field ?? "", op: e.target.value, value: cur.cond?.value ?? "" } })}>
                               <option value="eq">is</option>
                               <option value="ne">is not</option>
+                              <option value="lt">is less than</option>
+                              <option value="lte">is at most</option>
+                              <option value="gt">is more than</option>
+                              <option value="gte">is at least</option>
                             </select>
                             <input className="inp" value={cur.cond.value} onChange={(e) => patchStep(sel!, { cond: { field: cur.cond?.field ?? "", op: cur.cond?.op || "eq", value: e.target.value } })} placeholder="value (e.g. true)" />
                           </div>

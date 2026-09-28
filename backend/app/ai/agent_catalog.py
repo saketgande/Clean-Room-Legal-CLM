@@ -19,7 +19,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.ai.cost_guard import record_token_usage
 from app.ai.prompt_versions import PromptBundle, get_active_prompt_bundle
 from app.core.enums import AICallStatus
 from app.core.models import AICallLog
@@ -122,4 +121,3 @@ def log_agent_call(
         status=AICallStatus.SUCCEEDED,
     ))
     db.commit()
-    record_token_usage(org_id, response.token_usage.get("total_tokens"))

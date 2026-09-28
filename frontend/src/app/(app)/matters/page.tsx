@@ -9,7 +9,7 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { mattersApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
-import { titleCase } from "@/lib/utils";
+import { contractDisplayName, titleCase } from "@/lib/utils";
 import type { MatterResponse, MatterStatus, MatterType, UnfiledItem } from "@/lib/types";
 
 const MATTER_TYPES: MatterType[] = [
@@ -87,13 +87,20 @@ export default function MattersPage() {
     <div className="proj">
       <style dangerouslySetInnerHTML={{ __html: PROJ_CSS }} />
       <div className="hd">
-        <div>
-          <h1>Matters</h1>
-          <p className="sub">Every client engagement — its contracts, requests, obligations and people in one place.</p>
+        <h1>Matters</h1>
+        <span className="sub">every client engagement — contracts, requests and people in one place</span>
+        <div className="sp" />
+        <div className="stat">
+          <span>
+            <b>{matters.length}</b> open
+          </span>
+          {unfiled.length > 0 && (
+            <span className="warn">
+              <b>{unfiled.length}</b> unfiled
+            </span>
+          )}
         </div>
-        <div className="acts">
-          <button className="btn pri" onClick={() => setCreateOpen(true)}>+ New matter</button>
-        </div>
+        <button className="btn pri" onClick={() => setCreateOpen(true)}>+ New matter</button>
       </div>
 
       {showMigration && (
@@ -109,7 +116,7 @@ export default function MattersPage() {
           return (
             <button
               key={f.key}
-              className={`chip${filter === f.key ? " sel" : ""}`}
+              className={`chip${filter === f.key ? " on" : ""}`}
               onClick={() => setFilter(f.key)}
             >
               {f.label} <span className="ct">{count}</span>
@@ -127,7 +134,15 @@ export default function MattersPage() {
           {unfiled.slice(0, 6).map((it) => (
             <div key={`${it.kind}-${it.id}`} className="trrow">
               <span className={`kind ${it.kind}`}>{it.kind}</span>
-              <span className="nm">{it.title}</span>
+              <span className="nm">
+                {it.kind === "contract"
+                  ? contractDisplayName({
+                      title: it.title,
+                      contract_type: it.contract_type,
+                      counterparty_name: it.subtitle,
+                    })
+                  : it.title}
+              </span>
               {it.subtitle && <span className="sub2">{it.subtitle}</span>}
               {it.suggested_matter_id && (
                 <button
@@ -306,14 +321,21 @@ function CreateMatterModal({
 const PROJ_CSS = `
 .proj{--blue:#2c4a9e;--blue-soft:#dde5fb;--violet:#6b3fa0;--violet-soft:#ece3fb;--amber:#92600b;--amber-soft:#faecd3;--shadow:0 1px 2px rgba(20,26,40,.05),0 8px 22px rgba(20,26,40,.06);--sans:var(--font-sans);--mono:ui-monospace,SFMono-Regular,Menlo,monospace;padding:22px 24px 40px;color:var(--ink);font:400 13px/1.5 var(--sans)}
 .dark .proj{--blue:#a8b9f4;--blue-soft:#202944;--violet:#c9a8ef;--violet-soft:#28203c;--amber:#e3b567;--amber-soft:#332616;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.4)}
-.proj .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.proj .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em} .proj .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
+/* Shared top bar: title + subtitle inline, counters right — same as Contracts,
+   Legal Intake and Approvals. */
+.proj .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.proj .hd h1{margin:0;font-size:16px;font-weight:660;letter-spacing:-.015em} .proj .hd .sub{margin:0;font-size:12.5px;font-weight:500;color:var(--ink-3)}
+.proj .hd .sp{flex:1}
+.proj .hd .stat{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink-2)}
+.proj .hd .stat b{color:var(--ink);font-weight:650} .proj .hd .stat .warn{color:var(--warn)}
 .proj .acts{margin-left:auto;display:flex;gap:8px}
     
 .proj .filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
 .proj .chip{font:600 12px var(--sans);color:var(--ink-2);background:var(--surface);border:1px solid var(--border-strong);border-radius:8px;padding:6px 11px;cursor:pointer;display:inline-flex;gap:7px;align-items:center}
-.proj .chip:hover{background:var(--surface-2)} .proj .chip.sel{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
-.proj .chip .ct{font:600 10px var(--mono);color:var(--ink-3)} .proj .chip.sel .ct{color:var(--accent)}
+/* Selected chip is .on, not .sel — .sel is the <select> form class below and
+   carries width:100%, which stretched the active filter across the whole row. */
+.proj .chip:hover{background:var(--surface-2)} .proj .chip.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.proj .chip .ct{font:600 10px var(--mono);color:var(--ink-3)} .proj .chip.on .ct{color:var(--accent)}
 .proj .tray{border:1px dashed var(--border-strong);background:var(--inset);border-radius:12px;padding:13px 15px;margin-bottom:16px}
 .proj .trh{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap} .proj .trh b{font-size:13px} .proj .trsub{font-size:12px;color:var(--ink-3)}
 .proj .trrow{display:flex;align-items:center;gap:10px;margin-top:9px;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 11px;font-size:12.5px}
@@ -325,7 +347,9 @@ const PROJ_CSS = `
 .proj .trmore{margin-top:8px;font-size:11.5px;color:var(--ink-3)}
 .proj .mbanner{display:flex;align-items:center;gap:10px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent);border-radius:11px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:var(--ink)}
 .proj .mbanner .x{margin-left:auto;background:none;border:0;color:var(--ink-3);font-size:16px;cursor:pointer;line-height:1;padding:2px 6px}
-.proj .tablewrap{border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);overflow-x:auto}
+/* Flush, like every other reskinned list page — the table is the content, not a
+   card sitting on the page. Matters was the one page left boxed. */
+.proj .tablewrap{overflow-x:auto}
 .proj table{border-collapse:collapse;width:100%;min-width:640px;font-size:13px}
 .proj th{text-align:left;font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:11px 15px;border-bottom:1px solid var(--border);white-space:nowrap}
 .proj td{padding:12px 15px;border-bottom:1px solid var(--border);vertical-align:middle} .proj tbody tr:last-child td{border-bottom:0}

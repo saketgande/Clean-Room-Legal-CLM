@@ -14,7 +14,7 @@ import re
 from datetime import timedelta
 
 import httpx
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.contracts.models import Contract, ContractParty
@@ -24,6 +24,10 @@ from app.intake.models import IntakeRequest, SanctionsListEntry
 
 OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
 STALE_AFTER = timedelta(days=30)
+# The whole list is scanned in Python (~19k rows, ~100ms). Beyond this the
+# scan is refused rather than sampled — see screen_sanctions.
+_MAX_SCAN_ROWS = 200_000
+_MAX_REPORTED_MATCHES = 10
 # Comprehensively embargoed jurisdictions — a mention is a hit regardless of list state.
 EMBARGOED = ("iran", "north korea", "dprk", "cuba", "syria", "crimea")
 
@@ -36,6 +40,31 @@ def _tokens(name: str) -> set[str]:
     return {t for t in _norm(name).split() if len(t) > 2}
 
 
+# Words that carry no identity: they appear in thousands of SDN rows, so
+# matching on them alone is what made "Joint Stock Company X" share two tokens
+# with every other Russian JSC on the list. `_SUFFIXES` (defined below, and
+# already used for party-name matching) covers the entity forms; these are the
+# remaining boilerplate the SDN list is full of.
+_GENERIC_TOKENS = frozenset({
+    "joint", "stock", "open", "closed", "public", "state", "owned", "enterprise",
+    "the", "and", "for", "llc", "ooo", "oao", "pao", "zao", "jsc", "ojsc", "cjsc",
+})
+
+
+def _distinctive_tokens(name: str) -> set[str]:
+    """Tokens that actually identify an entity.
+
+    Scoring on every token let boilerplate carry a match: two names sharing
+    only "company" and "limited" cleared the two-token bar while having nothing
+    to do with each other. Strip the entity forms and the list's stock phrasing
+    and what remains is the name.
+    """
+    return {
+        token for token in _tokens(name)
+        if token not in _GENERIC_TOKENS and not _SUFFIXES.fullmatch(token)
+    }
+
+
 # ---- sanctions -------------------------------------------------------------
 
 def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
@@ -43,8 +72,12 @@ def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
     checked = {"checked_at": now.isoformat(), "name": name}
 
     # Embargoed-jurisdiction mention is a hit independent of list freshness.
+    # Whole words only: a plain substring test blocked "Miranda" on `iran`,
+    # "Cubana" on `cuba` and "Syriac" on `syria`. A false embargo hit is a hard
+    # stop on a legitimate counterparty, so it has to be as deliberate as a
+    # real one.
     low = _norm(name)
-    embargo = [j for j in EMBARGOED if j in low]
+    embargo = [j for j in EMBARGOED if re.search(rf"\b{re.escape(j)}\b", low)]
     if embargo:
         return {**checked, "status": "hit", "matches": [
             {"kind": "embargo", "name": j.title(), "programs": "comprehensive embargo"} for j in embargo
@@ -56,23 +89,76 @@ def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
         return {**checked, "status": "unavailable", "matches": [],
                 "note": "Sanctions list empty or stale (>30d) — treat as unscreened, not clear."}
 
-    q_tokens = _tokens(name)
+    q_tokens = _distinctive_tokens(name)
     if not q_tokens:
         return {**checked, "status": "unavailable", "matches": [], "note": "No screenable name."}
 
-    # Narrow with ILIKE on the longest token, then token-overlap score in app code.
-    anchor = max(q_tokens, key=len)
-    candidates = (db.query(SanctionsListEntry)
-                  .filter(SanctionsListEntry.org_id == org_id,
-                          SanctionsListEntry.name_normalized.ilike(f"%{anchor}%"))
-                  .limit(200).all())
-    matches = []
-    for c in candidates:
-        overlap = q_tokens & _tokens(c.name)
-        if len(overlap) >= max(1, min(len(q_tokens), 2)):
-            matches.append({"kind": "list", "name": c.name, "source": c.source,
-                            "programs": c.programs, "ref": c.source_ref})
-    return {**checked, "status": "hit" if matches else "clear", "matches": matches[:10]}
+    # Scan the WHOLE list.
+    #
+    # This used to narrow with an ILIKE on the query's longest token and take
+    # the first 200 rows. Both halves were wrong. "Company" and "Limited" match
+    # thousands of SDN rows, so real designated entities — JOINT STOCK COMPANY
+    # PLASMA (RUSSIA-EO14024), CHERY STAR CO., LIMITED (SDGT/IFSR) — could not
+    # be found by a search for their own exact name, and the answer came back
+    # "clear": the one verdict a sanctions check must never give when it has
+    # not finished looking.
+    #
+    # The list is ~19k rows and a full scan costs roughly 100ms, so there was
+    # nothing to optimise. Scanning everything also removes the unescaped
+    # ILIKE, where a `%` or `_` in a counterparty name was a wildcard.
+    rows = db.execute(
+        select(
+            SanctionsListEntry.name, SanctionsListEntry.source,
+            SanctionsListEntry.source_ref, SanctionsListEntry.programs,
+        )
+        .where(SanctionsListEntry.org_id == org_id)
+        .limit(_MAX_SCAN_ROWS + 1)
+    ).all()
+    if len(rows) > _MAX_SCAN_ROWS:
+        # Fail closed, the same way a stale list does. A sampled scan is an
+        # unfinished scan, and this is the guard that stops the original bug
+        # returning the next time the corpus grows.
+        return {**checked, "status": "unavailable", "matches": [],
+                "note": f"Sanctions list exceeds {_MAX_SCAN_ROWS} rows — scan incomplete, "
+                        "treat as unscreened. Move matching into the database."}
+
+    required = max(1, min(len(q_tokens), 2))
+    scored: list[tuple[tuple[int, float], dict]] = []
+    for row in rows:
+        entry_tokens = _distinctive_tokens(row.name)
+        overlap = q_tokens & entry_tokens
+        if len(overlap) < required:
+            continue
+        # Jaccard, so an exact name scores 1.0 and sorts to the top. Without a
+        # score the display truncation below showed an arbitrary ten of the
+        # several hundred generic matches a name like "Joint Stock Company X"
+        # produces — the designated entity itself very possibly not among them.
+        # An exact name is the strongest signal there is, and it needs its own
+        # rank: a name that reduces to one distinctive token ("Joint Stock
+        # Company PLASMA" -> {plasma}) scores 1.0 against everything else
+        # sharing that token, so Jaccard alone leaves the real entity tied with
+        # the noise and ordered arbitrarily.
+        exact = 1 if _norm(row.name) == low else 0
+        union = len(q_tokens | entry_tokens) or 1
+        scored.append(((exact, len(overlap) / union), {
+            "kind": "list", "name": row.name, "source": row.source,
+            "programs": row.programs, "ref": row.source_ref,
+        }))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    result = {
+        **checked,
+        "status": "hit" if scored else "clear",
+        "matches": [match for _, match in scored[:_MAX_REPORTED_MATCHES]],
+    }
+    if len(scored) > _MAX_REPORTED_MATCHES:
+        # Say so rather than letting the reviewer believe ten is all there was.
+        result["match_count"] = len(scored)
+        result["note"] = (
+            f"{len(scored)} candidate matches; showing the {_MAX_REPORTED_MATCHES} "
+            "closest by name overlap."
+        )
+    return result
 
 
 def refresh_ofac(db: Session, org_id: str) -> dict:

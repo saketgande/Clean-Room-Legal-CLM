@@ -246,9 +246,9 @@ def search_similar(db: Session, *, user: User, request: SearchSimilarRequest) ->
 async def save_uploaded_document(db: Session, *, user: User, file: UploadFile) -> UploadDocumentResponse:
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only PDF files are supported")
-    content = await file.read()
-    if not content:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+    from app.contract_files.service import ingest_upload
+
+    content = (await ingest_upload(file)).content  # size limit, type check and antivirus scan
 
     from io import BytesIO
 
@@ -274,7 +274,7 @@ async def extract_fields(db: Session, *, user: User, request: ExtractRequest) ->
         records: list[ExtractedRecord] = []
         for page_number in range(request.page_start, request.page_end + 1):
             try:
-                entries = await extract_journal_page(content, page_number)
+                entries = await extract_journal_page(content, page_number, org_id=user.org_id)
             except Exception as exc:
                 warnings.append(f"Page {page_number}: vision extraction failed ({exc})")
                 continue

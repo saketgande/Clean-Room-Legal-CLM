@@ -208,7 +208,9 @@ def _type_key_for(db: Session, request: IntakeRequest) -> str | None:
     if not request.request_type_id:
         return None
     rtype = db.get(IntakeRequestType, request.request_type_id)
-    return rtype.key if rtype else None
+    # Agreement-wizard forms keep routing on their type label ("SoW Request"…)
+    # as before; their internal key ("form_sow") is not a contract type.
+    return rtype.key if rtype and not rtype.form_key else None
 
 
 def build_intake_subject(db: Session, request_id: str, *, org_id: str) -> IntakeApprovalSubject:

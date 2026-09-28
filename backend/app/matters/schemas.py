@@ -142,6 +142,10 @@ class UnfiledItem(BaseModel):
     kind: str  # contract | intake
     title: str
     subtitle: str | None = None
+    # A contract's title is seeded from the uploaded filename, so the client
+    # needs the type to name the row properly ("Master Services Agreement —
+    # Acme") rather than showing "leecounty-scan-6pg.pdf". Null for intake rows.
+    contract_type: str | None = None
     # Heuristic suggestion (counterparty <-> client match); not an LLM guess.
     suggested_matter_id: str | None = None
     suggested_matter_label: str | None = None

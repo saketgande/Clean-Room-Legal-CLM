@@ -3,33 +3,44 @@ Microsoft Teams outgoing-webhook bot — all funnel into the same
 service.create_request pipeline (classify → route → triage), audited, and
 idempotent on external_message_id.
 
-Security posture (mirrors the reference): webhook secret compare is
-constant-time and FAILS CLOSED in production when unconfigured; the public
-endpoints are rate-limited with a small in-memory sliding window.
+Security posture: webhook secret / HMAC compares are constant-time and FAIL
+CLOSED in production when unconfigured; the public endpoints are rate-limited
+by the shared Redis-backed limiter on the routes themselves; and a sender is
+only attributed to the address it claims once the receiving mail server's
+Authentication-Results vouch for it (see sender_verdict).
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
+import html as html_mod
+import io
+import logging
 import re
-import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
 from fastapi import HTTPException
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.core.audit import write_audit_log
+from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.models import AdminSetting
 from app.intake import agents, service
 from app.intake.models import IntakeRequest
 
+logger = logging.getLogger(__name__)
+
 WATERMARK_KEY = "intake.mailbox_watermark"
 _GRAPH = "https://graph.microsoft.com/v1.0"
+_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 # ---- auth + rate limit -------------------------------------------------------
 
@@ -43,17 +54,11 @@ def check_webhook_secret(provided: str | None) -> None:
         raise HTTPException(401, "Bad webhook secret")
 
 
-# ponytail: in-memory sliding window — per-process only; move to Redis if this
-# ever runs multi-worker in production.
-_hits: dict[str, list[float]] = {}
-
-def rate_limit(key: str, limit: int = 30, window_s: int = 60) -> None:
-    now = time.time()
-    bucket = [t for t in _hits.get(key, []) if now - t < window_s]
-    if len(bucket) >= limit:
-        raise HTTPException(429, "Rate limit exceeded")
-    bucket.append(now)
-    _hits[key] = bucket
+# The webhooks are rate-limited by the shared slowapi limiter on the routes
+# themselves (@limiter.limit) — Redis-backed, so the budget is shared across
+# every worker instead of multiplied by them. The bespoke in-memory window that
+# used to live here was per-process, which the systemd unit's `--workers 4`
+# quietly turned into 4x the intended limit.
 
 
 def verify_teams_hmac(raw_body: bytes, auth_header: str | None) -> None:
@@ -71,13 +76,54 @@ def verify_teams_hmac(raw_body: bytes, auth_header: str | None) -> None:
 
 # ---- shared ingest core --------------------------------------------------------
 
-def _resolve_requester(db: Session, org_id: str, email: str | None) -> User:
-    """Match the sender to a user; unknown senders file under the org admin
-    (single-tenant front door) with the raw address preserved on the request."""
-    if email:
-        u = db.query(User).filter(User.email.ilike(email)).first()
-        if u:
-            return u
+# ---- sender verification ---------------------------------------------------
+# A `From:` header is typed by whoever sent the mail. Believing it let anyone
+# file a request as the General Counsel, with their department and authority
+# driving routing and their name on the audit trail.
+
+_AUTH_METHODS = ("dmarc", "compauth", "dkim", "spf")
+_AUTH_RE = re.compile(r"\b(dmarc|compauth|dkim|spf)\s*=\s*([a-z]+)", re.IGNORECASE)
+
+
+def sender_verdict(auth_results: str | list[str] | None) -> dict:
+    """Read the RFC 8601 ``Authentication-Results`` the receiving mail server
+    wrote and decide whether the visible ``From:`` address can be trusted.
+
+    Only DMARC binds the *visible* From: header to an authenticated identity.
+    SPF authenticates the envelope sender and DKIM the signing domain, and a
+    spoofer can pass either while forging From: — so neither is sufficient on
+    its own. Microsoft's composite ``compauth`` is accepted alongside it
+    because that is what Exchange stamps on intra-tenant mail, where DMARC is
+    not evaluated at all.
+
+    No header at all means unverified. Fails closed, for the same reason a
+    stale sanctions list reports "unavailable" and never "clear": not having
+    checked is not the same as having passed.
+    """
+    if isinstance(auth_results, list):
+        auth_results = "; ".join(h for h in auth_results if h)
+    raw = (auth_results or "").strip()
+    found: dict[str, str] = {}
+    for method, result in _AUTH_RE.findall(raw):
+        # First verdict wins: Exchange prepends its own header, so the newest
+        # (outermost) result is the one the receiving server stands behind.
+        found.setdefault(method.lower(), result.lower())
+
+    verified = found.get("dmarc") == "pass" or found.get("compauth") == "pass"
+    return {
+        "verified": verified,
+        **{method: found.get(method) for method in _AUTH_METHODS},
+        "raw": raw[:500] or None,
+    }
+
+
+def _fallback_user(db: Session) -> User:
+    """Who an unattributable request belongs to.
+
+    ponytail: the seeded admin, then any user. A dedicated service account is
+    the right answer — add one and point this at it when intake grows an owner
+    that isn't a person.
+    """
     admin = db.query(User).filter(User.email == settings.dev_seed_admin_email).first()
     if admin:
         return admin
@@ -87,20 +133,60 @@ def _resolve_requester(db: Session, org_id: str, email: str | None) -> User:
     return u
 
 
+def _resolve_requester(db: Session, email: str | None, *, verified: bool = False) -> User:
+    """Match the sender to a user — but only when the message proved who sent it.
+
+    ``verified`` defaults to False so every caller has to opt in: an
+    unauthenticated channel silently binding a claimed address to a real
+    account is exactly the bug this guards. Unverified senders file under the
+    fallback user with the raw address preserved on the request, so nothing is
+    lost — it just isn't elevated to an identity nobody checked.
+    """
+    if email and verified:
+        # Exact, case-insensitive. The previous `ilike(email)` treated `%` and
+        # `_` in an attacker-controlled header as SQL wildcards, so a From: of
+        # `%@%` matched whichever user the table returned first.
+        u = db.query(User).filter(func.lower(User.email) == email.strip().lower()).first()
+        if u:
+            return u
+    return _fallback_user(db)
+
+
+def _already_filed(db: Session, org_id: str, external_message_id: str) -> IntakeRequest | None:
+    return (db.query(IntakeRequest)
+            .filter(IntakeRequest.org_id == org_id,
+                    IntakeRequest.external_message_id == external_message_id)
+            .first())
+
+
 def ingest_message(
     db: Session, *, source: str, from_email: str | None, subject: str,
-    body: str, external_message_id: str,
+    body: str, external_message_id: str, auth_results: str | list[str] | None = None,
 ) -> dict:
     """Idempotent channel ingest → create_request. Returns the request dict,
-    with `deduped: True` when the message was already filed."""
-    existing = (db.query(IntakeRequest)
-                .filter(IntakeRequest.external_message_id == external_message_id)
-                .first())
-    if existing:
+    with `deduped: True` when the message was already filed.
+
+    ``auth_results`` is the raw ``Authentication-Results`` header from the
+    receiving mail server. Without it the sender is treated as unverified and
+    the request is NOT attributed to the address it claims to come from.
+    """
+    verdict = sender_verdict(auth_results)
+    requester = _resolve_requester(db, from_email, verified=verdict["verified"])
+
+    # Fast path. Scoped to the org so it matches uq_intake_request_org_extmsg
+    # and rides that index — and so it means the same thing the constraint does.
+    existing = _already_filed(db, requester.org_id, external_message_id)
+    if existing is not None:
         return {"id": existing.id, "ref": existing.ref, "deduped": True}
 
-    requester = _resolve_requester(db, "org", from_email)
     fv: dict = {"channel_from": from_email} if from_email else {}
+    if from_email:
+        # Kept on the request so a reviewer can see whose word the address is
+        # on — the sender's, or the receiving mail server's.
+        fv["channel_sender_verified"] = verdict["verified"]
+        fv["channel_sender_auth"] = {
+            method: verdict[method] for method in _AUTH_METHODS if verdict[method]
+        } or None
     # Light counterparty extraction so screening can run on channel intake.
     m = re.search(r"counterpart(?:y|ies)[:\s]+([A-Z][\w&.\- ]{2,60})", body or "", re.IGNORECASE)
     if m:
@@ -118,15 +204,96 @@ def ingest_message(
         subject=(subject or "").strip()[:200] or None,
         description=body or "", field_values=fv, priority="Medium",
     )
-    out = service.create_request(db, actor=requester, payload=payload)
+    try:
+        out = service.create_request(db, actor=requester, payload=payload,
+                                     external_message_id=external_message_id)
+    except IntegrityError:
+        # Lost the race: a concurrent delivery of the same message filed it
+        # between our check and this insert. The unique index is what makes
+        # that safe — without it both deliveries would have committed, and the
+        # loser would have been a duplicate legal matter.
+        db.rollback()
+        existing = _already_filed(db, requester.org_id, external_message_id)
+        if existing is None:
+            raise
+        logger.info("concurrent redelivery of %s folded into %s",
+                    external_message_id, existing.ref)
+        return {"id": existing.id, "ref": existing.ref, "deduped": True,
+                "sender_verified": verdict["verified"]}
+
     r = db.query(IntakeRequest).filter(IntakeRequest.id == out["id"]).first()
-    r.external_message_id = external_message_id
     write_audit_log(db, action=f"intake.ingest.{source}", resource_type="intake_request",
                     resource_id=r.id, org_id=r.org_id, actor_user_id=requester.id,
-                    after={"from": from_email, "external_message_id": external_message_id})
+                    after={"from": from_email, "external_message_id": external_message_id,
+                           "sender_verified": verdict["verified"],
+                           "sender_auth": verdict["raw"]})
+    if from_email and not verdict["verified"]:
+        # Visible on the request, not just in the audit trail: whoever works
+        # this ticket needs to know the address on it is only a claim.
+        write_timeline_event(
+            db, org_id=r.org_id, resource_type="intake_request", resource_id=r.id,
+            event_type="intake.sender.unverified", actor_user_id=requester.id,
+            title=f"Sender not verified — {from_email} is unconfirmed",
+            details={"from": from_email, "authentication_results": verdict["raw"]},
+        )
     db.commit()
     out["deduped"] = False
+    out["sender_verified"] = verdict["verified"]
     return out
+
+
+# ---- attachments (shared by every channel that carries files) -------------------
+# These live here rather than in gmail_sync because the M365 sweep needs them
+# too, and gmail_sync already imports from this module — the other direction
+# would be a cycle.
+
+def _ocr_to_docx(filename: str, mime_type: str, content: bytes) -> tuple[str, bytes] | None:
+    """OCRs an attachment that needs it (an image, or a scanned/unreadable
+    PDF or DOCX) via the same Reducto OCR provider the main contract-upload
+    path uses, and copies the recognized text into a new .docx so it reads
+    like any other attached document. Returns None when native extraction was
+    already good enough (no OCR needed) or OCR produced nothing — e.g. Reducto
+    is mocked (MOCK_REDUCTO=true) in local/dev, so this is a no-op there."""
+    from app.contract_files.text_extraction import extract_text as native_extract_text
+    from app.integrations.reducto import reducto_client
+
+    native = native_extract_text(content, mime_type=mime_type, filename=filename)
+    if not native.needs_ocr:
+        return None
+    try:
+        ocr = asyncio.run(reducto_client.extract_text(filename=filename, mime_type=mime_type, content=content))
+    except Exception:
+        return None
+    if not ocr.text.strip():
+        return None
+
+    from docx import Document
+
+    out = Document()
+    out.add_heading(f"OCR: {filename}", level=2)
+    for line in ocr.text.splitlines() or [""]:
+        out.add_paragraph(line)
+    buf = io.BytesIO()
+    out.save(buf)
+    stem = Path(filename).stem or "attachment"
+    return f"{stem}_OCR.docx", buf.getvalue()
+
+
+def _ingest_attachment(db: Session, *, requester, request_id: str,
+                        filename: str, mime_type: str, content: bytes) -> str:
+    """Attaches `content` to the request and, when it needed OCR, also
+    attaches a companion .docx holding the OCR'd text to the same request.
+    Returns the combined extracted text for downstream classification."""
+    doc = service.add_document(db, actor=requester, request_id=request_id,
+                                filename=filename, mime_type=mime_type, content=content)
+    text = doc.get("extracted_text") or ""
+    ocr_result = _ocr_to_docx(filename, mime_type, content)
+    if ocr_result:
+        ocr_filename, ocr_bytes = ocr_result
+        ocr_doc = service.add_document(db, actor=requester, request_id=request_id,
+                                        filename=ocr_filename, mime_type=_DOCX_MIME, content=ocr_bytes)
+        text = "\n\n".join(t for t in (text, ocr_doc.get("extracted_text") or "") if t)
+    return text
 
 
 # ---- M365 mailbox polling -------------------------------------------------------
@@ -157,6 +324,145 @@ def _set_watermark(db: Session, org_id: str, value: str) -> None:
         db.add(AdminSetting(org_id=org_id, key=WATERMARK_KEY, value=value))
 
 
+def _html_to_text(markup: str) -> str:
+    """Flatten Outlook's HTML body to readable text.
+
+    Outlook sends `body.contentType == "html"` for almost everything, so
+    without this the description is a wall of markup that the triage agents
+    and the counterparty regex have to read through."""
+    text = re.sub(r"(?is)<(script|style)\b.*?</\1>", " ", markup)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</(p|div|tr|li|h[1-6])\s*>", "\n", text)
+    # Strip until stable: a single pass leaves a reassembled tag behind for
+    # nestings like "<scr<script>ipt>".
+    previous = ""
+    while text != previous:
+        previous = text
+        text = re.sub(r"<[^>]+>", " ", text)
+    text = html_mod.unescape(text)
+    text = re.sub(r"[ \t ]+", " ", text)
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def _graph_body_text(message: dict) -> str:
+    """The real body, not `bodyPreview`.
+
+    `bodyPreview` is Graph's ~255-character preview. Reading it meant every
+    mailbox-filed request carried a truncated description into AI triage,
+    classification and counterparty extraction."""
+    body = message.get("body") or {}
+    content = body.get("content") or ""
+    if (body.get("contentType") or "").lower() == "html":
+        return _html_to_text(content)
+    return content.strip()
+
+
+def _graph_auth_results(message: dict) -> str | None:
+    """The receiving server's Authentication-Results header(s), if any.
+
+    Exchange Online stamps these on inbound mail; `internetMessageHeaders`
+    requires an explicit `$select`, which is why the sweep asks for it.
+    """
+    lines = [
+        h.get("value") or ""
+        for h in (message.get("internetMessageHeaders") or [])
+        if (h.get("name") or "").lower() == "authentication-results"
+    ]
+    return "; ".join(line for line in lines if line) or None
+
+
+def _graph_attachments(message_id: str, headers: dict) -> list[tuple[str, str, bytes]]:
+    """[(filename, mime_type, content)] for every real file on a message."""
+    base = f"{_GRAPH}/users/{settings.intake_graph_mailbox}/messages/{message_id}/attachments"
+    resp = httpx.get(base, headers=headers, timeout=60)
+    resp.raise_for_status()
+    found: list[tuple[str, str, bytes]] = []
+    for att in resp.json().get("value", []):
+        # itemAttachment (a forwarded message) and referenceAttachment (a
+        # OneDrive link) carry no file bytes — only fileAttachment does.
+        if att.get("@odata.type") != "#microsoft.graph.fileAttachment":
+            continue
+        # Inline parts are signature logos and embedded images, not documents.
+        # Ingesting them gives every request a row per corporate logo.
+        if att.get("isInline"):
+            continue
+        raw = att.get("contentBytes")
+        if raw:
+            content = base64.b64decode(raw)
+        else:
+            # Large attachments are omitted from the collection response and
+            # have to be streamed from their own $value endpoint.
+            value = httpx.get(f"{base}/{att['id']}/$value", headers=headers, timeout=120)
+            value.raise_for_status()
+            content = value.content
+        if content:
+            found.append((
+                att.get("name") or "attachment",
+                att.get("contentType") or "application/octet-stream",
+                content,
+            ))
+    return found
+
+
+def _attach_graph_files(db: Session, *, message_id: str, headers: dict,
+                        request_id: str, sender: str | None,
+                        sender_verified: bool = False) -> list[dict]:
+    """Attach a message's files to the request it was filed as.
+
+    An emailed contract IS the request — dropping it silently was the bug this
+    exists to close. So a file we cannot accept (over the 25 MB attachment cap, or
+    a type outside the allowlist) is recorded on the request's timeline rather
+    than discarded, and never aborts the rest of the sweep.
+    """
+    requester = _resolve_requester(db, sender, verified=sender_verified)
+    try:
+        files = _graph_attachments(message_id, headers)
+    except Exception as exc:
+        logger.warning("could not list attachments for message %s", message_id, exc_info=True)
+        _note_attachment_problem(db, request_id=request_id, requester=requester,
+                                 filename=None, reason=str(exc))
+        return [{"status": "error", "reason": str(exc)}]
+
+    results: list[dict] = []
+    for filename, mime_type, content in files:
+        try:
+            _ingest_attachment(db, requester=requester, request_id=request_id,
+                               filename=filename, mime_type=mime_type, content=content)
+            results.append({"filename": filename, "status": "attached", "bytes": len(content)})
+        except HTTPException as exc:
+            results.append({"filename": filename, "status": "rejected", "reason": str(exc.detail)})
+            _note_attachment_problem(db, request_id=request_id, requester=requester,
+                                     filename=filename, reason=str(exc.detail))
+        except Exception as exc:
+            logger.warning("attachment %s failed on request %s", filename, request_id, exc_info=True)
+            results.append({"filename": filename, "status": "error", "reason": str(exc)})
+            _note_attachment_problem(db, request_id=request_id, requester=requester,
+                                     filename=filename, reason=str(exc))
+    return results
+
+
+def _note_attachment_problem(db: Session, *, request_id: str, requester: User,
+                             filename: str | None, reason: str) -> None:
+    """Surface a dropped attachment where a human will see it — the request's
+    own timeline — instead of only in the worker log."""
+    label = f"Attachment not stored: {filename}" if filename else "Attachments could not be read"
+    try:
+        write_timeline_event(
+            db, org_id=requester.org_id, resource_type="intake_request",
+            resource_id=request_id, event_type="intake.attachment.failed",
+            title=label, actor_user_id=requester.id,
+            details={"filename": filename, "reason": reason[:500]},
+        )
+        write_audit_log(db, action="intake.attachment.failed", resource_type="intake_request",
+                        resource_id=request_id, org_id=requester.org_id,
+                        actor_user_id=requester.id,
+                        after={"filename": filename, "reason": reason[:500]})
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("could not record attachment failure on %s", request_id, exc_info=True)
+
+
 def poll_mailbox(db: Session) -> dict:
     """Read the delegated legal mailbox since the last watermark and file each
     message as an intake request. Inert until Graph credentials are configured."""
@@ -165,10 +471,11 @@ def poll_mailbox(db: Session) -> dict:
         return {"status": "disabled", "note": "Set INTAKE_GRAPH_* env vars to enable mailbox intake."}
 
     token = _graph_token()
-    anchor_user = _resolve_requester(db, "org", None)  # org for the watermark row
+    anchor_user = _fallback_user(db)  # owns the watermark row
     headers = {"Authorization": f"Bearer {token}"}
     params = {"$orderby": "receivedDateTime asc", "$top": "25",
-              "$select": "id,subject,bodyPreview,from,receivedDateTime"}
+              "$select": "id,subject,body,from,receivedDateTime,hasAttachments,"
+                         "internetMessageHeaders"}
     watermark = _get_watermark(db)
     if watermark:
         params["$filter"] = f"receivedDateTime gt {watermark}"
@@ -181,11 +488,26 @@ def poll_mailbox(db: Session) -> dict:
     for m in messages:
         sender = ((m.get("from") or {}).get("emailAddress") or {}).get("address")
         out = ingest_message(db, source="email", from_email=sender,
-                             subject=m.get("subject") or "", body=m.get("bodyPreview") or "",
-                             external_message_id=m["id"])
+                             subject=m.get("subject") or "", body=_graph_body_text(m),
+                             external_message_id=m["id"],
+                             auth_results=_graph_auth_results(m))
         latest = m.get("receivedDateTime") or latest
+        # The attachment is usually the point of the email — the draft NDA, the
+        # counterparty's redline, the executed copy. Skipped on a dedupe: the
+        # files are already on the request from the first delivery.
+        if m.get("hasAttachments") and not out["deduped"]:
+            out["attachments"] = _attach_graph_files(
+                db, message_id=m["id"], headers=headers, request_id=out["id"],
+                sender=sender, sender_verified=out["sender_verified"],
+            )
         filed.append(out)
-        if settings.intake_mailbox_auto_ack and sender and not out["deduped"]:
+        # Only acknowledge a sender the receiving server vouched for. Replying
+        # to an unverified From: turns the legal mailbox into a backscatter
+        # relay — anyone could make it mail a third party — and an auto-reply
+        # to a forged address is an unanswered message going somewhere nobody
+        # in legal chose to write to.
+        if (settings.intake_mailbox_auto_ack and sender and not out["deduped"]
+                and out["sender_verified"]):
             try:  # best-effort acknowledgement; never blocks ingestion
                 httpx.post(f"{_GRAPH}/users/{settings.intake_graph_mailbox}/sendMail",
                            headers=headers, timeout=30,
@@ -206,6 +528,33 @@ def poll_mailbox(db: Session) -> dict:
 # ---- Teams bot -------------------------------------------------------------------
 
 _MENTION_RE = re.compile(r"<at>.*?</at>", re.DOTALL)
+
+
+def _teams_message_key(activity: dict) -> str:
+    """The idempotency key for a Teams activity.
+
+    Bot Framework delivers at least once and replays a retried activity
+    verbatim, so the key has to be a property of the message. The previous
+    fallback was ``time.time()`` — unique on every call, which meant the key
+    never matched and each retry filed another ticket.
+
+    The activity id is the right key when Teams sends one. When it doesn't, a
+    digest of the fields that identify the message is stable across retries
+    while still separating two genuinely different messages — `timestamp` in
+    particular, so the same person asking the same thing twice in the same
+    chat is two requests, not one silently swallowed.
+    """
+    activity_id = str(activity.get("id") or "").strip()
+    if activity_id:
+        return f"teams:{activity_id}"
+    sender = activity.get("from") or {}
+    material = "|".join(str(part or "") for part in (
+        (activity.get("conversation") or {}).get("id"),
+        sender.get("aadObjectId") or sender.get("id"),
+        activity.get("timestamp") or activity.get("localTimestamp"),
+        activity.get("text"),
+    ))
+    return "teams:d:" + hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 
 def handle_teams_activity(db: Session, activity: dict) -> dict:
@@ -232,6 +581,6 @@ def handle_teams_activity(db: Session, activity: dict) -> dict:
 
     out = ingest_message(db, source="teams", from_email=None,
                          subject=text[:120], body=f"(via Teams, from {sender})\n\n{text}",
-                         external_message_id=f"teams:{activity.get('id') or time.time()}")
+                         external_message_id=_teams_message_key(activity))
     verb = "already filed as" if out["deduped"] else "filed as"
     return {"type": "message", "text": f"Request {verb} **{out['ref']}** — triaged and routed. ✔"}

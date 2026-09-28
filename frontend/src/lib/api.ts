@@ -161,6 +161,24 @@ export async function apiFetch<T>(
   return (await res.text()) as unknown as T;
 }
 
+/** Fetch binary content to hold in memory (a document the page draws itself). */
+export async function apiBytes(path: string): Promise<ArrayBuffer> {
+  let res = await fetch(`${API_BASE}${path}`, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    const ok = await tryRefresh();
+    if (ok)
+      res = await fetch(`${API_BASE}${path}`, {
+        headers: authHeaders(),
+        credentials: "include",
+      });
+  }
+  if (!res.ok) throw await parseError(res);
+  return res.arrayBuffer();
+}
+
 /** Trigger a browser download for binary endpoints (file download, XLSX export). */
 export async function apiDownload(path: string, fallbackName = "download") {
   let res = await fetch(`${API_BASE}${path}`, {

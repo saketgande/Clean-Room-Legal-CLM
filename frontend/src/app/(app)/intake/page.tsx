@@ -15,15 +15,17 @@ import { useToast } from "@/components/toast";
 import { Markdown } from "@/components/markdown";
 import { cn, titleCase } from "@/lib/utils";
 import {
+  ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment,
   can, POSTURE_LABEL, POSTURE_TONE, PRIORITY_TONE, slaBarColor,
   sortBySla, STATUS_LABEL, STATUS_TONE,
 } from "@/lib/intake";
 import type {
-  ContractResponse, WorkflowRun, WorkflowRunStep, WorkflowSuggestion, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
+  ContractResponse, WorkflowRun, WorkflowRunStep, WorkflowSuggestion, IntakeDraft, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
 } from "@/lib/types";
 import { SlaLegsBar, TeamsTab } from "./_phase1";
 import { LegalIntakeBoard, MockupShell } from "./_legal-intake";
 import { RequestOverview } from "./_request-overview";
+import { PartiesRegisterTab } from "./_parties-register";
 import { CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
 import { RulesTab } from "../approvals/_rules-builder";
 import { WorkflowPanel } from "./_workflow-panel";
@@ -330,15 +332,6 @@ function urgencyToPriority(u: string): string {
   return "Medium";
 }
 
-function fileToB64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => { const s = String(r.result); const i = s.indexOf(","); resolve(i >= 0 ? s.slice(i + 1) : s); };
-    r.onerror = () => reject(new Error("Could not read file"));
-    r.readAsDataURL(file);
-  });
-}
-
 // --- New Request catalog (Screen 5) — scoped under `.nr`, reuses the shell palette.
 const nrSvg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 const NR_ICONS: [RegExp, string][] = [
@@ -433,6 +426,17 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
   const { data: types } = useQuery({ queryKey: ["intake-types"], queryFn: () => intakeApi.listTypes() });
   const [mode, setMode] = useState<"catalog" | "form" | "chat" | "agreement">("catalog");
   const [agreementDef, setAgreementDef] = useState<AgreementFormDef | null>(null);
+  const [draft, setDraft] = useState<IntakeDraft | null>(null);
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const { data: drafts } = useQuery({ queryKey: ["intake-drafts"], queryFn: () => intakeApi.listDrafts() });
+  async function discardDraft(d: IntakeDraft) {
+    try {
+      await intakeApi.deleteDraft(d.id);
+      qc.invalidateQueries({ queryKey: ["intake-drafts"] });
+      notify("Draft deleted", "success");
+    } catch (e) { notify(e instanceof Error ? e.message : "Couldn't delete the draft", "error"); }
+  }
   const [showOther, setShowOther] = useState(false);
   const [seedDesc, setSeedDesc] = useState(seed);
   const [preType, setPreType] = useState("");
@@ -441,7 +445,9 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
 
   // The catalog: real request types from the DB + two built-in intake paths.
   const catalog = [
-    ...(types ?? []).map((t) => ({ key: t.id, name: t.name, desc: t.description ?? "", tag: t.workstream ?? "Workflow", icon: nrIcon(`${t.name} ${t.key}`) })),
+    // Agreement-wizard forms are request types too, but they already have
+    // their own cards above; only admin-built types belong in this list.
+    ...(types ?? []).filter((t) => !t.form_key).map((t) => ({ key: t.id, name: t.name, desc: t.description ?? "", tag: t.workstream ?? "Workflow", icon: nrIcon(`${t.name} ${t.key}`) })),
     { key: "Contract Question", name: "Review a contract", desc: "Send us their paper to check against the playbook.", tag: "Review workflow", icon: nrIcon("review") },
     { key: "Legal Question — General", name: "General legal question", desc: "Not sure what you need? Just ask legal.", tag: "Triage", icon: nrIcon("question") },
   ];
@@ -452,9 +458,11 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
     return (
       <div className="pt-3">
         <AgreementWizard
+          key={draft?.id ?? agreementDef.key}
           def={agreementDef}
+          draft={draft}
           onFiled={onFiled}
-          onBack={() => { setAgreementDef(null); setMode("catalog"); }}
+          onBack={() => { setAgreementDef(null); setDraft(null); setMode("catalog"); }}
         />
       </div>
     );
@@ -466,7 +474,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
         <style dangerouslySetInnerHTML={{ __html: NR_CSS }} />
         <button className="nrback" onClick={() => setMode("catalog")}>← Raise a request</button>
         {mode === "form"
-          ? <RequestForm types={types ?? []} onFiled={onFiled} initialDesc={seedDesc} initialType={preType} />
+          ? <RequestForm types={(types ?? []).filter((t) => !t.form_key)} onFiled={onFiled} initialDesc={seedDesc} initialType={preType} />
           : <div style={{ maxWidth: 760, margin: "0 auto" }}><CopilotChat onFiled={onFiled} /></div>}
       </div>
     );
@@ -483,6 +491,34 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
         </p>
       </header>
 
+      {(drafts ?? []).length > 0 && (
+        <section className="mb-7">
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Your drafts</h2>
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-[11px] text-slate-400">{drafts!.length} saved</span>
+          </div>
+          <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-slate-50">
+            {drafts!.map((d) => {
+              const form = AGREEMENT_FORMS.find((f) => f.key === d.form_key);
+              return (
+                <li key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+                  <PenLine className="h-4 w-4 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13.5px] font-semibold text-slate-900">{d.title || form?.name || d.form_key}</span>
+                    <span className="block text-[12px] text-slate-500">
+                      {form?.name ?? d.form_key} · step {d.page_index + 1} of 8 · saved {new Date(d.updated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                    </span>
+                  </span>
+                  <Button size="sm" disabled={!form} onClick={() => { if (form) { setDraft(d); setAgreementDef(form); setMode("agreement"); } }}>Continue</Button>
+                  <Button size="sm" variant="ghost" onClick={() => discardDraft(d)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
       <div className="flex flex-col gap-7">
         {(["New paper", "Change an existing agreement", "Records & corrections"] as const).map((group) => (
           <section key={group}>
@@ -497,7 +533,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
               {AGREEMENT_FORMS.filter((f) => f.group === group).map((f) => (
                 <button
                   key={f.key}
-                  onClick={() => { setAgreementDef(f); setMode("agreement"); }}
+                  onClick={() => { setDraft(null); setAgreementDef(f); setMode("agreement"); }}
                   className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-100 p-4 text-left shadow-card transition-all hover:-translate-y-px hover:border-brand-300 hover:shadow-pop focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35"
                 >
                   <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-100 bg-brand-50 text-brand-700">
@@ -577,6 +613,8 @@ function RequestForm({ types, onFiled, initialDesc, initialType = "" }: { types:
   const canSubmit = !!subject.trim() && (description.trim().length >= 10 || !!file) && missingRequired.length === 0;
 
   async function submit() {
+    const fileProblem = file ? attachmentProblem(file) : null;
+    if (fileProblem) { notify(fileProblem, "error"); return; }
     setBusy(true);
     try {
       const r = await intakeApi.create({
@@ -588,11 +626,17 @@ function RequestForm({ types, onFiled, initialDesc, initialType = "" }: { types:
         requester_name: user?.full_name ?? null,
         description,
         field_values: Object.keys(values).length ? values : null,
+        // Sent with the filing: a bad file files nothing, and the request never
+        // exists without its attachment.
+        attachments: file ? [await toAttachment(file)] : [],
       });
       if (file) {
-        const content_b64 = await fileToB64(file);
-        await intakeApi.uploadDocument(r.id, { filename: file.name, mime_type: file.type || "application/octet-stream", content_b64 });
-        await intakeApi.ingestAttachment(r.id);
+        try {
+          await intakeApi.ingestAttachment(r.id);
+        } catch {
+          // The request and its file are saved; only the automatic read failed.
+          notify(`${r.ref} filed. The attachment could not be read automatically — legal will open it manually.`, "info");
+        }
       }
       qc.invalidateQueries({ queryKey: ["intake-mine"] });
       qc.invalidateQueries({ queryKey: ["intake-list"] });
@@ -651,8 +695,8 @@ function RequestForm({ types, onFiled, initialDesc, initialType = "" }: { types:
           <div className="fld wide"><label className="lab">Attach a document <span className="help" style={{ fontWeight: 400 }}>· optional</span></label>
             <div className="drop">
               <label className="dropbtn"><Paperclip className="h-3.5 w-3.5" /> Choose file
-                <input type="file" accept=".docx,.txt,.text,.md,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" onChange={(e) => setFile(e.target.files?.[0] ?? null)} style={{ display: "none" }} /></label>
-              <span className="help">Word, text, or PDF · max 3 MB. Scanned PDFs can't be read.</span>
+                <input type="file" accept={ATTACHMENT_ACCEPT} onChange={(e) => { const f = e.target.files?.[0] ?? null; const p = f ? attachmentProblem(f) : null; if (p) { notify(p, "error"); return; } setFile(f); }} style={{ display: "none" }} /></label>
+              <span className="help">{ATTACHMENT_LIMITS_TEXT}. Scanned PDFs can't be read.</span>
             </div>
             {file && <div className="filepill"><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {file.name} · {(file.size / 1024).toFixed(0)} KB</span><button type="button" onClick={() => setFile(null)} style={{ background: "none", border: 0, cursor: "pointer", color: "var(--ink-3)", fontSize: 13 }}>✕</button></div>}
           </div>
@@ -1256,13 +1300,13 @@ function RequestTypesTab() {
             <THead><TR><TH>Type</TH><TH>Workstream</TH><TH>Fields</TH><TH>Stage workflow</TH><TH></TH></TR></THead>
             <tbody>{(data ?? []).map((t) => (
               <TR key={t.id}>
-                <TD className="font-medium">{t.name}{!t.active && <span className="ml-2 text-xs text-slate-400">(inactive)</span>}</TD>
+                <TD className="font-medium">{t.name}{t.form_key && <Badge tone="blue" className="ml-2">Agreement form</Badge>}{!t.active && <span className="ml-2 text-xs text-slate-400">(inactive)</span>}</TD>
                 <TD className="text-slate-500">{t.workstream ?? "—"}</TD>
                 <TD className="tabular-nums text-slate-500">{t.fields.length}</TD>
                 <TD className="text-xs text-slate-500">{["Submitted", ...(t.stages ?? ["Assigned", "Review"]), "Complete"].join(" → ")}</TD>
                 <TD className="text-right">
                   <Button variant="ghost" size="sm" onClick={() => setEditing(t)}><PenLine className="h-3.5 w-3.5" />Edit</Button>
-                  <Button variant="ghost" size="sm" onClick={() => remove(t)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                  {!t.form_key && <Button variant="ghost" size="sm" onClick={() => remove(t)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>}
                 </TD>
               </TR>
             ))}</tbody>
@@ -1308,6 +1352,8 @@ function TypeEditorModal({ existing, onClose, onSaved }: { existing?: IntakeRequ
   const [busy, setBusy] = useState(false);
 
   const canSave = name.trim() && key.trim();
+  // Agreement forms' fields are defined by the wizard's code: show them, don't edit them.
+  const codeOwned = !!existing?.form_key;
   async function save() {
     setBusy(true);
     try {
@@ -1315,7 +1361,7 @@ function TypeEditorModal({ existing, onClose, onSaved }: { existing?: IntakeRequ
         key: key.trim().toLowerCase(), name: name.trim(),
         workstream: workstream.trim() || null,
         stages: stages.trim() ? stages.split(",").map((s) => s.trim()).filter(Boolean) : null,
-        fields: fields.map((f, i) => ({
+        fields: codeOwned ? undefined : fields.map((f, i) => ({
           key: f.key, label: f.label, kind: f.kind, required: f.required,
           sort_order: (i + 1) * 10,
           options: f.kind === "select" ? parseOptions(f.options) : null,
@@ -1342,8 +1388,21 @@ function TypeEditorModal({ existing, onClose, onSaved }: { existing?: IntakeRequ
         <div>
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Fields</p>
-            <Button variant="outline" size="sm" onClick={() => setFields((s) => [...s, { key: "", label: "", kind: "text", required: false, options: "" }])}>Add field</Button>
+            {!codeOwned && <Button variant="outline" size="sm" onClick={() => setFields((s) => [...s, { key: "", label: "", kind: "text", required: false, options: "" }])}>Add field</Button>}
           </div>
+          {codeOwned ? (
+            <div className="space-y-1">
+              <p className="text-xs text-slate-500">These fields come from the agreement form itself. The server checks the required ones when a request is filed.</p>
+              <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 text-sm">
+                {fields.map((f) => (
+                  <li key={f.key} className="flex items-center justify-between px-3 py-1.5">
+                    <span className="text-slate-700">{f.label}</span>
+                    <span className="text-xs text-slate-500">{f.kind}{f.required ? " · required" : ""}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
           <div className="space-y-2">
             {fields.map((f, i) => (
               <div key={i} className="space-y-1">
@@ -1371,6 +1430,7 @@ function TypeEditorModal({ existing, onClose, onSaved }: { existing?: IntakeRequ
               </div>
             ))}
           </div>
+          )}
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
@@ -2059,7 +2119,8 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
-  const { data: r, isLoading } = useQuery({ queryKey: ["intake-req", id], queryFn: () => intakeApi.get(id) });
+  // AI triage runs in the background after a submission: poll until it lands.
+  const { data: r, isLoading } = useQuery({ queryKey: ["intake-req", id], queryFn: () => intakeApi.get(id), refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" ? 3000 : false) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canTriage });
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list, enabled: canTriage });
   const { data: legs } = useQuery({ queryKey: ["intake-sla", id], queryFn: () => intakeApi.slaLegs(id) });
@@ -2489,7 +2550,7 @@ function DocumentsPanel({ requestId }: { requestId: string }) {
   const [openDoc, setOpenDoc] = useState<string | null>(null);
 
   async function upload(file: File) {
-    if (file.size > 3 * 1024 * 1024) { notify("Max 3 MB", "error"); return; }
+    { const p = attachmentProblem(file); if (p) { notify(p, "error"); return; } }
     setBusy(true);
     try {
       const buf = await file.arrayBuffer();
@@ -2569,7 +2630,7 @@ function OperationsView({ isAdmin }: { isAdmin: boolean }) {
   // SLA and Agents are now first-class tabs; Smart Routing lives under Approvals → Intake routing.
   const items = [
     { id: "pool", label: "Pool Ops" },
-    ...(isAdmin ? [{ id: "teams", label: "Teams" }, { id: "types", label: "Request Types" }] : []),
+    ...(isAdmin ? [{ id: "teams", label: "Teams" }, { id: "types", label: "Request Types" }, { id: "parties", label: "Entities & counterparties" }] : []),
   ];
   const [sub, setSub] = useState("pool");
   return (
@@ -2586,6 +2647,7 @@ function OperationsView({ isAdmin }: { isAdmin: boolean }) {
       {sub === "pool" && <PoolOpsTab />}
       {sub === "teams" && isAdmin && <TeamsTab isAdmin={isAdmin} />}
       {sub === "types" && isAdmin && <RequestTypesTab />}
+      {sub === "parties" && isAdmin && <PartiesRegisterTab />}
     </div>
   );
 }

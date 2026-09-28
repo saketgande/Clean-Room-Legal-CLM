@@ -1,10 +1,15 @@
 """Per-org daily Claude token cap.
 
-A single Redis counter per ``(org, UTC date)`` accumulates the total tokens an
-org has spent on Claude today. ``enforce_daily_token_cap`` is called *before*
-each Claude request and rejects with HTTP 429 once the counter has reached the
-configured cap; ``record_token_usage`` is called *after* a successful call to
-add that call's actual token total to the counter.
+A single Redis counter per ``(org, UTC date)`` holds the tokens an org has spent
+on Claude today. Metering lives inside the Claude client (``ClaudeClient``), so
+no call path can skip it:
+
+  * ``reserve_tokens`` runs *before* each request. One atomic Lua script rejects
+    with HTTP 429 once the counter has reached the cap, and otherwise adds a
+    reservation (an estimate of the call's tokens). Checking and reserving are a
+    single step, so many calls at once can't all pass on the same stale reading.
+  * ``settle_tokens`` runs *after* the request and swaps the reservation for the
+    call's real token total (zero when the call failed).
 
 Design choices:
   * **Fail open.** Redis is an enforcement convenience, not the system of
@@ -14,13 +19,14 @@ Design choices:
     outage.
   * **No-op when the cap is <= 0.** Treated as "unlimited" so local/dev and the
     test suite are unaffected unless an operator sets a positive cap.
-  * **Short-lived client.** Mirrors ``app.debug.routes`` — a lazily imported,
-    timeout-bounded client so a missing/parked Redis never affects import time
-    or latency beyond the small connect/socket timeout.
+  * **One pooled client.** Created lazily on first use and reused, with short
+    connect/socket timeouts so a missing Redis never affects import time and
+    adds at most a small delay.
 """
 
 import logging
 from datetime import UTC, datetime
+from functools import lru_cache
 
 from fastapi import HTTPException, status
 
@@ -32,14 +38,27 @@ logger = logging.getLogger(__name__)
 # a sweeper; the key already encodes the date so this is just garbage collection.
 _KEY_TTL_SECONDS = 60 * 60 * 24 * 2
 
+# KEYS[1] = counter, ARGV = cap, tokens to reserve, TTL.
+# Returns -1 when the cap is already spent; otherwise reserves and returns 1.
+_RESERVE_SCRIPT = """
+local spent = tonumber(redis.call('GET', KEYS[1]) or '0')
+if spent >= tonumber(ARGV[1]) then
+  return -1
+end
+redis.call('INCRBY', KEYS[1], ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[3])
+return 1
+"""
+
 
 def _daily_key(org_id: str) -> str:
     today = datetime.now(UTC).strftime("%Y-%m-%d")
     return f"ai:token_cap:{org_id}:{today}"
 
 
+@lru_cache(maxsize=1)
 def _redis_client():
-    """Return a short-lived, timeout-bounded Redis client (or raise)."""
+    """One shared, timeout-bounded Redis client; its connection pool is reused."""
     import redis
 
     return redis.Redis.from_url(
@@ -47,49 +66,44 @@ def _redis_client():
     )
 
 
-def enforce_daily_token_cap(org_id: str) -> None:
-    """Reject (HTTP 429) when ``org_id`` has already spent its daily token cap.
+def reserve_tokens(org_id: str | None, estimate: int) -> tuple[str, int] | None:
+    """Reject (HTTP 429) when ``org_id`` has already spent its daily token cap;
+    otherwise reserve ``estimate`` tokens against it.
 
-    Called before each Claude request. No-op when the cap is <= 0. Fails open on
-    any Redis error so a cache outage never blocks AI.
+    Returns the reservation to hand to ``settle_tokens``, or None when nothing
+    was reserved (no org, cap disabled, or Redis unavailable).
     """
     cap = settings.claude_daily_token_cap_per_org
-    if cap <= 0:
-        return
+    if not org_id or cap <= 0:
+        return None
+    key = _daily_key(org_id)
+    reserved = max(int(estimate), 0)
     try:
-        client = _redis_client()
-        try:
-            spent_raw = client.get(_daily_key(org_id))
-        finally:
-            client.close()
+        allowed = _redis_client().eval(_RESERVE_SCRIPT, 1, key, cap, reserved, _KEY_TTL_SECONDS)
     except Exception:
         logger.warning("ai token cap check skipped (redis unavailable)", exc_info=True)
-        return
-    spent = int(spent_raw) if spent_raw is not None else 0
-    if spent >= cap:
+        return None
+    if int(allowed) < 0:
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
             "Daily AI token limit reached for this organization. Try again tomorrow.",
         )
+    return key, reserved
 
 
-def record_token_usage(org_id: str, total_tokens: int | None) -> None:
-    """Add ``total_tokens`` to the org's daily counter via Redis INCRBY.
+def settle_tokens(reservation: tuple[str, int] | None, actual_tokens: int | None) -> None:
+    """Replace a reservation with the call's real token total (0 if the call failed).
 
-    Called after a Claude call completes. No-op when the cap is disabled (<= 0)
-    or there is nothing to record. Fails open on any Redis error.
+    Uses the reservation's own key, so a call that crosses midnight UTC settles
+    against the day it was reserved on.
     """
-    if settings.claude_daily_token_cap_per_org <= 0:
+    if reservation is None:
         return
-    if not total_tokens or total_tokens <= 0:
+    key, reserved = reservation
+    delta = max(int(actual_tokens or 0), 0) - reserved
+    if delta == 0:
         return
     try:
-        client = _redis_client()
-        try:
-            key = _daily_key(org_id)
-            client.incrby(key, int(total_tokens))
-            client.expire(key, _KEY_TTL_SECONDS)
-        finally:
-            client.close()
+        _redis_client().incrby(key, delta)
     except Exception:
         logger.warning("ai token cap accounting skipped (redis unavailable)", exc_info=True)

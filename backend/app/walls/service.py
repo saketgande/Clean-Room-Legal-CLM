@@ -58,13 +58,19 @@ def _wall_covers_contract_sql():
     contract_scope = and_(
         EthicalWall.scope_type == "contract", EthicalWall.scope_id == Contract.id
     )
+    # A contract reaches a matter two ways: the canonical Contract.matter_id (set
+    # when it's filed under a matter) and the older MatterContract link. Cover
+    # both, or a contract filed the canonical way escapes a project-scoped wall.
     project_scope = and_(
         EthicalWall.scope_type == "project",
-        exists(
-            select(MatterContract.id).where(
-                MatterContract.matter_id == EthicalWall.scope_id,
-                MatterContract.contract_id == Contract.id,
-            )
+        or_(
+            Contract.matter_id == EthicalWall.scope_id,
+            exists(
+                select(MatterContract.id).where(
+                    MatterContract.matter_id == EthicalWall.scope_id,
+                    MatterContract.contract_id == Contract.id,
+                )
+            ),
         ),
     )
     return or_(contract_scope, project_scope)
@@ -95,6 +101,8 @@ def user_is_walled(db: Session, *, user: User, contract: Contract) -> bool:
             select(MatterContract).where(MatterContract.contract_id == contract.id)
         ).all()
     ]
+    if getattr(contract, "matter_id", None):
+        project_ids.append(contract.matter_id)
     scope_conds = [
         and_(EthicalWall.scope_type == "contract", EthicalWall.scope_id == contract.id)
     ]

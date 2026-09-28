@@ -62,12 +62,17 @@ def ground_answer(answer: BrainAnswerOutput, source_text: str) -> dict:
         confidence = "medium"
 
     display_answer = answer.answer
-    if total_cites == 0:
-        display_answer = (
+    if valid_cites == 0:
+        # Guard on "nothing verified", not "no citations": a confident answer whose
+        # quotes don't match the sources is exactly the fabrication to suppress.
+        reason = (
             "I couldn't find contract text in the retrieved sources that directly "
             "supports a specific answer to this question."
-            + (f" {answer.limitations}" if answer.limitations else "")
+            if total_cites == 0
+            else "The quotes behind this answer couldn't be matched to the retrieved "
+            "contract text, so it isn't shown as an answer."
         )
+        display_answer = reason + (f" {answer.limitations}" if answer.limitations else "")
 
     return {
         "display_answer": display_answer,

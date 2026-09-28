@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.contract_files.models import ContractEdit, ContractVersion
 from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
-from app.core.enums import ContractLifecycleStage, ContractVersionSource
+from app.core.enums import ApprovalStatus, ContractLifecycleStage, ContractVersionSource
 
 # Mirrors service.py's _PRE_APPROVAL_STAGES: the stages before the document is
 # considered final. Duplicated locally (not imported) to avoid a cross-module
@@ -67,6 +67,20 @@ def parse_stage_slas(raw: str) -> dict[str, int]:
     return out
 
 
+def _current_version_approved(db: Session, contract: Contract) -> bool:
+    """True when the current version has an approval chain and every live rung is approved."""
+    from app.approvals.models import ApprovalRequest
+
+    statuses = db.scalars(
+        select(ApprovalRequest.status).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.contract_version_id == contract.current_authoritative_version_id,
+            ApprovalRequest.status != ApprovalStatus.CANCELLED,
+        )
+    ).all()
+    return bool(statuses) and all(s == ApprovalStatus.APPROVED for s in statuses)
+
+
 def allowed_transitions_for(stage: str) -> list[str]:
     return sorted(ALLOWED_TRANSITIONS.get(stage, set()))
 
@@ -103,6 +117,22 @@ def transition_contract_stage(
                 "Lifecycle override requires the contract:lifecycle_override permission",
             )
     authorized_override = override and override_authorized
+
+    # "Approved before signature". The approval engine moves Approval → Signature
+    # with an authorized override once the chain completes; every other caller
+    # (workflow steps, the assistant, manual moves) is held to the chain here
+    # instead of being able to walk around it.
+    if (
+        from_stage == ContractLifecycleStage.APPROVAL
+        and to_stage == ContractLifecycleStage.SIGNATURE
+        and not authorized_override
+        and not _current_version_approved(db, contract)
+    ):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This contract can't move to Signature until the approval chain for its "
+            "current version is approved.",
+        )
 
     # The ONE real gate on leaving Review: every proposed redline must be
     # accepted or rejected first. The workspace already tells the user this

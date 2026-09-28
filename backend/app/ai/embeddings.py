@@ -23,17 +23,17 @@ EMBEDDING_DIMENSIONS = 384
 
 
 def backfill_embeddings(db: Session, *, limit: int | None = None) -> dict:
-    """Re-embed already-indexed contracts that are now structured, so their
-    vectors use clause-aligned chunks (better retrieval, clause/page metadata)
-    instead of the old fixed windows. Idempotent: generate_embeddings_for_snapshot
-    deletes and rebuilds a snapshot's embeddings. Run as a background job for a
-    large portfolio — each snapshot loads the embedding model, so it's not free.
+    """Re-embed every already-indexed snapshot so its vectors reflect the
+    current chunking settings — clause-aligned chunks once a snapshot is
+    structured, and the contextual_chunking prefix. Both changes leave a mixed
+    corpus otherwise (old vectors built one way, new ones another), which makes
+    scores across contracts non-comparable. Idempotent:
+    generate_embeddings_for_snapshot deletes and rebuilds a snapshot's
+    embeddings. Run as a background job for a large portfolio — each snapshot
+    loads the embedding model, so it's not free.
     """
     embedded = select(ContractEmbedding.text_snapshot_id).distinct()
-    query = select(ContractTextSnapshot).where(
-        ContractTextSnapshot.structure_status == "structured",
-        ContractTextSnapshot.id.in_(embedded),
-    )
+    query = select(ContractTextSnapshot).where(ContractTextSnapshot.id.in_(embedded))
     if limit is not None:
         query = query.limit(limit)
     snapshots = db.scalars(query).all()
@@ -214,10 +214,9 @@ def _embed_local(texts: list[str]) -> list[list[float]]:
         # embedding job errors instead of poisoning the index with garbage that
         # *looks* embedded.
         if not settings.allow_mock_embeddings:
-            logger.error(
+            logger.exception(
                 "local embeddings (fastembed) unavailable and allow_mock_embeddings "
                 "is off — refusing to write meaningless vectors",
-                exc_info=True,
             )
             raise
         logger.warning(

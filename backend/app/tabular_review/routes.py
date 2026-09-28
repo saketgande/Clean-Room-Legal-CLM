@@ -1,5 +1,4 @@
 import time
-from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -13,7 +12,6 @@ from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
-from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import TabularCellStatus
 from app.matters.access import get_project_for_user
@@ -28,16 +26,6 @@ from app.tabular_review.service import build_table_context, build_xlsx, dispatch
 
 router = APIRouter(prefix="/tabular-reviews", tags=["tabular-reviews"])
 
-# A review whose cells have not all finished within this window is treated
-# as stuck (e.g. a worker died) so it can resolve instead of showing
-# "Running" forever.
-STUCK_REVIEW_TTL = timedelta(minutes=20)
-_TERMINAL_CELL = {
-    TabularCellStatus.COMPLETE,
-    TabularCellStatus.NEEDS_REVIEW,
-    TabularCellStatus.FAILED,
-}
-_ACTIVE_REVIEW_STATUSES = {"running", "pending", "draft"}
 MAX_REVIEW_CONTRACTS = 100
 MAX_REVIEW_COLUMNS = 50
 MAX_REVIEW_CELLS = 1000
@@ -60,52 +48,6 @@ def _enforce_review_size(*, contract_count: int, column_count: int) -> None:
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             f"Tabular reviews are limited to {MAX_REVIEW_CELLS} contract-column cells",
         )
-
-
-def _reconcile_review_status(db: Session, *, review: TabularReview) -> bool:
-    """Derive a review's status from its cells.
-
-    Cells are processed by independent Celery jobs and nothing transitions
-    the parent review off ``running`` on its own, so a review whose worker
-    died would otherwise display "Running" forever. This also reaps cells
-    stuck past the TTL so the run can resolve and individual cells re-run.
-    Returns True if the review row was mutated (caller commits).
-    """
-    if review.status not in _ACTIVE_REVIEW_STATUSES:
-        return False
-    cells = db.scalars(
-        select(TabularReviewCell).where(
-            TabularReviewCell.org_id == review.org_id,
-            TabularReviewCell.tabular_review_id == review.id,
-        )
-    ).all()
-    if not cells:
-        return False
-    pending = [c for c in cells if c.status not in _TERMINAL_CELL]
-    changed = False
-    if pending:
-        last_active = review.updated_at or review.created_at
-        if utcnow() - last_active < STUCK_REVIEW_TTL:
-            if review.status != "running":
-                review.status = "running"
-                return True
-            return False
-        for cell in pending:
-            cell.status = TabularCellStatus.FAILED
-            cell.error_message = (
-                "Timed out — no result within the expected window "
-                "(the worker may have stopped). Re-run this cell to retry."
-            )
-        changed = True
-    answered = any(
-        c.status in {TabularCellStatus.COMPLETE, TabularCellStatus.NEEDS_REVIEW}
-        for c in cells
-    )
-    new_status = "completed" if answered else "failed"
-    if review.status != new_status:
-        review.status = new_status
-        changed = True
-    return changed
 
 
 class TabularColumnCreate(BaseModel):
@@ -202,9 +144,6 @@ def list_reviews(
             accessible_contract_ids=accessible_contract_ids,
         )
     ]
-    mutated = [_reconcile_review_status(db, review=review) for review in visible]
-    if any(mutated):
-        db.commit()
     return visible
 
 
@@ -434,9 +373,6 @@ def get_review(
     current_user=Depends(require_permission("assistant:use")),
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
-    if _reconcile_review_status(db, review=review):
-        db.commit()
-        db.refresh(review)
     columns = db.scalars(
         select(TabularReviewColumn)
         .where(TabularReviewColumn.tabular_review_id == review.id)

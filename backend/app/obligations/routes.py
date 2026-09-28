@@ -17,6 +17,7 @@ from app.integrations.resend import resend_client
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 from app.obligations.models import Obligation, ObligationReminder
+from app.obligations.service import complete_and_schedule_next
 
 router = APIRouter(prefix="/obligations", tags=["obligations"])
 
@@ -80,7 +81,7 @@ def _get_obligation(db: Session, *, obligation_id: str, current_user: User) -> O
     if ob is None or ob.org_id != current_user.org_id or ob.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
     get_contract_for_user(db, contract_id=ob.contract_id, user=current_user)
-    return _serialize_one(db, ob)
+    return ob
 
 
 @router.get("")
@@ -108,9 +109,8 @@ def list_obligations(
     if status_filter:
         query = query.where(Obligation.status == status_filter)
     if due_within_days is not None:
-        from datetime import date as _date
         from datetime import timedelta as _timedelta
-        _today = _date.today()
+        _today = utcnow().date()
         query = query.where(
             Obligation.due_date.isnot(None),
             Obligation.due_date >= _today,
@@ -189,8 +189,7 @@ def complete_obligation(
     current_user=Depends(require_permission("obligation:update")),
 ):
     ob = _get_obligation(db, obligation_id=obligation_id, current_user=current_user)
-    ob.status = "completed"
-    ob.updated_by_user_id = current_user.id
+    successor = complete_and_schedule_next(db, ob=ob, actor_user_id=current_user.id)
     write_audit_log(
         db,
         action="obligation.completed",
@@ -198,7 +197,7 @@ def complete_obligation(
         resource_id=ob.id,
         org_id=current_user.org_id,
         actor_user_id=current_user.id,
-        after={"contract_id": ob.contract_id},
+        after={"contract_id": ob.contract_id, "next_obligation_id": successor.id if successor else None},
     )
     db.commit()
     db.refresh(ob)

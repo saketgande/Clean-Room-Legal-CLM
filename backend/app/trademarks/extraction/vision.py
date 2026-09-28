@@ -112,10 +112,11 @@ def render_page_to_png_bytes(pdf_bytes: bytes, page_number: int, dpi: int) -> by
         doc.close()
 
 
-async def extract_journal_page(pdf_bytes: bytes, page_number: int) -> list[VisionEntry]:
+async def extract_journal_page(pdf_bytes: bytes, page_number: int, *, org_id: str) -> list[VisionEntry]:
     page_png = render_page_to_png_bytes(pdf_bytes, page_number, settings.trademark_vision_render_dpi)
 
     response = await claude_client.complete_vision_structured(
+        org_id=org_id,
         system_prompt=SYSTEM_PROMPT,
         user_prompt="Extract every entry on this page.",
         image_bytes=page_png,

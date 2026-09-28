@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.intake.models import IntakeRequest
+from app.intake.models import IntakeDocument, IntakeRequest
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,11 @@ _SCHEMA = {
 }
 
 
-def _prompt(request: IntakeRequest, catalog: list[dict]) -> str:
+_ATTACHMENT_EXCERPT_CHARS = 1500
+_ATTACHMENTS_IN_PROMPT = 3
+
+
+def _prompt(request: IntakeRequest, catalog: list[dict], attachments: list | tuple = ()) -> str:
     lines = ["WORKFLOW CATALOG (choose exactly one id for recommended_workflow_id, or null):"]
     for c in catalog:
         crit = "any request" if c.get("is_catch_all") else str(c.get("criteria"))
@@ -78,6 +83,13 @@ def _prompt(request: IntakeRequest, catalog: list[dict]) -> str:
         f"  Description: {(request.description or '')[:3000]}",
         f"  Structured fields:\n{field_txt}",
     ]
+    # Attachments are filed with the request, so triage reads them too — capped,
+    # because they are context for routing, not the document review itself.
+    docs = [d for d in attachments if d.extracted_text][:_ATTACHMENTS_IN_PROMPT]
+    if docs:
+        lines.append("  Attachments (excerpts):")
+        for d in docs:
+            lines.append(f"  --- {d.filename} ---\n{d.extracted_text[:_ATTACHMENT_EXCERPT_CHARS]}")
     return "\n".join(lines)
 
 
@@ -115,14 +127,17 @@ def triage(db: Session, request: IntakeRequest) -> dict:
         return _fallback(db, request)
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import ClaudeClient, run_coro_blocking
 
     try:
-        enforce_daily_token_cap(request.org_id)
         bundle = get_agent_prompt(db, agent_id="intake_triage", org_id=request.org_id)
-        user_prompt = _prompt(request, catalog)
+        attachments = db.scalars(
+            select(IntakeDocument).where(IntakeDocument.request_id == request.id)
+            .order_by(IntakeDocument.created_at)
+        ).all()
+        user_prompt = _prompt(request, catalog, attachments)
         resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+            org_id=request.org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="triage_request", input_schema=_SCHEMA,
