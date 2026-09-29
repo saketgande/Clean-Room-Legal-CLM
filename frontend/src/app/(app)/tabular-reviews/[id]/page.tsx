@@ -54,7 +54,10 @@ export default function TabularReviewDetailPage({
   const { data, isLoading, error } = useQuery({
     queryKey: ["tabular", id],
     queryFn: () => tabularApi.get(id),
-    refetchInterval: 4000,
+    // Only poll while cells are actually being generated — a finished
+    // ("complete") or not-yet-started ("draft") review has nothing left to
+    // watch for and shouldn't keep hitting the server every 4s forever.
+    refetchInterval: (q) => (q.state.data?.review.status === "running" ? 4000 : false),
   });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],

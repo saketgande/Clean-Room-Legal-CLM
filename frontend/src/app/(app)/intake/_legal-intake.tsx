@@ -6,16 +6,20 @@
 // dark mode is driven by the app's `.dark` class.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Mail, MessageSquare, FileText, Search, ChevronDown, Clock, Inbox, CheckSquare, ClipboardCheck, PenLine, ListChecks, Moon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { intakeApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
+import { useToast } from "@/components/toast";
 import { initials } from "@/lib/utils";
 import type { IntakeRequest, WorkflowSuggestion } from "@/lib/types";
 
-const POLL = { refetchInterval: 15_000 } as const;
+// Refetch on window focus rather than poll — see the note on LIVE_POLL in
+// intake/page.tsx for the trade-off (sla_status won't advance on its own
+// while the tab sits unfocused).
+const POLL = { refetchOnWindowFocus: true } as const;
 
 // ---------- data helpers (all from real request fields) ----------
 function useNow(ms = 30_000): number {
@@ -161,10 +165,25 @@ function StageCell({ r }: { r: IntakeRequest }) {
 }
 
 // ---------- the board ----------
-export function LegalIntakeBoard({ onOpen }: { onOpen: (id: string) => void }) {
+export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string) => void; mode?: "all" | "pool" }) {
   const now = useNow(30_000);
-  const { data } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), ...POLL });
+  const qc = useQueryClient();
+  const { notify } = useToast();
+  const { data } = useQuery({
+    queryKey: mode === "pool" ? ["intake-pool"] : ["intake-list"],
+    queryFn: () => (mode === "pool" ? intakeApi.pool() : intakeApi.list()),
+    ...POLL,
+  });
   const rows = useMemo(() => data ?? [], [data]);
+  const assignToMe = useMutation({
+    mutationFn: (id: string) => intakeApi.assignToMe(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["intake-pool"] });
+      qc.invalidateQueries({ queryKey: ["intake-mywork"] });
+      notify("Assigned to you", "success");
+    },
+    onError: (e) => notify(e instanceof Error ? e.message : "Could not assign", "error"),
+  });
 
   const [search, setSearch] = useState("");
   const [channelSel, setChannelSel] = useState<Set<string>>(new Set());
@@ -341,8 +360,23 @@ export function LegalIntakeBoard({ onOpen }: { onOpen: (id: string) => void }) {
                   <td><div className="flags">{flags.length ? flags.map((f) => <span key={f.label} className={`pill ${f.cls}`}>{f.label}</span>) : <span className="dim" style={{ fontSize: 11 }}>clean</span>}</div></td>
                   <td><div className="from">{r.requester_name ?? "—"}</div><div className="age">{ch.label.toLowerCase()} · {ageOf(created(r), now)} ago</div></td>
                   <td><div className="rowact">
-                    {isNew ? <button className="btn pri sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>▸ Start</button>
-                      : <button className="btn sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>Open</button>}
+                    {mode === "pool" ? (
+                      r.assigned_to_user_id ? (
+                        <span className="dim" style={{ fontSize: 12 }}>{r.assigned_to_label ?? "Assigned"}</span>
+                      ) : (
+                        <button
+                          className="btn pri sm"
+                          disabled={assignToMe.isPending}
+                          onClick={(e) => { e.stopPropagation(); assignToMe.mutate(r.id); }}
+                        >
+                          {assignToMe.isPending && assignToMe.variables === r.id ? "Assigning…" : "Assign to me"}
+                        </button>
+                      )
+                    ) : isNew ? (
+                      <button className="btn pri sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>▸ Start</button>
+                    ) : (
+                      <button className="btn sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>Open</button>
+                    )}
                     <button className="btn sm" title="Open" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>⋯</button>
                   </div></td>
                 </tr>

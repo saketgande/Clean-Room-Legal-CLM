@@ -182,8 +182,20 @@ def _check_no_cycle(db: Session, *, org_id: str, team_id: str | None, overflow_i
 
 
 def _apply_members(db: Session, t: IntakeTeam, org_id: str, members) -> None:
+    """Reuses the existing IntakeTeamMember row for a user_id that's still
+    present (updating capacity/active in place) instead of always building a
+    fresh object and reassigning the whole `t.members` collection. The
+    members relationship is `cascade="all, delete-orphan"`, and replacing it
+    wholesale with brand-new rows makes SQLAlchemy schedule the INSERTs for
+    the new (team_id, user_id) pairs before the DELETEs for the orphaned old
+    ones — a same-table collection-replacement ordering gotcha that trips
+    the `uq_intake_team_member_team_user` unique constraint the instant a
+    save re-submits a member who was already on the team (e.g. editing just
+    the team's departments from the admin UI, 500ing with a UniqueViolation
+    instead of saving)."""
     seen: set[str] = set()
-    rows = []
+    existing_by_user = {m.user_id: m for m in t.members}
+    keep: list[IntakeTeamMember] = []
     for m in members:
         if m.user_id in seen:
             continue
@@ -191,9 +203,15 @@ def _apply_members(db: Session, t: IntakeTeam, org_id: str, members) -> None:
         u = db.get(User, m.user_id)
         if u is None or u.org_id != org_id:
             raise HTTPException(404, "Team member not found in org")
-        rows.append(IntakeTeamMember(org_id=org_id, user_id=m.user_id,
-                                     capacity=max(0, m.capacity), active=m.active))
-    t.members = rows
+        existing = existing_by_user.get(m.user_id)
+        if existing is not None:
+            existing.capacity = max(0, m.capacity)
+            existing.active = m.active
+            keep.append(existing)
+        else:
+            keep.append(IntakeTeamMember(org_id=org_id, user_id=m.user_id,
+                                         capacity=max(0, m.capacity), active=m.active))
+    t.members = keep
 
 
 def create_team(db: Session, *, actor: User, payload) -> dict:

@@ -10,7 +10,7 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.intake.models import IntakeRequest
 from app.matters.access import get_project_for_user, project_scope_query
 from app.matters.models import (
@@ -47,6 +47,14 @@ from app.obligations.models import Obligation
 # No prefix here — main.py mounts this at both /matters (canonical) and /projects
 # (deprecated alias, kept until the Matters UI ships).
 router = APIRouter(tags=["matters"])
+
+# FR-10/FR-11 (003-menu-screen-security): screen-level checks, additive to the
+# existing require_permission(...) gates on each route (FR-12) — this router is
+# mounted at both /matters and the legacy /projects prefix, so one edit covers
+# both.
+_MATTERS_ADD = require_screen_level("matters", "ADD")
+_MATTERS_EDIT = require_screen_level("matters", "EDIT")
+_MATTERS_DELETE = require_screen_level("matters", "DELETE")
 
 
 @router.get("", response_model=list[MatterResponse])
@@ -128,6 +136,7 @@ def create_project(
     payload: MatterCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:create")),
+    _screen=Depends(_MATTERS_ADD),
 ):
     project = Matter(
         org_id=current_user.org_id,
@@ -375,6 +384,7 @@ def assign_item_to_matter(
     payload: AssignItemRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
 ):
     """File a contract or intake request under this matter (one matter -> many)."""
     matter = _get_project(
@@ -430,6 +440,7 @@ def update_project(
     payload: MatterUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -455,6 +466,7 @@ def delete_project(
     matter_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:delete")),
+    _screen=Depends(_MATTERS_DELETE),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -501,6 +513,7 @@ def create_project_folder(
     payload: MatterFolderCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_ADD),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -550,6 +563,7 @@ def update_project_folder(
     payload: MatterFolderUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -593,6 +607,7 @@ def delete_project_folder(
     folder_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_DELETE),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -647,6 +662,7 @@ def upsert_project_member(
     payload: MatterMemberUpsert,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_EDIT),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="share"
@@ -704,6 +720,7 @@ def remove_project_member(
     user_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_DELETE),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="share"
@@ -759,6 +776,7 @@ def create_project_share(
     payload: MatterShareCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_ADD),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="share"
@@ -805,6 +823,7 @@ def revoke_project_share(
     share_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_DELETE),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="share"
@@ -861,6 +880,7 @@ def add_project_contract(
     payload: MatterContractAdd,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_ADD),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -914,6 +934,7 @@ def update_project_contract(
     payload: MatterContractUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"
@@ -954,6 +975,7 @@ def remove_project_contract(
     contract_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_DELETE),
 ):
     project = _get_project(
         db, matter_id=matter_id, current_user=current_user, access="update"

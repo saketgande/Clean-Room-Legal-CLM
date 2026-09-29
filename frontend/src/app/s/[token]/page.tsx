@@ -41,6 +41,8 @@ function ShareView({ token }: { token: string }) {
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [posting, setPosting] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const load = useCallback(
     async (pc: string) => {
@@ -54,8 +56,10 @@ function ShareView({ token }: { token: string }) {
         setPasscode(pc);
       } catch (e) {
         setView(null);
-        setNeedPass(true);
-        setError(e instanceof Error ? e.message : "This link is invalid or has expired.");
+        const msg = e instanceof Error ? e.message : "This link is invalid or has expired.";
+        // An expired/submitted link is not a passcode problem — show the plain message.
+        setNeedPass(!/no longer active|not found/i.test(msg));
+        setError(/no longer active/i.test(msg) ? "This link has expired." : msg);
       } finally {
         setLoading(false);
       }
@@ -82,6 +86,19 @@ function ShareView({ token }: { token: string }) {
       setError(e instanceof Error ? e.message : "Couldn't post your comment.");
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function submit() {
+    if (!window.confirm("Submit your comments? They will be sent to the reviewer and this link will expire.")) return;
+    setSubmitting(true);
+    try {
+      await externalShareApi.submit(token, passcode || undefined);
+      setSubmitted(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't submit. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -118,6 +135,11 @@ function ShareView({ token }: { token: string }) {
             <Button className="mt-3 w-full" onClick={() => load(entered)} disabled={!entered}>
               Unlock
             </Button>
+          </div>
+        ) : submitted ? (
+          <div className="mx-auto max-w-sm rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+            <p className="font-medium text-slate-900">Thank you — your comments were sent.</p>
+            <p className="mt-1 text-sm text-slate-500">This link has now expired.</p>
           </div>
         ) : view ? (
           <div className="space-y-6">
@@ -195,6 +217,18 @@ function ShareView({ token }: { token: string }) {
                 </div>
               </div>
             </div>
+
+            {view.can_submit && (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                <p className="text-sm text-slate-600">
+                  Finished? Submit to send your comments to the reviewer. The link expires once you submit
+                  {view.expires_at ? ` (otherwise on ${new Date(view.expires_at).toLocaleDateString()})` : ""}.
+                </p>
+                <Button loading={submitting} onClick={submit}>
+                  Submit
+                </Button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mx-auto max-w-sm rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">

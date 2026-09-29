@@ -12,6 +12,8 @@ import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
 import { can } from "@/lib/intake";
 import { RoutingTab as IntakeRoutingTab } from "../intake/_phase1";
 import { RulesTab } from "./_rules-builder";
+import { ChainsTab } from "./_chains-tab";
+import { ConditionRulesTab } from "./_condition-rules-tab";
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
@@ -40,10 +42,14 @@ export default function ApprovalsPage() {
   const { user } = useAuth();
   const isAdmin = can(user, "admin_panel:access");
 
+  const canManageChains = can(user, "approval_chain:manage");
+
   const tabs = [
     { id: "requests", label: "Requests" },
     { id: "rules", label: "Approval routing" },
     { id: "groups", label: "Approver groups" },
+    { id: "chains", label: "Chains" },
+    ...(canManageChains ? [{ id: "conditions", label: "Condition rules" }] : []),
     { id: "intake", label: "Intake routing" },
   ];
 
@@ -74,6 +80,10 @@ export default function ApprovalsPage() {
           <RulesTab />
         ) : tab === "groups" ? (
           <GroupsTab />
+        ) : tab === "chains" ? (
+          <ChainsTab />
+        ) : tab === "conditions" && canManageChains ? (
+          <ConditionRulesTab />
         ) : (
           <IntakeRoutingTab isAdmin={isAdmin} />
         )}
@@ -301,7 +311,8 @@ function RequestsTab() {
         contracts={contracts ?? []}
         onSubmitted={() => {
           qc.invalidateQueries({ queryKey: ["approvals"] });
-          notify("Submitted for approval", "success");
+          qc.invalidateQueries({ queryKey: ["approval-chain-instances"] });
+          notify("Approval chain started — see the Chains tab", "success");
           setSubmitOpen(false);
         }}
       />

@@ -16,7 +16,7 @@ import { CenterSpinner, ErrorState, NotFound } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
 import { initials } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import type { ContractDeviation } from "@/lib/types";
+import type { ContractDeviation, ContractParty } from "@/lib/types";
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 
@@ -42,8 +42,21 @@ export function ClmWorkspace({ id }: { id: string }) {
   const { data: deviations } = useQuery({ queryKey: ["contract-devs", id], queryFn: () => contractsApi.deviations(id) });
   const { data: risk } = useQuery({ queryKey: ["contract-risk", id], queryFn: () => contractsApi.risk(id) });
   const { data: run } = useQuery({ queryKey: ["flow-run-contract", id], queryFn: () => workflowsApi.runForContract(id) });
+  const { data: parties } = useQuery({ queryKey: ["contract-parties", id], queryFn: () => contractsApi.parties(id) });
+  const [partyName, setPartyName] = useState("");
+  const [partyEmail, setPartyEmail] = useState("");
+  const addParty = useMutation({
+    mutationFn: () => contractsApi.addParty(id, { name: partyName.trim(), contact_email: partyEmail.trim() || undefined, party_type: "counterparty" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contract-parties", id] });
+      setPartyName("");
+      setPartyEmail("");
+      notify("Counterparty added", "success");
+    },
+    onError: (e) => notify(e instanceof Error ? e.message : "Couldn't add counterparty", "error"),
+  });
 
-  const [tab, setTab] = useState<"assistant" | "review" | "sources">("assistant");
+  const [tab, setTab] = useState<"assistant" | "review" | "sources" | "parties">("assistant");
   const [chat, setChat] = useState<{ role: "you" | "agent"; text: string }[]>([]);
   const [q, setQ] = useState("");
   const [track, setTrack] = useState(true);
@@ -176,6 +189,7 @@ export function ClmWorkspace({ id }: { id: string }) {
                 <button className={tab === "assistant" ? "on" : ""} onClick={() => setTab("assistant")}>Assistant</button>
                 <button className={tab === "review" ? "on" : ""} onClick={() => setTab("review")}>Review <span className="b">{openDevs.length}</span></button>
                 <button className={tab === "sources" ? "on" : ""} onClick={() => setTab("sources")}>Sources <span className="b">{risk?.clause_count ? 2 : 1}</span></button>
+                <button className={tab === "parties" ? "on" : ""} onClick={() => setTab("parties")}>Parties <span className="b">{(parties ?? []).length}</span></button>
               </div>
 
               <div className="tabwrap">
@@ -220,6 +234,31 @@ export function ClmWorkspace({ id }: { id: string }) {
                   <div className="list">
                     <div className="src"><div className="st">This contract — current draft<span className="stag">draft</span></div><div className="sx">{contract?.title ?? "The working draft"} · {(contract?.lifecycle_stage ?? "draft").replace(/_/g, " ")}. The agent reads the live document text.</div></div>
                     <div className="src"><div className="st">Playbook risk analysis<span className="stag">playbook</span></div><div className="sx">{risk?.summary ?? "The AI risk review scores each clause against the playbook."}{risk?.clause_count ? ` (${risk.clause_count} clauses assessed)` : ""}</div></div>
+                  </div>
+                )}
+
+                {tab === "parties" && (
+                  <div className="list">
+                    <div className="src">
+                      <div className="st">New counterparty</div>
+                      <div className="partyform">
+                        <input value={partyName} onChange={(e) => setPartyName(e.target.value)} placeholder="Name (e.g. Acme Ltd)" />
+                        <input value={partyEmail} onChange={(e) => setPartyEmail(e.target.value)} placeholder="Contact email (optional)" type="email" />
+                        <button className="btn sm pri" disabled={!partyName.trim() || addParty.isPending} onClick={() => addParty.mutate()}>
+                          {addParty.isPending ? "Adding…" : "Add counterparty"}
+                        </button>
+                      </div>
+                    </div>
+                    {(parties ?? []).length === 0 ? (
+                      <div className="dim" style={{ fontSize: 12.5, padding: 8 }}>No parties recorded yet.</div>
+                    ) : (
+                      (parties as ContractParty[]).map((p) => (
+                        <div key={p.id} className="src">
+                          <div className="st">{p.name}{p.party_type ? <span className="stag">{p.party_type}</span> : null}</div>
+                          {p.contact_email ? <div className="sx">{p.contact_email}</div> : null}
+                        </div>
+                      ))
+                    )}
                   </div>
                 )}
               </div>
@@ -307,6 +346,9 @@ const CLM_CSS = `
 .clm .src{border:1px solid var(--border);border-radius:11px;padding:12px 13px;margin-bottom:11px}
 .clm .src .st{font-weight:650;font-size:12.5px;display:flex;align-items:center;gap:8px} .clm .src .stag{font:600 9px var(--mono);color:var(--ai);background:var(--ai-soft);padding:1px 7px;border-radius:99px;margin-left:auto}
 .clm .src .sx{font-size:12px;color:var(--ink-2);margin-top:6px;line-height:1.55}
+.clm .partyform{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+.clm .partyform input{padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--inset);color:var(--ink);font-size:12.5px;outline:none}
+.clm .partyform input:focus{border-color:var(--accent)}
 @media (max-width:1120px){.clm .ed{grid-template-columns:1fr}.clm .agent{border-left:0;border-top:1px solid var(--border);max-height:52vh}}
 @media (max-width:820px){.clm .app{grid-template-columns:56px 1fr}.clm .brand b,.clm .nav .sec,.clm .nav a span,.clm .me>div{display:none}}
 `;

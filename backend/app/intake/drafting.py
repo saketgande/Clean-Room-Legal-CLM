@@ -270,10 +270,19 @@ _DOC_TYPES: dict[str, dict] = {
 def resolve_doc_type(request: IntakeRequest) -> str | None:
     """Which draftable document (if any) this request maps to. Keyword-first so
     it works regardless of the classifier; falls back to the classified category.
-    Returns None for request types that are not contracts (litigation, general)."""
+    Returns None for request types that are not contracts (litigation, general).
+
+    Checks the structured `agreement_type`/`agreement_category` fields (the
+    "New agreement" intake form's own answer to this exact question) alongside
+    the type label and description — a generic type_label like "New agreement
+    Request" carries no keyword on its own, so relying on type_label/description
+    alone missed every request where the agreement type was only captured as a
+    structured field, not restated in free text."""
     from app.intake.agents import classify
 
-    text = f"{request.type_label} {request.description or ''}".lower()
+    fv = request.field_values or {}
+    field_hint = f"{fv.get('agreement_type') or ''} {fv.get('agreement_category') or ''}"
+    text = f"{request.type_label} {request.description or ''} {field_hint}".lower()
     category = (classify(request.type_label, request.description or "").get("category") or "").lower()
 
     if re.search(r"\b(nda|non-disclosure|non disclosure)\b", text) or category == "nda":
@@ -594,12 +603,16 @@ if __name__ == "__main__":  # pragma: no cover - template self-check
         assert "GOVERN" in out.upper() or "GOVERNED" in out.upper() or dt == "dpa", dt
 
     class _R:
-        def __init__(self, tl, desc):
+        def __init__(self, tl, desc, field_values=None):
             self.type_label, self.description = tl, desc
+            self.field_values = field_values or {}
 
     assert resolve_doc_type(_R("NDA Request", "mutual nda with Globex")) == "nda"
     assert resolve_doc_type(_R("Vendor Due Diligence", "onboard a new supplier")) == "vendor"
     assert resolve_doc_type(_R("Privacy Question", "need a DPA for GDPR")) == "dpa"
     assert resolve_doc_type(_R("Contract Review", "draft an MSA / master services agreement")) == "msa"
+    assert resolve_doc_type(
+        _R("New agreement Request", "NA", {"agreement_type": "Master Services Agreement"})
+    ) == "msa"
     assert resolve_doc_type(_R("Litigation hold", "preserve documents")) is None
     print("drafting templates + resolver self-check passed")

@@ -15,6 +15,7 @@ import {
   ErrorState,
   Field,
   Input,
+  MessageBar,
   Modal,
   Select,
   SkeletonRows,
@@ -135,6 +136,11 @@ export function RulesTab() {
 
   return (
     <div className="space-y-4">
+      <MessageBar intent="warning">
+        Routing rules no longer determine approvers for new submissions. New contract and
+        intake-request approvals use <b className="font-medium">Condition rules</b>. These rules
+        remain visible for reference and still govern approvals that were already in flight.
+      </MessageBar>
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-brand-200 bg-brand-50/60 px-3 py-2 text-xs text-slate-600">
         <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-brand-600" />
         <span>

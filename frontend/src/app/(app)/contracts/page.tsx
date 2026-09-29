@@ -17,6 +17,7 @@ import { titleCase, fmtDate, fmtMoney, riskTone, STAGE_ORDER } from "@/lib/utils
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import { ImportContractModal } from "@/components/import-contract-modal";
 import { cn } from "@/lib/utils";
+import { useScreenAccess } from "@/lib/screen-access";
 
 const STAGE_LABELS = STAGE_ORDER.map((s) => titleCase(s));
 const NEGO_STAGES = new Set(["drafting", "review", "approval", "signature"]);
@@ -39,6 +40,10 @@ type SortKey = "upd" | "exp" | "val" | "risk" | "cp";
 export default function ContractsPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD request (FR-10/FR-13); this is a usability aid, not the
+  // security boundary.
+  const { canAdd } = useScreenAccess("contracts");
   const { data, isLoading, error } = useQuery({
     queryKey: ["contracts-list"],
     queryFn: contractsApi.list,
@@ -177,7 +182,12 @@ export default function ContractsPage() {
               <b>{highRows.length}</b> high-risk
             </span>
           </div>
-          <button className="btn pri" onClick={() => setImportOpen(true)}>
+          <button
+            className="btn pri"
+            disabled={!canAdd}
+            title={canAdd ? undefined : "You don't have add access to this screen"}
+            onClick={() => setImportOpen(true)}
+          >
             <Plus className="ic" />
             New contract
           </button>

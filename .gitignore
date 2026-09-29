@@ -1,9 +1,9 @@
 AEGIS/
 mike/
-.claude/
 # OS / editor
 .DS_Store
 **/.DS_Store
+.vs/
 
 # Local dev-server logs (start.sh "without Docker" path writes these to repo root)
 *.log

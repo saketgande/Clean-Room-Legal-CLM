@@ -161,11 +161,16 @@ export function ContractGovernanceLadder({ contractId }: { contractId: string })
     // Same live-poll as the intake ticket's ladder: keep checking while
     // something is actually working (a mid-beat ai_task or a subsystem job in
     // flight) so the animation resolves instead of freezing on the last poll.
+    // Capped the same way — stop after 45s of no server-side progress on the
+    // current step rather than polling every 1.5s forever.
     refetchInterval: (q) => {
       const r = q.state.data as WorkflowRun | null | undefined;
       if (!r) return false;
       const working = (r.steps ?? []).some((s) => s.status === "running" || s.status === "waiting_job");
-      return r.status === "running" || working ? 1500 : false;
+      if (r.status !== "running" && !working) return false;
+      const cur = (r.steps ?? [])[r.current_index];
+      const lastProgress = cur?.updated_at ? new Date(cur.updated_at).getTime() : 0;
+      return Date.now() - lastProgress < 45_000 ? 1500 : false;
     },
   });
 

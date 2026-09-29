@@ -43,6 +43,7 @@ from app.intake.models import (
     IntakeRoutingRule,
     IntakeTask,
     IntakeTeam,
+    IntakeTeamMember,
 )
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -434,13 +435,22 @@ def _derive_subject(subject: str | None, description: str | None, type_label: st
     return (type_label or "").strip()[:200]
 
 
-def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
-                     department: str | None, complexity: str):
-    """The team that should own this request: the one whose expertise covers the
-    matter category, narrowed to the team that serves the request's department
-    when there's a match. Falls back to the complexity→tier heuristic when
-    nothing has expertise for the category (so orgs that haven't tagged teams
-    still get an owner)."""
+def _pick_owner_team_candidates(db: Session, *, org_id: str, category: str | None,
+                                department: str | None, complexity: str) -> list:
+    """Ordered candidate teams that could own this request: every team whose
+    expertise covers the matter category, with a team that also serves the
+    request's department sorted first when there's a match (department stays
+    a soft, non-exclusive signal — a category match with no department overlap
+    is still a valid candidate, just lower priority). Falls back to the
+    complexity→tier heuristic when nothing has expertise for the category (so
+    orgs that haven't tagged teams still get an owner).
+
+    Returns every matching candidate, not just the best one — a tie on
+    sort_order can otherwise pin the pick to a single-person, fully-loaded
+    team while an equally-valid team sits idle (see REQ-4037: the auto-pick
+    landed on a 1-member team at capacity while a 2-member team with the same
+    expertise had open slots). The caller tries each in order until one
+    actually has capacity."""
     from sqlalchemy import func, select as _select
     from app.intake.models import IntakeTeam
 
@@ -452,29 +462,33 @@ def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
 
     # 1. expertise: teams that own this matter category
     cands = [t for t in teams if category and category in (t.expertise or [])]
-    # 2. department: prefer a candidate team that serves the request's business
-    #    unit; if none does, department stays a soft signal (keep the matches).
-    if department:
-        dept = department.strip().lower()
-        dept_match = [t for t in cands
-                      if any((d or "").strip().lower() == dept for d in (t.departments or []))]
-        if dept_match:
-            cands = dept_match
     if cands:
-        return cands[0]  # sort_order wins; pick_from_pool balances members within
+        # 2. department: teams that also serve the request's business unit
+        #    sort first, but a category match is never dropped outright.
+        dept = (department or "").strip().lower()
+        if dept:
+            cands = sorted(
+                cands,
+                key=lambda t: 0 if any((d or "").strip().lower() == dept for d in (t.departments or [])) else 1,
+            )
+        return cands
 
     # 3. fallback: complexity → tier
     key = "tier1" if complexity == "simple" else "tier2"
-    return db.scalar(_select(IntakeTeam).where(
+    fallback = db.scalar(_select(IntakeTeam).where(
         IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True), func.lower(IntakeTeam.key) == key))
+    return [fallback] if fallback else []
 
 
 def _assign_owner_from_triage(db: Session, request: IntakeRequest) -> None:
     """Auto-assign the request owner from the triage read — replaces the keyword
     routing rules. Routes by matter-type EXPERTISE and business unit (with
-    complexity→tier as the fallback); pick_from_pool balances by load. Never
-    overrides a human decision or an existing assignee; best-effort — no eligible
-    pool means the request just waits in the queue."""
+    complexity→tier as the fallback); pick_from_pool balances by load. Tries
+    every candidate team in priority order before giving up, so one
+    fully-loaded team doesn't block an equally-valid team with open capacity.
+    Never overrides a human decision or an existing assignee; best-effort — no
+    eligible pool across any candidate means the request just waits in the
+    queue."""
     if request.triaged_by_user_id or request.triage_action or request.assigned_to_user_id:
         return
     from app.intake import teams as teams_mod
@@ -483,15 +497,15 @@ def _assign_owner_from_triage(db: Session, request: IntakeRequest) -> None:
     category = at.get("category")
     complexity = at.get("complexity") or "standard"
     department = request.department or (at.get("understanding") or {}).get("business_unit")
-    team = _pick_owner_team(db, org_id=request.org_id, category=category,
-                            department=department, complexity=complexity)
-    if not team:
-        return
-    pick = teams_mod.pick_from_pool(db, team_id=team.id)
-    if pick and pick.user_id:
-        request.assigned_to_user_id = pick.user_id
-        request.handoff_holder = "human"
-        request.handoff_user_id = pick.user_id
+    candidates = _pick_owner_team_candidates(db, org_id=request.org_id, category=category,
+                                             department=department, complexity=complexity)
+    for team in candidates:
+        pick = teams_mod.pick_from_pool(db, team_id=team.id)
+        if pick and pick.user_id:
+            request.assigned_to_user_id = pick.user_id
+            request.handoff_holder = "human"
+            request.handoff_user_id = pick.user_id
+            return
 
 
 def _maybe_autostart_workflow(db: Session, request: IntakeRequest, actor: User) -> None:
@@ -700,6 +714,106 @@ def _prefetch_serialize_dependencies(db: Session, rows: list[IntakeRequest]) -> 
         db.scalars(select(User).where(User.id.in_(user_ids))).all()
     if contract_ids:
         db.scalars(select(Contract).where(Contract.id.in_(contract_ids))).all()
+
+
+def _pool_scope_for_user(db: Session, user: User) -> tuple[set[str], set[str]] | None:
+    """None = no narrowing (show every unassigned request — today's
+    staff-wide default, used when the viewer isn't on any active team).
+    Otherwise ``(expertise, departments)`` — the union of matter categories
+    and business units every active team the user belongs to serves — except
+    a team with a BLANK departments list, which per the admin Teams UI's own
+    documented semantics ("Serves (business units) ... Blank = serves all")
+    means that team alone unlocks the unrestricted result."""
+    team_ids = db.scalars(
+        select(IntakeTeamMember.team_id).where(
+            IntakeTeamMember.user_id == user.id, IntakeTeamMember.active.is_(True),
+        )
+    ).all()
+    if not team_ids:
+        return None
+    teams = db.scalars(
+        select(IntakeTeam).where(IntakeTeam.id.in_(team_ids), IntakeTeam.active.is_(True))
+    ).all()
+    if not teams:
+        return None
+    expertise: set[str] = set()
+    depts: set[str] = set()
+    for t in teams:
+        if not t.departments:
+            return None  # "serves all"
+        depts.update((d or "").strip().lower() for d in t.departments if d)
+        expertise.update((e or "").strip().lower() for e in (t.expertise or []) if e)
+    return expertise, depts
+
+
+def _in_pool_scope(r: IntakeRequest, scope: tuple[set[str], set[str]] | None) -> bool:
+    """Shared by list_pool_requests (what shows) and claim_request (what you're
+    allowed to self-assign) so the two can never disagree."""
+    if scope is None:
+        return True
+    expertise, depts = scope
+    if r.department is None:
+        return True
+    if (r.department or "").strip().lower() in depts:
+        return True
+    category = ((r.ai_triage or {}).get("category") or "").strip().lower()
+    return bool(category) and category in expertise
+
+
+def list_pool_requests(db: Session, *, user: User) -> list[dict]:
+    """The role/team-scoped "All requests" queue: every open request visible
+    per role (`_accessible`) and, if the viewer belongs to a team with a
+    configured department list, narrowed to those departments — assigned and
+    unassigned alike (an assigned row just carries its `assigned_to_label`;
+    the frontend shows "Assign to me" only for the unassigned ones). A
+    request with no department set, or whose department doesn't match any
+    team but whose AI-triaged matter category is in one of the viewer's
+    teams' expertise, also stays visible — `department` is the requester's
+    own business unit (a free intake-form pick like "Enterprise Systems"),
+    a fundamentally different vocabulary from a team's "Serves" list, so a
+    request can't be attributed to any one team by department alone. This
+    mirrors the never-assign-to-nobody fallback in
+    workflows/service.py::_assign_step, and keeps this in parity with
+    `_pick_owner_team`, which already treats expertise as the primary signal
+    and department as a soft, non-exclusive narrowing."""
+    q = select(IntakeRequest).where(
+        _accessible(user),
+        IntakeRequest.status.in_(OPEN_STATUSES),
+    )
+    rows = db.scalars(q.order_by(IntakeRequest.submitted_at.desc())).all()
+    scope = _pool_scope_for_user(db, user)
+    rows = [r for r in rows if _in_pool_scope(r, scope)]
+    _prefetch_serialize_dependencies(db, rows)
+    return [serialize_request(db, r) for r in rows]
+
+
+def claim_request(db: Session, *, actor: User, request_id: str,
+                  http_request_id: str | None = None) -> dict:
+    """Self-assign an unclaimed pool request — the manual counterpart to the
+    auto-balancer's pick_from_pool, gated the same way as reassigning to
+    someone else (record_triage_action's "reassigned" branch), just always
+    targeting the actor."""
+    r = get_request(db, user=actor, request_id=request_id)
+    _require_staff(actor)
+    if r.status == "closed":
+        raise HTTPException(409, "Request is closed — file a follow-up")
+    if r.assigned_to_user_id:
+        raise HTTPException(409, "Already assigned — someone else claimed this first")
+    scope = _pool_scope_for_user(db, actor)
+    if not _in_pool_scope(r, scope):
+        raise HTTPException(403, "This request isn't in your team's pool")
+
+    record_handoff(db, actor=actor, request=r, to_holder="human", to_user_id=actor.id,
+                   reason="Self-assigned from pool")
+    r.triaged_by_user_id = actor.id
+    r.triaged_at = utcnow()
+    r.triage_action = "self_assigned"
+    write_audit_log(db, action="intake.assigned", resource_type="intake_request",
+                    resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                    request_id=http_request_id, after={"assignee": actor.id})
+    db.commit()
+    db.refresh(r)
+    return serialize_request(db, r)
 
 
 def get_request(db: Session, *, user: User, request_id: str) -> IntakeRequest:
@@ -939,7 +1053,16 @@ async def start_approval_ladder(db: Session, *, actor: User, request_id: str,
     )
     db.commit()
     db.refresh(r)
-    return {"request": serialize_request(db, r), "chain": _serialize_chain(db, requests)}
+    chain = _serialize_chain(db, requests)
+    if not chain:                                   # rerouted (or fast-laned)
+        from app.approval_chains import dispatch as chain_dispatch
+
+        inst = chain_dispatch.live_instance_for(
+            db, org_id=actor.org_id, module="intake_request", module_record_id=r.id
+        )
+        if inst is not None:
+            chain = chain_dispatch.intake_strip_rungs(db, instance=inst)
+    return {"request": serialize_request(db, r), "chain": chain}
 
 
 def override_gate(db: Session, *, actor: User, request_id: str, gate_key: str, action: str,
@@ -982,9 +1105,17 @@ def get_approval_chain(db: Session, *, actor: User, request_id: str) -> list[dic
     """The request's approval rungs. If a chain is live, its real rows (RAG). If
     not yet submitted, the PLANNED rungs (status 'planned') so the ladder is
     always visible — value/type routing rules + Tier-0 gates decide them."""
+    from app.approval_chains import dispatch as chain_dispatch
     from app.approvals.models import ApprovalRequest
 
     r = get_request(db, user=actor, request_id=request_id)
+
+    inst = chain_dispatch.live_instance_for(
+        db, org_id=actor.org_id, module="intake_request", module_record_id=r.id
+    )
+    if inst is not None:
+        return chain_dispatch.intake_strip_rungs(db, instance=inst)
+
     rows = db.scalars(
         select(ApprovalRequest)
         .where(
@@ -997,6 +1128,14 @@ def get_approval_chain(db: Session, *, actor: User, request_id: str) -> list[dic
         return _serialize_chain(db, rows)
     if r.status in ("closed", "approved"):
         return []
+    # New submissions no longer go through routing rules when an active chain
+    # definition exists (FR-22) — prefer the chain's planned-preview rungs so
+    # the strip doesn't advertise a routing-rule outcome that won't happen.
+    definition = chain_dispatch.active_definition_for(
+        db, org_id=actor.org_id, subject_kind="intake_request"
+    )
+    if definition is not None:
+        return chain_dispatch.intake_planned_rungs(db, org_id=actor.org_id, definition=definition)
     # Preview the planned ladder from the same planner submit uses.
     from app.approvals.service import plan_chain
     from app.intake.approval_bridge import build_intake_subject

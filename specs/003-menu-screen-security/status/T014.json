@@ -1,0 +1,1 @@
+{"task": "T014", "agent": "backend-dev", "status": "done", "detail": "Added require_screen_level(\"matters\", <level>) to all 14 tranche-1 mutating routes in backend/app/matters/routes.py (additive to existing require_permission). ruff clean; pytest -k 'matter or project' 5 passed; full suite 347 passed, 6 skipped (baseline unchanged).", "updated": "2026-09-14T11:45:00Z"}

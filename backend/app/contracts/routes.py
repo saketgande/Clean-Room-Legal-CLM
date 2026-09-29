@@ -13,6 +13,7 @@ from app.contracts.schemas import (
     ContractStageHistoryResponse,
     ContractUpdate,
     ContractUploadResponse,
+    CounterpartyOption,
     LifecycleOptionsResponse,
     LifecycleTransitionRequest,
     ReviewStatusResponse,
@@ -29,17 +30,23 @@ from app.contracts.service import (
     list_contract_parties,
     list_contract_stage_history,
     list_contracts_for_user,
+    list_counterparty_directory,
     list_signer_options,
     update_contract_metadata,
 )
 from app.core.config import settings
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/contracts", tags=["contracts"])
+
+_CONTRACTS_VIEW = require_screen_level("contracts", "VIEW")
+_CONTRACTS_ADD = require_screen_level("contracts", "ADD")
+_CONTRACTS_EDIT = require_screen_level("contracts", "EDIT")
+_CONTRACTS_DELETE = require_screen_level("contracts", "DELETE")
 
 
 @router.get("", response_model=list[ContractResponse])
@@ -52,6 +59,15 @@ def list_contracts(
     # Optional pagination; defaults preserve the historical "first 100, newest
     # first" behaviour so existing callers/tests see an unchanged list shape.
     return list_contracts_for_user(db, user=current_user, limit=limit, offset=offset)
+
+
+@router.get("/counterparties", response_model=list[CounterpartyOption])
+def counterparty_directory(
+    q: str | None = Query(default=None, max_length=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    return list_counterparty_directory(db, org_id=current_user.org_id, q=q)
 
 
 @router.post(
@@ -69,6 +85,7 @@ async def upload_contract(
     matter_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:create")),
+    _screen=Depends(_CONTRACTS_ADD),
 ):
     return await create_contract_from_upload(
         db,
@@ -213,6 +230,7 @@ async def compute_contract_risk_route(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
+    _screen=Depends(_CONTRACTS_VIEW),
 ):
     """Compute (or recompute) the weighted, explainable risk score from the
     contract's extracted clauses."""
@@ -234,6 +252,7 @@ def update_contract(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:update")),
+    _screen=Depends(_CONTRACTS_EDIT),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     return update_contract_metadata(
@@ -252,6 +271,7 @@ def transition_lifecycle(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:update")),
+    _screen=Depends(_CONTRACTS_EDIT),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     transition_contract_stage(
@@ -355,6 +375,7 @@ def add_party(
     payload: ContractPartyCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:update")),
+    _screen=Depends(_CONTRACTS_ADD),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     return add_contract_party(
@@ -373,6 +394,7 @@ def remove_party(
     party_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:update")),
+    _screen=Depends(_CONTRACTS_DELETE),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     delete_contract_party(db, contract=contract, party_id=party_id)

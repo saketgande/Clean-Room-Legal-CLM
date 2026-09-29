@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -7,10 +8,14 @@ from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.auth.service import authenticate_api_key, is_access_token_revoked
+from app.core import org_access
 from app.core.database import SessionLocal
 from app.core.enums import UserStatus
 from app.core.rbac import has_permission
 from app.core.security import decode_access_token
+
+if TYPE_CHECKING:
+    from app.core.screen_access import ResolvedScreenAccess
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -80,8 +85,11 @@ def get_current_user(
 
 
 def require_permission(permission: str):
-    def dependency(current_user: User = Depends(get_current_user)) -> User:
-        if not has_permission(current_user.permission_values, permission):
+    def dependency(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if not has_permission(org_access.effective_permission_values(db, user=current_user), permission):
             # Method 8: record the denial on the immutable audit chain (isolated
             # session, so it survives the 403's rolled-back request transaction).
             from app.core.authz import record_decision
@@ -94,5 +102,30 @@ def require_permission(permission: str):
             )
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"Missing permission: {permission}")
         return current_user
+
+    return dependency
+
+
+def require_screen_level(screen_code: str, min_level: str):
+    """FR-11's chokepoint: a route declares its required screen and minimum
+    action level directly in its signature. Thin wrapper — ``assert_screen_level``
+    already resolves (FR-6) and raises the 403 + FR-28 denial audit itself, so
+    this dependency neither re-resolves nor double-handles the error; it only
+    exposes the resolved access to the route via ``Depends(...)``.
+
+    The import is function-local to keep this module free of a new
+    module-level dependency on ``app.core.screen_access`` -> ``app.menu_security.models``,
+    mirroring how ``record_decision`` is already imported lazily above.
+    """
+
+    def dependency(
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> "ResolvedScreenAccess":
+        from app.core import screen_access
+
+        return screen_access.assert_screen_level(
+            db, user=current_user, screen_code=screen_code, min_level=min_level
+        )
 
     return dependency

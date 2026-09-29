@@ -1,0 +1,1 @@
+{"task": "T009", "agent": "frontend-dev", "status": "done", "detail": "aegis-rail.tsx: GROUPS/Item/can() deleted; renders menuApi.tree() via react-query recursively; svg()/isActive()/RAIL_CSS/class names preserved byte-identical; typecheck clean, vitest 4 files/31 tests passed", "updated": "2026-09-14T17:10:00Z"}

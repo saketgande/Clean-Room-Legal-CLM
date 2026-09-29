@@ -1,14 +1,18 @@
 """Workflow Router agent — reads an intake request and suggests which governance
 workflow (Workflow) it should ride, grounded on the org's live flow catalog.
 
-Suggest-only: it never starts a flow. A reviewer accepts the suggestion on the
-ticket (one click → flows/start). Two layers by design:
+Suggest-only itself: it never starts a flow — that's
+app.intake.service._maybe_autostart_workflow's call, gated on this module's
+own confidence score. A reviewer can also accept the suggestion manually on
+the ticket (one click → flows/start). Two layers by design:
 
-  * deterministic baseline — `select_flow`'s criteria match, always available and
-    used verbatim when mocks are on or the model fails, so there is always a
-    real suggestion and something to A/B the model against.
-  * live model — Claude picks the single best-fit flow from the catalog, with
-    reasoning + confidence, constrained to a real flow_id (can't invent one).
+  * deterministic baseline — `select_flow`'s criteria match, always available
+    and used verbatim when mocks are on or the model call fails, so there is
+    always a real suggestion and something to A/B the model against.
+  * Claude — the model layer, grounded against the same catalog (including
+    each flow's free-text `criteria.ai_condition`, if set) and never trusted
+    blindly: a returned flow id that isn't one of the real candidates is
+    discarded rather than acted on.
 
 Litigation-specific extraction is a later specialization layered on top of this
 generic router (see the plan); this module ships the generic capability.
@@ -55,7 +59,7 @@ def _baseline(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict:
     if flow is None:
         return {"flow_id": None, "flow_name": None, "confidence": 0.0,
                 "reasoning": "No workflow criteria matched this request.",
-                "alternatives": [], "needs_human": True, "source": "deterministic"}
+                "alternatives": [], "needs_human": True, "source": "deterministic", "steps": []}
     entry = next((c for c in catalog if c["id"] == flow.id), None)
     catch_all = entry["is_catch_all"] if entry else not (flow.criteria or {})
     conf = 0.45 if catch_all else 0.72
@@ -63,7 +67,7 @@ def _baseline(db: Session, request: IntakeRequest, catalog: list[dict]) -> dict:
            if catch_all else f"Matched by rule {flow.criteria}.")
     return {"flow_id": flow.id, "flow_name": flow.name, "confidence": conf,
             "reasoning": why, "alternatives": [], "needs_human": conf < _CONFIDENT,
-            "source": "deterministic"}
+            "source": "deterministic", "steps": entry["steps"] if entry else []}
 
 
 _SCHEMA = {
@@ -87,8 +91,12 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
     lines = ["WORKFLOW CATALOG (choose exactly one id, or null):"]
     for c in catalog:
         crit = "any request" if c["is_catch_all"] else str(c["criteria"])
+        condition = (c["criteria"] or {}).get("ai_condition")
         steps = " → ".join(c["steps"][:4]) or "—"
-        lines.append(f"- id={c['id']} · {c['name']}\n    when: {crit}\n    steps: {steps}\n    {c['description']}")
+        entry = f"- id={c['id']} · {c['name']}\n    when: {crit}\n    steps: {steps}\n    {c['description']}"
+        if condition:
+            entry += f"\n    AI condition (weigh this heavily): {condition}"
+        lines.append(entry)
     fv = request.field_values or {}
     field_txt = "\n".join(f"  {k}: {v}" for k, v in fv.items() if not str(k).startswith("_")) or "  (none)"
     lines += [
@@ -109,9 +117,10 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
     if not catalog:
         return {"flow_id": None, "flow_name": None, "confidence": 0.0,
                 "reasoning": "No workflows are configured yet.", "alternatives": [],
-                "needs_human": True, "source": "deterministic"}
+                "needs_human": True, "source": "deterministic", "steps": []}
 
     baseline = _baseline(db, request, catalog)
+
     if settings.mock_claude:
         return baseline
 
@@ -121,6 +130,7 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
 
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
+    steps_by_id = {c["id"]: c["steps"] for c in catalog}
     bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
     user_prompt = _prompt_for(request, catalog)
     try:
@@ -155,6 +165,7 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
             "alternatives": alts[:3],
             "needs_human": bool(data.get("needs_human")) or fid is None or conf < _CONFIDENT,
             "source": "llm",
+            "steps": steps_by_id.get(fid, []),
         }
     except Exception:
         logger.warning("flow-router model call failed for %s", request.id, exc_info=True)

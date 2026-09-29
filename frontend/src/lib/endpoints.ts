@@ -23,6 +23,8 @@ import type {
   ContractParty,
   ContractResponse,
   ContractRiskSummary,
+  CounterpartyOption,
+  CounterpartyState,
   ExternalComment,
   Workflow,
   WorkflowRun,
@@ -114,6 +116,30 @@ import type {
   IngestResponse,
   IntegrationStatusResponse,
   IntegrationTestResponse,
+  OrgUnitResponse,
+  OrgUnitDeleteResponse,
+  RoleGrantResponse,
+  DelegationResponse,
+  DelegationEligibilityEntry,
+  MenuTreeResponse,
+  MyScreenAccessResponse,
+  ActionLevelResponse,
+  ScreenResponse,
+  ScreenGrantResponse,
+  ScreenGrantCreate,
+  ScreenGrantUpdate,
+  ConditionFieldCatalogResponse,
+  ConditionExpression,
+  ChainDefinitionResponse,
+  ChainStepResponse,
+  ChainStepRuleResponse,
+  ChainInstanceSummary,
+  ChainInstanceDetailResponse,
+  ChainBlockedResponse,
+  ChainHistoryEntry,
+  ChainInstanceStatus,
+  ChainApprovalMode,
+  ChainStepType,
 } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
@@ -210,6 +236,7 @@ export const rolesApi = {
       name?: string;
       description?: string | null;
       permissions?: string[];
+      allows_hierarchy_rollup?: boolean;
     },
   ) => apiFetch<RoleResponse>(`/roles/${id}`, { method: "PATCH", body: payload }),
   remove: (id: string) =>
@@ -274,6 +301,223 @@ export const wallsApi = {
   ) => apiFetch<WallResponse>(`/ethical-walls/${id}`, { method: "PATCH", body: payload }),
   remove: (id: string) =>
     apiFetch<void>(`/ethical-walls/${id}`, { method: "DELETE" }),
+};
+
+// ---- Org units (org-unit hierarchy tree, admin-gated CRUD) ---------------
+export const orgUnitsApi = {
+  list: (params?: { include_deleted?: boolean }) =>
+    apiFetch<OrgUnitResponse[]>(`/org-units${qs(params ?? {})}`),
+  create: (payload: { name: string; parent_id: string | null }) =>
+    apiFetch<OrgUnitResponse>("/org-units", { method: "POST", body: payload }),
+  update: (
+    id: string,
+    payload: { name?: string; parent_id?: string | null },
+  ) => apiFetch<OrgUnitResponse>(`/org-units/${id}`, { method: "PATCH", body: payload }),
+  remove: (id: string) =>
+    apiFetch<OrgUnitDeleteResponse>(`/org-units/${id}`, { method: "DELETE" }),
+};
+
+// ---- Role grants (scoped role assignment at an org unit) ------------------
+export const roleGrantsApi = {
+  list: (params?: { user_id?: string; org_unit_id?: string; include_revoked?: boolean }) =>
+    apiFetch<RoleGrantResponse[]>(`/role-grants${qs(params ?? {})}`),
+  create: (payload: {
+    user_id: string;
+    role_id: string;
+    org_unit_id: string;
+    valid_from?: string | null;
+    valid_to?: string | null;
+  }) => apiFetch<RoleGrantResponse>("/role-grants", { method: "POST", body: payload }),
+  revoke: (id: string) =>
+    apiFetch<void>(`/role-grants/${id}`, { method: "DELETE" }),
+};
+
+// ---- Delegations (self-service temporary access hand-off) -----------------
+export const delegationsApi = {
+  list: (direction: "mine" | "received" | "all" = "mine") =>
+    apiFetch<DelegationResponse[]>(`/delegations${qs({ direction })}`),
+  eligibility: (delegatorUserId?: string) =>
+    apiFetch<DelegationEligibilityEntry[]>(
+      `/delegations/eligibility${qs({ delegator_user_id: delegatorUserId })}`,
+    ),
+  create: (payload: {
+    delegator_user_id?: string | null;
+    delegate_user_id: string;
+    role_id?: string | null;
+    org_unit_id?: string | null;
+    start_date: string;
+    end_date: string;
+  }) => apiFetch<DelegationResponse>("/delegations", { method: "POST", body: payload }),
+  revoke: (id: string) =>
+    apiFetch<DelegationResponse>(`/delegations/${id}/revoke`, { method: "POST" }),
+};
+
+// ---- Menu (dynamic nav tree + own resolved screen access) -----------------
+export const menuApi = {
+  tree: (params?: { org_unit_id?: string }) =>
+    apiFetch<MenuTreeResponse>(`/menu-tree${qs(params ?? {})}`),
+  myScreenAccess: (params?: { screen_code?: string; org_unit_id?: string }) =>
+    apiFetch<MyScreenAccessResponse>(`/screen-access/me${qs(params ?? {})}`),
+  actionLevels: () => apiFetch<ActionLevelResponse[]>("/action-levels"),
+};
+
+// ---- Screens (read-only structural catalog) --------------------------------
+export const screensApi = {
+  list: (params?: { module?: string }) =>
+    apiFetch<ScreenResponse[]>(`/screens${qs(params ?? {})}`),
+};
+
+// ---- Screen access grants (admin: role -> screen -> action-level) ---------
+export const screenAccessApi = {
+  grants: (params?: {
+    role_id?: string;
+    screen_id?: string;
+    org_unit_id?: string;
+    include_revoked?: boolean;
+  }) => apiFetch<ScreenGrantResponse[]>(`/screen-access/grants${qs(params ?? {})}`),
+  createGrant: (payload: ScreenGrantCreate) =>
+    apiFetch<ScreenGrantResponse>("/screen-access/grants", {
+      method: "POST",
+      body: payload,
+    }),
+  updateGrant: (id: string, payload: ScreenGrantUpdate) =>
+    apiFetch<ScreenGrantResponse>(`/screen-access/grants/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  revokeGrant: (id: string) =>
+    apiFetch<void>(`/screen-access/grants/${id}`, { method: "DELETE" }),
+};
+
+// ---- Approval chains (condition-driven, materialized approval chains) -----
+export const approvalChainsApi = {
+  fields: (module?: string) =>
+    apiFetch<ConditionFieldCatalogResponse>(`/approval-chains/fields${qs({ module })}`),
+  definitions: (params?: { module?: string; include_inactive?: boolean }) =>
+    apiFetch<ChainDefinitionResponse[]>(`/approval-chains/definitions${qs(params ?? {})}`),
+  createDefinition: (payload: { name: string; module: string; version?: number; is_active?: boolean }) =>
+    apiFetch<ChainDefinitionResponse>("/approval-chains/definitions", {
+      method: "POST",
+      body: payload,
+    }),
+  updateDefinition: (id: string, payload: { name?: string; is_active?: boolean }) =>
+    apiFetch<ChainDefinitionResponse>(`/approval-chains/definitions/${id}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  deleteDefinition: (id: string) =>
+    apiFetch<void>(`/approval-chains/definitions/${id}`, { method: "DELETE" }),
+  // No dedicated GET-by-id exists for a single definition (plan.md's contract
+  // only has GET /approval-chains/definitions returning the full list with
+  // nested steps) — derive from the list, matching by id.
+  steps: (definitionId: string) =>
+    apiFetch<ChainDefinitionResponse[]>(
+      `/approval-chains/definitions${qs({ include_inactive: true })}`,
+    ).then((defs) => defs.find((d) => d.id === definitionId)?.steps ?? []),
+  createStep: (
+    definitionId: string,
+    payload: {
+      step_key: string;
+      name: string;
+      sequence_order: number;
+      step_type?: ChainStepType;
+      approval_mode?: ChainApprovalMode;
+    },
+  ) =>
+    apiFetch<ChainStepResponse>(`/approval-chains/definitions/${definitionId}/steps`, {
+      method: "POST",
+      body: payload,
+    }),
+  updateStep: (
+    stepId: string,
+    payload: { name?: string; sequence_order?: number; approval_mode?: ChainApprovalMode },
+  ) =>
+    apiFetch<ChainStepResponse>(`/approval-chains/steps/${stepId}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  deleteStep: (stepId: string) =>
+    apiFetch<void>(`/approval-chains/steps/${stepId}`, { method: "DELETE" }),
+  // Likewise, rules are only ever returned nested under a step inside a
+  // definition's step list — derive from the definitions list.
+  rules: (stepId: string) =>
+    apiFetch<ChainDefinitionResponse[]>(
+      `/approval-chains/definitions${qs({ include_inactive: true })}`,
+    ).then((defs) => {
+      for (const def of defs) {
+        const step = def.steps.find((s) => s.id === stepId);
+        if (step) return step.rules;
+      }
+      return [];
+    }),
+  createRule: (
+    stepId: string,
+    payload: {
+      is_base_requirement: boolean;
+      condition_expression: ConditionExpression | null;
+      required_role_id: string;
+      sequence_order?: number;
+      description?: string | null;
+      is_active?: boolean;
+    },
+  ) =>
+    apiFetch<ChainStepRuleResponse>(`/approval-chains/steps/${stepId}/rules`, {
+      method: "POST",
+      body: payload,
+    }),
+  updateRule: (
+    ruleId: string,
+    payload: Partial<{
+      condition_expression: ConditionExpression | null;
+      required_role_id: string;
+      sequence_order: number;
+      description: string | null;
+      is_active: boolean;
+    }>,
+  ) =>
+    apiFetch<ChainStepRuleResponse>(`/approval-chains/rules/${ruleId}`, {
+      method: "PATCH",
+      body: payload,
+    }),
+  deleteRule: (ruleId: string) =>
+    apiFetch<void>(`/approval-chains/rules/${ruleId}`, { method: "DELETE" }),
+  createInstance: (payload: {
+    definition_id: string;
+    module: string;
+    module_record_id: string;
+    org_unit_id?: string | null;
+  }) =>
+    apiFetch<ChainInstanceDetailResponse>("/approval-chains/instances", {
+      method: "POST",
+      body: payload,
+    }),
+  instances: (params?: {
+    module?: string;
+    module_record_id?: string;
+    status?: ChainInstanceStatus;
+    limit?: number;
+    offset?: number;
+  }) => apiFetch<ChainInstanceSummary[]>(`/approval-chains/instances${qs(params ?? {})}`),
+  instance: (id: string) =>
+    apiFetch<ChainInstanceDetailResponse>(`/approval-chains/instances/${id}`),
+  decide: (
+    instanceId: string,
+    requirementId: string,
+    payload: { decision: "approve" | "reject"; comment?: string | null },
+  ) =>
+    apiFetch<ChainInstanceDetailResponse>(
+      `/approval-chains/instances/${instanceId}/requirements/${requirementId}/decision`,
+      { method: "POST", body: payload },
+    ),
+  recalculate: (instanceId: string, payload: { reason?: string | null }) =>
+    apiFetch<ChainInstanceDetailResponse>(
+      `/approval-chains/instances/${instanceId}/recalculate`,
+      { method: "POST", body: payload },
+    ),
+  history: (id: string) =>
+    apiFetch<ChainHistoryEntry[]>(`/approval-chains/instances/${id}/history`),
+  blocked: (id: string) =>
+    apiFetch<ChainBlockedResponse>(`/approval-chains/instances/${id}/blocked`),
 };
 
 export const usersApi = {
@@ -460,6 +704,9 @@ export const contractsApi = {
       method: "POST",
       body: { team_id, ...(message ? { message } : {}) },
     }),
+  parties: (id: string) => apiFetch<ContractParty[]>(`/contracts/${id}/parties`),
+  counterpartyDirectory: (q?: string) =>
+    apiFetch<CounterpartyOption[]>(`/contracts/counterparties${q ? `?q=${encodeURIComponent(q)}` : ""}`),
   addParty: (
     id: string,
     payload: { name: string; contact_email?: string; party_type?: string },
@@ -706,6 +953,16 @@ export const workflowsApi = {
     }),
   refreshRun: (run_id: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/refresh`, { method: "POST", body: {} }),
+  counterparty: (run_id: string) =>
+    apiFetch<CounterpartyState>(`/workflows/runs/${run_id}/counterparty`),
+  sendToCounterparty: (
+    run_id: string,
+    payload: { recipient_email: string; recipient_name?: string; message?: string },
+  ) =>
+    apiFetch<CounterpartyState>(`/workflows/runs/${run_id}/counterparty/send`, {
+      method: "POST",
+      body: payload,
+    }),
   returnStep: (run_id: string, to_idx?: number, note?: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/return`, { method: "POST", body: { ...(to_idx != null ? { to_idx } : {}), ...(note ? { note } : {}) } }),
   comment: (run_id: string, text: string, idx?: number) =>
@@ -1166,6 +1423,12 @@ export const externalShareApi = {
       body: payload,
       noRetry: true,
     }),
+  submit: (token: string, passcode?: string) =>
+    apiFetch<{ submitted: boolean }>(`/external-shares/${token}/submit${shareQs(passcode)}`, {
+      method: "POST",
+      body: {},
+      noRetry: true,
+    }),
 };
 
 // ---- Legal Intake ---------------------------------------------------------
@@ -1188,6 +1451,7 @@ export const intakeApi = {
   list: (statusFilter?: string) =>
     apiFetch<IntakeRequest[]>(`/intake/requests${intakeQs({ status_filter: statusFilter })}`),
   mine: () => apiFetch<IntakeRequest[]>("/intake/requests/mine"),
+  pool: () => apiFetch<IntakeRequest[]>("/intake/requests/pool"),
   get: (id: string) => apiFetch<IntakeRequest>(`/intake/requests/${id}`),
   create: (payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>("/intake/requests", { method: "POST", body: payload }),
@@ -1195,6 +1459,8 @@ export const intakeApi = {
     apiFetch<IntakeRequest>(`/intake/requests/${id}`, { method: "PATCH", body: payload }),
   triage: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/triage`, { method: "POST", body: payload }),
+  assignToMe: (id: string) =>
+    apiFetch<IntakeRequest>(`/intake/requests/${id}/assign-to-me`, { method: "POST" }),
   suggestFlow: (id: string) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/suggest-flow`, { method: "POST" }),
 

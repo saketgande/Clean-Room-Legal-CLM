@@ -22,9 +22,14 @@ import {
   TR,
 } from "@/components/ui";
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { useScreenAccess } from "@/lib/screen-access";
 
 export default function TrademarksPage() {
   const [query, setQuery] = useState("");
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD request (FR-10/FR-13); this is a usability aid, not the
+  // security boundary.
+  const { canAdd } = useScreenAccess("trademarks");
 
   const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ["trademarks", "dashboard"],
@@ -46,14 +51,26 @@ export default function TrademarksPage() {
         description="Portfolio overview, intake, and renewal tracking for your trademark filings."
         actions={
           <>
-            <Link href="/trademarks/extract">
-              <Button variant="outline">
+            <Link
+              href="/trademarks/extract"
+              aria-disabled={!canAdd}
+              onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+            >
+              <Button
+                variant="outline"
+                disabled={!canAdd}
+                title={canAdd ? undefined : "You don't have add access to this screen"}
+              >
                 <ScanLine className="h-4 w-4" />
                 Extract from document
               </Button>
             </Link>
-            <Link href="/trademarks/intake">
-              <Button>
+            <Link
+              href="/trademarks/intake"
+              aria-disabled={!canAdd}
+              onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+            >
+              <Button disabled={!canAdd} title={canAdd ? undefined : "You don't have add access to this screen"}>
                 <Plus className="h-4 w-4" />
                 New intake
               </Button>
@@ -107,8 +124,16 @@ export default function TrademarksPage() {
               title="No trademarks yet"
               description="Start a new intake or extract records from a filed document to populate your portfolio."
               action={
-                <Link href="/trademarks/intake">
-                  <Button size="sm">
+                <Link
+                  href="/trademarks/intake"
+                  aria-disabled={!canAdd}
+                  onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+                >
+                  <Button
+                    size="sm"
+                    disabled={!canAdd}
+                    title={canAdd ? undefined : "You don't have add access to this screen"}
+                  >
                     <Plus className="h-4 w-4" />
                     New intake
                   </Button>

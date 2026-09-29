@@ -995,3 +995,307 @@ def send_notice_reminders() -> dict:
         return notices_service.run_reminders(db)
     finally:
         db.close()
+
+
+@celery_app.task(
+    autoretry_for=TRANSIENT_ERRORS,
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)
+def notify_workflow_step_team(step_run_id: str) -> dict:
+    """Email every active member of a workflow step's assigned team once the
+    step reaches them (dispatched from ``_assign_step`` in
+    app.workflows.service). One recipient's send failing must not block the
+    others' — a per-recipient try/except, matching the notify-sweep pattern
+    used by ``mark_overdue_approvals`` above. ``autoretry_for`` above handles
+    a transient SendGrid/network fault by retrying the whole task."""
+    return asyncio.run(_notify_workflow_step_team(step_run_id))
+
+
+async def _notify_workflow_step_team(step_run_id: str) -> dict:
+    from app.auth.models import User
+    from app.core.config import settings
+    from app.intake.models import IntakeRequest, IntakeTeam, IntakeTeamMember
+    from app.integrations.sendgrid import sendgrid_client
+    from app.notifications.models import Notification
+    from app.workflows.models import WorkflowRun, WorkflowStepRun
+
+    db = SessionLocal()
+    try:
+        sr = db.get(WorkflowStepRun, step_run_id)
+        if sr is None or not sr.team_id:
+            return {"step_run_id": step_run_id, "sent": 0, "reason": "no_team"}
+
+        run = db.get(WorkflowRun, sr.flow_run_id)
+        team = db.get(IntakeTeam, sr.team_id)
+        req = db.get(IntakeRequest, run.request_id) if run else None
+
+        members = db.scalars(
+            select(IntakeTeamMember).where(
+                IntakeTeamMember.team_id == sr.team_id,
+                IntakeTeamMember.active.is_(True),
+            )
+        ).all()
+
+        title = "a request"
+        if req is not None:
+            title = req.subject or (req.description.splitlines()[0] if req.description else None) or title
+        flow_name = run.flow_name if run else "workflow"
+        # No dedicated per-request route exists in the frontend today (the
+        # intake page is a single client-rendered list/detail view, not
+        # addressable by request id) — link to the intake dashboard rather
+        # than fabricate a URL that would 404.
+        link = f"{settings.app_base_url.rstrip('/')}/intake"
+        subject = f"[{flow_name}] {sr.step_name} needs attention on \"{title}\""
+        team_label = team.name if team else "your team"
+
+        sent = failed = 0
+        for member in members:
+            user = db.get(User, member.user_id)
+            if user is None or not user.email:
+                continue
+            body = (
+                f"<p>The <strong>{sr.step_name}</strong> step of the "
+                f"<strong>{flow_name}</strong> workflow for \"{title}\" now needs "
+                f"{team_label}'s attention.</p>"
+                f"<p><a href=\"{link}\">View the request</a></p>"
+            )
+            try:
+                result = await sendgrid_client.send_email(to=user.email, subject=subject, html=body)
+                db.add(
+                    Notification(
+                        org_id=sr.org_id,
+                        user_id=user.id,
+                        channel="email",
+                        event_type="workflow.step_assigned",
+                        subject=subject,
+                        body=body,
+                        status=result.status if result.status != "mocked" else "sent",
+                        provider_message_id=result.provider_message_id,
+                    )
+                )
+                sent += 1
+            except Exception as exc:  # a single recipient's failure must not block the rest
+                logger.warning(
+                    "sendgrid notify failed for user %s (step_run %s): %s", user.id, step_run_id, exc
+                )
+                db.add(
+                    Notification(
+                        org_id=sr.org_id,
+                        user_id=user.id,
+                        channel="email",
+                        event_type="workflow.step_assigned",
+                        subject=subject,
+                        body=body,
+                        status="failed",
+                        error_message=str(exc)[:2000],
+                    )
+                )
+                failed += 1
+        db.commit()
+        return {"step_run_id": step_run_id, "sent": sent, "failed": failed}
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    autoretry_for=TRANSIENT_ERRORS,
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)
+def notify_approval_chain_step_holders(instance_id: str, step_id: str) -> dict:
+    """Email every user eligible to act on a freshly-materialized approval-
+    chain step (dispatched from ``app.approval_chains.service.
+    _materialize_step``, itself only ever reached via chain creation or
+    ``_advance_step`` — never re-entrant, so no idempotency guard is needed
+    here, unlike ``notify_workflow_step_team``). One recipient's failure
+    must not block the others."""
+    return asyncio.run(_notify_approval_chain_step_holders(instance_id, step_id))
+
+
+async def _notify_approval_chain_step_holders(instance_id: str, step_id: str) -> dict:
+    from app.approval_chains import subjects
+    from app.approval_chains.models import (
+        ApprovalChainInstance,
+        ApprovalChainRequirement,
+        ApprovalChainStep,
+    )
+    from app.auth.models import User
+    from app.core import org_access
+    from app.core.config import settings
+    from app.integrations.sendgrid import sendgrid_client
+    from app.notifications.models import Notification
+
+    db = SessionLocal()
+    try:
+        instance = db.get(ApprovalChainInstance, instance_id)
+        step = db.get(ApprovalChainStep, step_id)
+        if instance is None or step is None:
+            return {"instance_id": instance_id, "step_id": step_id, "sent": 0, "reason": "not_found"}
+
+        requirements = db.scalars(
+            select(ApprovalChainRequirement).where(
+                ApprovalChainRequirement.instance_id == instance_id,
+                ApprovalChainRequirement.step_id == step_id,
+            )
+        ).all()
+
+        # A person eligible via two required roles on the same step gets one
+        # email, not two — union the holders across every requirement.
+        recipient_ids: set[str] = set()
+        for req in requirements:
+            holders = org_access.users_holding_role(
+                db, org_id=instance.org_id, role_id=req.required_role_id, org_unit_id=instance.org_unit_id,
+            )
+            recipient_ids.update(h.user_id for h in holders)
+
+        try:
+            subject_obj = subjects.resolve_subject(
+                db, module=instance.module, record_id=instance.module_record_id, org_id=instance.org_id,
+            )
+            title = subject_obj.title
+        except Exception:
+            title = "a record"
+
+        link = f"{settings.app_base_url.rstrip('/')}/approvals"
+        subject = f"[{step.name}] approval needed on \"{title}\""
+
+        sent = failed = 0
+        for user_id in recipient_ids:
+            user = db.get(User, user_id)
+            if user is None or not user.email:
+                continue
+            body = (
+                f"<p>The <strong>{step.name}</strong> step of the approval chain for "
+                f"\"{title}\" now needs your decision.</p>"
+                f"<p><a href=\"{link}\">Go to Approvals</a></p>"
+            )
+            try:
+                result = await sendgrid_client.send_email(to=user.email, subject=subject, html=body)
+                db.add(
+                    Notification(
+                        org_id=instance.org_id,
+                        user_id=user.id,
+                        channel="email",
+                        event_type="approval_chain.step_assigned",
+                        subject=subject,
+                        body=body,
+                        status=result.status if result.status != "mocked" else "sent",
+                        provider_message_id=result.provider_message_id,
+                    )
+                )
+                sent += 1
+            except Exception as exc:
+                logger.warning(
+                    "sendgrid notify failed for user %s (chain step %s/%s): %s",
+                    user.id, instance_id, step_id, exc,
+                )
+                db.add(
+                    Notification(
+                        org_id=instance.org_id,
+                        user_id=user.id,
+                        channel="email",
+                        event_type="approval_chain.step_assigned",
+                        subject=subject,
+                        body=body,
+                        status="failed",
+                        error_message=str(exc)[:2000],
+                    )
+                )
+                failed += 1
+        db.commit()
+        return {"instance_id": instance_id, "step_id": step_id, "sent": sent, "failed": failed}
+    finally:
+        db.close()
+
+
+@celery_app.task(
+    autoretry_for=TRANSIENT_ERRORS,
+    retry_backoff=True,
+    retry_kwargs={"max_retries": 3},
+)
+def notify_counterparty_submitted(step_run_id: str) -> dict:
+    """Tell whoever owns a counterparty step (assignee + active team members,
+    falling back to the request's owner) that the counterparty submitted their
+    comments and a decision is needed. Dispatched from
+    ``app.workflows.counterparty.submit_share``."""
+    return asyncio.run(_notify_counterparty_submitted(step_run_id))
+
+
+async def _notify_counterparty_submitted(step_run_id: str) -> dict:
+    from app.auth.models import User
+    from app.contracts.comments_service import list_shared_comments
+    from app.contracts.models import Contract
+    from app.core.config import settings
+    from app.intake.models import IntakeRequest, IntakeTeamMember
+    from app.integrations.sendgrid import sendgrid_client
+    from app.notifications.models import Notification
+    from app.workflows.models import WorkflowRun, WorkflowStepRun
+
+    db = SessionLocal()
+    try:
+        sr = db.get(WorkflowStepRun, step_run_id)
+        run = db.get(WorkflowRun, sr.flow_run_id) if sr else None
+        if sr is None or run is None:
+            return {"step_run_id": step_run_id, "sent": 0, "reason": "not_found"}
+        contract = db.get(Contract, run.contract_id) if run.contract_id else None
+        req = db.get(IntakeRequest, run.request_id)
+
+        recipient_ids: set[str] = set()
+        if sr.assignee_user_id:
+            recipient_ids.add(sr.assignee_user_id)
+        if sr.team_id:
+            recipient_ids.update(
+                db.scalars(
+                    select(IntakeTeamMember.user_id).where(
+                        IntakeTeamMember.team_id == sr.team_id,
+                        IntakeTeamMember.active.is_(True),
+                    )
+                ).all()
+            )
+        if not recipient_ids and req is not None:
+            fallback = req.assigned_to_user_id or (contract.owner_user_id if contract else None)
+            if fallback:
+                recipient_ids.add(fallback)
+
+        title = (contract.title if contract else None) or "the contract"
+        n_comments = 0
+        if contract is not None:
+            n_comments = sum(1 for c in list_shared_comments(db, contract=contract) if c["author_kind"] == "counterparty")
+        link = f"{settings.app_base_url.rstrip('/')}/intake" + (f"?open={run.request_id}" if run.request_id else "")
+        subject = f"Counterparty submitted their comments on \"{title}\""
+        sent = failed = 0
+        for uid in recipient_ids:
+            user = db.get(User, uid)
+            if user is None or not user.email:
+                continue
+            body = (
+                f"<p>The counterparty has submitted their review of <strong>{title}</strong> "
+                f"({n_comments} comment{'s' if n_comments != 1 else ''}). The link is now expired.</p>"
+                f'<p><a href="{link}">Review the comments and decide</a></p>'
+            )
+            try:
+                result = await sendgrid_client.send_email(to=user.email, subject=subject, html=body)
+                status_ = result.status if result.status != "mocked" else "sent"
+                err = None
+                sent += 1
+            except Exception as exc:
+                logger.warning("counterparty-submitted notify failed for %s: %s", uid, exc)
+                result, status_, err = None, "failed", str(exc)[:2000]
+                failed += 1
+            db.add(Notification(
+                org_id=sr.org_id, user_id=uid, channel="email",
+                event_type="workflow.counterparty_submitted", subject=subject, body=body,
+                status=status_, provider_message_id=result.provider_message_id if result else None,
+                error_message=err,
+            ))
+            # Also surface it in-app so it shows in the reviewer's notifications.
+            db.add(Notification(
+                org_id=sr.org_id, user_id=uid, channel="in_app",
+                event_type="workflow.counterparty_submitted", subject=subject,
+                body=f"{n_comments} comment(s) — review and decide.", status="sent",
+            ))
+        db.commit()
+        return {"step_run_id": step_run_id, "sent": sent, "failed": failed}
+    finally:
+        db.close()

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.notices import service
 from app.notices.schemas import (
     NoticeCreate,
@@ -22,6 +22,10 @@ _READ = require_permission("notice:read")
 _CREATE = require_permission("notice:create")
 _UPDATE = require_permission("notice:update")
 _DELETE = require_permission("admin_panel:access")  # deleting destroys the trail
+
+_NOTICES_ADD = require_screen_level("notices", "ADD")
+_NOTICES_EDIT = require_screen_level("notices", "EDIT")
+_NOTICES_DELETE = require_screen_level("notices", "DELETE")
 
 
 @router.get("", response_model=list[NoticeResponse])
@@ -55,7 +59,11 @@ def notice_summary(db: Session = Depends(get_db), current_user=Depends(_READ)):
 
 
 @router.post("/run-reminders")
-def run_reminders(db: Session = Depends(get_db), current_user=Depends(_UPDATE)):
+def run_reminders(
+    db: Session = Depends(get_db),
+    current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_EDIT),
+):
     """Chase this org's notices that are near or past their deadline, now.
     Scoped to the caller's org; the nightly Celery sweep does every org."""
     return service.run_reminders(db, org_id=current_user.org_id)
@@ -66,6 +74,7 @@ def create_notice(
     payload: NoticeCreate,
     db: Session = Depends(get_db),
     current_user=Depends(_CREATE),
+    _screen=Depends(_NOTICES_ADD),
 ):
     return service.create_notice(db, actor=current_user, payload=payload)
 
@@ -75,6 +84,7 @@ async def extract_from_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user=Depends(_CREATE),
+    _screen=Depends(_NOTICES_ADD),
 ):
     """Read an uploaded notice and propose register fields. Creates nothing —
     the filer reviews the suggestions in the New Notice form and saves there."""
@@ -104,6 +114,7 @@ def update_notice(
     payload: NoticeUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_EDIT),
 ):
     return service.update_notice(db, actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -114,6 +125,7 @@ def set_status(
     payload: NoticeStatusUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_EDIT),
 ):
     return service.set_status(db, actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -123,6 +135,7 @@ def draft_response(
     notice_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_EDIT),
 ):
     """Draft a reply from the notice and its attachments. Stored on the notice
     for a lawyer to edit — nothing is sent."""
@@ -135,6 +148,7 @@ def escalate(
     payload: NoticeEscalate,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_EDIT),
 ):
     """Open a linked intake ticket for this notice, which carries routing, SLA
     and the approval ladder."""
@@ -147,6 +161,7 @@ def add_note(
     payload: NoticeNoteCreate,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_ADD),
 ):
     return service.add_note(db, actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -157,6 +172,7 @@ async def add_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_ADD),
 ):
     content = await file.read()
     return service.add_document(
@@ -173,6 +189,7 @@ def delete_document(
     document_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_NOTICES_DELETE),
 ):
     return service.delete_document(
         db, actor=current_user, notice_id=notice_id, document_id=document_id
@@ -184,6 +201,7 @@ def delete_notice(
     notice_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(_DELETE),
+    _screen=Depends(_NOTICES_DELETE),
 ):
     service.delete_notice(db, actor=current_user, notice_id=notice_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

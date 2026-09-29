@@ -167,6 +167,10 @@ class ContractShare(
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     download_allowed = Column(Boolean, nullable=False, default=False)
+    # Set when this link was issued by a workflow "counterparty" step; lets the
+    # public Submit call find the step, and lets the reviewer see its state.
+    workflow_step_run_id = Column(String(36), index=True, nullable=True)
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class ContractEmbedding(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

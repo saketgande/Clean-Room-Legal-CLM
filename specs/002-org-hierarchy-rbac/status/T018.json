@@ -1,0 +1,1 @@
+{"task": "T018", "agent": "frontend-dev", "status": "done", "detail": "types.ts RoleResponse.allows_hierarchy_rollup changed from optional to required boolean per plan.md frozen contract and backend schemas.py; no other code constructs a RoleResponse-shaped object literal so no fixups needed. typecheck clean, vitest 3 files/20 tests passed.", "updated": "2026-09-13T15:59:00Z"}

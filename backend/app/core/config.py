@@ -177,6 +177,17 @@ class Settings(BaseSettings):
     resend_from_email: str = "legal-clm@example.com"
     mock_resend: bool = False
 
+    sendgrid_api_key: str | None = None
+    sendgrid_from_email: str = "legal-clm@example.com"
+    # Copied on every outbound SendGrid email (visibility into what the app
+    # is sending); unset = no CC. Skipped automatically when it equals the
+    # primary recipient, so nobody gets duplicated in their own inbox.
+    sendgrid_cc_email: str | None = None
+    mock_sendgrid: bool = False
+    # Days a workflow "Send to counterparty" share link stays valid (it also
+    # expires immediately when the counterparty clicks Submit).
+    counterparty_link_expiry_days: int = 7
+
     # Public base URL of the web app, used to build clickable links in emails
     # (e.g. one-click Approve/Reject). Override via APP_BASE_URL in production.
     app_base_url: str = "http://localhost:4173"
@@ -315,6 +326,7 @@ def validate_runtime_settings(settings: Settings) -> None:
             ("MOCK_DOCUSIGN", settings.mock_docusign),
             ("MOCK_REDUCTO", settings.mock_reducto),
             ("MOCK_RESEND", settings.mock_resend),
+            ("MOCK_SENDGRID", settings.mock_sendgrid),
             ("MOCK_SIGNA", settings.mock_signa),
             ("MOCK_TMSEARCH", settings.mock_tmsearch),
             ("MOCK_SERPER", settings.mock_serper),

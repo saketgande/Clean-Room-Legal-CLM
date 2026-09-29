@@ -7,8 +7,8 @@ regressing back to substring matching reintroduces the misroute."""
 
 from types import SimpleNamespace
 
-from app.flows.service import _matches
 from app.intake.drafting import resolve_doc_type
+from app.workflows.service import _matches
 
 
 def _request(type_label="Litigation", description="", priority=None, department=None, field_values=None):
@@ -26,6 +26,18 @@ def test_resolve_doc_type_does_not_treat_anda_as_nda():
 def test_resolve_doc_type_still_recognizes_a_real_nda():
     nda = _request(type_label="NDA", description="Please draft an NDA for our new vendor relationship.")
     assert resolve_doc_type(nda) == "nda"
+
+
+def test_resolve_doc_type_reads_the_structured_agreement_type_field():
+    """A generic type_label ("New agreement Request") carries no keyword on its
+    own — the "New agreement" intake form captures the real agreement type as a
+    structured field instead. Missing this made every such MSA/NDA/DPA/Vendor
+    request 422 with "no draft template" at Start Workflow."""
+    msa = _request(
+        type_label="New agreement Request", description="NA",
+        field_values={"agreement_type": "Master Services Agreement", "counterparty": "Microsoft"},
+    )
+    assert resolve_doc_type(msa) == "msa"
 
 
 def test_flow_criteria_match_type_nda_does_not_match_anda_request():

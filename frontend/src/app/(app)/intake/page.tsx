@@ -9,7 +9,7 @@ import {
   ErrorState, Field, Input, Modal, Pagination, Select, Table, TD, TH, THead,
   TR, Textarea,
 } from "@/components/ui";
-import { intakeApi, contractsApi, approvalsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
+import { intakeApi, contractsApi, approvalsApi, approvalChainsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Markdown } from "@/components/markdown";
@@ -29,12 +29,16 @@ import { RulesTab } from "../approvals/_rules-builder";
 import { WorkflowPanel } from "./_workflow-panel";
 import { GovernanceLadderSteps } from "./_governance-ladder";
 import { AGREEMENT_FORMS, AgreementWizard, type AgreementFormDef } from "./_agreement-forms";
+import { useScreenAccess } from "@/lib/screen-access";
 
-// Keep the queue live: React Query re-fetches on this cadence (paused while the
-// tab is backgrounded), so SLA postures advance and triage/escalation changes
-// surface without a manual reload. The backend recomputes SLA from `now` on
-// every serialize, so each poll reflects real elapsed time.
-const LIVE_POLL = { refetchInterval: 15_000 } as const;
+// Worklists don't need background polling — refetch when the tab regains
+// focus (covers "left it open, came back") and rely on each mutation's own
+// invalidateQueries for immediate feedback on your own actions. Trade-off:
+// sla_status is server-computed, so a ticket crossing at_risk -> overdue
+// purely from elapsed time won't repaint until the tab is refocused or
+// reloaded (the ticking clock below only re-renders relative-time text, not
+// this posture).
+const LIVE_POLL = { refetchOnWindowFocus: true } as const;
 
 // A shared wall-clock that re-renders its consumers every `ms`. Used to make
 // the SLA columns tick in real time instead of freezing between polls.
@@ -88,6 +92,10 @@ export default function IntakePage() {
   const isAdmin = can(user, "admin_panel:access");
   const { notify } = useToast();
   const qc = useQueryClient();
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD request (FR-10/FR-13); this is a usability aid, not the
+  // security boundary.
+  const { canAdd } = useScreenAccess("intake");
   const [gmailSyncing, setGmailSyncing] = useState(false);
 
   async function syncGmail() {
@@ -130,8 +138,8 @@ export default function IntakePage() {
       ]];
     return [
       [
-        { id: "queue", label: "Inbox" },
-        { id: "mywork", label: "My Work" },
+        { id: "queue", label: "All requests" },
+        { id: "mywork", label: "My requests" },
       ],
       [
         { id: "new", label: "New Request" },
@@ -195,21 +203,26 @@ export default function IntakePage() {
               <option value="ops">Operations</option>
             </select>
           ) : null}
-          <button className="primary" onClick={() => { setSection("new"); setDetailId(null); }}>
+          <button
+            className="primary"
+            disabled={!canAdd}
+            title={canAdd ? undefined : "You don't have add access to this screen"}
+            onClick={() => { setSection("new"); setDetailId(null); }}
+          >
             <Plus className="h-4 w-4" />New request
           </button>
         </>
       }
     >
       {isStaff && section !== "queue" && !detailId ? (
-        <button onClick={() => setSection("queue")} className="btn sm" style={{ marginTop: 14 }}>← Back to Inbox</button>
+        <button onClick={() => setSection("queue")} className="btn sm" style={{ marginTop: 14 }}>← Back to All requests</button>
       ) : null}
 
       {detailId ? (
         <RequestOverview id={detailId} canManage={isStaff} onBack={() => setDetailId(null)} />
       ) : (
         <>
-          {section === "queue" && <LegalIntakeBoard onOpen={setDetailId} />}
+          {section === "queue" && <LegalIntakeBoard onOpen={setDetailId} mode="pool" />}
           {section === "mywork" && <MyWorkView isStaff={isStaff} onOpen={setDetailId} />}
           {section === "new" && <NewRequestTab onFiled={setDetailId} seed={newRequestSeed} />}
           {section === "self" && <SelfServiceTab onFileTopic={(t) => { setNewRequestSeed(`Re: ${t}\n\n`); setSection("new"); }} />}
@@ -1169,54 +1182,25 @@ function InboxCockpit({ onOpen }: { onOpen: (id: string) => void }) {
 
 // ---- My Work (staff) ------------------------------------------------------
 
-function MyWorkTab({ onOpen }: { onOpen: (id: string) => void }) {
+// Only what's assigned to me — no longer in the pool. Awaiting-review and
+// sub-task views were dropped from this tab per the "All requests"/"My
+// requests" split: a request is either claimable (pool) or yours, and this
+// tab is exclusively the latter.
+function MyAssignedRequestsTab({ onOpen }: { onOpen: (id: string) => void }) {
   const { data, isLoading, error } = useQuery({ queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, ...LIVE_POLL });
-  if (isLoading) return <CenterSpinner label="Loading your work…" />;
+  if (isLoading) return <CenterSpinner label="Loading your requests…" />;
   if (error) return <ErrorState error={error} />;
-  const mw = data!;
-  const tickets = [...mw.my_tickets].sort(sortBySla);
-  const allClear = !mw.awaiting_review.length && !tickets.length && !mw.my_tasks.length;
+  const tickets = [...data!.my_tickets].sort(sortBySla);
 
   return (
-    <div className="space-y-4">
-      {allClear && (
-        <Card><CardBody>
-          <EmptyState icon={<DoorOpen className="h-5 w-5" />} title="Inbox zero 🎉"
-            description="Nothing waiting on you. Pick up unassigned work from the Inbox." />
-        </CardBody></Card>
-      )}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Awaiting my review</CardTitle>
-            <Badge tone="blue">{String(mw.awaiting_review.length)}</Badge></CardHeader>
-          <CardBody className="p-0">
-            {mw.awaiting_review.length === 0
-              ? <p className="px-4 py-3 text-xs text-slate-400">Nothing waiting on your review.</p>
-              : <Table><tbody>{mw.awaiting_review.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} showStatus={false} />)}</tbody></Table>}
-          </CardBody>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>My tickets</CardTitle><Badge tone="slate">{String(tickets.length)}</Badge></CardHeader>
-          <CardBody className="p-0">
-            {tickets.length === 0
-              ? <p className="px-4 py-3 text-xs text-slate-400">Nothing assigned to you.</p>
-              : <Table><tbody>{tickets.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} />)}</tbody></Table>}
-          </CardBody>
-        </Card>
-      </div>
-      <Card>
-        <CardHeader><CardTitle>My tasks</CardTitle></CardHeader>
-        <CardBody className="p-0">
-          {mw.my_tasks.length === 0
-            ? <p className="px-4 py-3 text-xs text-slate-400">No open sub-tasks assigned to you.</p>
-            : <Table><tbody>{mw.my_tasks.map((t) => (
-              <TR key={t.id}><TD className="font-medium">{t.title}</TD>
-                <TD><Badge tone="slate">{titleCase(t.status)}</Badge></TD>
-                <TD className="tabular-nums text-slate-500">{t.effort_minutes}m</TD></TR>
-            ))}</tbody></Table>}
-        </CardBody>
-      </Card>
-    </div>
+    <Card>
+      <CardHeader><CardTitle>My requests</CardTitle><Badge tone="slate">{String(tickets.length)}</Badge></CardHeader>
+      <CardBody className="p-0">
+        {tickets.length === 0
+          ? <p className="px-4 py-3 text-xs text-slate-400">Nothing assigned to you. Pick up unassigned work from All requests.</p>
+          : <Table><tbody>{tickets.map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} />)}</tbody></Table>}
+      </CardBody>
+    </Card>
   );
 }
 
@@ -1225,6 +1209,10 @@ function MyWorkTab({ onOpen }: { onOpen: (id: string) => void }) {
 function RequestTypesTab() {
   const qc = useQueryClient();
   const { notify } = useToast();
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD/EDIT/DELETE request (FR-10/FR-13); this is a usability aid,
+  // not the security boundary.
+  const { canAdd, canEdit, canDelete } = useScreenAccess("intake");
   const { data, isLoading, error } = useQuery({ queryKey: ["intake-types-all"], queryFn: () => intakeApi.listTypes(true) });
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<IntakeRequestType | null>(null);
@@ -1246,7 +1234,13 @@ function RequestTypesTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">No-code request types — fields + stage workflow, live on the New Request form instantly.</p>
-        <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New type</Button>
+        <Button
+          onClick={() => setCreating(true)}
+          disabled={!canAdd}
+          title={canAdd ? undefined : "You don't have add access to this screen"}
+        >
+          <Plus className="h-4 w-4" />New type
+        </Button>
       </div>
       <Card>
         {(data ?? []).length === 0 ? (
@@ -1261,8 +1255,20 @@ function RequestTypesTab() {
                 <TD className="tabular-nums text-slate-500">{t.fields.length}</TD>
                 <TD className="text-xs text-slate-500">{["Submitted", ...(t.stages ?? ["Assigned", "Review"]), "Complete"].join(" → ")}</TD>
                 <TD className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(t)}><PenLine className="h-3.5 w-3.5" />Edit</Button>
-                  <Button variant="ghost" size="sm" onClick={() => remove(t)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                  <Button
+                    variant="ghost" size="sm" onClick={() => setEditing(t)}
+                    disabled={!canEdit}
+                    title={canEdit ? undefined : "You don't have edit access to this screen"}
+                  >
+                    <PenLine className="h-3.5 w-3.5" />Edit
+                  </Button>
+                  <Button
+                    variant="ghost" size="sm" onClick={() => remove(t)}
+                    disabled={!canDelete}
+                    title={canDelete ? undefined : "You don't have delete access to this screen"}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />Delete
+                  </Button>
                 </TD>
               </TR>
             ))}</tbody>
@@ -1481,11 +1487,19 @@ function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
   }
 
   function decide(decision: "approve" | "reject") {
-    if (!pending?.approval_request_id) return;
+    if (!pending?.requirement_id && !pending?.approval_request_id) return;
     let comment: string | undefined;
     if (decision === "reject") {
       comment = window.prompt("Reason for rejection (required):") ?? "";
       if (!comment.trim()) return;
+    }
+    if (pending.requirement_id) {
+      // Chain-sourced rung (FR-22 reroute) — decide via the condition-driven
+      // engine's instance/requirement pair instead of the legacy ApprovalRequest id.
+      return run(
+        () => approvalChainsApi.decide(pending.chain_instance_id as string, pending.requirement_id as string, { decision, comment }),
+        decision === "approve" ? "Step approved" : "Sent back for review",
+      );
     }
     return run(
       () => approvalsApi.decide(pending.approval_request_id as string, decision, comment),
@@ -1552,6 +1566,9 @@ function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
                       title={`${rung.step_order}. ${rung.approver_label} — ${RUNG_LABEL[rung.status] ?? rung.status}${(rung.needed ?? 1) > 1 ? ` · needs all ${rung.needed}` : ""}`}>
                       <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", ui.dot)} />
                       <span className={cn("text-[11px]", ui.name)}>{rung.approver_label}</span>
+                      {rung.explanation && (
+                        <span className="text-[9px] italic text-slate-400">{rung.explanation}</span>
+                      )}
                       {(rung.needed ?? 1) > 1 && (rung.status === "pending" || rung.status === "approved") && (
                         <span className={cn("rounded px-1 text-[9px] font-semibold tabular-nums",
                           (rung.approvals ?? 0) >= (rung.needed ?? 1) ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")}>
@@ -1575,7 +1592,7 @@ function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
                   Submit for approval
                 </Button>
               )}
-              {started && pending && canTriage && (reassign ? (
+              {started && pending && canTriage && (reassign && !pending.requirement_id ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] text-slate-500">{reassign === "delegate" ? "Delegate this step to" : "Escalate this step to"}</span>
                   <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="h-8 w-48 text-[13px]">
@@ -1590,8 +1607,12 @@ function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
                 <>
                   <Button size="sm" loading={busy} onClick={() => decide("approve")}>✓ Approve step</Button>
                   <Button size="sm" variant="outline" loading={busy} onClick={() => decide("reject")}>✕ Reject</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setReassign("delegate")}>Delegate</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setReassign("escalate")}>Escalate</Button>
+                  {!pending.requirement_id && (
+                    <>
+                      <Button size="sm" variant="ghost" onClick={() => setReassign("delegate")}>Delegate</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setReassign("escalate")}>Escalate</Button>
+                    </>
+                  )}
                   <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
                     step {pending.step_order} · {pending.approver_label}{(pending.needed ?? 1) > 1 ? ` · ${pending.approvals ?? 0} of ${pending.needed} signed` : ""}
                   </span>
@@ -2371,6 +2392,10 @@ const ROLE_LABEL: Record<string, string> = {
 
 function PartiesPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTriage: boolean; onRefreshed: () => void }) {
   const { notify } = useToast();
+  // FR-9: UI-layer control gating only, additive to the existing `canTriage`
+  // check — the API independently re-verifies every EDIT request (FR-10/FR-13).
+  const { canEdit } = useScreenAccess("intake");
+  const canManageParties = canTriage && canEdit;
   const parties = (r.parties ?? []) as { name: string; role: string; is_person?: boolean }[];
   const [name, setName] = useState("");
   const [role, setRole] = useState("adverse");
@@ -2392,14 +2417,14 @@ function PartiesPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTria
           <li key={i} className="flex items-center gap-2">
             <Badge tone={p.role === "adverse" ? "red" : p.role === "counterparty" ? "blue" : "slate"}>{ROLE_LABEL[p.role] ?? p.role}</Badge>
             <span className="font-medium text-slate-700">{p.name}</span>
-            {canTriage && (
+            {canManageParties && (
               <button className="ml-auto text-slate-400 hover:text-danger" disabled={busy}
                 onClick={() => save(parties.filter((_, j) => j !== i))}>remove</button>
             )}
           </li>
         ))}
       </ul>
-      {canTriage && (
+      {canManageParties && (
         <div className="mt-2 flex gap-1.5">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Party name…" className="h-8 text-xs" />
           <Select value={role} onChange={(e) => setRole(e.target.value)} className="h-8 w-28 text-xs">
@@ -2554,15 +2579,7 @@ function DocumentsPanel({ requestId }: { requestId: string }) {
 
 function MyWorkView({ isStaff, onOpen }: { isStaff: boolean; onOpen: (id: string) => void }) {
   if (!isStaff) return <MyRequestsTab onOpen={onOpen} />;
-  return (
-    <div className="space-y-4">
-      <MyWorkTab onOpen={onOpen} />
-      <div>
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Filed by me</p>
-        <MyRequestsTab onOpen={onOpen} />
-      </div>
-    </div>
-  );
+  return <MyAssignedRequestsTab onOpen={onOpen} />;
 }
 
 function OperationsView({ isAdmin }: { isAdmin: boolean }) {

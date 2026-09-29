@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.intake import copilot as copilot_mod
 from app.intake import routing as routing_mod
 from app.intake import service
@@ -43,6 +43,13 @@ _CREATE = require_permission("intake:create")   # all employees — file + own t
 _READ = require_permission("intake:read")        # the staff gate — queue + manage actions
 _UPDATE = require_permission("intake:update")     # stage / handoff / tasks
 _MANAGE = require_permission("admin_panel:access")  # admin config (types, teams, rules)
+
+# FR-10/FR-11/FR-17 tranche-1 screen-level gates — additive to the permission
+# checks above, declared next to the router per plan.md's frozen shape.
+_INTAKE_VIEW = require_screen_level("intake", "VIEW")
+_INTAKE_ADD = require_screen_level("intake", "ADD")
+_INTAKE_EDIT = require_screen_level("intake", "EDIT")
+_INTAKE_DELETE = require_screen_level("intake", "DELETE")
 
 
 def _req_id(request: Request) -> str | None:
@@ -100,6 +107,7 @@ def create_request(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_CREATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return service.create_request(
         db, actor=current_user, payload=payload, request_id=_req_id(request)
@@ -123,6 +131,14 @@ def list_my_requests(
     return service.list_requests(db, user=current_user, mine=True)
 
 
+@router.get("/requests/pool", response_model=list[RequestResponse])
+def list_request_pool(
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    return service.list_pool_requests(db, user=current_user)
+
+
 @router.get("/requests/{request_id}", response_model=RequestResponse)
 def get_request(
     request_id: str,
@@ -141,6 +157,7 @@ def update_request(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.update_request(
         db, actor=current_user, request_id=request_id, payload=payload,
@@ -155,10 +172,24 @@ def triage_request(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.record_triage_action(
         db, actor=current_user, request_id=request_id, payload=payload,
         http_request_id=_req_id(request),
+    )
+
+
+@router.post("/requests/{request_id}/assign-to-me", response_model=RequestResponse)
+def assign_to_me(
+    request_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
+):
+    return service.claim_request(
+        db, actor=current_user, request_id=request_id, http_request_id=_req_id(request),
     )
 
 
@@ -167,6 +198,7 @@ def suggest_flow(
     request_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_VIEW),
 ):
     """Re-run the Flow Router agent for this request; the suggestion lands on
     ai_triage.flow_suggestion. Assigning it is a separate one-click flows/start."""
@@ -188,6 +220,7 @@ async def submit_for_approval(
     payload: _ApprovalLadderSubmit | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     p = payload or _ApprovalLadderSubmit()
     return await service.start_approval_ladder(
@@ -219,6 +252,7 @@ def override_gate(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.override_gate(
         db, actor=current_user, request_id=request_id, gate_key=payload.gate_key,
@@ -234,6 +268,7 @@ def create_handoff(
     payload: HandoffCreate,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return service.handoff(db, actor=current_user, request_id=request_id, payload=payload)
 
@@ -265,6 +300,7 @@ def create_task(
     payload: TaskCreateReq,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return service.create_task(db, actor=current_user, request_id=request_id, payload=payload)
 
@@ -275,6 +311,7 @@ def update_task(
     payload: TaskUpdateReq,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.update_task(db, actor=current_user, task_id=task_id, payload=payload)
 
@@ -284,6 +321,7 @@ def delete_task(
     task_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_DELETE),
 ):
     service.delete_task(db, actor=current_user, task_id=task_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -295,6 +333,7 @@ def log_effort(
     minutes: int,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.log_effort(db, actor=current_user, task_id=task_id, minutes=minutes)
 
@@ -326,6 +365,7 @@ def promote(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.promote(db, actor=current_user, request_id=request_id, payload=payload,
                            http_request_id=_req_id(request))
@@ -337,6 +377,7 @@ async def draft_contract(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     """Render a draft contract from an intake request and link it back — the
     intake → contract-lifecycle bridge. Idempotent."""
@@ -356,6 +397,7 @@ async def ingest_attachment(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     """Use the request's attached document as the contract (the 'review an
     existing contract' path) instead of drafting from a template. Idempotent."""
@@ -387,6 +429,7 @@ def set_pause(
     paused: bool = True,
     db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return service.set_pause(db, actor=current_user, request_id=request_id, paused=paused)
 
@@ -492,13 +535,15 @@ def pool_ops(days: int = 30, db: Session = Depends(get_db), current_user=Depends
 # ---- copilot (conversational filing) --------------------------------------
 
 @router.post("/copilot/turn", response_model=CopilotTurnResponse)
-def copilot_turn(payload: CopilotTurnRequest, current_user=Depends(_CREATE)):
+def copilot_turn(payload: CopilotTurnRequest, current_user=Depends(_CREATE),
+                  _screen=Depends(_INTAKE_VIEW)):
     return copilot_mod.turn(payload.messages, payload.user_message)
 
 
 @router.post("/copilot/file", response_model=RequestResponse, status_code=status.HTTP_201_CREATED)
 def copilot_file(payload: CopilotFileRequest, request: Request,
-                 db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+                 db: Session = Depends(get_db), current_user=Depends(_CREATE),
+                 _screen=Depends(_INTAKE_ADD)):
     return service.file_from_copilot(db, actor=current_user, payload=payload,
                                      request_id=_req_id(request))
 
@@ -565,7 +610,8 @@ def gmail_sync(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
 
 @router.post("/requests/{request_id}/screen")
 def rescreen_request(request_id: str, db: Session = Depends(get_db),
-                     current_user=Depends(_READ)):
+                     current_user=Depends(_READ),
+                     _screen=Depends(_INTAKE_EDIT)):
     r = service.get_request(db, user=current_user, request_id=request_id)
     result = screening_mod.run_screening(db, r, actor_user_id=current_user.id)
     db.commit()
@@ -580,7 +626,8 @@ def sanctions_refresh(db: Session = Depends(get_db), current_user=Depends(_MANAG
 
 @router.post("/requests/{request_id}/documents", status_code=status.HTTP_201_CREATED)
 def upload_document(request_id: str, payload: dict = Body(...),
-                    db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+                    db: Session = Depends(get_db), current_user=Depends(_CREATE),
+                    _screen=Depends(_INTAKE_ADD)):
     """Attach a document ({filename, mime_type, content_b64}); text is extracted
     and folded into the request so agents read it."""
     try:
@@ -604,6 +651,7 @@ def list_request_documents(request_id: str, db: Session = Depends(get_db),
 
 @router.put("/requests/{request_id}/parties", response_model=RequestResponse)
 def set_request_parties(request_id: str, payload: PartiesUpdate,
-                        db: Session = Depends(get_db), current_user=Depends(_READ)):
+                        db: Session = Depends(get_db), current_user=Depends(_READ),
+                        _screen=Depends(_INTAKE_EDIT)):
     """Replace the request's parties (counterparty + adverse/related) and re-screen."""
     return service.set_parties(db, actor=current_user, request_id=request_id, parties=payload.parties)

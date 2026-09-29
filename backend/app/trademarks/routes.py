@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.trademarks import service
 from app.trademarks.schemas import (
     DashboardMetrics,
@@ -24,6 +24,10 @@ from app.trademarks.schemas import (
 
 router = APIRouter(prefix="/trademarks", tags=["trademarks"])
 
+_TRADEMARKS_VIEW = require_screen_level("trademarks", "VIEW")
+_TRADEMARKS_ADD = require_screen_level("trademarks", "ADD")
+_TRADEMARKS_EDIT = require_screen_level("trademarks", "EDIT")
+
 
 @router.get("", response_model=list[TrademarkResponse])
 def list_trademarks(
@@ -38,6 +42,7 @@ def create_trademark(
     payload: TrademarkCreate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:create")),
+    _screen=Depends(_TRADEMARKS_ADD),
 ):
     return service.create_trademark(db, user=current_user, payload=payload)
 
@@ -47,6 +52,7 @@ def submit_intake(
     payload: IntakeSubmitRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:create")),
+    _screen=Depends(_TRADEMARKS_ADD),
 ):
     return service.create_trademark_from_intake(db, user=current_user, payload=payload)
 
@@ -83,6 +89,7 @@ def update_trademark(
     payload: TrademarkUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:update")),
+    _screen=Depends(_TRADEMARKS_EDIT),
 ):
     trademark = service.get_trademark_for_user(db, trademark_id=trademark_id, user=current_user)
     return service.update_trademark(db, trademark=trademark, user=current_user, payload=payload)
@@ -93,6 +100,7 @@ def search_similar(
     payload: SearchSimilarRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:search")),
+    _screen=Depends(_TRADEMARKS_VIEW),
 ):
     return service.search_similar(db, user=current_user, request=payload)
 
@@ -102,6 +110,7 @@ async def upload_document(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:extract")),
+    _screen=Depends(_TRADEMARKS_ADD),
 ):
     return await service.save_uploaded_document(db, user=current_user, file=file)
 
@@ -111,6 +120,7 @@ async def extract_fields(
     payload: ExtractRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:extract")),
+    _screen=Depends(_TRADEMARKS_VIEW),
 ):
     try:
         return await service.extract_fields(db, user=current_user, request=payload)
@@ -123,6 +133,7 @@ def ingest_document(
     payload: IngestRequest,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:extract")),
+    _screen=Depends(_TRADEMARKS_ADD),
 ):
     return service.ingest_extraction(db, user=current_user, request=payload)
 
@@ -140,5 +151,6 @@ def test_integration(
     service_name: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("trademark:integrations_manage")),
+    _screen=Depends(_TRADEMARKS_VIEW),
 ):
     return service.test_integration(db, service_name=service_name, settings=settings)

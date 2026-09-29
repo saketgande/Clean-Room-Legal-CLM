@@ -1,0 +1,1 @@
+{"task": "T009", "agent": "backend-dev", "status": "done", "detail": "require_permission's inner dependency now takes db: Session = Depends(get_db) and calls org_access.effective_permission_values(db, user=current_user) instead of current_user.permission_values. ruff clean; full suite 271 passed, 6 skipped.", "updated": "2026-09-13T00:20:00Z"}

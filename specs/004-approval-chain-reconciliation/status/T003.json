@@ -1,0 +1,1 @@
+{"task": "T003", "agent": "backend-dev", "status": "done", "detail": "facts.py landed: MODULE_FACTS/FIELD_TYPES catalogs, allowed_fields(), build_facts() for contract and intake_request; intake derived facts reuse IntakeApprovalSubject directly. ruff clean, import ok.", "updated": "2026-09-14T17:00:00Z"}

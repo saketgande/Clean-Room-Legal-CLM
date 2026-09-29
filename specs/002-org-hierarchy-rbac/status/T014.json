@@ -1,0 +1,1 @@
+{"task": "T014", "agent": "backend-dev", "status": "done", "detail": "Registered org_units_router, role_grants_router, delegations_router in backend/app/main.py next to walls_router; ruff clean; python -c import check confirms /org-units, /role-grants, /delegations paths wired; pytest 302 passed, 6 skipped", "updated": "2026-09-13T15:40:00Z"}

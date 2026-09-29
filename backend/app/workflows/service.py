@@ -407,6 +407,23 @@ def _assign_step(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dic
     if role or assign_by:
         sr.result = {**(sr.result or {}), "role": role, "assign_by": cfg.get("assign_by")}
 
+    # Notify every active member of the resolved team, once. _execute_step can
+    # be re-entered for a step already sitting in waiting_human (poll-driven
+    # resume), so guard on a marker in sr.result rather than dispatching on
+    # every call.
+    #
+    # Dispatch note (same race as app.contracts.stage_triggers): the caller
+    # owns this transaction and hasn't committed yet, so a plain .delay() lets
+    # the worker's own SessionLocal() read this step_run row before team_id
+    # is actually visible — it sees no team and silently sends nothing. Use
+    # the same short countdown fix as stage_triggers.fire_stage_entry_triggers
+    # to let the caller's commit land before the worker reads the row.
+    if team_id and not (sr.result or {}).get("notified_at"):
+        from app.jobs.tasks import notify_workflow_step_team
+
+        notify_workflow_step_team.apply_async(args=[sr.id], countdown=4)
+        sr.result = {**(sr.result or {}), "notified_at": utcnow().isoformat()}
+
 
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
     """Returns 'advance' | 'wait'. Each branch is a thin call into an existing
@@ -695,13 +712,25 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 approver_role=None if group else (cfg.get("approver_role") or None),
                 routing_rule_id=cfg.get("routing_rule_id") or None,
             )
-            if not reqs:
+            # FR-22: a rerouted org/module always produces `reqs == []`, since
+            # the legacy ApprovalRequest ladder never runs for it — check for a
+            # materialized chain instance before treating "no reqs" as "nothing
+            # to approve" (the M2 auto-approve bug this branch used to have).
+            from app.approval_chains import dispatch as chain_dispatch
+
+            instance = chain_dispatch.live_instance_for(
+                db, org_id=run.org_id, module="intake_request", module_record_id=req.id
+            )
+            if not reqs and instance is None:
                 if sr:
                     sr.note = "No approval rungs required — skipped."
                 return "advance"
             if sr:
                 sr.status = "waiting_job"
-                sr.result = {"approval_ids": [r.id for r in reqs]}
+                sr.result = (
+                    {"chain_instance_id": instance.id} if instance is not None
+                    else {"approval_ids": [r.id for r in reqs]}
+                )
             return "wait"
         contract = _get_contract(db, run.contract_id)
         _advance_contract_to(db, contract=contract, target="approval", actor=actor, reason=f"workflow: {run.flow_name}")
@@ -728,7 +757,11 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
 
     if t == "counterparty":
         if sr:
-            sr.status = "waiting_human"; sr.note = "Awaiting counterparty response."
+            sr.status = "waiting_human"
+            sr.note = "Send the contract to the counterparty."
+            # Resolve the reviewer/team who runs this step (and, via
+            # _assign_step, email them that it has reached them).
+            _assign_step(db, run=run, sr=sr, cfg=cfg)
         return "wait"
 
     # unknown step type — record and skip rather than wedge
@@ -840,6 +873,28 @@ async def refresh_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
     if not run.contract_id:
         if t == "approval":
             sr = next((s for s in _step_runs(db, run) if s.idx == run.current_index), None)
+            cid = (sr.result or {}).get("chain_instance_id") if sr and sr.result else None
+            if cid:
+                from app.approval_chains.models import ApprovalChainInstance
+
+                inst = db.get(ApprovalChainInstance, cid)
+                if inst is not None and inst.status == "approved":
+                    if sr:
+                        sr.status = "done"
+                    run.status = "running"
+                    run.current_index += 1
+                    return await advance_run(db, run=run, actor=actor)
+                if inst is not None and inst.status == "rejected":
+                    if sr:
+                        sr.status = "failed"
+                        sr.note = "Approval rejected — returned to queue."
+                    run.status = "failed"
+                    run.error = "Approval rejected"
+                    # M4: persist the failed run. Every other branch commits via
+                    # advance_run; get_db never commits on success, so without this
+                    # the rejection rolls back and the run stays 'waiting' forever.
+                    db.commit()
+                return run
             ids = (sr.result or {}).get("approval_ids") if sr and sr.result else None
             if ids:
                 from app.approvals.models import ApprovalRequest
