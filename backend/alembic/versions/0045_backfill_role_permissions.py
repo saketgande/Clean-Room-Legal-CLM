@@ -69,14 +69,13 @@ def _backfill_role_permissions() -> None:
     existing_values = {
         row[0] for row in bind.execute(sa.text("SELECT value FROM permission")).fetchall()
     }
-    now = sa.func.now()
     for value in sorted(ALL_PERMISSIONS - existing_values):
         bind.execute(
             sa.text(
                 "INSERT INTO permission (id, value, created_at, updated_at) "
-                "VALUES (:id, :value, :now, :now)"
+                "VALUES (:id, :value, now(), now())"
             ),
-            {"id": str(uuid.uuid4()), "value": value, "now": now},
+            {"id": str(uuid.uuid4()), "value": value},
         )
 
     # Re-read so newly-inserted rows have ids available for step 3's lookup.
