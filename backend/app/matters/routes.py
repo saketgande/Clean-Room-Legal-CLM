@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 
-from app.core.deps import require_permission
+from app.core.deps import require_permission, require_screen_level
 from app.matters.dependencies import get_matters_service
 from app.matters.schemas import (
     AssignItemRequest,
@@ -26,6 +26,14 @@ from app.matters.service import MattersService
 # (deprecated alias, kept until the Matters UI ships).
 router = APIRouter(tags=["matters"])
 
+# FR-10/FR-11 (003-menu-screen-security): screen-level checks, additive to the
+# existing require_permission(...) gates on each route (FR-12) — this router is
+# mounted at both /matters and the legacy /projects prefix, so one edit covers
+# both.
+_MATTERS_ADD = require_screen_level("matters", "ADD")
+_MATTERS_EDIT = require_screen_level("matters", "EDIT")
+_MATTERS_DELETE = require_screen_level("matters", "DELETE")
+
 
 @router.get("", response_model=list[MatterResponse])
 def list_projects(
@@ -39,6 +47,7 @@ def list_projects(
 def create_project(
     payload: MatterCreate,
     current_user=Depends(require_permission("project:create")),
+    _screen=Depends(_MATTERS_ADD),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.create_project(payload=payload, current_user=current_user)
@@ -83,6 +92,7 @@ def assign_item_to_matter(
     matter_id: str,
     payload: AssignItemRequest,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
     service: MattersService = Depends(get_matters_service),
 ):
     """File a contract or intake request under this matter (one matter -> many)."""
@@ -103,6 +113,7 @@ def update_project(
     matter_id: str,
     payload: MatterUpdate,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.update_project(matter_id=matter_id, payload=payload, current_user=current_user)
@@ -112,6 +123,7 @@ def update_project(
 def delete_project(
     matter_id: str,
     current_user=Depends(require_permission("project:delete")),
+    _screen=Depends(_MATTERS_DELETE),
     service: MattersService = Depends(get_matters_service),
 ):
     service.delete_project(matter_id=matter_id, current_user=current_user)
@@ -135,6 +147,7 @@ def create_project_folder(
     matter_id: str,
     payload: MatterFolderCreate,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_ADD),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.create_project_folder(matter_id=matter_id, payload=payload, current_user=current_user)
@@ -146,6 +159,7 @@ def update_project_folder(
     folder_id: str,
     payload: MatterFolderUpdate,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.update_project_folder(
@@ -158,9 +172,12 @@ def delete_project_folder(
     matter_id: str,
     folder_id: str,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_DELETE),
     service: MattersService = Depends(get_matters_service),
 ):
-    service.delete_project_folder(matter_id=matter_id, folder_id=folder_id, current_user=current_user)
+    return service.delete_project_folder(
+        matter_id=matter_id, folder_id=folder_id, current_user=current_user
+    )
 
 
 @router.get("/{matter_id}/members", response_model=list[MatterMemberResponse])
@@ -177,6 +194,7 @@ def upsert_project_member(
     matter_id: str,
     payload: MatterMemberUpsert,
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_EDIT),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.upsert_project_member(matter_id=matter_id, payload=payload, current_user=current_user)
@@ -187,6 +205,7 @@ def remove_project_member(
     matter_id: str,
     user_id: str,
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_DELETE),
     service: MattersService = Depends(get_matters_service),
 ):
     service.remove_project_member(matter_id=matter_id, user_id=user_id, current_user=current_user)
@@ -210,6 +229,7 @@ def create_project_share(
     matter_id: str,
     payload: MatterShareCreate,
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_ADD),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.create_project_share(matter_id=matter_id, payload=payload, current_user=current_user)
@@ -220,6 +240,7 @@ def revoke_project_share(
     matter_id: str,
     share_id: str,
     current_user=Depends(require_permission("project:share")),
+    _screen=Depends(_MATTERS_DELETE),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.revoke_project_share(matter_id=matter_id, share_id=share_id, current_user=current_user)
@@ -239,6 +260,7 @@ def add_project_contract(
     matter_id: str,
     payload: MatterContractAdd,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_ADD),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.add_project_contract(matter_id=matter_id, payload=payload, current_user=current_user)
@@ -250,6 +272,7 @@ def update_project_contract(
     contract_id: str,
     payload: MatterContractUpdate,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_EDIT),
     service: MattersService = Depends(get_matters_service),
 ):
     return service.update_project_contract(
@@ -262,6 +285,7 @@ def remove_project_contract(
     matter_id: str,
     contract_id: str,
     current_user=Depends(require_permission("project:update")),
+    _screen=Depends(_MATTERS_DELETE),
     service: MattersService = Depends(get_matters_service),
 ):
     service.remove_project_contract(matter_id=matter_id, contract_id=contract_id, current_user=current_user)

@@ -1,0 +1,1 @@
+{"task": "T008", "agent": "backend-dev", "status": "done", "detail": "service.py + routes.py implemented (org units, role grants, delegations); 3 test files added (31 new tests); ruff --ignore EXE002 clean; full suite 302 passed / 6 skipped", "updated": "2026-09-13T00:45:00Z"}

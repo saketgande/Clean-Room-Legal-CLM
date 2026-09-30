@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
 from app.intake.models import IntakeRequest
+from app.workflows import counterparty as counterparty_svc
 from app.workflows.builtin import seed_builtin_flows
 from app.workflows.dependencies import get_workflow_service
 from app.workflows.models import Workflow, WorkflowRun
@@ -33,6 +34,12 @@ class StartPayload(BaseModel):
 class CompleteStepPayload(BaseModel):
     note: str | None = None
     step_idx: int | None = None  # which step (for parallel groups); default = current
+
+
+class CounterpartySendPayload(BaseModel):
+    recipient_email: str
+    recipient_name: str | None = None
+    message: str | None = None
 
 
 class ReturnPayload(BaseModel):
@@ -142,6 +149,25 @@ async def complete_step(run_id: str, payload: CompleteStepPayload, db: Session =
     workflow_service.complete_human_step(run=run, actor=current_user, note=payload.note, step_idx=payload.step_idx)
     run = await workflow_service.advance_run(run=run, actor=current_user)
     return workflow_service.serialize_run(run)
+
+
+@router.get("/runs/{run_id}/counterparty")
+def counterparty_state(run_id: str, db: Session = Depends(get_db),
+                       current_user=Depends(require_permission("intake:read"))):
+    run = db.get(WorkflowRun, run_id)
+    if run is None or run.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow run not found")
+    return counterparty_svc.get_state(db, run=run, actor=current_user)
+
+
+@router.post("/runs/{run_id}/counterparty/send")
+async def counterparty_send(run_id: str, payload: CounterpartySendPayload, db: Session = Depends(get_db),
+                            current_user=Depends(require_permission("intake:read"))):
+    run = _get_run(db, current_user.org_id, run_id)
+    return await counterparty_svc.send_to_counterparty(
+        db, run=run, actor=current_user, recipient_email=payload.recipient_email,
+        recipient_name=payload.recipient_name, message=payload.message,
+    )
 
 
 @router.post("/runs/{run_id}/refresh")

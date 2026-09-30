@@ -1,0 +1,1 @@
+{"task": "T006", "agent": "frontend-dev", "status": "done", "detail": "screen-access.ts (hasAtLeast, getScreenLevel, buildScreenLevelMap, useScreenAccess) + screen-access.test.ts, 11 tests passing; typecheck clean", "updated": "2026-09-14T16:50:00Z"}

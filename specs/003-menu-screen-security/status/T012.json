@@ -1,0 +1,1 @@
+{"task": "T012", "agent": "frontend-dev", "status": "done", "detail": "FR-9 control gating added to contracts/matters/trademarks/notices/intake page.tsx via useScreenAccess(screenCode); typecheck and vitest both green", "updated": "2026-09-14T11:27:31Z"}

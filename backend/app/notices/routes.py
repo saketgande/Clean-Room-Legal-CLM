@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 
-from app.core.deps import require_permission
+from app.core.deps import require_permission, require_screen_level
 from app.notices.dependencies import get_notices_service
 from app.notices.schemas import (
     NoticeCreate,
@@ -22,6 +22,10 @@ _READ = require_permission("notice:read")
 _CREATE = require_permission("notice:create")
 _UPDATE = require_permission("notice:update")
 _DELETE = require_permission("admin_panel:access")  # deleting destroys the trail
+
+_NOTICES_ADD = require_screen_level("notices", "ADD")
+_NOTICES_EDIT = require_screen_level("notices", "EDIT")
+_NOTICES_DELETE = require_screen_level("notices", "DELETE")
 
 
 @router.get("", response_model=list[NoticeResponse])
@@ -59,7 +63,7 @@ def notice_summary(
 @router.post("/run-reminders")
 def run_reminders(
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Chase this org's notices that are near or past their deadline, now.
     Scoped to the caller's org; the nightly Celery sweep does every org."""
@@ -70,7 +74,7 @@ def run_reminders(
 def create_notice(
     payload: NoticeCreate,
     current_user=Depends(_CREATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     return service.create_notice(actor=current_user, payload=payload)
 
@@ -79,7 +83,7 @@ def create_notice(
 async def extract_from_document(
     file: UploadFile = File(...),
     current_user=Depends(_CREATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     """Read an uploaded notice and propose register fields. Creates nothing —
     the filer reviews the suggestions in the New Notice form and saves there."""
@@ -108,7 +112,7 @@ def update_notice(
     notice_id: str,
     payload: NoticeUpdate,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     return service.update_notice(actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -118,7 +122,7 @@ def set_status(
     notice_id: str,
     payload: NoticeStatusUpdate,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     return service.set_status(actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -127,7 +131,7 @@ def set_status(
 def draft_response(
     notice_id: str,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Draft a reply from the notice and its attachments. Stored on the notice
     for a lawyer to edit — nothing is sent."""
@@ -139,7 +143,7 @@ def escalate(
     notice_id: str,
     payload: NoticeEscalate,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Open a linked intake ticket for this notice, which carries routing, SLA
     and the approval ladder."""
@@ -151,7 +155,7 @@ def add_note(
     notice_id: str,
     payload: NoticeNoteCreate,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     return service.add_note(actor=current_user, notice_id=notice_id, payload=payload)
 
@@ -161,7 +165,7 @@ async def add_document(
     notice_id: str,
     file: UploadFile = File(...),
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     content = await file.read()
     return service.add_document(
@@ -177,7 +181,7 @@ def delete_document(
     notice_id: str,
     document_id: str,
     current_user=Depends(_UPDATE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_DELETE),
 ):
     return service.delete_document(
         actor=current_user, notice_id=notice_id, document_id=document_id
@@ -188,7 +192,7 @@ def delete_document(
 def delete_notice(
     notice_id: str,
     current_user=Depends(_DELETE),
-    service: NoticesService = Depends(get_notices_service),
+    service: NoticesService = Depends(_NOTICES_DELETE),
 ):
     service.delete_notice(actor=current_user, notice_id=notice_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

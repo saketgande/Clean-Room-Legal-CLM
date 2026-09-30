@@ -1,0 +1,1 @@
+{"task": "T007", "agent": "frontend-dev", "status": "done", "detail": "Added approval-chain TypeScript models to types.ts and approvalChainsApi to endpoints.ts; extended IntakeApprovalRung additively; typecheck and vitest both clean.", "updated": "2026-09-14T16:58:36Z"}

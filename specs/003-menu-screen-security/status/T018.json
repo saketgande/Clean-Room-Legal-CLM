@@ -1,0 +1,1 @@
+{"task": "T018", "agent": "backend-dev", "status": "done", "detail": "Registered menu_router, action_levels_router, screens_router, screen_access_router in app/main.py immediately after delegations_router; ruff clean, endpoints wired confirmed, pytest 347 passed / 6 skipped", "updated": "2026-09-14T11:31:00Z"}

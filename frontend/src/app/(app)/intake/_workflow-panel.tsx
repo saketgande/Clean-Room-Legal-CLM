@@ -25,6 +25,7 @@ import { Badge, Button, Card, CardBody, Select } from "@/components/ui";
 import { workflowsApi, intakeApi } from "@/lib/endpoints";
 import { titleCase, cn } from "@/lib/utils";
 import { useToast } from "@/components/toast";
+import { CounterpartyPanel } from "./_counterparty-panel";
 import type { WorkflowRunStep, WorkflowSuggestion } from "@/lib/types";
 
 const STEP_ICON: Record<string, LucideIcon> = {
@@ -241,7 +242,10 @@ export function WorkflowPanel({ requestId, suggestion }: { requestId: string; su
                     {titleCase(s.type.replace(/_/g, " "))}
                     {result && <span className="text-slate-600"> · {result}</span>}
                   </p>
-                  {s.status === "waiting_human" && (
+                  {s.status === "waiting_human" && s.type === "counterparty" && (
+                    <CounterpartyPanel runId={run.id} stepIdx={s.idx} onChanged={invalidate} />
+                  )}
+                  {s.status === "waiting_human" && s.type !== "counterparty" && (
                     <button
                       onClick={() => act(() => workflowsApi.completeStep(run.id, undefined, s.idx), "Step completed")}
                       disabled={busy}

@@ -1,4 +1,16 @@
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Table, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    Table,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import relationship
 
 from app.core.database import (
@@ -6,17 +18,11 @@ from app.core.database import (
     Base,
     IdMixin,
     OrgScopedMixin,
+    SoftDeleteMixin,
     TableNameMixin,
     TimestampMixin,
 )
 from app.core.enums import UserStatus
-
-user_role_table = Table(
-    "user_role",
-    Base.metadata,
-    Column("user_id", ForeignKey("user.id", ondelete="CASCADE"), primary_key=True),
-    Column("role_id", ForeignKey("role.id", ondelete="CASCADE"), primary_key=True),
-)
 
 role_permission_table = Table(
     "role_permission",
@@ -34,9 +40,60 @@ class Permission(TableNameMixin, IdMixin, TimestampMixin, Base):
 class Role(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     name = Column(String(120), index=True, nullable=False)
     description = Column(Text, nullable=True)
+    # FR-7: default rolls up the org-unit hierarchy; when False a grant of this
+    # role satisfies a check only at the exact org unit it was granted at.
+    allows_hierarchy_rollup = Column(Boolean, nullable=False, default=True)
     permissions = relationship("Permission", secondary=role_permission_table, lazy="selectin")
 
     __table_args__ = (UniqueConstraint("org_id", "name", name="uq_role_org_name"),)
+
+
+class UserRoleGrant(
+    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, SoftDeleteMixin, TimestampMixin, Base
+):
+    """A user's role grant, scoped to a specific org unit with an optional
+    validity window (FR-6). Replaces the old flat ``user_role`` association
+    table: a user may now hold the same role at several org units (so the
+    composite ``(user_id, role_id)`` primary key is gone in favor of its own
+    ``id``), and revocation/expiry need actor-tracked soft-delete columns an
+    association Table cannot carry (FR-9, FR-10, FR-20).
+
+    ``org_unit_id`` is declared by string (``"org_unit.id"``) rather than
+    importing ``app.org_structure.models`` to avoid an
+    auth -> org_structure -> auth import cycle (org_structure's ``Delegation``
+    FKs to ``user``/``role``, both defined here).
+    """
+
+    __tablename__ = "user_role"
+
+    user_id = Column(String(36), ForeignKey("user.id", ondelete="CASCADE"), index=True, nullable=False)
+    role_id = Column(String(36), ForeignKey("role.id", ondelete="CASCADE"), index=True, nullable=False)
+    org_unit_id = Column(
+        String(36), ForeignKey("org_unit.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    valid_from = Column(DateTime(timezone=True), nullable=True)
+    valid_to = Column(DateTime(timezone=True), nullable=True)
+
+    role = relationship("Role", lazy="joined")
+
+    __table_args__ = (
+        Index(
+            "uq_user_role_scope",
+            "user_id",
+            "role_id",
+            "org_unit_id",
+            unique=True,
+            postgresql_where=text("deleted_at IS NULL"),
+            sqlite_where=text("deleted_at IS NULL"),
+        ),
+        Index("ix_user_role_lookup", "user_id", "org_id", "deleted_at"),
+    )
+
+
+# Compatibility alias: existing readers (app/roles/service.py raw counts,
+# User.roles below) keep working against the underlying table of the new
+# mapped model above.
+user_role_table = UserRoleGrant.__table__
 
 
 class User(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
@@ -53,7 +110,21 @@ class User(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Timestamp
     clearance = Column(String(40), nullable=False, default="confidential")
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     preferences = Column(JSON, nullable=False, default=dict)
-    roles = relationship("Role", secondary=user_role_table, lazy="selectin")
+    # viewonly: grants now carry org_unit_id/validity-window/actor data an
+    # implicit association-table insert cannot populate, so all writes go
+    # through UserRoleGrant rows in the service layer (see app/roles/service.py
+    # and app/org_structure/service.py). Filtered on deleted_at IS NULL only —
+    # expiry is deliberately NOT expressed here (dialect-fragile, cached per
+    # load); it is applied fresh on every call by
+    # app.core.org_access.effective_permission_values / resolve_access.
+    roles = relationship(
+        "Role",
+        secondary=user_role_table,
+        viewonly=True,
+        lazy="selectin",
+        primaryjoin="and_(User.id == user_role.c.user_id, user_role.c.deleted_at.is_(None))",
+        secondaryjoin="Role.id == user_role.c.role_id",
+    )
 
     @property
     def permission_values(self) -> set[str]:

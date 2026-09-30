@@ -13,9 +13,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.auth.models import Permission, Role, User, user_role_table
+from app.auth.models import Permission, Role, User, UserRoleGrant, user_role_table
 from app.core.audit import write_audit_log
+from app.core.database import utcnow
 from app.core.rbac import ADMIN_ROLE_NAME, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS
+from app.org_structure.access import get_org_root
 
 BUILTIN_ROLE_NAMES = set(DEFAULT_ROLE_PERMISSIONS)
 
@@ -118,7 +120,10 @@ class RoleService:
             self.db.scalar(
                 select(func.count())
                 .select_from(user_role_table)
-                .where(user_role_table.c.role_id == role.id)
+                .where(
+                    user_role_table.c.role_id == role.id,
+                    user_role_table.c.deleted_at.is_(None),
+                )
             )
             or 0
         )
@@ -129,6 +134,7 @@ class RoleService:
             "is_builtin": is_builtin(role),
             "permissions": sorted(p.value for p in role.permissions),
             "user_count": int(user_count),
+            "allows_hierarchy_rollup": role.allows_hierarchy_rollup,
         }
 
     def list_roles(self, org_id: str) -> list[dict]:
@@ -185,7 +191,11 @@ class RoleService:
     def update_role(self, actor: User, role_id: str, payload) -> dict:
         db = self.db
         role = self._get_org_role(actor.org_id, role_id)
-        before = {"name": role.name, "permissions": sorted(p.value for p in role.permissions)}
+        before = {
+            "name": role.name,
+            "permissions": sorted(p.value for p in role.permissions),
+            "allows_hierarchy_rollup": role.allows_hierarchy_rollup,
+        }
 
         if role.name == ADMIN_ROLE_NAME:
             # The admin role is the org's break-glass; never de-scope or rename it.
@@ -214,6 +224,8 @@ class RoleService:
             role.description = payload.description.strip() or None
         if payload.permissions is not None:
             role.permissions = self._resolve_permissions(payload.permissions)
+        if payload.allows_hierarchy_rollup is not None:
+            role.allows_hierarchy_rollup = payload.allows_hierarchy_rollup
         role.updated_by_user_id = actor.id
         db.flush()
         write_audit_log(
@@ -224,7 +236,11 @@ class RoleService:
             org_id=actor.org_id,
             actor_user_id=actor.id,
             before=before,
-            after={"name": role.name, "permissions": sorted(p.value for p in role.permissions)},
+            after={
+                "name": role.name,
+                "permissions": sorted(p.value for p in role.permissions),
+                "allows_hierarchy_rollup": role.allows_hierarchy_rollup,
+            },
         )
         db.commit()
         db.refresh(role)
@@ -239,7 +255,10 @@ class RoleService:
             db.scalar(
                 select(func.count())
                 .select_from(user_role_table)
-                .where(user_role_table.c.role_id == role.id)
+                .where(
+                    user_role_table.c.role_id == role.id,
+                    user_role_table.c.deleted_at.is_(None),
+                )
             )
             or 0
         )
@@ -286,7 +305,40 @@ class RoleService:
         db.refresh(target)
         return as_user_response(target)
 
+    def _assert_actor_can_grant(self, actor: User, roles: list[Role]) -> None:
+        """Privilege-escalation guard: `user:update_role` is a narrower permission
+        than `admin_panel:access` (role CRUD), so an actor could hold the former
+        without the latter. Without this check they could still grant ANY
+        role — including admin — to anyone (including themselves), regardless
+        of their own permission set. Only allow granting permissions the actor
+        already holds themselves.
+
+        FR-9: resolves the actor's own permissions via
+        ``org_access.effective_permission_values`` (expiry-aware — independently
+        excludes an expired-but-not-revoked grant) rather than
+        ``actor.permission_values``/``User.roles``, which per this feature's
+        design does not filter ``valid_to`` expiry."""
+        from app.core.org_access import effective_permission_values
+        from app.core.rbac import has_permission
+
+        granted_permissions = {p.value for r in roles for p in r.permissions}
+        actor_permissions = effective_permission_values(self.db, user=actor)
+        ungranted = {p for p in granted_permissions if not has_permission(actor_permissions, p)}
+        if ungranted:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                f"Cannot assign permission(s) you do not hold yourself: {', '.join(sorted(ungranted))}",
+            )
+
+
     def set_user_roles(self, actor: User, user_id: str, payload) -> dict:
+        """Legacy flat role-assignment screen: no UI concept of org-unit scoping,
+        so every grant it writes/revokes targets the organization's root org unit
+        (preserving today's org-wide semantics). Persists via ``UserRoleGrant``
+        rows rather than ``target.roles`` (now viewonly — see app/auth/models.py)
+        by diffing against the user's currently ACTIVE (non-revoked) grants: only
+        roles actually being added/removed get a new/soft-deleted grant row, so
+        unchanged roles don't needlessly churn the audit trail."""
         from app.auth.service import as_user_response  # reuse the canonical UserResponse
 
         db = self.db
@@ -301,10 +353,20 @@ class RoleService:
         if len(roles) != len(role_ids):
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "One or more roles not found")
 
-        _assert_actor_can_grant(actor, roles)
+        self._assert_actor_can_grant(actor, roles)
+
+        active_grants = db.scalars(
+            select(UserRoleGrant).where(
+                UserRoleGrant.org_id == actor.org_id,
+                UserRoleGrant.user_id == target.id,
+                UserRoleGrant.deleted_at.is_(None),
+            )
+        ).all()
+        current_role_ids = {g.role_id for g in active_grants}
+        current_roles_by_name = {g.role.name for g in active_grants if g.role is not None}
 
         # Lockout guard: never remove the last admin's admin role.
-        had_admin = any(r.name == ADMIN_ROLE_NAME for r in target.roles)
+        had_admin = ADMIN_ROLE_NAME in current_roles_by_name
         keeps_admin = any(r.name == ADMIN_ROLE_NAME for r in roles)
         if had_admin and not keeps_admin:
             admin_role_ids = select(Role.id).where(
@@ -314,6 +376,7 @@ class RoleService:
                 select(func.count(func.distinct(user_role_table.c.user_id))).where(
                     user_role_table.c.role_id.in_(admin_role_ids),
                     user_role_table.c.user_id != target.id,
+                    user_role_table.c.deleted_at.is_(None),
                 )
             )
             if not other_admins:
@@ -322,11 +385,33 @@ class RoleService:
                     "Cannot remove the admin role from the last remaining admin",
                 )
 
-        before_roles = sorted(r.name for r in target.roles)
-        target.roles = roles
+        before_roles = sorted(current_roles_by_name)
+
+        wanted_ids = {r.id for r in roles}
+        to_add = [r for r in roles if r.id not in current_role_ids]
+        to_remove = [g for g in active_grants if g.role_id not in wanted_ids]
+
+        if to_add or to_remove:
+            root = get_org_root(db, actor.org_id)
+            now = utcnow()
+            for role in to_add:
+                db.add(
+                    UserRoleGrant(
+                        org_id=actor.org_id,
+                        user_id=target.id,
+                        role_id=role.id,
+                        org_unit_id=root.id,
+                        created_by_user_id=actor.id,
+                        updated_by_user_id=actor.id,
+                    )
+                )
+            for grant in to_remove:
+                grant.deleted_at = now
+                grant.deleted_by_user_id = actor.id
+                grant.updated_by_user_id = actor.id
 
         # Resolve active_role_id: keep it valid, else pick a sensible default.
-        valid_ids = {r.id for r in roles}
+        valid_ids = wanted_ids
         if payload.active_role_id and payload.active_role_id in valid_ids:
             target.active_role_id = payload.active_role_id
         elif target.active_role_id not in valid_ids:

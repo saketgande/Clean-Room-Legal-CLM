@@ -28,6 +28,18 @@ def test_resolve_doc_type_still_recognizes_a_real_nda():
     assert resolve_doc_type(nda) == "nda"
 
 
+def test_resolve_doc_type_reads_the_structured_agreement_type_field():
+    """A generic type_label ("New agreement Request") carries no keyword on its
+    own — the "New agreement" intake form captures the real agreement type as a
+    structured field instead. Missing this made every such MSA/NDA/DPA/Vendor
+    request 422 with "no draft template" at Start Workflow."""
+    msa = _request(
+        type_label="New agreement Request", description="NA",
+        field_values={"agreement_type": "Master Services Agreement", "counterparty": "Microsoft"},
+    )
+    assert resolve_doc_type(msa) == "msa"
+
+
 def test_flow_criteria_match_type_nda_does_not_match_anda_request():
     anda = _request(description="ANDA Paragraph IV patent litigation notice; 45-day response deadline.")
     assert _matches({"match_type": "nda"}, anda) is False

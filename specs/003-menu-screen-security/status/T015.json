@@ -1,0 +1,1 @@
+{"task": "T015", "agent": "backend-dev", "status": "done", "detail": "Added Depends(require_screen_level(\"trademarks\", level)) to all 8 tranche-1 routes in backend/app/trademarks/routes.py per plan.md. ruff clean; trademark-scoped pytest 15 passed; full suite 347 passed, 6 skipped (matches baseline).", "updated": "2026-09-14T11:45:00Z"}

@@ -36,11 +36,16 @@ import {
 import { useToast } from "@/components/toast";
 import type { Notice, NoticeExtraction } from "@/lib/types";
 import { NOTICE_TYPES, POSTURE_TONE, STATUS_TONE, deadlineLabel, typeLabel } from "./shared";
+import { useScreenAccess } from "@/lib/screen-access";
 
 export default function NoticesPage() {
   const qc = useQueryClient();
   const router = useRouter();
   const { notify } = useToast();
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD request (FR-10/FR-13); this is a usability aid, not the
+  // security boundary.
+  const { canAdd } = useScreenAccess("notices");
   const [creating, setCreating] = useState(false);
   const [tile, setTile] = useState<"all" | "overdue" | "open" | "responded">("all");
   const [q, setQ] = useState("");
@@ -100,7 +105,13 @@ export default function NoticesPage() {
             <BellRing className="ic" />
             {chasing ? "Chasing…" : "Chase deadlines"}
           </button>
-          <button type="button" className="btn pri" onClick={() => setCreating(true)}>
+          <button
+            type="button"
+            className="btn pri"
+            disabled={!canAdd}
+            title={canAdd ? undefined : "You don't have add access to this screen"}
+            onClick={() => setCreating(true)}
+          >
             <Plus className="ic" />
             Record notice
           </button>

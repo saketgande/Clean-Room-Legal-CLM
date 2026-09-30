@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
-from app.core.deps import require_permission
+from app.core.deps import require_permission, require_screen_level
 from app.trademarks.dependencies import get_trademarks_service
 from app.trademarks.schemas import (
     DashboardMetrics,
@@ -24,6 +24,10 @@ from app.trademarks.service import TrademarksService
 
 router = APIRouter(prefix="/trademarks", tags=["trademarks"])
 
+_TRADEMARKS_VIEW = require_screen_level("trademarks", "VIEW")
+_TRADEMARKS_ADD = require_screen_level("trademarks", "ADD")
+_TRADEMARKS_EDIT = require_screen_level("trademarks", "EDIT")
+
 
 @router.get("", response_model=list[TrademarkResponse])
 def list_trademarks(
@@ -37,7 +41,7 @@ def list_trademarks(
 def create_trademark(
     payload: TrademarkCreate,
     current_user=Depends(require_permission("trademark:create")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_ADD),
 ):
     return service.create_trademark(user=current_user, payload=payload)
 
@@ -46,7 +50,7 @@ def create_trademark(
 def submit_intake(
     payload: IntakeSubmitRequest,
     current_user=Depends(require_permission("trademark:create")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_ADD),
 ):
     return service.create_trademark_from_intake(user=current_user, payload=payload)
 
@@ -82,7 +86,7 @@ def update_trademark(
     trademark_id: str,
     payload: TrademarkUpdate,
     current_user=Depends(require_permission("trademark:update")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_EDIT),
 ):
     trademark = service.get_trademark_for_user(trademark_id=trademark_id, user=current_user)
     return service.update_trademark(trademark=trademark, user=current_user, payload=payload)
@@ -92,7 +96,7 @@ def update_trademark(
 def search_similar(
     payload: SearchSimilarRequest,
     current_user=Depends(require_permission("trademark:search")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
 ):
     return service.search_similar(user=current_user, request=payload)
 
@@ -101,7 +105,7 @@ def search_similar(
 async def upload_document(
     file: UploadFile = File(...),
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_ADD),
 ):
     return await service.save_uploaded_document(user=current_user, file=file)
 
@@ -110,7 +114,7 @@ async def upload_document(
 async def extract_fields(
     payload: ExtractRequest,
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
 ):
     try:
         return await service.extract_fields(user=current_user, request=payload)
@@ -122,7 +126,7 @@ async def extract_fields(
 def ingest_document(
     payload: IngestRequest,
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_ADD),
 ):
     return service.ingest_extraction(user=current_user, request=payload)
 
@@ -139,6 +143,6 @@ def integrations_status(
 def test_integration(
     service_name: str,
     current_user=Depends(require_permission("trademark:integrations_manage")),
-    service: TrademarksService = Depends(get_trademarks_service),
+    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
 ):
     return service.test_integration(service_name=service_name, settings=settings)

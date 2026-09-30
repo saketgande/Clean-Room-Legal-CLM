@@ -1299,7 +1299,25 @@ def view_external_share(
         download_allowed=share.download_allowed,
         text_excerpt=text[:EXTERNAL_TEXT_EXCERPT_CHARS] if text else None,
         text_truncated=len(text) > EXTERNAL_TEXT_EXCERPT_CHARS,
+        can_submit=share.workflow_step_run_id is not None,
+        expires_at=share.expires_at,
     )
+
+
+@external_share_router.post("/{token}/submit")
+@limiter.limit("5/minute", key_func=_share_rate_limit_key)
+def submit_external_share(
+    request: Request,
+    response: Response,
+    token: str,
+    passcode: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """The counterparty is done: expire the link and tell the reviewer."""
+    from app.workflows.counterparty import submit_share
+
+    share = _get_active_share(db, token=token, passcode=passcode, request=request)
+    return submit_share(db, share=share, request_id=getattr(request.state, "request_id", None))
 
 
 def _share_contract(db: Session, share) -> Contract:

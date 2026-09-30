@@ -1,0 +1,1 @@
+{"task": "T012", "agent": "frontend-dev", "status": "done", "detail": "Added Delegations nav item (Workspace section, perm delegation:manage, href /delegations) and Org structure nav item (Admin section, perm admin_panel:access, href /org-structure) to aegis-rail.tsx. npm run typecheck passed clean.", "updated": "2026-09-13T00:05:00Z"}

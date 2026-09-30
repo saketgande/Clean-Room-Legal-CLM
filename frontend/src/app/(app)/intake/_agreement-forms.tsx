@@ -10,7 +10,7 @@
  * a second org ever needs different ones.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, FileText, Info, Paperclip, Search, TriangleAlert } from "lucide-react";
 import {
@@ -20,7 +20,7 @@ import { contractsApi, intakeApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/utils";
-import type { ContractResponse, IntakeRequest } from "@/lib/types";
+import type { ContractResponse, CounterpartyOption, IntakeRequest } from "@/lib/types";
 
 // ---------------------------------------------------------------- types ----
 
@@ -364,6 +364,7 @@ const ENTITIES = [
   { name: "Acme Pharma UK Ltd", address: "5th Floor, 20 St Andrew Street, London EC4A 3AG", signatory: "Sarah Whitfield", jurisdiction: "England & Wales" },
   { name: "Acme Life Sciences Inc", address: "107 College Road East, Princeton, NJ 08540", signatory: "Michael Reyes", jurisdiction: "Delaware, USA" },
 ];
+const ENTITY_OPTIONS: CounterpartyOption[] = ENTITIES.map((e) => ({ name: e.name, contact_email: null }));
 
 // ------------------------------------------------------------- approvals ----
 
@@ -499,24 +500,57 @@ function FieldLabel({ label, req }: { label: string; req?: boolean }) {
 }
 
 /** Text field with the Look-up control attached to its right edge. */
-function LookupInput({ value, onChange, placeholder = "Type something", bad, list }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; bad?: boolean; list?: string;
+function LookupInput({ value, onChange, placeholder = "Type something", bad, options, onPick }: {
+  value: string; onChange: (v: string) => void; placeholder?: string; bad?: boolean;
+  /** Existing values to suggest as the user types (e.g. counterparties already in the CLM). */
+  options?: CounterpartyOption[];
+  onPick?: (o: CounterpartyOption) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+
+  const q = value.trim().toLowerCase();
+  const matches = (options ?? []).filter((o) => !q || o.name.toLowerCase().includes(q)).slice(0, 8);
+
   return (
-    <div className={cn(
-      "flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
-      bad ? "border-danger bg-danger-subtle" : "border-slate-300",
-    )}>
-      <input
-        list={list}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
-      />
-      <span className="flex shrink-0 items-center gap-1.5 border-l border-slate-300 bg-slate-50 px-3 text-[12px] font-medium text-slate-600">
-        Look-up <Search className="h-3.5 w-3.5" />
-      </span>
+    <div className="relative" ref={wrapRef}>
+      <div className={cn(
+        "flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
+        bad ? "border-danger bg-danger-subtle" : "border-slate-300",
+      )}>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
+        />
+        <span className="flex shrink-0 items-center gap-1.5 border-l border-slate-300 bg-slate-50 px-3 text-[12px] font-medium text-slate-600">
+          Look-up <Search className="h-3.5 w-3.5" />
+        </span>
+      </div>
+      {open && options !== undefined && matches.length > 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+          {matches.map((o) => (
+            <button
+              key={o.name}
+              type="button"
+              className="flex w-full flex-col items-start gap-0 px-3 py-1.5 text-left hover:bg-slate-50"
+              onClick={() => { onChange(o.name); onPick?.(o); setOpen(false); }}
+            >
+              <span className="text-[13px] font-medium text-slate-900">{o.name}</span>
+              {o.contact_email && <span className="text-[11px] text-slate-500">{o.contact_email}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -605,6 +639,10 @@ export function AgreementWizard({ def, onFiled, onBack }: {
   const [busy, setBusy] = useState(false);
   const [errBar, setErrBar] = useState<string>("");
   const [visited, setVisited] = useState(1);
+  // Editable override for the auto-generated subject line — blank means "use
+  // the auto-generated name" (subjectLine below), so requesters who don't
+  // care never have to type anything.
+  const [nameOverride, setNameOverride] = useState("");
 
   const LABELS = useMemo(() => stepLabels(def), [def]);
   const needsContract = def.parent === "contract";
@@ -727,7 +765,7 @@ export function AgreementWizard({ def, onFiled, onBack }: {
       }
       const created = await intakeApi.create({
         type_label: `${def.name} Request`,
-        subject: subjectLine(def, values, parent),
+        subject: nameOverride.trim() || subjectLine(def, values, parent),
         priority: value > 5_000_000 ? "High" : "Medium",
         department: values.department || null,
         requester_name: user?.full_name ?? null,
@@ -896,7 +934,12 @@ export function AgreementWizard({ def, onFiled, onBack }: {
                   </>
                 )}
 
-                {n === 6 && <StepSummary def={def} values={values} parent={parent} approvers={approvers} tier={tier} onGo={goToStep} />}
+                {n === 6 && (
+                  <StepSummary
+                    def={def} values={values} parent={parent} approvers={approvers} tier={tier} onGo={goToStep}
+                    nameOverride={nameOverride} onNameChange={setNameOverride}
+                  />
+                )}
 
                 {n === 7 && <StepMessage def={def} values={values} parent={parent} errors={errors} onChange={set} approvers={approvers} />}
 
@@ -1056,20 +1099,17 @@ function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, 
           <div className="max-w-[520px] space-y-1.5">
             <FieldLabel label="Entity1" req />
             <LookupInput
-              list="aegis-entity-register"
               value={values.entity ?? ""}
               onChange={(v) => onChange("entity", v)}
               bad={errors.has("entity")}
+              options={ENTITY_OPTIONS}
             />
           </div>
-          <datalist id="aegis-entity-register">
-            {ENTITIES.map((e) => <option key={e.name} value={e.name} />)}
-          </datalist>
 
           {extraEntity && (
             <div className="max-w-[520px] space-y-1.5">
               <FieldLabel label="Entity2" />
-              <LookupInput list="aegis-entity-register" value={values.entity_2 ?? ""} onChange={(v) => onChange("entity_2", v)} />
+              <LookupInput value={values.entity_2 ?? ""} onChange={(v) => onChange("entity_2", v)} options={ENTITY_OPTIONS} />
             </div>
           )}
         </div>
@@ -1150,6 +1190,14 @@ function StepParties({ def, parent, values, errors, onChange }: {
   def: AgreementFormDef; parent: ContractResponse | null; values: Values; errors: Set<string>; onChange: (k: string, v: string) => void;
 }) {
   const [second, setSecond] = useState(false);
+  // Existing counterparties already recorded in the CLM (any contract's
+  // ContractParty/counterparty_name), so a filer can pick a known one instead
+  // of retyping a name that then won't match what Legal already has on file.
+  const { data: directory } = useQuery({
+    queryKey: ["counterparty-directory"],
+    queryFn: () => contractsApi.counterpartyDirectory(),
+    staleTime: 60_000,
+  });
   if (def.parent === "contract" && parent) {
     const rows: [string, string][] = [
       ["Parent agreement", parent.title],
@@ -1182,12 +1230,12 @@ function StepParties({ def, parent, values, errors, onChange }: {
       <div className="flex flex-col gap-4">
         <div className="max-w-[520px] space-y-1.5">
           <FieldLabel label="Name of Counterparty1" req />
-          <LookupInput value={values.counterparty ?? ""} onChange={(v) => onChange("counterparty", v)} bad={errors.has("counterparty")} />
+          <LookupInput value={values.counterparty ?? ""} onChange={(v) => onChange("counterparty", v)} bad={errors.has("counterparty")} options={directory} />
         </div>
         {second && (
           <div className="max-w-[520px] space-y-1.5">
             <FieldLabel label="Name of Counterparty2" />
-            <LookupInput value={values.counterparty_2 ?? ""} onChange={(v) => onChange("counterparty_2", v)} />
+            <LookupInput value={values.counterparty_2 ?? ""} onChange={(v) => onChange("counterparty_2", v)} options={directory} />
           </div>
         )}
       </div>
@@ -1257,9 +1305,10 @@ function StepSignature({ def, values, onChange }: { def: AgreementFormDef; value
   );
 }
 
-function StepSummary({ def, values, parent, approvers, tier, onGo }: {
+function StepSummary({ def, values, parent, approvers, tier, onGo, nameOverride, onNameChange }: {
   def: AgreementFormDef; values: Values; parent: ContractResponse | null;
   approvers: string[]; tier: { name: string; eta: string }; onGo: (n: number) => void;
+  nameOverride: string; onNameChange: (v: string) => void;
 }) {
   const cells: [string, string, number][] = [
     ...(parent ? [["Parent agreement", parent.title, 1] as [string, string, number]] : []),
@@ -1270,6 +1319,14 @@ function StepSummary({ def, values, parent, approvers, tier, onGo }: {
   ];
   return (
     <div className="flex flex-col gap-5">
+      <Field label="Name this request" hint="Shown on your queue and dashboards instead of the auto-generated name below.">
+        <Input
+          value={nameOverride}
+          onChange={(e) => onNameChange(e.target.value)}
+          placeholder={subjectLine(def, values, parent)}
+          maxLength={200}
+        />
+      </Field>
       <div>
         <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.05em] text-slate-500">
           Effect of this {def.name.toLowerCase()}
