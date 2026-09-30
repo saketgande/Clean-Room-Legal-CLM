@@ -9,6 +9,7 @@ so two concurrent creates routing to A and B can't deadlock.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -25,6 +26,7 @@ from app.intake.models import (
     IntakeTeam,
     IntakeTeamMember,
 )
+from app.intake.schemas import TeamMemberSpec
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -189,7 +191,7 @@ class TeamService:
             t = db.get(IntakeTeam, cur)
             cur = t.overflow_team_id if t else None
 
-    def _apply_members(self, t: IntakeTeam, org_id: str, members: Sequence[TeamMemberIn]) -> None:
+    def _apply_members(self, t: IntakeTeam, org_id: str, members: Sequence[TeamMemberSpec]) -> None:
         """Reuse existing IntakeTeamMember rows (update capacity/active in place)
         rather than replacing the whole `t.members` collection with new objects.
         With cascade="all, delete-orphan", wholesale replacement makes SQLAlchemy

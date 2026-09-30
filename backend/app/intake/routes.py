@@ -47,7 +47,9 @@ from app.intake.schemas import (
     TriageActionRequest,
 )
 from app.intake.screening import ScreeningService
-from app.intake.service import IntakeService, claim_request as _claim_request, list_pool_requests as _list_pool_requests
+from app.intake.service import IntakeService
+from app.intake.service import claim_request as _claim_request
+from app.intake.service import list_pool_requests as _list_pool_requests
 from app.intake.teams import TeamService
 
 router = APIRouter(prefix="/intake", tags=["intake"])

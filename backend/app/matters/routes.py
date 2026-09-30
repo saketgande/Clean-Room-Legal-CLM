@@ -1,7 +1,5 @@
 from fastapi import APIRouter, Depends, status
 
-from fastapi import APIRouter, Depends, status
-
 from app.core.deps import require_permission, require_screen_level
 from app.matters.dependencies import get_matters_service
 from app.matters.schemas import (

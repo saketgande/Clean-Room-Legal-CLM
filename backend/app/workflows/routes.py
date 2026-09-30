@@ -9,7 +9,6 @@ from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
 from app.intake.models import IntakeRequest
 from app.workflows import counterparty as counterparty_svc
-from app.workflows import service
 from app.workflows.builtin import seed_builtin_flows
 from app.workflows.dependencies import get_workflow_service
 from app.workflows.models import Workflow, WorkflowRun

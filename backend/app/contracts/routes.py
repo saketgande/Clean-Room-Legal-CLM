@@ -28,20 +28,9 @@ from app.contracts.schemas import (
     VersionDiffResponse,
 )
 from app.contracts.service import (
-    add_contract_party,
-    compute_review_status,
-    compute_version_diff,
-    delete_contract_party,
-    get_contract_for_user,
-    list_contract_activity,
-    list_contract_parties,
-    list_contract_stage_history,
-    list_contracts_for_user,
+    ContractService,
     list_counterparty_directory,
-    list_signer_options,
-    update_contract_metadata,
 )
-from app.contracts.service import ContractService
 from app.core.config import settings
 from app.core.deps import get_db, require_permission, require_screen_level
 from app.core.rate_limit import limiter

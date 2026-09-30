@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
 
 from app.core.deps import require_permission, require_screen_level
-from app.notices import service
 from app.notices.dependencies import get_notices_service
 from app.notices.schemas import (
     NoticeCreate,

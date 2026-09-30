@@ -1,8 +1,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
-from app.core.deps import get_db, require_permission, require_screen_level
-from app.trademarks import service
+from app.core.deps import require_permission, require_screen_level
 from app.trademarks.dependencies import get_trademarks_service
 from app.trademarks.schemas import (
     DashboardMetrics,

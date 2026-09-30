@@ -318,8 +318,8 @@ class RoleService:
         excludes an expired-but-not-revoked grant) rather than
         ``actor.permission_values``/``User.roles``, which per this feature's
         design does not filter ``valid_to`` expiry."""
-        from app.core.rbac import has_permission
         from app.core.org_access import effective_permission_values
+        from app.core.rbac import has_permission
 
         granted_permissions = {p.value for r in roles for p in r.permissions}
         actor_permissions = effective_permission_values(self.db, user=actor)
