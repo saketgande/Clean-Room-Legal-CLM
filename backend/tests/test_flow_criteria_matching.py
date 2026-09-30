@@ -1,6 +1,6 @@
 """A real ANDA (Abbreviated New Drug Application) patent-litigation request got
 misrouted to the "NDA Fast-Track" flow because both the flow criteria matcher
-(flows/service.py::_matches) and the doc-type resolver
+(workflows/service.py::_matches) and the doc-type resolver
 (intake/drafting.py::resolve_doc_type) used plain substring checks — "nda" is
 a substring of "anda". Pin the word-boundary fix in both places; either one
 regressing back to substring matching reintroduces the misroute."""

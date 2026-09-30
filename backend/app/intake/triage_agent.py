@@ -105,7 +105,7 @@ def _fallback(db: Session, request: IntakeRequest, *, degraded: bool = False) ->
     return base
 
 
-def triage(db: Session, request: IntakeRequest) -> dict:
+def triage(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     """Best-effort context-aware triage. Always returns a dict (never raises)."""
     from app.core.config import settings
     from app.intake.flow_agent import flow_catalog
@@ -116,13 +116,15 @@ def triage(db: Session, request: IntakeRequest) -> dict:
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     try:
         enforce_daily_token_cap(request.org_id)
         bundle = get_agent_prompt(db, agent_id="intake_triage", org_id=request.org_id)
         user_prompt = _prompt(request, catalog)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="triage_request", input_schema=_SCHEMA,

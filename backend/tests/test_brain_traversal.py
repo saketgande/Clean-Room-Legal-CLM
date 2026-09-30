@@ -17,7 +17,6 @@ The shape seeded:
 import uuid
 
 import pytest
-
 from sqlalchemy import text
 
 from app.contract_brain.models import KnowledgeEdge, KnowledgeNode

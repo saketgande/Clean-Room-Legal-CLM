@@ -36,9 +36,10 @@ from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_log
 from app.core.config import settings
-from app.intake import email_triage_agent, service
-from app.intake.ingest import _resolve_requester, ingest_message
+from app.intake import email_triage_agent
+from app.intake.ingest import IngestService
 from app.intake.models import IntakeRequest
+from app.intake.service import IntakeService
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,7 @@ def _attachments(msg: Message) -> list[tuple[str, str, bytes]]:
     return found
 
 
-def _ocr_to_docx(filename: str, mime_type: str, content: bytes) -> tuple[str, bytes] | None:
+def _ocr_to_docx(filename: str, mime_type: str, content: bytes, *, reducto=None) -> tuple[str, bytes] | None:
     """OCRs an attachment that needs it (an image, or a scanned/unreadable
     PDF or DOCX) via the same Reducto OCR provider the main contract-upload
     path uses, and copies the recognized text into a new .docx so it reads
@@ -110,13 +111,14 @@ def _ocr_to_docx(filename: str, mime_type: str, content: bytes) -> tuple[str, by
     already good enough (no OCR needed) or OCR produced nothing — e.g. Reducto
     is mocked (MOCK_REDUCTO=true) in local/dev, so this is a no-op there."""
     from app.contract_files.text_extraction import extract_text as native_extract_text
-    from app.integrations.reducto import reducto_client
+    from app.integrations.dependencies import get_reducto_client
 
+    reducto = reducto or get_reducto_client()
     native = native_extract_text(content, mime_type=mime_type, filename=filename)
     if not native.needs_ocr:
         return None
     try:
-        ocr = asyncio.run(reducto_client.extract_text(filename=filename, mime_type=mime_type, content=content))
+        ocr = asyncio.run(reducto.extract_text(filename=filename, mime_type=mime_type, content=content))
     except Exception:
         return None
     if not ocr.text.strip():
@@ -134,192 +136,222 @@ def _ocr_to_docx(filename: str, mime_type: str, content: bytes) -> tuple[str, by
     return f"{stem}_OCR.docx", buf.getvalue()
 
 
-def _ingest_attachment(db: Session, *, requester, request_id: str,
-                        filename: str, mime_type: str, content: bytes) -> str:
-    """Attaches `content` to the request and, when it needed OCR, also
-    attaches a companion .docx holding the OCR'd text to the same request.
-    Returns the combined extracted text for downstream classification."""
-    doc = service.add_document(db, actor=requester, request_id=request_id,
-                                filename=filename, mime_type=mime_type, content=content)
-    text = doc.get("extracted_text") or ""
-    ocr_result = _ocr_to_docx(filename, mime_type, content)
-    if ocr_result:
-        ocr_filename, ocr_bytes = ocr_result
-        ocr_doc = service.add_document(db, actor=requester, request_id=request_id,
-                                        filename=ocr_filename, mime_type=_DOCX_MIME, content=ocr_bytes)
-        text = "\n\n".join(t for t in (text, ocr_doc.get("extracted_text") or "") if t)
-    return text
+class GmailSyncService:
+    """Gmail inbox sync — reads over IMAP, classifies, and files matching
+    messages through the shared intake pipeline.
 
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
+    a ``db`` session; ``intake`` and ``ingest`` default to instances built
+    from the same session (composition). Pure MIME/decoding helpers stay
+    module-level, unchanged, above.
+    """
 
-def sync_gmail_inbox(db: Session) -> dict:
-    if not settings.intake_gmail_address or not settings.intake_gmail_app_password:
-        return {"status": "disabled",
-                "note": "Set INTAKE_GMAIL_ADDRESS / INTAKE_GMAIL_APP_PASSWORD to enable Gmail sync."}
+    def __init__(
+        self,
+        db: Session,
+        *,
+        intake: IntakeService | None = None,
+        ingest: IngestService | None = None,
+        reducto=None,
+    ):
+        self.db = db
+        self.intake = intake or IntakeService(db)
+        self.ingest = ingest or IngestService(db, intake=self.intake)
+        self.reducto = reducto
 
-    imap = imaplib.IMAP4_SSL(_IMAP_HOST)
-    try:
+    def _ingest_attachment(self, *, requester, request_id: str,
+                            filename: str, mime_type: str, content: bytes) -> str:
+        """Attaches `content` to the request and, when it needed OCR, also
+        attaches a companion .docx holding the OCR'd text to the same request.
+        Returns the combined extracted text for downstream classification."""
+        doc = self.intake.add_document(actor=requester, request_id=request_id,
+                                    filename=filename, mime_type=mime_type, content=content)
+        text = doc.get("extracted_text") or ""
+        ocr_result = _ocr_to_docx(filename, mime_type, content, reducto=self.reducto)
+        if ocr_result:
+            ocr_filename, ocr_bytes = ocr_result
+            ocr_doc = self.intake.add_document(actor=requester, request_id=request_id,
+                                            filename=ocr_filename, mime_type=_DOCX_MIME, content=ocr_bytes)
+            text = "\n\n".join(t for t in (text, ocr_doc.get("extracted_text") or "") if t)
+        return text
+
+    def sync_gmail_inbox(self) -> dict:
+        db = self.db
+        if not settings.intake_gmail_address or not settings.intake_gmail_app_password:
+            return {"status": "disabled",
+                    "note": "Set INTAKE_GMAIL_ADDRESS / INTAKE_GMAIL_APP_PASSWORD to enable Gmail sync."}
+
+        imap = imaplib.IMAP4_SSL(_IMAP_HOST)
         try:
-            imap.login(settings.intake_gmail_address, settings.intake_gmail_app_password)
-        except imaplib.IMAP4.error as exc:
-            return {"status": "error",
-                    "note": f"Gmail login failed — check INTAKE_GMAIL_ADDRESS / INTAKE_GMAIL_APP_PASSWORD "
-                            f"(must be a Google App Password, not the account password): {exc}"}
-        except OSError as exc:
-            return {"status": "error", "note": f"Could not reach {_IMAP_HOST}: {exc}"}
-
-        status, _ = imap.select(settings.intake_gmail_folder, readonly=True)
-        if status != "OK":
-            return {"status": "error", "note": f"Could not open folder {settings.intake_gmail_folder!r}"}
-
-        status, data = imap.uid("search", None, "ALL")
-        if status != "OK":
-            return {"status": "error", "note": "IMAP search failed"}
-        uids = (data[0] or b"").split()
-        uids = uids[-settings.intake_gmail_max_messages:]
-
-        filed, skipped = [], []
-        for uid in uids:
             try:
-                status, msg_data = imap.uid("fetch", uid, "(X-GM-THRID BODY.PEEK[])")
-                if status != "OK" or not msg_data or not msg_data[0]:
-                    skipped.append({"uid": uid.decode(), "reason": "fetch failed"})
-                    continue
-                raw = msg_data[0][1]
-                msg = email.message_from_bytes(raw)
-                thrid_match = _THRID_RE.search(msg_data[0][0] or b"")
-                thread_id = thrid_match.group(1).decode() if thrid_match else None
+                imap.login(settings.intake_gmail_address, settings.intake_gmail_app_password)
+            except imaplib.IMAP4.error as exc:
+                return {"status": "error",
+                        "note": f"Gmail login failed — check INTAKE_GMAIL_ADDRESS / INTAKE_GMAIL_APP_PASSWORD "
+                                f"(must be a Google App Password, not the account password): {exc}"}
+            except OSError as exc:
+                return {"status": "error", "note": f"Could not reach {_IMAP_HOST}: {exc}"}
 
-                message_id = (msg.get("Message-ID") or "").strip() or None
-                external_message_id = f"gmail:{message_id or uid.decode()}"
-                subject = _decode(msg.get("Subject")) or "(no subject)"
-                from_header = _decode(msg.get("From"))
-                from_email = email.utils.parseaddr(from_header)[1] or None
-                body = _plain_text_body(msg)
-                attachments = _attachments(msg)
+            status, _ = imap.select(settings.intake_gmail_folder, readonly=True)
+            if status != "OK":
+                return {"status": "error", "note": f"Could not open folder {settings.intake_gmail_folder!r}"}
 
-                # This exact message already filed (e.g. re-polled before the
-                # watermark caught up) — nothing new to do.
-                if db.query(IntakeRequest).filter(
-                    IntakeRequest.external_message_id == external_message_id
-                ).first():
-                    skipped.append({"uid": uid.decode(), "reason": "already processed"})
-                    continue
+            status, data = imap.uid("search", None, "ALL")
+            if status != "OK":
+                return {"status": "error", "note": "IMAP search failed"}
+            uids = (data[0] or b"").split()
+            uids = uids[-settings.intake_gmail_max_messages:]
 
-                thread_request = None
-                if thread_id:
-                    thread_request = (
-                        db.query(IntakeRequest)
-                        .filter(IntakeRequest.source == "gmail_email",
-                                IntakeRequest.field_values.op("->>")("gmail_thread_id") == thread_id)
-                        .first()
+            filed, skipped = [], []
+            for uid in uids:
+                try:
+                    status, msg_data = imap.uid("fetch", uid, "(X-GM-THRID BODY.PEEK[])")
+                    if status != "OK" or not msg_data or not msg_data[0]:
+                        skipped.append({"uid": uid.decode(), "reason": "fetch failed"})
+                        continue
+                    raw = msg_data[0][1]
+                    msg = email.message_from_bytes(raw)
+                    thrid_match = _THRID_RE.search(msg_data[0][0] or b"")
+                    thread_id = thrid_match.group(1).decode() if thrid_match else None
+
+                    message_id = (msg.get("Message-ID") or "").strip() or None
+                    external_message_id = f"gmail:{message_id or uid.decode()}"
+                    subject = _decode(msg.get("Subject")) or "(no subject)"
+                    from_header = _decode(msg.get("From"))
+                    from_email = email.utils.parseaddr(from_header)[1] or None
+                    body = _plain_text_body(msg)
+                    attachments = _attachments(msg)
+
+                    # This exact message already filed (e.g. re-polled before the
+                    # watermark caught up) — nothing new to do.
+                    if db.query(IntakeRequest).filter(
+                        IntakeRequest.external_message_id == external_message_id
+                    ).first():
+                        skipped.append({"uid": uid.decode(), "reason": "already processed"})
+                        continue
+
+                    thread_request = None
+                    if thread_id:
+                        thread_request = (
+                            db.query(IntakeRequest)
+                            .filter(IntakeRequest.source == "gmail_email",
+                                    IntakeRequest.field_values.op("->>")("gmail_thread_id") == thread_id)
+                            .first()
+                        )
+
+                    requester = self.ingest._resolve_requester("org", from_email)
+
+                    if thread_request:
+                        # Same Gmail conversation as an already-filed request (e.g.
+                        # a reply with a revised document version) — always pull
+                        # the latest document into that request rather than filing
+                        # a new one. Only an exact re-fetch of a file already on
+                        # this request (same filename + size) is skipped — a
+                        # genuinely new/changed attachment is never dropped just
+                        # because we've seen this thread before.
+                        existing_docs = {
+                            (d["filename"], d["size_bytes"])
+                            for d in self.intake.list_documents(actor=requester, request_id=thread_request.id)
+                        }
+                        excerpts, added = [], []
+                        for filename, mime_type, content in attachments:
+                            if (filename, len(content)) in existing_docs:
+                                continue
+                            try:
+                                excerpts.append(self._ingest_attachment(
+                                    requester=requester, request_id=thread_request.id,
+                                    filename=filename, mime_type=mime_type, content=content,
+                                ))
+                                added.append(filename)
+                            except Exception as exc:
+                                db.rollback()
+                                skipped.append({"uid": uid.decode(), "reason": f"attachment {filename}: {exc}"})
+
+                        if excerpts:
+                            combined = "\n\n".join(e for e in [body, *excerpts] if e)[:20000]
+                            triage = email_triage_agent.classify_email(db, thread_request.org_id, subject, combined)
+                            if triage.get("category") != "General":
+                                thread_request.ai_triage = {
+                                    **(thread_request.ai_triage or {}),
+                                    **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")},
+                                }
+                            if triage.get("type_label"):
+                                thread_request.type_label = triage["type_label"]
+                                thread_request.request_type_id = triage.get("request_type_id")
+                            write_audit_log(
+                                db, action="intake.ingest.gmail_email.thread_followup",
+                                resource_type="intake_request", resource_id=thread_request.id,
+                                org_id=thread_request.org_id, actor_user_id=requester.id,
+                                after={"from": from_email, "message_id": message_id, "attachments": added},
+                            )
+                            db.commit()
+                        filed.append({"id": thread_request.id, "ref": thread_request.ref,
+                                      "deduped": True, "thread_followup": True, "documents_added": added})
+                        continue
+
+                    # Email Intake Triage Agent: only file messages that actually
+                    # look like a Legal/CLM matter — everything else (newsletters,
+                    # personal mail, receipts…) is left in the inbox, untouched.
+                    if not email_triage_agent.is_clm_related(db, requester.org_id, subject, body, [a[0] for a in attachments]):
+                        skipped.append({"uid": uid.decode(), "subject": subject, "reason": "not CLM-related"})
+                        continue
+
+                    out = self.ingest.ingest_message(
+                        source="gmail_email", from_email=from_email, subject=subject,
+                        body=body, external_message_id=external_message_id,
                     )
 
-                requester = _resolve_requester(db, "org", from_email)
+                    if not out["deduped"]:
+                        excerpts = [body]
+                        for filename, mime_type, content in attachments:
+                            try:
+                                excerpts.append(self._ingest_attachment(
+                                    requester=requester, request_id=out["id"],
+                                    filename=filename, mime_type=mime_type, content=content,
+                                ))
+                            except Exception as exc:
+                                # A failed insert leaves the session's transaction
+                                # unusable until rolled back — without this, one
+                                # bad attachment cascades into failures for every
+                                # later message/attachment sharing this session.
+                                db.rollback()
+                                skipped.append({"uid": uid.decode(), "reason": f"attachment {filename}: {exc}"})
 
-                if thread_request:
-                    # Same Gmail conversation as an already-filed request (e.g.
-                    # a reply with a revised document version) — always pull
-                    # the latest document into that request rather than filing
-                    # a new one. Only an exact re-fetch of a file already on
-                    # this request (same filename + size) is skipped — a
-                    # genuinely new/changed attachment is never dropped just
-                    # because we've seen this thread before.
-                    existing_docs = {
-                        (d["filename"], d["size_bytes"])
-                        for d in service.list_documents(db, actor=requester, request_id=thread_request.id)
-                    }
-                    excerpts, added = [], []
-                    for filename, mime_type, content in attachments:
-                        if (filename, len(content)) in existing_docs:
-                            continue
-                        try:
-                            excerpts.append(_ingest_attachment(
-                                db, requester=requester, request_id=thread_request.id,
-                                filename=filename, mime_type=mime_type, content=content,
-                            ))
-                            added.append(filename)
-                        except Exception as exc:
-                            db.rollback()
-                            skipped.append({"uid": uid.decode(), "reason": f"attachment {filename}: {exc}"})
+                        combined = "\n\n".join(e for e in excerpts if e)[:20000]
+                        triage = email_triage_agent.classify_email(db, requester.org_id, subject, combined)
+                        r = db.query(IntakeRequest).filter(IntakeRequest.id == out["id"]).first()
+                        if r:
+                            if triage.get("category") != "General":
+                                r.ai_triage = {**(r.ai_triage or {}),
+                                               **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")}}
+                            if triage.get("type_label"):
+                                r.type_label = triage["type_label"]
+                                r.request_type_id = triage.get("request_type_id")
+                            if thread_id:
+                                r.field_values = {**(r.field_values or {}), "gmail_thread_id": thread_id}
+                            db.commit()
+                            db.refresh(r)
+                            # out was serialized right after creation, before the
+                            # reclassification above — re-serialize so the sync
+                            # response reflects the final type_label/ai_triage,
+                            # not the pre-classification snapshot.
+                            out = self.intake.serialize_request(r)
 
-                    if excerpts:
-                        combined = "\n\n".join(e for e in [body, *excerpts] if e)[:20000]
-                        triage = email_triage_agent.classify_email(db, thread_request.org_id, subject, combined)
-                        if triage.get("category") != "General":
-                            thread_request.ai_triage = {
-                                **(thread_request.ai_triage or {}),
-                                **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")},
-                            }
-                        if triage.get("type_label"):
-                            thread_request.type_label = triage["type_label"]
-                            thread_request.request_type_id = triage.get("request_type_id")
-                        write_audit_log(
-                            db, action="intake.ingest.gmail_email.thread_followup",
-                            resource_type="intake_request", resource_id=thread_request.id,
-                            org_id=thread_request.org_id, actor_user_id=requester.id,
-                            after={"from": from_email, "message_id": message_id, "attachments": added},
-                        )
-                        db.commit()
-                    filed.append({"id": thread_request.id, "ref": thread_request.ref,
-                                  "deduped": True, "thread_followup": True, "documents_added": added})
-                    continue
+                    filed.append(out)
+                except Exception as exc:
+                    db.rollback()
+                    skipped.append({"uid": uid.decode(), "reason": str(exc)})
 
-                # Email Intake Triage Agent: only file messages that actually
-                # look like a Legal/CLM matter — everything else (newsletters,
-                # personal mail, receipts…) is left in the inbox, untouched.
-                if not email_triage_agent.is_clm_related(db, requester.org_id, subject, body, [a[0] for a in attachments]):
-                    skipped.append({"uid": uid.decode(), "subject": subject, "reason": "not CLM-related"})
-                    continue
+            return {"status": "ok", "fetched": len(uids), "filed": filed, "skipped": skipped}
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                logger.debug("IMAP logout failed", exc_info=True)
 
-                out = ingest_message(
-                    db, source="gmail_email", from_email=from_email, subject=subject,
-                    body=body, external_message_id=external_message_id,
-                )
 
-                if not out["deduped"]:
-                    excerpts = [body]
-                    for filename, mime_type, content in attachments:
-                        try:
-                            excerpts.append(_ingest_attachment(
-                                db, requester=requester, request_id=out["id"],
-                                filename=filename, mime_type=mime_type, content=content,
-                            ))
-                        except Exception as exc:
-                            # A failed insert leaves the session's transaction
-                            # unusable until rolled back — without this, one
-                            # bad attachment cascades into failures for every
-                            # later message/attachment sharing this session.
-                            db.rollback()
-                            skipped.append({"uid": uid.decode(), "reason": f"attachment {filename}: {exc}"})
+# --- DI-MIGRATION: temporary wrapper -----------------------------------------
+# Tracked in backend/DI_MIGRATION.md.
 
-                    combined = "\n\n".join(e for e in excerpts if e)[:20000]
-                    triage = email_triage_agent.classify_email(db, requester.org_id, subject, combined)
-                    r = db.query(IntakeRequest).filter(IntakeRequest.id == out["id"]).first()
-                    if r:
-                        if triage.get("category") != "General":
-                            r.ai_triage = {**(r.ai_triage or {}),
-                                           **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")}}
-                        if triage.get("type_label"):
-                            r.type_label = triage["type_label"]
-                            r.request_type_id = triage.get("request_type_id")
-                        if thread_id:
-                            r.field_values = {**(r.field_values or {}), "gmail_thread_id": thread_id}
-                        db.commit()
-                        db.refresh(r)
-                        # out was serialized right after creation, before the
-                        # reclassification above — re-serialize so the sync
-                        # response reflects the final type_label/ai_triage,
-                        # not the pre-classification snapshot.
-                        out = service.serialize_request(db, r)
-
-                filed.append(out)
-            except Exception as exc:
-                db.rollback()
-                skipped.append({"uid": uid.decode(), "reason": str(exc)})
-
-        return {"status": "ok", "fetched": len(uids), "filed": filed, "skipped": skipped}
-    finally:
-        try:
-            imap.logout()
-        except Exception:
-            logger.debug("IMAP logout failed", exc_info=True)
+def sync_gmail_inbox(db: Session) -> dict:
+    return GmailSyncService(db).sync_gmail_inbox()

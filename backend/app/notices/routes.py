@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
-from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission, require_screen_level
+from app.core.deps import require_permission, require_screen_level
 from app.notices import service
+from app.notices.dependencies import get_notices_service
 from app.notices.schemas import (
     NoticeCreate,
     NoticeDetailResponse,
@@ -15,6 +15,7 @@ from app.notices.schemas import (
     NoticeSummary,
     NoticeUpdate,
 )
+from app.notices.service import NoticesService
 
 router = APIRouter(prefix="/notices", tags=["notices"])
 
@@ -37,11 +38,10 @@ def list_notices(
     contract_id: str | None = None,
     overdue_only: bool = False,
     q: str | None = None,
-    db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    service: NoticesService = Depends(get_notices_service),
 ):
     return service.list_notices(
-        db,
         org_id=current_user.org_id,
         status_filter=status_filter,
         direction=direction,
@@ -54,43 +54,43 @@ def list_notices(
 
 
 @router.get("/summary", response_model=NoticeSummary)
-def notice_summary(db: Session = Depends(get_db), current_user=Depends(_READ)):
-    return service.summary(db, org_id=current_user.org_id)
+def notice_summary(
+    current_user=Depends(_READ),
+    service: NoticesService = Depends(get_notices_service),
+):
+    return service.summary(org_id=current_user.org_id)
 
 
 @router.post("/run-reminders")
 def run_reminders(
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_EDIT),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Chase this org's notices that are near or past their deadline, now.
     Scoped to the caller's org; the nightly Celery sweep does every org."""
-    return service.run_reminders(db, org_id=current_user.org_id)
+    return service.run_reminders(org_id=current_user.org_id)
 
 
 @router.post("", response_model=NoticeDetailResponse, status_code=status.HTTP_201_CREATED)
 def create_notice(
     payload: NoticeCreate,
-    db: Session = Depends(get_db),
     current_user=Depends(_CREATE),
-    _screen=Depends(_NOTICES_ADD),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
-    return service.create_notice(db, actor=current_user, payload=payload)
+    return service.create_notice(actor=current_user, payload=payload)
 
 
 @router.post("/extract", response_model=NoticeExtractionResponse)
 async def extract_from_document(
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
     current_user=Depends(_CREATE),
-    _screen=Depends(_NOTICES_ADD),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     """Read an uploaded notice and propose register fields. Creates nothing —
     the filer reviews the suggestions in the New Notice form and saves there."""
     content = await file.read()
     return service.extract_from_upload(
-        db, actor=current_user,
+        actor=current_user,
         filename=file.filename or "notice",
         mime_type=file.content_type or "application/octet-stream",
         content=content,
@@ -102,81 +102,75 @@ async def extract_from_document(
 @router.get("/{notice_id}", response_model=NoticeDetailResponse)
 def get_notice(
     notice_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(_READ),
+    service: NoticesService = Depends(get_notices_service),
 ):
-    return service.get_notice(db, org_id=current_user.org_id, notice_id=notice_id)
+    return service.get_notice(org_id=current_user.org_id, notice_id=notice_id)
 
 
 @router.patch("/{notice_id}", response_model=NoticeDetailResponse)
 def update_notice(
     notice_id: str,
     payload: NoticeUpdate,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_EDIT),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
-    return service.update_notice(db, actor=current_user, notice_id=notice_id, payload=payload)
+    return service.update_notice(actor=current_user, notice_id=notice_id, payload=payload)
 
 
 @router.post("/{notice_id}/status", response_model=NoticeDetailResponse)
 def set_status(
     notice_id: str,
     payload: NoticeStatusUpdate,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_EDIT),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
-    return service.set_status(db, actor=current_user, notice_id=notice_id, payload=payload)
+    return service.set_status(actor=current_user, notice_id=notice_id, payload=payload)
 
 
 @router.post("/{notice_id}/draft-response", response_model=NoticeDraftResponse)
 def draft_response(
     notice_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_EDIT),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Draft a reply from the notice and its attachments. Stored on the notice
     for a lawyer to edit — nothing is sent."""
-    return service.draft_response(db, actor=current_user, notice_id=notice_id)
+    return service.draft_response(actor=current_user, notice_id=notice_id)
 
 
 @router.post("/{notice_id}/escalate", response_model=NoticeDetailResponse)
 def escalate(
     notice_id: str,
     payload: NoticeEscalate,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_EDIT),
+    service: NoticesService = Depends(_NOTICES_EDIT),
 ):
     """Open a linked intake ticket for this notice, which carries routing, SLA
     and the approval ladder."""
-    return service.escalate(db, actor=current_user, notice_id=notice_id, payload=payload)
+    return service.escalate(actor=current_user, notice_id=notice_id, payload=payload)
 
 
 @router.post("/{notice_id}/notes", response_model=NoticeDetailResponse)
 def add_note(
     notice_id: str,
     payload: NoticeNoteCreate,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_ADD),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
-    return service.add_note(db, actor=current_user, notice_id=notice_id, payload=payload)
+    return service.add_note(actor=current_user, notice_id=notice_id, payload=payload)
 
 
 @router.post("/{notice_id}/documents", response_model=NoticeDetailResponse, status_code=status.HTTP_201_CREATED)
 async def add_document(
     notice_id: str,
     file: UploadFile = File(...),
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_ADD),
+    service: NoticesService = Depends(_NOTICES_ADD),
 ):
     content = await file.read()
     return service.add_document(
-        db, actor=current_user, notice_id=notice_id,
+        actor=current_user, notice_id=notice_id,
         filename=file.filename or "attachment",
         mime_type=file.content_type or "application/octet-stream",
         content=content,
@@ -187,21 +181,19 @@ async def add_document(
 def delete_document(
     notice_id: str,
     document_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(_UPDATE),
-    _screen=Depends(_NOTICES_DELETE),
+    service: NoticesService = Depends(_NOTICES_DELETE),
 ):
     return service.delete_document(
-        db, actor=current_user, notice_id=notice_id, document_id=document_id
+        actor=current_user, notice_id=notice_id, document_id=document_id
     )
 
 
 @router.delete("/{notice_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_notice(
     notice_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(_DELETE),
-    _screen=Depends(_NOTICES_DELETE),
+    service: NoticesService = Depends(_NOTICES_DELETE),
 ):
-    service.delete_notice(db, actor=current_user, notice_id=notice_id)
+    service.delete_notice(actor=current_user, notice_id=notice_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

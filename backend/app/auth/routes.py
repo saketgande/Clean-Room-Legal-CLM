@@ -2,8 +2,8 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
-from sqlalchemy.orm import Session
 
+from app.auth.dependencies import get_auth_service
 from app.auth.schemas import (
     AcceptInvitationRequest,
     ApiKeyCreate,
@@ -24,30 +24,12 @@ from app.auth.schemas import (
     UserInvitationResponse,
     UserResponse,
 )
-from app.auth.service import (
-    accept_user_invitation,
-    as_user_response,
-    confirm_password_reset,
-    create_api_key,
-    create_first_admin,
-    create_user_invitation,
-    decide_user_approval,
-    list_api_keys,
-    list_org_users,
-    list_user_invitations,
-    login_user,
-    refresh_login_tokens,
-    register_user,
-    request_password_reset,
-    revoke_api_key,
-    revoke_refresh_token,
-    revoke_user_invitation,
-    switch_active_role,
-)
+from app.auth.service import AuthService, as_user_response
 from app.core.config import settings
-from app.core.deps import get_current_user, get_db, require_permission
+from app.core.deps import get_current_user, require_permission
 from app.core.rate_limit import limiter
-from app.integrations.resend import resend_client
+from app.integrations.dependencies import get_resend_client
+from app.integrations.resend import EmailSender
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +80,11 @@ def _read_refresh_token(request: Request, body_value: str | None) -> str | None:
 
 @router.post("/setup/first-admin", response_model=UserResponse)
 def setup_first_admin(
-    payload: SetupAdminRequest, request: Request, db: Session = Depends(get_db)
+    payload: SetupAdminRequest,
+    request: Request,
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    user = create_first_admin(db, payload, request_id=getattr(request.state, "request_id", None))
+    user = auth_service.create_first_admin(payload, request_id=getattr(request.state, "request_id", None))
     return as_user_response(user)
 
 
@@ -110,13 +94,13 @@ def register(
     payload: RegisterRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     # ``response`` is unused inside the handler, but slowapi's @limiter.limit
     # injects the rate-limit headers (X-RateLimit-*, Retry-After) into it —
     # the decorator raises if the parameter isn't there.
     _ = response
-    status, user = register_user(db, payload)
+    status, user = auth_service.register_user(payload)
     # Generic, identical message for every outcome (new pending user, domain
     # rejected → join request, or email collision). The response body alone
     # cannot be used to enumerate which emails are already registered.
@@ -139,10 +123,9 @@ def login(
     payload: LoginRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    tokens = login_user(
-        db,
+    tokens = auth_service.login_user(
         str(payload.email),
         payload.password,
         request_id=getattr(request.state, "request_id", None),
@@ -156,11 +139,10 @@ def refresh(
     payload: RefreshTokenRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
     refresh_token = _read_refresh_token(request, payload.refresh_token)
-    tokens = refresh_login_tokens(
-        db,
+    tokens = auth_service.refresh_login_tokens(
         refresh_token=refresh_token,
         request_id=getattr(request.state, "request_id", None),
     )
@@ -172,7 +154,7 @@ def logout(
     payload: LogoutRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
     refresh_token = _read_refresh_token(request, payload.refresh_token)
@@ -185,8 +167,7 @@ def logout(
         # Fall back to the configured max so the revocation row outlives
         # any token signed with the current settings.
         access_exp = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
-    revoke_refresh_token(
-        db,
+    auth_service.revoke_refresh_token(
         user=current_user,
         refresh_token=refresh_token,
         access_token_jti=access_jti,
@@ -200,11 +181,10 @@ def logout(
 def active_role(
     payload: RoleSwitchRequest,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
-    user = switch_active_role(
-        db,
+    user = auth_service.switch_active_role(
         actor=current_user,
         role_id=payload.role_id,
         role_name=payload.role_name,
@@ -219,10 +199,9 @@ def accept_invitation(
     payload: AcceptInvitationRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    tokens = accept_user_invitation(
-        db,
+    tokens = auth_service.accept_user_invitation(
         payload=payload,
         request_id=getattr(request.state, "request_id", None),
     )
@@ -235,10 +214,9 @@ def password_reset_request(
     payload: PasswordResetRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    return request_password_reset(
-        db,
+    return auth_service.request_password_reset(
         email=str(payload.email),
         request_id=getattr(request.state, "request_id", None),
     )
@@ -250,10 +228,9 @@ def password_reset_confirm(
     payload: PasswordResetConfirmRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
 ):
-    confirm_password_reset(
-        db,
+    auth_service.confirm_password_reset(
         payload=payload,
         request_id=getattr(request.state, "request_id", None),
     )
@@ -267,7 +244,7 @@ def me(current_user=Depends(get_current_user)):
 @users_router.get("", response_model=list[UserResponse])
 def list_users(
     status: str | None = None,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(require_permission("user:approve")),
 ):
     """List org users, optionally filtered by status.
@@ -276,7 +253,7 @@ def list_users(
     ``/users/join-requests`` route only returns the domain-rejected join
     requests, leaving in-domain self-registrations invisible.
     """
-    return list_org_users(db, actor=current_user, status_filter=status)
+    return auth_service.list_org_users(actor=current_user, status_filter=status)
 
 
 @users_router.post("/{user_id}/approval", response_model=UserResponse)
@@ -284,11 +261,10 @@ def decide_approval(
     user_id: str,
     payload: ApprovalRequest,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(require_permission("user:approve")),
 ):
-    user = decide_user_approval(
-        db,
+    user = auth_service.decide_user_approval(
         target_user_id=user_id,
         decision=payload.decision,
         role_name=payload.role_name,
@@ -301,14 +277,19 @@ def decide_approval(
 
 @users_router.get("/invitations", response_model=list[UserInvitationResponse])
 def invitations(
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(require_permission("user:approve")),
 ):
-    return list_user_invitations(db, actor=current_user)
+    return auth_service.list_user_invitations(actor=current_user)
 
 
 async def _send_invitation_email(
-    *, email: str, token: str | None, role_name: str, inviter_name: str
+    *,
+    email: str,
+    token: str | None,
+    role_name: str,
+    inviter_name: str,
+    email_sender: EmailSender,
 ) -> bool:
     """Email the invitee an accept link. Best-effort: returns True on delivery,
     False otherwise.
@@ -321,7 +302,7 @@ async def _send_invitation_email(
         return False
     accept_url = f"{settings.app_base_url.rstrip('/')}/invitations/accept?token={token}"
     try:
-        await resend_client.send_email(
+        await email_sender.send_email(
             to=email,
             subject="You've been invited to AEGIS",
             html=(
@@ -352,11 +333,11 @@ async def _send_invitation_email(
 async def create_invitation(
     payload: UserInvitationCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
+    email_sender: EmailSender = Depends(get_resend_client),
     current_user=Depends(require_permission("user:approve")),
 ):
-    result = create_user_invitation(
-        db,
+    result = auth_service.create_user_invitation(
         payload=payload,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
@@ -368,6 +349,7 @@ async def create_invitation(
         token=result.get("token"),
         role_name=result["role_name"],
         inviter_name=getattr(current_user, "full_name", None) or "A colleague",
+        email_sender=email_sender,
     )
     return result
 
@@ -376,11 +358,10 @@ async def create_invitation(
 def revoke_invitation(
     invitation_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(require_permission("user:approve")),
 ):
-    return revoke_user_invitation(
-        db,
+    return auth_service.revoke_user_invitation(
         invitation_id=invitation_id,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
@@ -389,21 +370,20 @@ def revoke_invitation(
 
 @users_router.get("/api-keys", response_model=list[ApiKeyResponse])
 def api_keys(
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
-    return list_api_keys(db, actor=current_user)
+    return auth_service.list_api_keys(actor=current_user)
 
 
 @users_router.post("/api-keys", response_model=ApiKeyResponse, status_code=201)
 def create_key(
     payload: ApiKeyCreate,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
-    return create_api_key(
-        db,
+    return auth_service.create_api_key(
         payload=payload,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
@@ -414,11 +394,10 @@ def create_key(
 def revoke_key(
     api_key_id: str,
     request: Request,
-    db: Session = Depends(get_db),
+    auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
-    return revoke_api_key(
-        db,
+    return auth_service.revoke_api_key(
         api_key_id=api_key_id,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),

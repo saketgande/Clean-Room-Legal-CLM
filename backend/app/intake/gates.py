@@ -71,7 +71,7 @@ def detect_keyword(text: str) -> list[dict]:
     return out
 
 
-def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
+def _classify_ai(db, org_id: str, text: str, *, claude_client=None) -> list[dict] | None:
     """One structured Claude pass — mirrors intake/agents._live_draft. Returns
     None when mocked/degraded/error so the caller falls back to keywords."""
     from app.core.config import settings
@@ -80,7 +80,10 @@ def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
         return None
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
+
+    claude_client = claude_client or get_claude_client()
 
     schema = {
         "type": "object",
@@ -105,7 +108,7 @@ def _classify_ai(db, org_id: str, text: str) -> list[dict] | None:
     user_prompt = text[:4000]
     try:
         enforce_daily_token_cap(org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\nGates:\n" + catalog + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="intake_gate_classifier", input_schema=schema,

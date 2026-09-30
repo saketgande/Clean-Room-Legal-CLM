@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import fitz  # PyMuPDF
 
 from app.core.config import settings
-from app.integrations.claude import claude_client
+from app.integrations.claude import claude_client as _default_claude_client
 
 SYSTEM_PROMPT = """You are extracting structured trademark data from a page \
 of the India Trade Marks Journal. A single page may contain MORE THAN ONE \
@@ -112,8 +112,11 @@ def render_page_to_png_bytes(pdf_bytes: bytes, page_number: int, dpi: int) -> by
         doc.close()
 
 
-async def extract_journal_page(pdf_bytes: bytes, page_number: int) -> list[VisionEntry]:
+async def extract_journal_page(
+    pdf_bytes: bytes, page_number: int, *, claude_client=None
+) -> list[VisionEntry]:
     page_png = render_page_to_png_bytes(pdf_bytes, page_number, settings.trademark_vision_render_dpi)
+    claude_client = claude_client or _default_claude_client
 
     response = await claude_client.complete_vision_structured(
         system_prompt=SYSTEM_PROMPT,

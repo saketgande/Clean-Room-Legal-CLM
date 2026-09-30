@@ -136,20 +136,22 @@ def _prompt(subject: str, text: str) -> str:
     return f"EMAIL SUBJECT:\n{subject}\n\nEMAIL BODY / ATTACHMENT TEXT:\n{text[:6000]}"
 
 
-def _llm_classify(db: Session, org_id: str, subject: str, text: str) -> dict | None:
+def _llm_classify(db: Session, org_id: str, subject: str, text: str, *, claude_client=None) -> dict | None:
     """The real classifier: an LLM judges is_clm_related + category from the
     email's actual meaning, not a fixed keyword list. Returns None (never
     raises) if the call fails or returns unusable data — callers fall back to
     the deterministic heuristic above."""
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     bundle = get_agent_prompt(db, agent_id="email_triage_agent", org_id=org_id)
     user_prompt = _prompt(subject, text)
     try:
         enforce_daily_token_cap(org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="classify_email", input_schema=_SCHEMA,

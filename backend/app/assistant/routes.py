@@ -4,23 +4,14 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
-from app.ai.citations import validate_citation
 from app.ai.confirmations import confirm_confirmation, reject_confirmation
 from app.ai.controller import ai_controller
-from app.ai.models import AICitation
-from app.ai.schemas import CitationInput
 from app.ai.tool_registry import tool_registry
-from app.assistant.models import (
-    AssistantContractHandle,
-    AssistantMessage,
-    AssistantRun,
-    AssistantSession,
-    AssistantToolCall,
-)
-from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.assistant.dependencies import get_assistant_service
+from app.assistant.models import AssistantMessage, AssistantRun
+from app.assistant.service import AssistantService
 from app.contracts.service import get_contract_for_user
 from app.core.config import settings
 from app.core.deps import get_db, require_permission
@@ -90,167 +81,80 @@ def list_sessions(
     status_filter: str = "active",
     q: str | None = None,
     limit: int = 50,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    query = select(AssistantSession).where(
-        AssistantSession.org_id == current_user.org_id,
-        AssistantSession.created_by_user_id == current_user.id,
+    return service.list_sessions(
+        current_user=current_user, matter_id=matter_id, contract_id=contract_id,
+        status_filter=status_filter, q=q, limit=limit,
     )
-    if status_filter:
-        query = query.where(AssistantSession.status == status_filter)
-    if matter_id:
-        get_project_for_user(db, matter_id=matter_id, user=current_user)
-        query = query.where(AssistantSession.matter_id == matter_id)
-    if contract_id:
-        get_contract_for_user(db, contract_id=contract_id, user=current_user)
-        query = query.where(AssistantSession.contract_id == contract_id)
-    if q and q.strip():
-        # Title-only search would be useless here: many sessions share an
-        # identical auto-generated title (e.g. every "Edit · <contract>"
-        # chat opened against the same contract), so also match on the
-        # actual conversation content.
-        needle = f"%{q.strip()}%"
-        matching_session_ids = select(AssistantMessage.session_id).where(
-            AssistantMessage.org_id == current_user.org_id,
-            AssistantMessage.content.ilike(needle),
-        )
-        query = query.where(
-            or_(AssistantSession.title.ilike(needle), AssistantSession.id.in_(matching_session_ids))
-        )
-    return db.scalars(query.order_by(AssistantSession.updated_at.desc()).limit(min(limit, 100))).all()
 
 
 @router.post("/sessions")
 def create_session(
     payload: AssistantSessionCreate,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    if payload.matter_id:
-        get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
-    if payload.contract_id:
-        get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
-    session = AssistantSession(
-        org_id=current_user.org_id,
-        session_type=payload.session_type,
-        title=payload.title,
-        matter_id=payload.matter_id,
-        contract_id=payload.contract_id,
-        tabular_review_id=payload.tabular_review_id,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(session)
-    db.flush()
-    if payload.contract_id:
-        db.add(
-            AssistantContractHandle(
-                org_id=current_user.org_id,
-                session_id=session.id,
-                contract_id=payload.contract_id,
-                handle="contract-0",
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-            )
-        )
-    db.commit()
-    db.refresh(session)
-    return session
+    return service.create_session(payload=payload, current_user=current_user)
 
 
 @router.get("/sessions/{session_id}")
 def get_session(
     session_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
-    handles = db.scalars(
-        select(AssistantContractHandle).where(AssistantContractHandle.session_id == session.id)
-    ).all()
-    return {"session": session, "contract_handles": handles}
+    return service.get_session(session_id=session_id, current_user=current_user)
 
 
 @router.patch("/sessions/{session_id}")
 def update_session(
     session_id: str,
     payload: AssistantSessionUpdate,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
-    updates = payload.model_dump(exclude_unset=True)
-    for key, value in updates.items():
-        setattr(session, key, value)
-    session.updated_by_user_id = current_user.id
-    db.commit()
-    db.refresh(session)
-    return session
+    return service.update_session(session_id=session_id, payload=payload, current_user=current_user)
 
 
 @router.post("/sessions/{session_id}/contracts")
 def add_contract_handle(
     session_id: str,
     payload: AssistantContractHandleAdd,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
-    get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
-    handle = _ensure_contract_handle(
-        db,
-        session=session,
-        contract_id=payload.contract_id,
-        current_user=current_user,
-        requested_handle=payload.handle,
-    )
-    db.commit()
-    db.refresh(handle)
-    return handle
+    return service.add_contract_handle(session_id=session_id, payload=payload, current_user=current_user)
 
 
 @router.get("/sessions/{session_id}/messages")
 def list_session_messages(
     session_id: str,
     limit: int = 100,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
-    return db.scalars(
-        select(AssistantMessage)
-        .where(AssistantMessage.org_id == current_user.org_id, AssistantMessage.session_id == session.id)
-        .order_by(AssistantMessage.created_at.asc())
-        .limit(min(limit, 200))
-    ).all()
+    return service.list_session_messages(session_id=session_id, limit=limit, current_user=current_user)
 
 
 @router.get("/sessions/{session_id}/runs")
 def list_session_runs(
     session_id: str,
     limit: int = 50,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
-    return db.scalars(
-        select(AssistantRun)
-        .where(AssistantRun.org_id == current_user.org_id, AssistantRun.session_id == session.id)
-        .order_by(AssistantRun.created_at.desc())
-        .limit(min(limit, 100))
-    ).all()
+    return service.list_session_runs(session_id=session_id, limit=limit, current_user=current_user)
 
 
 @router.get("/runs/{assistant_run_id}")
 def get_run(
     assistant_run_id: str,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
-    run = _get_run_for_user(db, assistant_run_id=assistant_run_id, current_user=current_user)
-    tool_calls = _tool_calls_for_run(db, assistant_run_id=run.id, org_id=current_user.org_id)
-    return {"assistant_run": run, "tool_calls": tool_calls}
+    return service.get_run(assistant_run_id=assistant_run_id, current_user=current_user)
 
 
 @router.post("/sessions/{session_id}/stream")
@@ -261,16 +165,17 @@ async def stream_session(
     request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
     _require_ai_tools(current_user)
-    session = _get_session_for_user(db, session_id=session_id, current_user=current_user)
+    session = service.get_session_for_user(session_id=session_id, current_user=current_user)
     if payload.matter_id:
         get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
     for contract_id in payload.contract_ids:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
 
     for contract_id in payload.contract_ids:
-        _ensure_contract_handle(db, session=session, contract_id=contract_id, current_user=current_user)
+        service.ensure_contract_handle(session=session, contract_id=contract_id, current_user=current_user)
     user_message = AssistantMessage(
         org_id=current_user.org_id,
         session_id=session.id,
@@ -351,8 +256,7 @@ async def stream_session(
                 )
                 return
             if client_disconnected:
-                _persist_assistant_answer(
-                    db,
+                service.persist_assistant_answer(
                     org_id=current_user.org_id,
                     session_id=session.id,
                     run=assistant_run,
@@ -367,8 +271,7 @@ async def stream_session(
                 db.commit()
                 finalized = True
                 return
-            _persist_assistant_answer(
-                db,
+            service.persist_assistant_answer(
                 org_id=current_user.org_id,
                 session_id=session.id,
                 run=assistant_run,
@@ -386,8 +289,7 @@ async def stream_session(
             )
         except Exception as exc:
             try:
-                _persist_assistant_answer(
-                    db,
+                service.persist_assistant_answer(
                     org_id=current_user.org_id,
                     session_id=session.id,
                     run=assistant_run,
@@ -428,9 +330,10 @@ async def resume_run(
     confirmation_id: str | None = None,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
 ):
     _require_ai_tools(current_user)
-    run = _get_run_for_user(db, assistant_run_id=assistant_run_id, current_user=current_user)
+    run = service.get_run_for_user(assistant_run_id=assistant_run_id, current_user=current_user)
 
     async def event_stream() -> AsyncIterator[str]:
         answer_parts: list[str] = []
@@ -460,8 +363,7 @@ async def resume_run(
                     client_disconnected = True
                     break
             if client_disconnected:
-                _persist_assistant_answer(
-                    db,
+                service.persist_assistant_answer(
                     org_id=current_user.org_id,
                     session_id=run.session_id,
                     run=run,
@@ -476,8 +378,7 @@ async def resume_run(
                 db.commit()
                 finalized = True
                 return
-            _persist_assistant_answer(
-                db,
+            service.persist_assistant_answer(
                 org_id=current_user.org_id,
                 session_id=run.session_id,
                 run=run,
@@ -497,8 +398,7 @@ async def resume_run(
             yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
         except Exception as exc:
             try:
-                _persist_assistant_answer(
-                    db,
+                service.persist_assistant_answer(
                     org_id=current_user.org_id,
                     session_id=run.session_id,
                     run=run,
@@ -582,84 +482,6 @@ def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
 
 
-def _get_session_for_user(db: Session, *, session_id: str, current_user) -> AssistantSession:
-    session = db.get(AssistantSession, session_id)
-    if (
-        session is None
-        or session.org_id != current_user.org_id
-        or session.created_by_user_id != current_user.id
-    ):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant session not found")
-    return session
-
-
-def _get_run_for_user(db: Session, *, assistant_run_id: str, current_user) -> AssistantRun:
-    run = db.get(AssistantRun, assistant_run_id)
-    if run is None or run.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant run not found")
-    _get_session_for_user(db, session_id=run.session_id, current_user=current_user)
-    return run
-
-
-def _tool_calls_for_run(db: Session, *, assistant_run_id: str, org_id: str) -> list[AssistantToolCall]:
-    return db.scalars(
-        select(AssistantToolCall)
-        .where(AssistantToolCall.org_id == org_id, AssistantToolCall.assistant_run_id == assistant_run_id)
-        .order_by(AssistantToolCall.created_at.asc())
-    ).all()
-
-
-def _ensure_contract_handle(
-    db: Session,
-    *,
-    session: AssistantSession,
-    contract_id: str,
-    current_user,
-    requested_handle: str | None = None,
-) -> AssistantContractHandle:
-    existing = db.scalar(
-        select(AssistantContractHandle).where(
-            AssistantContractHandle.org_id == current_user.org_id,
-            AssistantContractHandle.session_id == session.id,
-            AssistantContractHandle.contract_id == contract_id,
-        )
-    )
-    if existing is not None:
-        return existing
-    if requested_handle:
-        duplicate = db.scalar(
-            select(AssistantContractHandle).where(
-                AssistantContractHandle.org_id == current_user.org_id,
-                AssistantContractHandle.session_id == session.id,
-                AssistantContractHandle.handle == requested_handle,
-            )
-        )
-        if duplicate is not None:
-            raise HTTPException(status.HTTP_409_CONFLICT, "Contract handle already exists")
-        handle_value = requested_handle
-    else:
-        handle_count = len(
-            db.scalars(
-                select(AssistantContractHandle).where(
-                    AssistantContractHandle.org_id == current_user.org_id,
-                    AssistantContractHandle.session_id == session.id,
-                )
-            ).all()
-        )
-        handle_value = f"contract-{handle_count}"
-    handle = AssistantContractHandle(
-        org_id=current_user.org_id,
-        session_id=session.id,
-        contract_id=contract_id,
-        handle=handle_value,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(handle)
-    db.flush()
-    return handle
-
-
 def _citations_from_tool_result(result: dict | None) -> list[dict]:
     if not isinstance(result, dict):
         return []
@@ -696,150 +518,6 @@ def _citations_from_tool_result(result: dict | None) -> list[dict]:
                 }
             )
     return citations
-
-
-def _validate_and_store_assistant_citations(
-    db: Session,
-    *,
-    org_id: str,
-    assistant_run_id: str,
-    current_user,
-    raw_citations: list[dict],
-) -> list[dict]:
-    """Validate assistant citation excerpts against source contract text using the
-    shared fuzzy validator, persist AICitation rows, and return enriched citations."""
-    source_cache: dict[str, tuple[str, str | None, bool]] = {}
-
-    def _source_for(contract_id: str) -> tuple[str, str | None, bool] | None:
-        if contract_id in source_cache:
-            return source_cache[contract_id]
-        try:
-            contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-        except Exception:
-            source_cache[contract_id] = None
-            return None
-        version = (
-            db.get(ContractVersion, contract.current_authoritative_version_id)
-            if contract.current_authoritative_version_id
-            else None
-        )
-        snapshot = (
-            db.get(ContractTextSnapshot, version.text_snapshot_id)
-            if version and version.text_snapshot_id
-            else None
-        )
-        entry = (
-            (snapshot.text or "", snapshot.id, bool(snapshot.ocr_provider))
-            if snapshot is not None
-            else ("", None, False)
-        )
-        source_cache[contract_id] = entry
-        return entry
-
-    enriched: list[dict] = []
-    for citation in raw_citations:
-        quote = citation.get("excerpt")
-        contract_id = citation.get("contract_id")
-        if not quote or not contract_id:
-            enriched.append({**citation, "validation_status": "not_applicable"})
-            continue
-        source = _source_for(contract_id)
-        if not source or not source[0]:
-            enriched.append({**citation, "validation_status": "unverified"})
-            continue
-        source_text, snapshot_id, is_ocr = source
-        result = validate_citation(
-            CitationInput(quote=quote),
-            source_text,
-            is_ocr=is_ocr,
-        )
-        db.add(
-            AICitation(
-                org_id=org_id,
-                assistant_run_id=assistant_run_id,
-                resource_type="contract",
-                resource_id=contract_id,
-                contract_id=contract_id,
-                text_snapshot_id=snapshot_id,
-                quote=quote,
-                normalized_quote=result.normalized_quote,
-                start_char=citation.get("start_char"),
-                end_char=citation.get("end_char"),
-                validation_status=result.validation_status,
-                similarity_score=result.similarity_score,
-                metadata_json={"message": result.message, "source": "assistant_tool_result"},
-                created_by_user_id=current_user.id,
-                updated_by_user_id=current_user.id,
-            )
-        )
-        enriched.append(
-            {
-                **citation,
-                "validation_status": result.validation_status,
-                "similarity_score": result.similarity_score,
-            }
-        )
-    return enriched
-
-
-def _persist_assistant_answer(
-    db: Session,
-    *,
-    org_id: str,
-    session_id: str,
-    run: AssistantRun,
-    answer_parts: list[str],
-    citations: list[dict],
-    blocks: list[dict],
-    current_user,
-    extra_metadata: dict | None = None,
-) -> None:
-    """Persist whatever answer text was generated as an AssistantMessage, linking
-    it to the run and any tool calls made during it.
-
-    Called on success AND on interruption/failure: a stream that gets cut off
-    after Claude already generated a real, useful partial answer must not throw
-    that content away — the previous behavior silently discarded answer_parts
-    whenever client_disconnected fired, leaving the user's question in history
-    with no reply and no way to tell whether the assistant had said anything at
-    all. Does not commit or touch run.status — callers set those to reflect
-    why persistence happened (success vs. interrupted vs. failed).
-    """
-    answer = "".join(answer_parts)
-    if not answer:
-        return
-    citations = _validate_and_store_assistant_citations(
-        db,
-        org_id=org_id,
-        assistant_run_id=run.id,
-        current_user=current_user,
-        raw_citations=citations,
-    )
-    assistant_message = AssistantMessage(
-        org_id=org_id,
-        session_id=session_id,
-        role="assistant",
-        content=answer,
-        citations=citations,
-        metadata_json={
-            "assistant_run_id": run.id,
-            "blocks": blocks,
-            **(extra_metadata or {}),
-        },
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(assistant_message)
-    db.flush()
-    run.assistant_message_id = assistant_message.id
-    for call in db.scalars(
-        select(AssistantToolCall).where(
-            AssistantToolCall.org_id == org_id,
-            AssistantToolCall.assistant_run_id == run.id,
-            AssistantToolCall.message_id.is_(None),
-        )
-    ):
-        call.message_id = assistant_message.id
 
 
 # Tools whose result is an intake request the user should be able to open. Their

@@ -5,7 +5,7 @@ import time
 import weakref
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import anthropic
 import httpx
@@ -48,6 +48,75 @@ class ClaudeProviderResponse:
     latency_ms: float
     provider_request_id: str | None
     model: str
+
+
+@runtime_checkable
+class ClaudeProvider(Protocol):
+    """The interface every LLM provider used for structured/text/tool completion
+    satisfies.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md): formalizes the shape
+    `ClaudeClient` already has, so callers can depend on this Protocol instead of
+    the concrete class and tests can substitute a fake.
+    """
+
+    async def complete_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        tool_name: str,
+        input_schema: dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> "ClaudeProviderResponse": ...
+
+    async def complete_vision_structured(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        image_bytes: bytes,
+        image_media_type: str,
+        tool_name: str,
+        input_schema: dict[str, Any],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> "ClaudeProviderResponse": ...
+
+    async def complete_text(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> "ClaudeProviderResponse": ...
+
+    async def complete_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> "ClaudeProviderResponse": ...
+
+    def stream_with_tools(
+        self,
+        *,
+        system_prompt: str,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float,
+        model: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]: ...
 
 
 # A shared Anthropic client PER EVENT LOOP. A single module-level client

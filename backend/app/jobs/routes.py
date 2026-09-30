@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import JobStatus
+from app.jobs.dependencies import get_jobs_service
 from app.jobs.models import JobRun
-from app.jobs.service import dispatch_job
+from app.jobs.service import JobsService
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -97,13 +98,14 @@ def enqueue_job(
     job_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
+    jobs_service: JobsService = Depends(get_jobs_service),
 ):
     job = db.get(JobRun, job_id)
     if job is None or job.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
     if job.status not in {JobStatus.QUEUED, JobStatus.FAILED}:
         raise HTTPException(status.HTTP_409_CONFLICT, "Only queued or failed jobs can be enqueued")
-    dispatch_job(db, job=job)
+    jobs_service.dispatch_job(job=job)
     job.updated_by_user_id = current_user.id
     db.commit()
     db.refresh(job)

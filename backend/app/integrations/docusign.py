@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 import httpx
 import jwt
@@ -21,6 +22,22 @@ class EnvelopeResult:
     envelope_id: str | None
     status: str
     metadata: dict
+
+
+@runtime_checkable
+class SignatureProvider(Protocol):
+    """The interface every e-signature provider satisfies.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md): formalizes the
+    shape `DocuSignClient` already has, so callers can depend on this
+    Protocol instead of the concrete class and tests can substitute a fake.
+    """
+
+    async def create_envelope(self, *, filename: str, recipients: list[dict], content: bytes) -> "EnvelopeResult": ...
+
+    async def void_envelope(self, *, envelope_id: str, reason: str = "internal_rollback") -> None: ...
+
+    async def download_completed_document(self, *, envelope_id: str) -> bytes: ...
 
 
 _PRIVATE_KEY_CACHE: dict[str, str] = {}

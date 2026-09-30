@@ -354,6 +354,6 @@ def test_assign_owner_skips_a_fully_loaded_tied_team_for_one_with_room(db: Sessi
     )
     db.flush()
 
-    intake_service._assign_owner_from_triage(db, req)
+    intake_service.IntakeService(db)._assign_owner_from_triage(req)
 
     assert req.assigned_to_user_id == open_member.id

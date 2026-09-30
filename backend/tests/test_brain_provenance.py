@@ -8,12 +8,11 @@ than a missing one, so no fuzzy matching.
 
 from app.contract_brain.entities import clause_for_quote
 
-
 CLAUSES = [
-    ("confidentiality", "The Receiving Party shall hold the Confidential Information in strict confidence "
-                        "and use it solely for the Purpose."),
-    ("return", "Upon termination of this Agreement or upon the disclosing Party's written request, "
-               "the receiving Party shall return or destroy all Confidential Information."),
+    ("confidentiality", ("The Receiving Party shall hold the Confidential Information in strict confidence "
+                         "and use it solely for the Purpose.")),
+    ("return", ("Upon termination of this Agreement or upon the disclosing Party's written request, "
+                "the receiving Party shall return or destroy all Confidential Information.")),
     ("liability", "Aggregate liability shall not exceed twelve months of fees paid under this Agreement."),
 ]
 

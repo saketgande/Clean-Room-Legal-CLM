@@ -132,7 +132,7 @@ def _prompt(request: IntakeRequest, catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def assess_litigation(db: Session, request: IntakeRequest) -> dict:
+def assess_litigation(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     """Full litigation assessment + a confident flow pick. Never raises."""
     from app.core.config import settings
 
@@ -143,15 +143,17 @@ def assess_litigation(db: Session, request: IntakeRequest) -> dict:
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
     bundle = get_agent_prompt(db, agent_id="litigation_intake_agent", org_id=request.org_id)
     user_prompt = _prompt(request, catalog)
     try:
         enforce_daily_token_cap(request.org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_structured(
+        resp = run_coro_blocking(lambda: claude_client.complete_structured(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="assess_litigation", input_schema=_SCHEMA,

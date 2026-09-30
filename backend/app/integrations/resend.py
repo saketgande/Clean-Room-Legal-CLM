@@ -1,6 +1,7 @@
 import asyncio
 import weakref
 from dataclasses import dataclass
+from typing import Protocol, runtime_checkable
 
 import httpx
 
@@ -13,6 +14,18 @@ class EmailResult:
     provider_message_id: str | None
     status: str
     metadata: dict
+
+
+@runtime_checkable
+class EmailSender(Protocol):
+    """The interface every email provider satisfies.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md): formalizes the
+    shape `ResendClient` already has, so callers can depend on this Protocol
+    instead of the concrete class and tests can substitute a fake.
+    """
+
+    async def send_email(self, *, to: str, subject: str, html: str) -> EmailResult: ...
 
 
 _RESEND_TIMEOUT = httpx.Timeout(30.0, connect=10.0)

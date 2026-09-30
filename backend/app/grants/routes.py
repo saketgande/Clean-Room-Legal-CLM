@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, get_db
-from app.grants import service
+from app.core.deps import get_current_user
+from app.grants.dependencies import get_grant_service
 from app.grants.schemas import GrantCreate, GrantResponse
+from app.grants.service import GrantService
 
 router = APIRouter(prefix="/grants", tags=["grants"])
 
@@ -13,17 +13,16 @@ def list_grants(
     resource_type: str,
     resource_id: str,
     include_revoked: bool = False,
-    db: Session = Depends(get_db),
+    grant_service: GrantService = Depends(get_grant_service),
     current_user=Depends(get_current_user),
 ):
     # Only someone who can share the resource (owner / admin / share-grant) may
     # see who has access to it.
-    if not service.can_manage_grants(
-        db, user=current_user, resource_type=resource_type, resource_id=resource_id
+    if not grant_service.can_manage_grants(
+        user=current_user, resource_type=resource_type, resource_id=resource_id
     ):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not allowed to view this resource's access")
-    return service.list_grants_for_resource(
-        db,
+    return grant_service.list_grants_for_resource(
         org_id=current_user.org_id,
         resource_type=resource_type,
         resource_id=resource_id,
@@ -34,17 +33,17 @@ def list_grants(
 @router.post("", response_model=GrantResponse, status_code=status.HTTP_201_CREATED)
 def create_grant(
     payload: GrantCreate,
-    db: Session = Depends(get_db),
+    grant_service: GrantService = Depends(get_grant_service),
     current_user=Depends(get_current_user),
 ):
-    return service.grant_access(db, actor=current_user, payload=payload)
+    return grant_service.grant_access(actor=current_user, payload=payload)
 
 
 @router.delete("/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_grant(
     grant_id: str,
-    db: Session = Depends(get_db),
+    grant_service: GrantService = Depends(get_grant_service),
     current_user=Depends(get_current_user),
 ):
-    service.revoke_grant(db, actor=current_user, grant_id=grant_id)
+    grant_service.revoke_grant(actor=current_user, grant_id=grant_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

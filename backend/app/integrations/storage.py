@@ -4,6 +4,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 from app.core.config import settings
 from app.core.database import new_uuid
@@ -38,6 +39,27 @@ def _build_storage_key(*, org_id: str, filename: str) -> str:
 def _safe_filename(filename: str) -> str:
     base = Path(filename).name.strip() or "contract"
     return re.sub(r"[^A-Za-z0-9._ -]+", "_", base)[:240]
+
+
+@runtime_checkable
+class StorageBackend(Protocol):
+    """The object-storage interface every backend implements.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md): this formalizes a
+    shape `StorageService` and `S3Storage` already both satisfied, so callers
+    can depend on this Protocol instead of a concrete class and tests can
+    substitute a fake without touching disk or S3.
+    """
+
+    def save_bytes(self, *, org_id: str, filename: str, mime_type: str, content: bytes) -> StoredBytes: ...
+
+    def path_for_read(self, storage_key: str) -> Path: ...
+
+    def cleanup_read_path(self, path: Path) -> None: ...
+
+    def read_bytes(self, storage_key: str) -> bytes: ...
+
+    def delete_bytes_permanently(self, storage_key: str) -> None: ...
 
 
 class StorageService:

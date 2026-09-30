@@ -44,13 +44,13 @@ def _hash_token(value: str) -> str:
 
 
 def _current_counterparty_step(db: Session, run: WorkflowRun) -> WorkflowStepRun:
-    from app.workflows.service import _sr_at
+    from app.workflows.service import WorkflowService
 
     steps = list(run.steps or [])
     idx = run.current_index
     if not (0 <= idx < len(steps)) or steps[idx].get("type") != "counterparty":
         raise HTTPException(status.HTTP_409_CONFLICT, "The workflow is not at a counterparty step")
-    sr = _sr_at(db, run, idx)
+    sr = WorkflowService(db)._sr_at(run, idx)
     if sr is None or sr.status != "waiting_human":
         raise HTTPException(status.HTTP_409_CONFLICT, "This step is not waiting for the counterparty")
     return sr

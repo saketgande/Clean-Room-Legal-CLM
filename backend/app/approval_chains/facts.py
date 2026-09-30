@@ -158,14 +158,14 @@ def _build_contract_facts(db: Session, *, record_id: str, org_id: str) -> dict[s
 
 
 def _build_intake_request_facts(db: Session, *, record_id: str, org_id: str) -> dict[str, Any]:
-    from app.intake.approval_bridge import IntakeApprovalSubject, _type_key_for
+    from app.intake.approval_bridge import ApprovalBridgeService, IntakeApprovalSubject
     from app.intake.models import IntakeRequest
 
     request = db.get(IntakeRequest, record_id)
     if request is None or request.org_id != org_id:
         raise HTTPException(404, "Request not found")
 
-    subject = IntakeApprovalSubject(request, type_key=_type_key_for(db, request))
+    subject = IntakeApprovalSubject(request, type_key=ApprovalBridgeService(db)._type_key_for(request))
 
     facts: dict[str, Any] = {
         fact_name: _json_safe(getattr(request, attr_name, None))

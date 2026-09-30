@@ -56,7 +56,7 @@ def client(monkeypatch):
     monkeypatch.setattr(settings, "mock_databricks", False)
     c = DatabricksClient()
 
-    async def _no_upload(self, volume_path, content):  # noqa: ARG001
+    async def _no_upload(self, volume_path, content):
         return None
 
     monkeypatch.setattr(DatabricksClient, "_put_file", _no_upload)
@@ -73,7 +73,7 @@ def _rows_for_parse():
 
 async def test_parse_returns_whole_document(client, monkeypatch):
     """Full text, every element, page count — not a summary."""
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         assert "ai_parse_document" in statement
         return _rows_for_parse()
 
@@ -89,7 +89,7 @@ async def test_parse_returns_whole_document(client, monkeypatch):
 
 async def test_parse_keeps_page_numbers_and_tables(client, monkeypatch):
     """Citations need pages; payment schedules need to stay tables."""
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         return _rows_for_parse()
 
     monkeypatch.setattr(DatabricksClient, "_sql", fake_sql)
@@ -106,7 +106,7 @@ async def test_parse_keeps_page_numbers_and_tables(client, monkeypatch):
 async def test_extract_maps_fields_and_flags_low_confidence(client, monkeypatch):
     """The wrapper is unpacked, and anything the model was unsure about is
     surfaced rather than written onto the contract silently."""
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         assert "ai_extract" in statement
         assert "'mode', 'precision'" in statement       # precision on by default
         return [[json.dumps(EXTRACT_PAYLOAD)]]
@@ -127,7 +127,7 @@ async def test_precision_mode_can_be_turned_off(client, monkeypatch):
     """Short paper does not need the expensive path."""
     seen = {}
 
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         seen["sql"] = statement
         return [[json.dumps(EXTRACT_PAYLOAD)]]
 
@@ -139,7 +139,7 @@ async def test_precision_mode_can_be_turned_off(client, monkeypatch):
 
 async def test_extract_surfaces_provider_error(client, monkeypatch):
     """A failed extraction returns an error, never half-filled fields."""
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         return [[json.dumps({"response": {}, "error_message": "document exceeded context"})]]
 
     monkeypatch.setattr(DatabricksClient, "_sql", fake_sql)
@@ -165,7 +165,7 @@ async def test_disabled_client_is_inert(monkeypatch):
 
 async def test_ocr_seam_matches_reducto_shape(client, monkeypatch):
     """extract_text must stay swappable with ReductoClient at the call site."""
-    async def fake_sql(self, statement):  # noqa: ARG001
+    async def fake_sql(self, statement):
         return _rows_for_parse()
 
     monkeypatch.setattr(DatabricksClient, "_sql", fake_sql)

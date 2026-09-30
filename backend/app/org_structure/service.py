@@ -38,7 +38,7 @@ from app.core.org_access import (
 )
 from app.org_structure.access import get_org_root, get_org_unit_or_404
 from app.org_structure.models import Delegation, OrgUnit
-from app.roles.service import _assert_actor_can_grant
+from app.roles.service import RoleService
 
 _DELEGATION_DIRECTIONS = {"mine", "received", "all"}
 
@@ -429,7 +429,7 @@ def create_role_grant(db: Session, *, actor: User, payload) -> dict:
             status.HTTP_422_UNPROCESSABLE_ENTITY, "valid_to must not be before valid_from"
         )
 
-    _assert_actor_can_grant(actor, [role], db)
+    RoleService(db)._assert_actor_can_grant(actor, [role])
     resolved = assert_access(db, user=actor, permission="user:update_role", org_unit_id=unit.id)
 
     existing = db.scalar(

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.approvals.dependencies import get_approvals_service
 from app.approvals.models import (
     ApprovalDecision,
     ApprovalRequest,
@@ -12,14 +13,7 @@ from app.approvals.models import (
     ApprovalRoutingStep,
     ApproverGroup,
 )
-from app.approvals.service import (
-    _quorum_needed,
-    decide_in_app,
-    get_review_context_for_token,
-    reassign_rung,
-    redeem_token_decision,
-    submit_contract_for_approval,
-)
+from app.approvals.service import ApprovalsService
 from app.auth.models import User
 from app.contracts.access import user_can_access_contract
 from app.contracts.models import Contract
@@ -209,6 +203,7 @@ def _org_name_maps(db: Session, *, org_id: str) -> tuple[dict[str, str], dict[st
 @router.get("")
 def list_approvals(
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
     current_user=Depends(require_permission("approval:read")),
     limit: int = Query(default=100, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -233,7 +228,7 @@ def list_approvals(
     return [
         _serialize_approval(
             row,
-            db=db,
+            approvals_service=approvals_service,
             can_decide=_can_decide_approval(db, approval=row, user=current_user, contracts=contracts),
             group_names=group_names,
         )
@@ -243,7 +238,8 @@ def list_approvals(
 
 
 def _serialize_approval(
-    req: ApprovalRequest, *, db: Session, can_decide: bool, group_names: dict[str, str] | None = None
+    req: ApprovalRequest, *, approvals_service: ApprovalsService, can_decide: bool,
+    group_names: dict[str, str] | None = None,
 ) -> dict:
     """Approval row + a server-computed can_decide (so the UI shows the
     Approve/Reject buttons for group members, not just role/user matches)."""
@@ -263,7 +259,7 @@ def _serialize_approval(
         "step_order": req.step_order,
         "mode": req.mode,
         "approvals": meta.get("approvals", 0),
-        "needed": _quorum_needed(db, req),
+        "needed": approvals_service._quorum_needed(req),
         "reassign": meta.get("reassign"),
         "due_at": req.due_at,
         "overdue": bool(
@@ -282,6 +278,7 @@ def _serialize_approval(
 def approval_chain(
     contract_id: str,
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
     current_user=Depends(require_permission("contract:read")),
 ):
     """Ordered progress of the contract's LATEST approval submission — which
@@ -361,7 +358,7 @@ def approval_chain(
                 "status": req.status,
                 "mode": req.mode,
                 "approvals": (req.metadata_json or {}).get("approvals", 0),
-                "needed": _quorum_needed(db, req),
+                "needed": approvals_service._quorum_needed(req),
                 "approver_label": (
                     groups.get(req.approver_group_id)
                     or users.get(req.approver_user_id)
@@ -655,11 +652,11 @@ async def submit_for_approval(
     payload: ApprovalSubmit,
     request: Request,
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
     current_user=Depends(require_permission("contract:approve")),
 ):
     contract = get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
-    requests = await submit_contract_for_approval(
-        db,
+    requests = await approvals_service.submit_contract_for_approval(
         user=current_user,
         contract=contract,
         contract_version_id=payload.contract_version_id,
@@ -679,6 +676,7 @@ async def decide_approval(
     payload: ApprovalDecisionPayload,
     request: Request,
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
     current_user=Depends(require_permission("approval:decide")),
 ):
     approval = db.scalar(
@@ -718,8 +716,7 @@ async def decide_approval(
                 resource_id=approval.id,
                 request_id=getattr(request.state, "request_id", None),
             )
-    await decide_in_app(
-        db,
+    await approvals_service.decide_in_app(
         user=current_user,
         approval=approval,
         decision=payload.decision,
@@ -737,6 +734,7 @@ async def reassign_approval(
     payload: ReassignPayload,
     request: Request,
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
     current_user=Depends(require_permission("approval:decide")),
 ):
     """Delegate or escalate a pending rung to another person. Allowed for the
@@ -751,8 +749,8 @@ async def reassign_approval(
     to_user = db.get(User, payload.to_user_id)
     if to_user is None or to_user.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Target user not found")
-    await reassign_rung(
-        db, approval=approval, to_user=to_user, kind=payload.kind, actor=current_user,
+    await approvals_service.reassign_rung(
+        approval=approval, to_user=to_user, kind=payload.kind, actor=current_user,
         request_id=getattr(request.state, "request_id", None),
     )
     db.commit()
@@ -767,13 +765,13 @@ async def decide_via_token(
     request: Request,
     response: Response,
     db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
 ):
     """Token-authenticated approval decision. No session auth: the single-use,
     expiring, email-bound token is the credential. Rate-limited per IP (F-02);
     ``response`` is required so slowapi can inject rate-limit headers."""
     _ = response
-    approval = await redeem_token_decision(
-        db,
+    approval = await approvals_service.redeem_token_decision(
         token=payload.token,
         decision=payload.decision,
         comment=payload.comment,
@@ -794,12 +792,12 @@ def review_via_token(
     token: str,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
 ):
     """Read-only review context for the emailed approver — the document + what
     they're approving. Token-authenticated, no login; does not consume the token."""
     _ = response
-    return get_review_context_for_token(db, token=token)
+    return approvals_service.get_review_context_for_token(token=token)
 
 
 def _user_role_names(user) -> set[str]:

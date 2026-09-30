@@ -36,74 +36,6 @@ def _tokens(name: str) -> set[str]:
     return {t for t in _norm(name).split() if len(t) > 2}
 
 
-# ---- sanctions -------------------------------------------------------------
-
-def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
-    now = utcnow()
-    checked = {"checked_at": now.isoformat(), "name": name}
-
-    # Embargoed-jurisdiction mention is a hit independent of list freshness.
-    low = _norm(name)
-    embargo = [j for j in EMBARGOED if j in low]
-    if embargo:
-        return {**checked, "status": "hit", "matches": [
-            {"kind": "embargo", "name": j.title(), "programs": "comprehensive embargo"} for j in embargo
-        ]}
-
-    newest = db.query(func.max(SanctionsListEntry.refreshed_at)).filter(
-        SanctionsListEntry.org_id == org_id).scalar()
-    if newest is None or (now - newest) > STALE_AFTER:
-        return {**checked, "status": "unavailable", "matches": [],
-                "note": "Sanctions list empty or stale (>30d) — treat as unscreened, not clear."}
-
-    q_tokens = _tokens(name)
-    if not q_tokens:
-        return {**checked, "status": "unavailable", "matches": [], "note": "No screenable name."}
-
-    # Narrow with ILIKE on the longest token, then token-overlap score in app code.
-    anchor = max(q_tokens, key=len)
-    candidates = (db.query(SanctionsListEntry)
-                  .filter(SanctionsListEntry.org_id == org_id,
-                          SanctionsListEntry.name_normalized.ilike(f"%{anchor}%"))
-                  .limit(200).all())
-    matches = []
-    for c in candidates:
-        overlap = q_tokens & _tokens(c.name)
-        if len(overlap) >= max(1, min(len(q_tokens), 2)):
-            matches.append({"kind": "list", "name": c.name, "source": c.source,
-                            "programs": c.programs, "ref": c.source_ref})
-    return {**checked, "status": "hit" if matches else "clear", "matches": matches[:10]}
-
-
-def refresh_ofac(db: Session, org_id: str) -> dict:
-    """Pull the live Treasury SDN CSV and upsert entries. Returns counts."""
-    resp = httpx.get(OFAC_SDN_URL, timeout=60, follow_redirects=True)
-    resp.raise_for_status()
-    now = utcnow()
-    added = updated = 0
-    reader = csv.reader(io.StringIO(resp.text))
-    existing = {e.source_ref: e for e in db.query(SanctionsListEntry).filter(
-        SanctionsListEntry.org_id == org_id, SanctionsListEntry.source == "OFAC_SDN").all()}
-    for row in reader:
-        if len(row) < 2 or not row[0].strip().isdigit():
-            continue
-        ref, name = row[0].strip(), row[1].strip()
-        if not name or name == "-0-":
-            continue
-        programs = row[3].strip() if len(row) > 3 and row[3].strip() != "-0-" else None
-        e = existing.get(ref)
-        if e:
-            e.name, e.name_normalized, e.programs, e.refreshed_at = name, _norm(name), programs, now
-            updated += 1
-        else:
-            db.add(SanctionsListEntry(org_id=org_id, source="OFAC_SDN", source_ref=ref,
-                                      name=name, name_normalized=_norm(name),
-                                      programs=programs, refreshed_at=now))
-            added += 1
-    db.commit()
-    return {"source": "OFAC_SDN", "added": added, "updated": updated, "refreshed_at": now.isoformat()}
-
-
 # ---- canonical name matching -----------------------------------------------
 # Entity suffixes stripped so "Umbrella Corp" ≡ "Umbrella Corporation" ≡ "Umbrella".
 _SUFFIXES = re.compile(
@@ -145,99 +77,6 @@ def request_party_names(r: IntakeRequest) -> list[str]:
     return names
 
 
-# ---- conflict of interest + relationship -----------------------------------
-
-def conflict_check(db: Session, org_id: str, parties: list[dict],
-                   exclude_request_id: str | None = None) -> list[dict]:
-    """Screen every party on THIS request against existing relationships —
-    contract counterparties, contract parties, and other intake requests — with
-    canonical name matching. A party we're ADVERSE to that we already do business
-    with is a HIGH-severity conflict; other name matches are flagged for review.
-    Each hit carries its `via` linkage (how it matched).
-
-    ponytail: scans org rows in Python (fine single-tenant). Add a normalized-name
-    column + index if the portfolio grows past a few thousand.
-    """
-    contracts = db.query(Contract).filter(Contract.org_id == org_id).all()
-    cparties = db.query(ContractParty).filter(ContractParty.org_id == org_id).all()
-    reqs = db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
-    by_contract = {c.id: c for c in contracts}
-
-    hits: list[dict] = []
-    for p in parties:
-        pname = (p.get("name") or "").strip()
-        if not pname:
-            continue
-        prole = (p.get("role") or "counterparty").lower()
-        adverse = prole in ADVERSE_ROLES
-
-        for c in contracts:
-            if c.counterparty_name and _name_match(pname, c.counterparty_name):
-                hits.append({"kind": "contract", "id": c.id, "title": c.title,
-                             "party": pname, "role_here": prole, "matched": c.counterparty_name,
-                             "via": f"counterparty on “{c.title}”",
-                             "severity": "high" if adverse else "review"})
-        for cp in cparties:
-            if _name_match(pname, cp.name):
-                title = by_contract[cp.contract_id].title if cp.contract_id in by_contract else "a contract"
-                hits.append({"kind": "contract_party", "id": cp.contract_id, "title": title,
-                             "party": pname, "role_here": prole, "matched": cp.name,
-                             "via": f"{cp.party_type or 'party'} “{cp.name}” on “{title}”",
-                             "severity": "high" if adverse else "review"})
-        for rq in reqs:
-            if rq.id == exclude_request_id:
-                continue
-            if any(_name_match(pname, n) for n in request_party_names(rq)):
-                hits.append({"kind": "request", "id": rq.id, "ref": rq.ref, "title": rq.type_label,
-                             "party": pname, "role_here": prole, "matched": pname,
-                             "via": f"party on {rq.ref}", "severity": "review"})
-
-    # dedupe by (kind, id, party); keep the highest severity
-    order = {"high": 2, "review": 1}
-    best: dict[tuple, dict] = {}
-    for h in hits:
-        k = (h["kind"], h.get("id"), h["party"])
-        if k not in best or order[h["severity"]] > order[best[k]["severity"]]:
-            best[k] = h
-    out = sorted(best.values(), key=lambda h: -order[h["severity"]])
-    return out[:20]
-
-
-def counterparty_relationship(db: Session, org_id: str, name: str) -> dict:
-    """A relationship dossier for the agent draft: prior contracts (count, stage
-    mix, total value), prior NDAs, and prior intake requests — canonically matched."""
-    contracts = [c for c in db.query(Contract).filter(Contract.org_id == org_id).all()
-                 if c.counterparty_name and _name_match(name, c.counterparty_name)]
-    ndas = [c for c in contracts if "nda" in (c.title or "").lower()
-            or "non-disclosure" in (c.title or "").lower()]
-    total_value = sum((c.value_amount or 0) for c in contracts)
-    stages: dict[str, int] = {}
-    for c in contracts:
-        s = c.lifecycle_stage or "unknown"
-        stages[s] = stages.get(s, 0) + 1
-    reqs = [rq for rq in db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
-            if any(_name_match(name, n) for n in request_party_names(rq))]
-
-    if not contracts and not reqs:
-        note = "New counterparty — no prior contracts or requests on file."
-    else:
-        parts = []
-        if contracts:
-            parts.append(f"{len(contracts)} prior contract(s)"
-                         + (f" (~${round(total_value / 1000)}K)" if total_value else ""))
-        if ndas:
-            parts.append(f"{len(ndas)} NDA on file")
-        if reqs:
-            parts.append(f"{len(reqs)} prior request(s)")
-        note = "Known counterparty: " + ", ".join(parts) + "."
-    return {"prior_contracts": len(contracts), "contract_stages": stages,
-            "total_value": round(total_value) if total_value else None,
-            "prior_ndas": len(ndas), "prior_nda_id": ndas[0].id if ndas else None,
-            "prior_requests": len(reqs), "note": note}
-
-
-# ---- orchestrator ------------------------------------------------------------
-
 def gather_parties(r: IntakeRequest) -> list[dict]:
     """The request's parties: the structured `parties` list, else the legacy
     field_values.counterparty as a single counterparty party. Deduped by name."""
@@ -263,54 +102,255 @@ def gather_parties(r: IntakeRequest) -> list[dict]:
     return parties
 
 
+class ScreeningService:
+    """Sanctions/OFAC, conflict-of-interest, and relationship screening.
+
+    Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
+    a ``db`` session; every function that took ``db`` first is now a method
+    reading ``self.db``. Pure name-matching/canonicalization helpers and
+    ``gather_parties`` (no ``db``) stay module-level, unchanged, above.
+    """
+
+    def __init__(self, db: Session):
+        self.db = db
+
+    # ---- sanctions -------------------------------------------------------------
+
+    def screen_sanctions(self, org_id: str, name: str) -> dict:
+        db = self.db
+        now = utcnow()
+        checked = {"checked_at": now.isoformat(), "name": name}
+
+        # Embargoed-jurisdiction mention is a hit independent of list freshness.
+        low = _norm(name)
+        embargo = [j for j in EMBARGOED if j in low]
+        if embargo:
+            return {**checked, "status": "hit", "matches": [
+                {"kind": "embargo", "name": j.title(), "programs": "comprehensive embargo"} for j in embargo
+            ]}
+
+        newest = db.query(func.max(SanctionsListEntry.refreshed_at)).filter(
+            SanctionsListEntry.org_id == org_id).scalar()
+        if newest is None or (now - newest) > STALE_AFTER:
+            return {**checked, "status": "unavailable", "matches": [],
+                    "note": "Sanctions list empty or stale (>30d) — treat as unscreened, not clear."}
+
+        q_tokens = _tokens(name)
+        if not q_tokens:
+            return {**checked, "status": "unavailable", "matches": [], "note": "No screenable name."}
+
+        # Narrow with ILIKE on the longest token, then token-overlap score in app code.
+        anchor = max(q_tokens, key=len)
+        candidates = (db.query(SanctionsListEntry)
+                      .filter(SanctionsListEntry.org_id == org_id,
+                              SanctionsListEntry.name_normalized.ilike(f"%{anchor}%"))
+                      .limit(200).all())
+        matches = []
+        for c in candidates:
+            overlap = q_tokens & _tokens(c.name)
+            if len(overlap) >= max(1, min(len(q_tokens), 2)):
+                matches.append({"kind": "list", "name": c.name, "source": c.source,
+                                "programs": c.programs, "ref": c.source_ref})
+        return {**checked, "status": "hit" if matches else "clear", "matches": matches[:10]}
+
+    def refresh_ofac(self, org_id: str) -> dict:
+        """Pull the live Treasury SDN CSV and upsert entries. Returns counts."""
+        db = self.db
+        resp = httpx.get(OFAC_SDN_URL, timeout=60, follow_redirects=True)
+        resp.raise_for_status()
+        now = utcnow()
+        added = updated = 0
+        reader = csv.reader(io.StringIO(resp.text))
+        existing = {e.source_ref: e for e in db.query(SanctionsListEntry).filter(
+            SanctionsListEntry.org_id == org_id, SanctionsListEntry.source == "OFAC_SDN").all()}
+        for row in reader:
+            if len(row) < 2 or not row[0].strip().isdigit():
+                continue
+            ref, name = row[0].strip(), row[1].strip()
+            if not name or name == "-0-":
+                continue
+            programs = row[3].strip() if len(row) > 3 and row[3].strip() != "-0-" else None
+            e = existing.get(ref)
+            if e:
+                e.name, e.name_normalized, e.programs, e.refreshed_at = name, _norm(name), programs, now
+                updated += 1
+            else:
+                db.add(SanctionsListEntry(org_id=org_id, source="OFAC_SDN", source_ref=ref,
+                                          name=name, name_normalized=_norm(name),
+                                          programs=programs, refreshed_at=now))
+                added += 1
+        db.commit()
+        return {"source": "OFAC_SDN", "added": added, "updated": updated, "refreshed_at": now.isoformat()}
+
+    # ---- conflict of interest + relationship -----------------------------------
+
+    def conflict_check(self, org_id: str, parties: list[dict],
+                       exclude_request_id: str | None = None) -> list[dict]:
+        """Screen every party on THIS request against existing relationships —
+        contract counterparties, contract parties, and other intake requests — with
+        canonical name matching. A party we're ADVERSE to that we already do business
+        with is a HIGH-severity conflict; other name matches are flagged for review.
+        Each hit carries its `via` linkage (how it matched).
+
+        ponytail: scans org rows in Python (fine single-tenant). Add a normalized-name
+        column + index if the portfolio grows past a few thousand.
+        """
+        db = self.db
+        contracts = db.query(Contract).filter(Contract.org_id == org_id).all()
+        cparties = db.query(ContractParty).filter(ContractParty.org_id == org_id).all()
+        reqs = db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
+        by_contract = {c.id: c for c in contracts}
+
+        hits: list[dict] = []
+        for p in parties:
+            pname = (p.get("name") or "").strip()
+            if not pname:
+                continue
+            prole = (p.get("role") or "counterparty").lower()
+            adverse = prole in ADVERSE_ROLES
+
+            for c in contracts:
+                if c.counterparty_name and _name_match(pname, c.counterparty_name):
+                    hits.append({"kind": "contract", "id": c.id, "title": c.title,
+                                 "party": pname, "role_here": prole, "matched": c.counterparty_name,
+                                 "via": f"counterparty on “{c.title}”",
+                                 "severity": "high" if adverse else "review"})
+            for cp in cparties:
+                if _name_match(pname, cp.name):
+                    title = by_contract[cp.contract_id].title if cp.contract_id in by_contract else "a contract"
+                    hits.append({"kind": "contract_party", "id": cp.contract_id, "title": title,
+                                 "party": pname, "role_here": prole, "matched": cp.name,
+                                 "via": f"{cp.party_type or 'party'} “{cp.name}” on “{title}”",
+                                 "severity": "high" if adverse else "review"})
+            for rq in reqs:
+                if rq.id == exclude_request_id:
+                    continue
+                if any(_name_match(pname, n) for n in request_party_names(rq)):
+                    hits.append({"kind": "request", "id": rq.id, "ref": rq.ref, "title": rq.type_label,
+                                 "party": pname, "role_here": prole, "matched": pname,
+                                 "via": f"party on {rq.ref}", "severity": "review"})
+
+        # dedupe by (kind, id, party); keep the highest severity
+        order = {"high": 2, "review": 1}
+        best: dict[tuple, dict] = {}
+        for h in hits:
+            k = (h["kind"], h.get("id"), h["party"])
+            if k not in best or order[h["severity"]] > order[best[k]["severity"]]:
+                best[k] = h
+        out = sorted(best.values(), key=lambda h: -order[h["severity"]])
+        return out[:20]
+
+    def counterparty_relationship(self, org_id: str, name: str) -> dict:
+        """A relationship dossier for the agent draft: prior contracts (count, stage
+        mix, total value), prior NDAs, and prior intake requests — canonically matched."""
+        db = self.db
+        contracts = [c for c in db.query(Contract).filter(Contract.org_id == org_id).all()
+                     if c.counterparty_name and _name_match(name, c.counterparty_name)]
+        ndas = [c for c in contracts if "nda" in (c.title or "").lower()
+                or "non-disclosure" in (c.title or "").lower()]
+        total_value = sum((c.value_amount or 0) for c in contracts)
+        stages: dict[str, int] = {}
+        for c in contracts:
+            s = c.lifecycle_stage or "unknown"
+            stages[s] = stages.get(s, 0) + 1
+        reqs = [rq for rq in db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
+                if any(_name_match(name, n) for n in request_party_names(rq))]
+
+        if not contracts and not reqs:
+            note = "New counterparty — no prior contracts or requests on file."
+        else:
+            parts = []
+            if contracts:
+                parts.append(f"{len(contracts)} prior contract(s)"
+                             + (f" (~${round(total_value / 1000)}K)" if total_value else ""))
+            if ndas:
+                parts.append(f"{len(ndas)} NDA on file")
+            if reqs:
+                parts.append(f"{len(reqs)} prior request(s)")
+            note = "Known counterparty: " + ", ".join(parts) + "."
+        return {"prior_contracts": len(contracts), "contract_stages": stages,
+                "total_value": round(total_value) if total_value else None,
+                "prior_ndas": len(ndas), "prior_nda_id": ndas[0].id if ndas else None,
+                "prior_requests": len(reqs), "note": note}
+
+    # ---- orchestrator ------------------------------------------------------------
+
+    def compute_screening(self, r: IntakeRequest) -> dict:
+        """Pure screening bundle — queries only, no writes. Safe to persist alone.
+        Screens EVERY party: sanctions on each (worst reported), conflict-of-interest
+        across all, and a relationship dossier on the primary counterparty."""
+        parties = gather_parties(r)
+        if not parties:
+            return {"status": "skipped", "note": "No parties captured on this request.",
+                    "checked_at": utcnow().isoformat()}
+        primary = next((p for p in parties if p["role"] == "counterparty"), parties[0])
+
+        # Sanctions on each party — report the most severe.
+        rank = {"hit": 3, "unavailable": 2, "clear": 1}
+        per = [(p, self.screen_sanctions(r.org_id, p["name"])) for p in parties]
+        worst_party, sanctions = max(per, key=lambda x: rank.get(x[1].get("status"), 0))
+        sanctions = {**sanctions, "party": worst_party["name"]}
+
+        return {
+            "counterparty": primary["name"],
+            "parties": parties,
+            "sanctions": sanctions,
+            "conflicts": self.conflict_check(r.org_id, parties, exclude_request_id=r.id),
+            "relationship": self.counterparty_relationship(r.org_id, primary["name"]),
+            "checked_at": utcnow().isoformat(),
+            "status": "done",
+        }
+
+    def run_screening(self, r: IntakeRequest, *, actor_user_id: str | None = None) -> dict:
+        """Screen the request, then record a best-effort audit event. The screen and
+        the audit are committed in SEPARATE transactions: the screen persists first
+        and definitively, so audit-chain advisory-lock contention (write_audit_log
+        flushes) can never roll back the screening result. Idempotent commits — the
+        callers may commit again harmlessly."""
+        db = self.db
+        result = self.compute_screening(r)
+        r.screening = result
+        db.commit()          # persist the screen on its own — nothing can lose it now
+        db.refresh(r)
+        if result.get("status") == "done":
+            try:
+                write_audit_log(db, action="intake.screening.run", resource_type="intake_request",
+                                resource_id=r.id, org_id=r.org_id, actor_user_id=actor_user_id,
+                                after={"status": result.get("status"),
+                                       "sanctions": (result.get("sanctions") or {}).get("status"),
+                                       "conflicts": len(result.get("conflicts") or [])})
+                db.commit()
+            except Exception:
+                db.rollback()  # screen already persisted; only the audit row is lost
+        return result
+
+
+# --- DI-MIGRATION: temporary wrappers ---------------------------------------
+# Tracked in backend/DI_MIGRATION.md.
+
+def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
+    return ScreeningService(db).screen_sanctions(org_id, name)
+
+
+def refresh_ofac(db: Session, org_id: str) -> dict:
+    return ScreeningService(db).refresh_ofac(org_id)
+
+
+def conflict_check(db: Session, org_id: str, parties: list[dict],
+                   exclude_request_id: str | None = None) -> list[dict]:
+    return ScreeningService(db).conflict_check(org_id, parties, exclude_request_id=exclude_request_id)
+
+
+def counterparty_relationship(db: Session, org_id: str, name: str) -> dict:
+    return ScreeningService(db).counterparty_relationship(org_id, name)
+
+
 def compute_screening(db: Session, r: IntakeRequest) -> dict:
-    """Pure screening bundle — queries only, no writes. Safe to persist alone.
-    Screens EVERY party: sanctions on each (worst reported), conflict-of-interest
-    across all, and a relationship dossier on the primary counterparty."""
-    parties = gather_parties(r)
-    if not parties:
-        return {"status": "skipped", "note": "No parties captured on this request.",
-                "checked_at": utcnow().isoformat()}
-    primary = next((p for p in parties if p["role"] == "counterparty"), parties[0])
-
-    # Sanctions on each party — report the most severe.
-    rank = {"hit": 3, "unavailable": 2, "clear": 1}
-    per = [(p, screen_sanctions(db, r.org_id, p["name"])) for p in parties]
-    worst_party, sanctions = max(per, key=lambda x: rank.get(x[1].get("status"), 0))
-    sanctions = {**sanctions, "party": worst_party["name"]}
-
-    return {
-        "counterparty": primary["name"],
-        "parties": parties,
-        "sanctions": sanctions,
-        "conflicts": conflict_check(db, r.org_id, parties, exclude_request_id=r.id),
-        "relationship": counterparty_relationship(db, r.org_id, primary["name"]),
-        "checked_at": utcnow().isoformat(),
-        "status": "done",
-    }
+    return ScreeningService(db).compute_screening(r)
 
 
 def run_screening(db: Session, r: IntakeRequest, *, actor_user_id: str | None = None) -> dict:
-    """Screen the request, then record a best-effort audit event. The screen and
-    the audit are committed in SEPARATE transactions: the screen persists first
-    and definitively, so audit-chain advisory-lock contention (write_audit_log
-    flushes) can never roll back the screening result. Idempotent commits — the
-    callers may commit again harmlessly."""
-    result = compute_screening(db, r)
-    r.screening = result
-    db.commit()          # persist the screen on its own — nothing can lose it now
-    db.refresh(r)
-    if result.get("status") == "done":
-        try:
-            write_audit_log(db, action="intake.screening.run", resource_type="intake_request",
-                            resource_id=r.id, org_id=r.org_id, actor_user_id=actor_user_id,
-                            after={"status": result.get("status"),
-                                   "sanctions": (result.get("sanctions") or {}).get("status"),
-                                   "conflicts": len(result.get("conflicts") or [])})
-            db.commit()
-        except Exception:
-            db.rollback()  # screen already persisted; only the audit row is lost
-    return result
+    return ScreeningService(db).run_screening(r, actor_user_id=actor_user_id)
 
 
 if __name__ == "__main__":  # pragma: no cover - gather_parties self-check

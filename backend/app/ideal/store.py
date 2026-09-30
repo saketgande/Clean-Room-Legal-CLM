@@ -28,7 +28,6 @@ from __future__ import annotations
 from dataclasses import asdict, replace
 
 from app.ideal.workflow import (
-    APPROVE,
     DONE,
     NEED_INFO,
     PARKED,

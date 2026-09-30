@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
-from app.organizations.models import Organization
+from app.core.deps import require_permission
+from app.organizations.dependencies import get_organizations_service
+from app.organizations.service import OrganizationsService
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 
@@ -26,30 +26,16 @@ class OrganizationUpdate(BaseModel):
 
 @router.get("/current", response_model=OrganizationResponse)
 def current_organization(
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("user:read")),
+    service: OrganizationsService = Depends(get_organizations_service),
 ):
-    org = db.get(Organization, current_user.org_id)
-    if org is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    return org
+    return service.get_current_organization(org_id=current_user.org_id)
 
 
 @router.patch("/current", response_model=OrganizationResponse)
 def update_organization(
     payload: OrganizationUpdate,
-    db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
+    service: OrganizationsService = Depends(get_organizations_service),
 ):
-    org = db.get(Organization, current_user.org_id)
-    if org is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Organization not found")
-    if payload.name is not None:
-        org.name = payload.name
-    if payload.allowed_domains is not None:
-        org.allowed_domains = [domain.lower() for domain in payload.allowed_domains]
-    if payload.default_role_name is not None:
-        org.default_role_name = payload.default_role_name
-    db.commit()
-    db.refresh(org)
-    return org
+    return service.update_organization(org_id=current_user.org_id, payload=payload)

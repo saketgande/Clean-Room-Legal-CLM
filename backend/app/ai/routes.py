@@ -3,11 +3,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.controller import ai_controller
+from app.ai.controller import AIController
+from app.ai.dependencies import get_ai_controller, get_skill_registry
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AIPromptVersion, AISkillRun
 from app.ai.prompt_versions import DEFAULT_SKILL_PROMPTS, hash_text
-from app.ai.registry import skill_registry
+from app.ai.registry import SkillRegistry
 from app.ai.schemas import AIPromptVersionResponse, AISkillRunResponse, SkillInfo
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
@@ -25,11 +26,14 @@ class ContractAIRerunRequest(BaseModel):
 
 
 @router.get("/skills", response_model=list[SkillInfo])
-def list_ai_skills(current_user=Depends(require_permission("assistant:use"))):
+def list_ai_skills(
+    current_user=Depends(require_permission("assistant:use")),
+    registry: SkillRegistry = Depends(get_skill_registry),
+):
     permissions = current_user.permission_values
     return [
         info
-        for info in skill_registry.public_info()
+        for info in registry.public_info()
         if info.required_permission is None or info.required_permission in permissions or "*" in permissions
     ]
 
@@ -83,9 +87,10 @@ async def rerun_metadata_extraction(
     response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
+    controller: AIController = Depends(get_ai_controller),
 ):
     get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    output = await ai_controller.run_structured_skill(
+    output = await controller.run_structured_skill(
         db,
         skill_name="contract_metadata_extraction",
         org_id=current_user.org_id,
@@ -107,9 +112,10 @@ async def rerun_clause_extraction(
     response: Response,
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
+    controller: AIController = Depends(get_ai_controller),
 ):
     get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    output = await ai_controller.run_structured_skill(
+    output = await controller.run_structured_skill(
         db,
         skill_name="clause_extraction",
         org_id=current_user.org_id,

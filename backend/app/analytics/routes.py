@@ -6,7 +6,7 @@ runs on) is $3 / $15 per million input / output tokens.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
@@ -76,7 +76,7 @@ def ai_usage(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
 ):
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since = datetime.now(UTC) - timedelta(days=days)
     base = (AICallLog.org_id == current_user.org_id, AICallLog.created_at >= since)
 
     # Per (operation, model): calls + token sums + avg latency.

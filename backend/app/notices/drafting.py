@@ -74,7 +74,7 @@ def _prompt(notice, document_text: str) -> str:
     )
 
 
-def draft_notice_response(db: Session, *, org_id: str, notice, document_text: str = "") -> dict:
+def draft_notice_response(db: Session, *, org_id: str, notice, document_text: str = "", claude_client=None) -> dict:
     """Draft a reply. Always returns {'draft': str, 'generated': bool}; the
     fallback skeleton is used whenever the model is unavailable."""
     from app.core.config import settings
@@ -84,12 +84,14 @@ def draft_notice_response(db: Session, *, org_id: str, notice, document_text: st
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
     from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import ClaudeClient, run_coro_blocking
+    from app.integrations.claude import run_coro_blocking
+    from app.integrations.dependencies import get_claude_client
 
+    claude_client = claude_client or get_claude_client()
     bundle = get_agent_prompt(db, agent_id="notice_response_agent", org_id=org_id)
     try:
         enforce_daily_token_cap(org_id)
-        resp = run_coro_blocking(lambda: ClaudeClient().complete_text(
+        resp = run_coro_blocking(lambda: claude_client.complete_text(
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=_prompt(notice, document_text),
             max_tokens=1200, temperature=0.2, model=bundle.model_name,

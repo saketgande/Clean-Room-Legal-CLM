@@ -747,7 +747,7 @@ async def test_workflow_approval_step_does_not_auto_advance_while_chain_is_pendi
     db.refresh(instance)
     assert instance.status == "approved"
 
-    run = await wf_service.refresh_run(db, run=run, actor=s.admin)
+    run = await wf_service.WorkflowService(db).refresh_run(run=run, actor=s.admin)
     assert run.status == "complete"
     db.refresh(request)
     assert request.status == "approved"
@@ -921,10 +921,17 @@ _ALLOWED_TOUCHPOINTS: dict[str, set[str]] = {
 
 
 def _functions_referencing_approval_chains(path: Path) -> set[str]:
+    """Checks both module-level functions and class methods — the DI migration
+    moved most of these into service classes (e.g. WorkflowService.refresh_run),
+    so a top-level-only scan would miss them entirely."""
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
     touched: set[str] = set()
+    candidates: list[ast.AST] = list(tree.body)
     for node in tree.body:
+        if isinstance(node, ast.ClassDef):
+            candidates.extend(node.body)
+    for node in candidates:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         segment = ast.get_source_segment(source, node) or ""

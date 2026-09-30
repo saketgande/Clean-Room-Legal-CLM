@@ -1,4 +1,4 @@
-"""The flow engine's ai_task step (backend/app/flows/service.py) previously
+"""The flow engine's ai_task step (backend/app/workflows/service.py) previously
 routed every mapped agent key through a static regex classifier even when a
 real, Claude-backed result already existed elsewhere for the same request.
 These tests pin the fix for the litigation-agent case: reuse the genuine

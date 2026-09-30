@@ -10,7 +10,7 @@ from app.ai.citations import validate_citations
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.cost_guard import enforce_daily_token_cap, record_token_usage
 from app.ai.fallback import fallback_metadata_from_text
-from app.ai.models import AIConfirmation, AICitation, AISkillRun
+from app.ai.models import AICitation, AIConfirmation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
 from app.ai.redaction import redact_ai_payload
@@ -26,27 +26,27 @@ from app.ai.skill import SkillSpec
 from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
 from app.ai.tool_registry import tool_registry
 from app.ai.tool_runtime import tool_runtime
-from app.auth.models import User
 from app.assistant.models import (
     AssistantContractHandle,
     AssistantMessage,
     AssistantRun,
     AssistantToolCall,
 )
+from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
-from app.obligations.models import Obligation, ObligationReminder
-from app.renewals.models import RenewalEvent
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
-from app.core.models import AICallLog, AdminSetting, UsageRecord
+from app.core.models import AdminSetting, AICallLog, UsageRecord
 from app.core.rbac import has_permission
-from app.integrations.claude import ClaudeProviderResponse, claude_client
+from app.integrations.claude import ClaudeProvider, ClaudeProviderResponse
+from app.integrations.claude import claude_client as _default_claude_client
 from app.jobs.models import JobRun
-
+from app.obligations.models import Obligation, ObligationReminder
+from app.renewals.models import RenewalEvent
 
 INTERNAL_RESULT_KEYS = {
     "text_snapshot_id",
@@ -87,6 +87,15 @@ def _safe_tool_error(exc: Exception) -> str:
 
 
 class AIController:
+    """Stateless singleton: `db` is always passed per method call, never
+    stored. Part of the DI migration (see backend/DI_MIGRATION.md) — this
+    constructor accepts the `claude_client` this file used to import and
+    call as a bare module singleton, defaulting to that same singleton
+    unchanged."""
+
+    def __init__(self, *, claude_client: ClaudeProvider | None = None):
+        self.claude_client = claude_client or _default_claude_client
+
     async def run_job_skill(
         self,
         db: Session,
@@ -275,7 +284,7 @@ class AIController:
             for iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(org_id)
                 provider_response = None
-                async for chunk in claude_client.stream_with_tools(
+                async for chunk in self.claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=tools,
@@ -573,7 +582,7 @@ class AIController:
             for _iteration in range(settings.ai_max_tool_iterations):
                 enforce_daily_token_cap(user.org_id)
                 provider_response = None
-                async for chunk in claude_client.stream_with_tools(
+                async for chunk in self.claude_client.stream_with_tools(
                     system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
@@ -764,8 +773,10 @@ class AIController:
             self._json_tool_result(scope),
             "Contract status context:",
             self._json_tool_result(contract_summaries or []),
-            "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
-            "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):",
+            (
+                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+                "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):"
+            ),
             self._json_tool_result(contract_inventory or []),
             "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
         ]
@@ -774,6 +785,7 @@ class AIController:
     def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
         """A compact list of contracts the user can access."""
         from sqlalchemy import select as _select
+
         from app.contracts.models import Contract as _Contract
 
         rows = db.scalars(
@@ -818,7 +830,7 @@ class AIController:
             assistant_run_id=assistant_run_id,
             resource_type="assistant_session",
             resource_id=session_id,
-            provider=claude_client.provider,
+            provider=self.claude_client.provider,
             model=provider_response.model,
             model_config_hash=skill_run.model_config_hash,
             prompt_key=skill_run.prompt_key,
@@ -1091,7 +1103,7 @@ class AIController:
         ai_call_log: AICallLog | None = None
         try:
             enforce_daily_token_cap(org_id)
-            provider_response = await claude_client.complete_structured(
+            provider_response = await self.claude_client.complete_structured(
                 system_prompt=built_prompt.system_prompt,
                 user_prompt=built_prompt.user_prompt,
                 tool_name=spec.return_tool_name,
@@ -1358,7 +1370,7 @@ class AIController:
             tool_call_id=tool_call_id,
             resource_type=resource_type,
             resource_id=resource_id,
-            provider=claude_client.provider,
+            provider=self.claude_client.provider,
             model=provider_response.model,
             model_config_hash=skill_run.model_config_hash,
             prompt_key=skill_run.prompt_key,
@@ -1631,8 +1643,7 @@ class AIController:
             created += 1
             if item.due_date is not None:
                 remind_at = item.due_date - timedelta(days=7)
-                if remind_at < today:
-                    remind_at = today
+                remind_at = max(remind_at, today)
                 db.add(
                     ObligationReminder(
                         org_id=contract.org_id,
