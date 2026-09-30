@@ -40,7 +40,7 @@ def _approval(**overrides):
     fields = dict(
         id="appr-1", org_id="org-1", status="pending", contract_id=None, intake_request_id="req-1",
         requested_by_user_id="requester", approver_user_id="approver",
-        approver_role=None, approver_group_id=None,
+        approver_role=None, approver_team_id=None,
     )
     return SimpleNamespace(**{**fields, **overrides})
 

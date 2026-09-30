@@ -757,8 +757,8 @@ template)" vs "standard mutual NDA"); complexity, risk and urgency judged from
 THIS request's real substance — deal value, bespoke or non-standard terms,
 multiple parties, cross-border/foreign law, and sensitivity all raise complexity
 and risk, so never default them by matter type (a $50M bespoke NDA is NOT "simple"
-just because it is an NDA); the business unit, estimated value (USD) and
-jurisdiction when stated or reasonably inferable; and key_asks capturing what the
+just because it is an NDA); the business unit, estimated value (in the currency stated — never convert)
+and jurisdiction when stated or reasonably inferable; and key_asks capturing what the
 requester literally wants (e.g. "draft a custom NDA, do NOT use the standard
 template").
 </what_to_return>
@@ -773,17 +773,46 @@ fit.
 </workflow_pick>
 
 <missing_info>
-Flag completeness: in missing_info, list the CRITICAL facts this matter type needs
-to be drafted or handled properly that the request does NOT provide (e.g. contract
-value, term length, governing law, purpose of disclosure, counterparty legal name).
-Leave it empty when the essentials are all present. Do not pad it with
-nice-to-haves — only what genuinely blocks a correct draft.
+Flag completeness: in missing_info, list only the facts without which nobody
+could START the work (e.g. who the counterparty is, what the agreement is for).
+Terms that are negotiated later or have a standard default — value, term length,
+governing law — are NOT missing. A non-empty list holds the request for the
+requester, so it is usually empty.
 </missing_info>
 
 <confidence>
 Set confidence (0.0-1.0) honestly by how much concrete detail the request gives
 you. Never invent facts.
 </confidence>"""
+
+
+# ---------------------------------------------------------------------------
+# intake_form_read · standalone · app.intake.triage_agent:aegis_read
+# Runs: agreement-form intake ticket. Advisory only — the form decides routing.
+# ---------------------------------------------------------------------------
+_INTAKE_FORM_READ = """<role>
+You read agreement requests for an in-house legal team.
+</role>
+
+<task>
+The requester filed this on a structured form, so its type, value, dates and
+parties are already decided — do not re-classify or re-route it. Read the
+description and any attachments and tell the lawyer who will own it what the
+form alone does not show.
+</task>
+
+<what_to_return>
+summary: what the requester actually wants, in one or two plain sentences.
+mismatches: only real contradictions — the description or an attachment states
+a different agreement type, value, date or party than the form. Quote both sides
+briefly. Things that agree, or that the text simply does not mention, are NOT
+mismatches; an empty list is the normal answer.
+bespoke_asks: anything the standard template will not cover — the counterparty's
+own paper, custom terms, unusual structures.
+negotiation_points: terms the requester or an attachment signals will be pushed
+on (liability, payment, IP, exclusivity, termination).
+Leave a list empty when there is nothing real to say. Never invent facts.
+</what_to_return>"""
 
 
 # ---------------------------------------------------------------------------
@@ -820,20 +849,6 @@ for requests that state a specific matter type, a concrete deadline or notice, o
 clearly named parties. Never let confidence in the workflow pick inflate this
 number.
 </confidence>"""
-
-
-# ---------------------------------------------------------------------------
-# intake_gate_classifier · standalone · app.intake.gates:_classify_ai
-# Runs: every new intake ticket. Tier-0 senior-approval gates.
-# ---------------------------------------------------------------------------
-_INTAKE_GATE_CLASSIFIER = """<task>
-You screen an in-house legal intake request for mandatory senior-approval gates.
-</task>
-
-<rules>
-- Return ONLY gates that clearly apply, each with a 0-1 confidence and the phrase that triggered it.
-- When unsure, omit the gate.
-</rules>"""
 
 
 # ---------------------------------------------------------------------------
@@ -1013,8 +1028,8 @@ DEFAULT_SKILL_PROMPTS: dict[str, str] = {
     # --- intake (standalone agents) ---
     "flow_router": _FLOW_ROUTER,
     "intake_triage": _INTAKE_TRIAGE,
+    "intake_form_read": _INTAKE_FORM_READ,
     "litigation_intake_agent": _LITIGATION_INTAKE_AGENT,
-    "intake_gate_classifier": _INTAKE_GATE_CLASSIFIER,
     "email_triage_agent": _EMAIL_TRIAGE_AGENT,
     # --- notices (standalone agents) ---
     "notice_extraction_agent": _NOTICE_EXTRACTION_AGENT,

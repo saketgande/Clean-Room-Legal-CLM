@@ -87,7 +87,6 @@ function rowFlags(r: IntakeRequest): { label: string; cls: string }[] {
   else if (r.sla_status === "at_risk") f.push({ label: "at risk", cls: "low" });
   if (isOpenReq(r) && !r.assigned_to_user_id) f.push({ label: "unassigned", cls: "dupe" });
   if (lowConfidence(r)) f.push({ label: "low confidence", cls: "low" });
-  if ((r.gates?.effective_keys?.length ?? 0) > 0) f.push({ label: "gated", cls: "new" });
   return f;
 }
 
@@ -132,7 +131,7 @@ function StageCell({ r }: { r: IntakeRequest }) {
       <div className="stagewrap">
         <div className="stagehead">
           <span className={`sdot ${stuck ? "stuck" : "ok"}`} />
-          <span className="stagenm">{active?.label ?? "In progress"}</span>
+          <span className="stagenm">{active?.label ?? (done === steps.length ? "Complete" : "In progress")}</span>
           <span className="stepno">{done}/{steps.length}</span>
         </div>
         <div className="stepbar">
@@ -320,7 +319,7 @@ export function LegalIntakeBoard({ onOpen }: { onOpen: (id: string) => void }) {
               const cp = counterpartyOf(r);
               const flags = rowFlags(r);
               const fs = flowSuggestion(r);
-              const isNew = !(r.workflow ?? []).some((s) => s.active) && !!fs;
+              const isNew = !(r.workflow ?? []).length && !!fs;
               return (
                 <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: "pointer" }}>
                   <td className="c-check"><input type="checkbox" className="cbx" checked={sel.has(r.id)} onClick={(e) => e.stopPropagation()} onChange={() => { const n = new Set(sel); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); setSel(n); }} /></td>

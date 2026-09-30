@@ -124,13 +124,10 @@ def default_providers() -> list[OcrProvider]:
     providers: list[OcrProvider] = []
     try:
         from app.core.config import settings
-        from app.integrations.databricks import databricks_client
         from app.integrations.reducto import reducto_client
     except Exception:  # pragma: no cover - integrations unavailable
         return providers
 
-    if getattr(databricks_client, "enabled", False):
-        providers.append(_ClientAdapter("databricks", databricks_client))
     if getattr(settings, "reducto_api_key", None):
         providers.append(_ClientAdapter("reducto", reducto_client))
     return providers

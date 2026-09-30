@@ -2,8 +2,8 @@
 
 ``app/approvals`` owns the ladder mechanics (ordered ApprovalRequest steps,
 per-step activation, decisions, tokens, audit). This module supplies the
-*subject* that engine drives for an intake request — the attributes routing
-rules + Delegation-of-Authority read (same names as Contract) plus the lifecycle
+*subject* that engine drives for an intake request — the attributes
+Delegation-of-Authority reads (same names as Contract) plus the lifecycle
 hooks that move the request as the chain starts / rejects / completes.
 
 Kept separate from ``intake/service.py`` so ``app/approvals`` can lazily import
@@ -14,12 +14,13 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.intake.models import IntakeRequest, IntakeRequestType
+from app.core.config import settings
+from app.intake.models import IntakeRequest
 
 # Field keys we try, in order, to read a monetary value off a request's captured
-# fields — so value-threshold routing rules can match. Free-form; refined later.
-_VALUE_KEYS = ("value", "amount", "contract_value", "deal_value", "annual_value")
-# Intake priority already aligns 1:1 with the DoA/routing risk bands.
+# fields — so authority limits can be checked. Free-form; refined later.
+_VALUE_KEYS = ("value", "new_value", "renew_value", "amount", "contract_value", "deal_value", "annual_value")
+# Intake priority already aligns 1:1 with the DoA risk bands.
 _PRIORITY_TO_BAND = {"critical": "critical", "high": "high", "medium": "medium", "low": "low"}
 
 
@@ -34,7 +35,7 @@ class IntakeApprovalSubject:
         self.request = request
         self._type_key = type_key
 
-    # --- attributes read by routing (_matches) + authority (_grant_covers) ---
+    # --- attributes read by Delegation of Authority (_grant_covers) ---------
     @property
     def id(self) -> str:
         return self.request.id
@@ -66,11 +67,14 @@ class IntakeApprovalSubject:
 
     @property
     def currency(self):
-        return (self.request.field_values or {}).get("currency")
+        fv = self.request.field_values or {}
+        # The forms ask for a currency beside the value; older ones had none.
+        return fv.get("currency") or (settings.default_currency if fv.get("request_form") else None)
 
     @property
     def jurisdiction(self):
-        return (self.request.field_values or {}).get("jurisdiction")
+        fv = self.request.field_values or {}
+        return fv.get("jurisdiction") or fv.get("governing_law")
 
     @property
     def risk_band(self):
@@ -87,36 +91,6 @@ class IntakeApprovalSubject:
 
     def try_fast_lane(self, db: Session, *, user: User, request_id: str | None) -> bool:
         return False
-
-    def forced_rungs(self, db: Session) -> list[dict]:
-        """Tier-0 gates → mandatory senior rungs appended to the ladder. Each
-        effective gate resolves to its approver group (by name) in the org."""
-        from sqlalchemy import select
-
-        from app.approvals.models import ApproverGroup
-        from app.intake.gates import effective_gates
-
-        rungs: list[dict] = []
-        seen: set[str] = set()
-        for gate in effective_gates(self.request.ai_triage):
-            if gate.approver_group in seen:
-                continue
-            seen.add(gate.approver_group)
-            group = db.scalar(
-                select(ApproverGroup).where(
-                    ApproverGroup.org_id == self.request.org_id,
-                    ApproverGroup.name == gate.approver_group,
-                )
-            )
-            rungs.append({
-                "routing_rule_id": None,
-                "approver_user_id": None,
-                "approver_group_id": group.id if group else None,
-                "approver_role": None if group else gate.approver_group,
-                "mode": "any",
-                "gate_key": gate.key,
-            })
-        return rungs
 
     def guard_can_decide(self, db: Session) -> None:
         if self.request.status == "closed":
@@ -204,20 +178,11 @@ class IntakeApprovalSubject:
         )
 
 
-def _type_key_for(db: Session, request: IntakeRequest) -> str | None:
-    if not request.request_type_id:
-        return None
-    rtype = db.get(IntakeRequestType, request.request_type_id)
-    # Agreement-wizard forms keep routing on their type label ("SoW Request"…)
-    # as before; their internal key ("form_sow") is not a contract type.
-    return rtype.key if rtype and not rtype.form_key else None
-
-
 def build_intake_subject(db: Session, request_id: str, *, org_id: str) -> IntakeApprovalSubject:
     request = db.get(IntakeRequest, request_id)
     if request is None or request.org_id != org_id:
         raise HTTPException(404, "Request not found")
-    return IntakeApprovalSubject(request, type_key=_type_key_for(db, request))
+    return IntakeApprovalSubject(request, type_key=None)
 
 
 async def submit_request_for_approval(
@@ -226,24 +191,23 @@ async def submit_request_for_approval(
     actor: User,
     request: IntakeRequest,
     approver_user_id: str | None = None,
-    approver_group_id: str | None = None,
+    approver_team_id: str | None = None,
     approver_role: str | None = None,
-    routing_rule_id: str | None = None,
+    mode: str = "any",
     request_id: str | None = None,
 ):
-    """Start the approval ladder for an intake request — the value/type/risk
-    routing rules decide the rungs (see app/approvals.resolve_chain), unless
-    ``routing_rule_id`` pins a specific route."""
+    """Start the approval ladder for an intake request with the named approver
+    (see app/approvals.plan_chain)."""
     from app.approvals.service import submit_subject_for_approval
 
-    subject = IntakeApprovalSubject(request, type_key=_type_key_for(db, request))
+    subject = IntakeApprovalSubject(request, type_key=None)
     return await submit_subject_for_approval(
         db,
         user=actor,
         subject=subject,
         approver_user_id=approver_user_id,
-        approver_group_id=approver_group_id,
+        approver_team_id=approver_team_id,
         approver_role=approver_role,
-        routing_rule_id=routing_rule_id,
+        mode=mode,
         request_id=request_id,
     )

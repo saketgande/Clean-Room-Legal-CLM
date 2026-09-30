@@ -6,6 +6,10 @@ from datetime import timedelta
 import httpx
 from sqlalchemy import and_, delete, func, or_, select, update
 
+# Every mapper, before any task touches a model: the worker imports only what
+# tasks name, so a model referenced only by foreign key (IntakeRequest →
+# counterparty) failed to configure and broke jobs with NoReferencedTableError.
+import app.models  # noqa: F401
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AISkillRun
@@ -271,7 +275,7 @@ async def _run_ai_job(job_id: str) -> dict:
         elif job.job_type == "intake_screening":
             from app.intake.service import run_intake_screening
 
-            # Conflicts and sanctions are database queries, not AI calls, but
+            # The relationship note is database queries, not AI calls, but
             # they still block: off the worker's event loop like the rest.
             await asyncio.to_thread(
                 run_intake_screening, db, request_id=job.resource_id,
@@ -1143,12 +1147,13 @@ def mark_overdue_approvals() -> dict:
     Idempotent per day via the ``reminded_day`` / ``escalated`` markers, so a
     daily beat never double-sends. Safe no-op when nothing is overdue.
     """
-    from app.approvals.models import ApprovalRequest, ApproverGroup
+    from app.approvals.models import ApprovalRequest
     from app.auth.models import Role, User
     from app.contracts.models import Contract
     from app.core.config import settings
     from app.core.enums import ApprovalStatus
     from app.intake.models import IntakeRequest
+    from app.intake.teams import member_users
     from app.notifications.models import Notification
 
     db = SessionLocal()
@@ -1207,14 +1212,13 @@ def mark_overdue_approvals() -> dict:
                     # IntakeRequest has no `title`; `ref` is never null.
                     title = ir.subject or ir.ref
 
-            # Who must act: the assigned approver, or every group member.
+            # Who must act: the assigned approver, or every team member.
             approver_ids: set[str] = set()
             if req.approver_user_id:
                 approver_ids.add(req.approver_user_id)
-            elif req.approver_group_id:
-                group = db.get(ApproverGroup, req.approver_group_id)
-                if group is not None:
-                    approver_ids.update(m.id for m in group.members)
+            elif req.approver_team_id:
+                approver_ids.update(m.id for m in member_users(db, team_id=req.approver_team_id,
+                                                               org_id=req.org_id))
             due_label = req.due_at.date().isoformat()
             do_flag, do_remind, do_escalate = _overdue_decision(
                 od, days_over, escalate_after
@@ -1352,68 +1356,5 @@ def send_notice_reminders() -> dict:
     db = SessionLocal()
     try:
         return notices_service.run_reminders(db)
-    finally:
-        db.close()
-
-
-# Beat fires this daily, so the guard never blocks a normal run — it exists for
-# the restart case. Celery beat keeps its last-run state in a schedule file that
-# a container restart loses, so a crash-looping beat would otherwise re-download
-# the ~5 MB Treasury file on every boot.
-_SANCTIONS_MIN_REFRESH_AGE = timedelta(hours=12)
-
-
-@celery_app.task
-def refresh_sanctions_lists() -> dict:
-    """Daily: pull the OFAC SDN list so screening has something to screen against.
-
-    Nothing refreshed it before — the only caller was a manual admin button — so
-    the list aged past ``screening.STALE_AFTER`` and every screen returned
-    "unavailable". That posture is correct (an unscreened name is never reported
-    "clear"), but it meant sanctions screening was in practice off while looking
-    like it was on.
-
-    Refreshed ONCE, for the setup-complete organisation. The list is public
-    reference data, not tenant data: ``ux_sanctions_source_ref`` is unique on
-    ``(source, source_ref)`` with no org_id, so a second copy cannot exist and
-    a per-org loop just trips the constraint. `auth.service` defines "the org"
-    the same way — there is only ever one.
-
-    Failures are logged loudly rather than raised: a beat task that throws
-    disappears into the worker log, and the thing an operator needs to know is
-    that the list is aging. ``refreshed_at`` is the evidence trail, and a stale
-    list already announces itself on every screened request.
-    """
-    from app.intake.models import SanctionsListEntry
-    from app.intake.screening import refresh_ofac
-    from app.organizations.models import Organization
-
-    db = SessionLocal()
-    try:
-        org_id = db.scalar(
-            select(Organization.id).where(Organization.setup_complete.is_(True))
-        )
-        if org_id is None:
-            return {"status": "skipped", "note": "organization setup not complete"}
-
-        now = utcnow()
-        newest = db.scalar(
-            select(func.max(SanctionsListEntry.refreshed_at)).where(
-                SanctionsListEntry.org_id == org_id
-            )
-        )
-        if newest is not None and (now - newest) < _SANCTIONS_MIN_REFRESH_AGE:
-            return {"status": "fresh", "refreshed_at": newest.isoformat()}
-
-        try:
-            return {"status": "refreshed", **refresh_ofac(db, org_id)}
-        except Exception as exc:
-            db.rollback()
-            age = "never refreshed" if newest is None else f"{(now - newest).days}d old"
-            logger.exception(
-                "OFAC refresh failed (list is %s) — sanctions screening returns "
-                "'unavailable' until this succeeds", age,
-            )
-            return {"status": "failed", "error": str(exc), "list_age": age}
     finally:
         db.close()

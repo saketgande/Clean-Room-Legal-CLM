@@ -26,7 +26,6 @@ import {
   debugApi,
   intakeApi,
   orgApi,
-  mattersApi,
   rolesApi,
   usersApi,
   wallsApi,
@@ -69,6 +68,7 @@ import type {
   WallResponse,
   AuthorityGrantResponse,
 } from "@/lib/types";
+import { PartiesRegisterTab } from "./_parties-register";
 
 // Owner-routing vocabulary — shared with the triage (matter categories) and the
 // intake form (departments / business units). A team is tagged with the matter
@@ -117,7 +117,8 @@ export default function AdminPage() {
           { id: "organization", label: "Organization" },
           { id: "users", label: "Users & Access" },
           { id: "roles", label: "Roles & Permissions" },
-          { id: "teams", label: "Teams & Routing" },
+          { id: "teams", label: "Teams" },
+          { id: "parties", label: "Entities & counterparties" },
           { id: "walls", label: "Ethical Walls" },
           { id: "authority", label: "Authority" },
           { id: "settings", label: "Settings" },
@@ -130,6 +131,7 @@ export default function AdminPage() {
       {tab === "users" && <UsersTab />}
       {tab === "roles" && <RolesTab />}
       {tab === "teams" && <TeamsTab />}
+      {tab === "parties" && <PartiesRegisterTab />}
       {tab === "walls" && <EthicalWallsTab />}
       {tab === "authority" && <AuthorityTab />}
       {tab === "settings" && <SettingsTab />}
@@ -1349,7 +1351,7 @@ function EthicalWallsTab() {
             <CardTitle>Ethical walls</CardTitle>
             <p className="mt-0.5 text-xs text-slate-500">
               Conflict-of-interest screens. A wall hard-blocks the named people
-              from a contract or matter — overriding ownership, sharing and admin
+              from a contract — overriding ownership, sharing and admin
               alike, including in search and the assistant.
             </p>
           </div>
@@ -1364,7 +1366,7 @@ function EthicalWallsTab() {
               <EmptyState
                 icon={<ShieldAlert className="h-5 w-5" />}
                 title="No ethical walls"
-                description="Screens you create to seal conflicted people off from a matter will appear here."
+                description="Screens you create to seal conflicted people off from a contract will appear here."
               />
             </div>
           ) : (
@@ -1471,22 +1473,14 @@ function WallEditorModal({
     queryKey: ["contracts-all"],
     queryFn: contractsApi.list,
   });
-  const { data: projects } = useQuery({
-    queryKey: ["projects-all"],
-    queryFn: mattersApi.list,
-  });
 
   const [name, setName] = useState("");
   const [reason, setReason] = useState("");
-  const [scopeType, setScopeType] = useState<"contract" | "project">("contract");
   const [scopeId, setScopeId] = useState("");
   const [barred, setBarred] = useState<Set<string>>(new Set()); // "user:<id>" | "role:<id>"
   const [busy, setBusy] = useState(false);
 
-  const scopeOptions =
-    scopeType === "contract"
-      ? (contracts ?? []).map((c) => ({ id: c.id, label: c.title }))
-      : (projects ?? []).map((p) => ({ id: p.id, label: p.name }));
+  const scopeOptions = (contracts ?? []).map((c) => ({ id: c.id, label: c.title }));
 
   function toggle(key: string) {
     setBarred((prev) => {
@@ -1505,7 +1499,7 @@ function WallEditorModal({
       await wallsApi.create({
         name: name.trim(),
         reason: reason.trim() || null,
-        scope_type: scopeType,
+        scope_type: "contract",
         scope_id: scopeId,
         principals: [...barred].map((k) => {
           const [t, id] = k.split(":");
@@ -1538,30 +1532,16 @@ function WallEditorModal({
             onChange={(e) => setReason(e.target.value)}
           />
         </Field>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Scope">
-            <Select
-              value={scopeType}
-              onChange={(e) => {
-                setScopeType(e.target.value as "contract" | "project");
-                setScopeId("");
-              }}
-            >
-              <option value="contract">A single contract</option>
-              <option value="project">An entire matter</option>
-            </Select>
-          </Field>
-          <Field label={scopeType === "contract" ? "Contract" : "Matter"}>
-            <Select value={scopeId} onChange={(e) => setScopeId(e.target.value)}>
-              <option value="">Select…</option>
-              {scopeOptions.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.label}
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </div>
+        <Field label="Contract">
+          <Select value={scopeId} onChange={(e) => setScopeId(e.target.value)}>
+            <option value="">Select…</option>
+            {scopeOptions.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <div>
           <p className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Bar these people
@@ -1946,7 +1926,7 @@ function AuthorityEditorModal({
   );
 }
 
-// ---- Teams & Routing (intake owner assignment) ---------------------------
+// ---- Teams (who does the work) --------------------------------------------
 
 function Chips({ options, selected, onToggle }: {
   options: string[]; selected: string[]; onToggle: (v: string) => void;
@@ -1999,11 +1979,11 @@ function TeamsTab() {
         <CardHeader>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <CardTitle>Teams &amp; Routing</CardTitle>
+              <CardTitle>Teams</CardTitle>
               <p className="mt-1 max-w-2xl text-sm text-slate-500">
-                When a request is raised, the triage assigns its owner to the team whose{" "}
-                <b>expertise</b> covers the matter type and that <b>serves the requester&apos;s business
-                unit</b>, load-balanced by member capacity. Untagged teams act as the fallback.
+                The one list of groups of people who do the work. A new request goes to the team whose{" "}
+                <b>expertise</b> covers it (else the <b>default intake team</b>), and every workflow step —
+                review, approval, signature — names the team that does it.
               </p>
             </div>
             <Button onClick={() => setEditing("new")}>
@@ -2012,24 +1992,11 @@ function TeamsTab() {
           </div>
         </CardHeader>
         <CardBody className="space-y-3">
-          {/* Orientation: the three people-lists are easy to confuse — spell out
-              what each is FOR and where it lives, so this screen is unambiguous. */}
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-            <div className="mb-2 font-semibold text-slate-600">Three separate lists — each answers one question:</div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div>
-                <div className="font-medium text-slate-700">Roles <span className="font-normal text-slate-400">· Admin → Roles</span></div>
-                <div className="text-slate-500">What a person is <b>allowed to do</b> (permissions).</div>
-              </div>
-              <div>
-                <div className="font-medium text-slate-700">Approver Groups <span className="font-normal text-slate-400">· Approvals</span></div>
-                <div className="text-slate-500">Who <b>signs off</b> on an approval step.</div>
-              </div>
-              <div>
-                <div className="font-medium text-brand-700">Teams <span className="font-normal text-slate-400">· you are here</span></div>
-                <div className="text-slate-500">Who gets <b>assigned the work</b>. Only this list drives triage routing.</div>
-              </div>
-            </div>
+          {/* Two lists besides Teams answer different questions — say so here. */}
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            <b className="text-slate-700">Teams</b> decide <b>who does the work</b>.{" "}
+            <b className="text-slate-700">Roles</b> (Admin → Roles) decide what a person is <b>allowed to do</b>.{" "}
+            <b className="text-slate-700">Authority</b> (Admin → Authority) limits the <b>value</b> someone may approve or sign.
           </div>
           {(teams ?? []).length === 0 ? (
             <EmptyState
@@ -2043,7 +2010,9 @@ function TeamsTab() {
                   <div className="min-w-0 space-y-2">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-semibold text-slate-900">{t.name}</span>
-                      <Badge tone="slate">{t.strategy === "round_robin" ? "round-robin" : "least-loaded"}</Badge>
+                      {t.is_default_intake && <Badge tone="blue">Default intake team</Badge>}
+                      <Badge tone="slate">{t.strategy === "round_robin" ? "taking turns" : "fewest open items first"}</Badge>
+                      {t.overflow_team_name && <Badge tone="slate">overflow → {t.overflow_team_name}</Badge>}
                       {!t.active && <Badge tone="amber">inactive</Badge>}
                     </div>
                     <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs">
@@ -2064,10 +2033,43 @@ function TeamsTab() {
                         </div>
                       </div>
                     </div>
-                    <div className="text-xs text-slate-500">
-                      {t.members.length} member{t.members.length === 1 ? "" : "s"}
-                      {t.members.length > 0 && (
-                        <>: {t.members.map((m) => `${m.name ?? m.user_id} (${m.open_count ?? 0}/${m.capacity})`).join(", ")}</>
+                    {t.members.length === 0 ? (
+                      <div className="text-xs text-danger">No members — any workflow step that uses this team would stall.</div>
+                    ) : (
+                      <ul className="grid max-w-xl gap-1.5 text-xs" aria-label={`${t.name} members and workload`}>
+                        {t.members.map((m) => {
+                          const open = m.open_count ?? 0;
+                          const pct = m.capacity > 0 ? Math.min(100, Math.round((open / m.capacity) * 100)) : 0;
+                          // Approval authority shows only once limits exist (Admin → Authority).
+                          const showAuth = t.members.some((x) => x.approve_limit);
+                          return (
+                            <li key={m.user_id} className={cn("grid items-center gap-3", showAuth ? "grid-cols-[minmax(0,1fr)_120px_90px_170px]" : "grid-cols-[minmax(0,1fr)_120px_90px]")}>
+                              <span className="truncate text-slate-700">{m.name ?? m.user_id}</span>
+                              {m.capacity > 0 ? (
+                                <span className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+                                  <span className={pct >= 80 ? "block h-full bg-warning" : "block h-full bg-success"} style={{ width: `${pct}%` }} />
+                                </span>
+                              ) : <span className="text-slate-400">no limit</span>}
+                              <span className="text-slate-500">{m.capacity > 0 ? `${open} of ${m.capacity} open` : `${open} open`}</span>
+                              {showAuth && <span className={cn("truncate", m.approve_limit === "no authority" ? "text-warning" : "text-slate-600")} title="Approval authority (Admin → Authority)">Approves {m.approve_limit ?? "—"}</span>}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    <div className="text-xs">
+                      <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">Used in</div>
+                      {t.used_in.length === 0 ? <span className="text-slate-400">Not used by any workflow yet</span> : (
+                        <ul className="space-y-0.5 text-slate-600">
+                          {t.used_in.slice(0, 6).map((u, i) => (
+                            <li key={i} className="flex items-center gap-1.5">
+                              {u.stage ? <span className="rounded bg-brand-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-brand-700">{titleCase(u.stage)}</span>
+                                : u.kind === "intake" ? <span className="rounded bg-brand-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.04em] text-brand-700">Intake</span> : null}
+                              <span className="truncate">{u.where}</span>
+                            </li>
+                          ))}
+                          {t.used_in.length > 6 && <li className="text-slate-400">and {t.used_in.length - 6} more</li>}
+                        </ul>
                       )}
                     </div>
                   </div>
@@ -2081,7 +2083,7 @@ function TeamsTab() {
                       onClick={async () => {
                         const ok = await confirm({
                           title: `Delete ${t.name}?`,
-                          message: "Requests already assigned stay put; this only removes the pool.",
+                          message: "Requests already assigned stay put. A team still used by a workflow can't be deleted.",
                           confirmLabel: "Delete",
                           tone: "danger",
                         });
@@ -2125,6 +2127,7 @@ function TeamModal({ team, users, teams, onClose, onSaved }: {
   const [expertise, setExpertise] = useState<string[]>(team?.expertise ?? []);
   const [departments, setDepartments] = useState<string[]>(team?.departments ?? []);
   const [overflow, setOverflow] = useState(team?.overflow_team_id ?? "");
+  const [defaultIntake, setDefaultIntake] = useState(!!team?.is_default_intake);
   const [members, setMembers] = useState<{ user_id: string; capacity: number }[]>(
     (team?.members ?? []).map((m) => ({ user_id: m.user_id, capacity: m.capacity })),
   );
@@ -2143,6 +2146,7 @@ function TeamModal({ team, users, teams, onClose, onSaved }: {
         expertise,
         departments,
         overflow_team_id: overflow || null,
+        is_default_intake: defaultIntake || undefined,
         members: members.filter((m) => m.user_id),
       };
       return team
@@ -2171,13 +2175,13 @@ function TeamModal({ team, users, teams, onClose, onSaved }: {
           )}
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Balancing">
+          <Field label="How work is shared">
             <Select value={strategy} onChange={(e) => setStrategy(e.target.value as IntakeTeam["strategy"])}>
-              <option value="least_loaded">Least loaded</option>
-              <option value="round_robin">Round robin</option>
+              <option value="least_loaded">Fewest open items first</option>
+              <option value="round_robin">Taking turns</option>
             </Select>
           </Field>
-          <Field label="Overflow team" hint="Where work spills when everyone's full.">
+          <Field label="When everyone is full" hint="The team that takes over.">
             <Select value={overflow} onChange={(e) => setOverflow(e.target.value)}>
               <option value="">None</option>
               {teams.filter((t) => t.id !== team?.id).map((t) => (
@@ -2186,6 +2190,11 @@ function TeamModal({ team, users, teams, onClose, onSaved }: {
             </Select>
           </Field>
         </div>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" checked={defaultIntake} disabled={!!team?.is_default_intake}
+            onChange={(e) => setDefaultIntake(e.target.checked)} />
+          Default intake team — owns new requests no team&apos;s expertise matches
+        </label>
         <Field label="Expertise" hint="Matter types this team handles. The triage routes a request here when its category matches.">
           <Chips options={MATTER_CATEGORIES} selected={expertise} onToggle={(v) => toggle(expertise, setExpertise, v)} />
         </Field>

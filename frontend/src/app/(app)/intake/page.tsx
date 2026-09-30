@@ -6,8 +6,8 @@ import { Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
-  ErrorState, Field, Input, Modal, Pagination, Select, Table, TD, TH, THead,
-  TR, Textarea,
+  ErrorState, Input, Pagination, Select, Table, TD, TH, THead,
+  TR,
 } from "@/components/ui";
 import { intakeApi, contractsApi, approvalsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
@@ -20,16 +20,14 @@ import {
   sortBySla, STATUS_LABEL, STATUS_TONE,
 } from "@/lib/intake";
 import type {
-  ContractResponse, WorkflowRun, WorkflowRunStep, WorkflowSuggestion, IntakeDraft, IntakeFieldSpec, IntakeRequest, IntakeRequestType, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
+  ContractResponse, WorkflowRun, WorkflowRunStep, WorkflowSuggestion, IntakeDraft, IntakeRequest, IntakeSlaPosture, IntakeStatus, LitigationAssessment,
 } from "@/lib/types";
-import { SlaLegsBar, TeamsTab } from "./_phase1";
+import { SlaLegsBar } from "./_phase1";
 import { LegalIntakeBoard, MockupShell } from "./_legal-intake";
 import { RequestOverview } from "./_request-overview";
-import { PartiesRegisterTab } from "./_parties-register";
-import { CopilotChat, PoolOpsTab, SelfServiceTab } from "./_phase2";
-import { RulesTab } from "../approvals/_rules-builder";
+import { CopilotChat } from "./_phase2";
 import { WorkflowPanel } from "./_workflow-panel";
-import { GovernanceLadderSteps } from "./_governance-ladder";
+import { currentStage, LifecycleView } from "@/components/lifecycle-view";
 import { AGREEMENT_FORMS, AgreementWizard, type AgreementFormDef } from "./_agreement-forms";
 
 // Keep the queue live: React Query re-fetches on this cadence (paused while the
@@ -87,7 +85,6 @@ function LivePulse({ updatedAt }: { updatedAt: number }) {
 export default function IntakePage() {
   const { user } = useAuth();
   const isStaff = can(user, "intake:read");
-  const isAdmin = can(user, "admin_panel:access");
   const { notify } = useToast();
   const qc = useQueryClient();
   const [gmailSyncing, setGmailSyncing] = useState(false);
@@ -120,35 +117,8 @@ export default function IntakePage() {
     }
   }
 
-  // Reference-style tab set — Work · File · Insights, divider-grouped. Inbox and
-  // SLA are first-class tabs (not nested view-toggles) so every lens is one
-  // click away. Requesters get just the filing three.
-  const groups = useMemo<{ id: string; label: string }[][]>(() => {
-    if (!isStaff)
-      return [[
-        { id: "new", label: "New Request" },
-        { id: "self", label: "Self-Service" },
-        { id: "mywork", label: "My Work" },
-      ]];
-    return [
-      [
-        { id: "queue", label: "Inbox" },
-        { id: "mywork", label: "My Work" },
-      ],
-      [
-        { id: "new", label: "New Request" },
-        { id: "self", label: "Self-Service" },
-      ],
-      [
-        { id: "workflows", label: "Workflows" },
-        { id: "ops", label: "Operations" },
-      ],
-    ];
-  }, [isStaff]);
-
   const [section, setSection] = useState(isStaff ? "queue" : "new");
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [newRequestSeed, setNewRequestSeed] = useState("");
   // Deep-link: /intake?open=<id> opens that request's detail (used by My Work).
   useEffect(() => {
     const o = new URLSearchParams(window.location.search).get("open");
@@ -189,14 +159,6 @@ export default function IntakePage() {
               <Mail className="h-4 w-4" />
             </button>
           ) : null}
-          {isStaff ? (
-            <select className="sortsel" value="" onChange={(e) => { if (e.target.value) { setSection(e.target.value); setDetailId(null); } }}>
-              <option value="">More…</option>
-              <option value="self">Self-Service</option>
-              <option value="workflows">Workflows</option>
-              <option value="ops">Operations</option>
-            </select>
-          ) : null}
           <button className="primary" onClick={() => { setSection("new"); setDetailId(null); }}>
             <Plus className="h-4 w-4" />New request
           </button>
@@ -213,10 +175,7 @@ export default function IntakePage() {
         <>
           {section === "queue" && <LegalIntakeBoard onOpen={setDetailId} />}
           {section === "mywork" && <MyWorkView isStaff={isStaff} onOpen={setDetailId} />}
-          {section === "new" && <NewRequestTab onFiled={setDetailId} seed={newRequestSeed} />}
-          {section === "self" && <SelfServiceTab onFileTopic={(t) => { setNewRequestSeed(`Re: ${t}\n\n`); setSection("new"); }} />}
-          {section === "workflows" && isStaff && <WorkflowsBuilderTab />}
-          {section === "ops" && isStaff && <OperationsView isAdmin={isAdmin} />}
+          {section === "new" && <NewRequestTab onFiled={setDetailId} />}
         </>
       )}
     </MockupShell>
@@ -320,29 +279,7 @@ function RequestRow({ r, onOpen, showStatus = true, selectable = false, checked 
 // structured form (reference "route to agent" styling), the copilot chat, and
 // the self-service KB. Self-Service is no longer its own tab — it lives here so
 // a requester tries to deflect before filing.
-const DEPARTMENTS = ["Product", "Engineering", "Sales", "HR", "Finance", "Procurement", "Marketing", "Operations", "Legal", "Executive"];
-const URGENCIES = ["Standard", "Priority", "Urgent — deadline this week", "Emergency — deal blocker"];
-// Built-in categories that don't map to a configured type — they file as a
-// general request (the configured types render first, with dynamic fields).
-const BUILTIN_EXTRAS = ["IP Question", "Vendor Due Diligence", "Contract Question", "Legal Question — General", "Other"];
-
-function urgencyToPriority(u: string): string {
-  if (u.startsWith("Emergency")) return "Critical";
-  if (u.startsWith("Urgent") || u === "Priority") return "High";
-  return "Medium";
-}
-
 // --- New Request catalog (Screen 5) — scoped under `.nr`, reuses the shell palette.
-const nrSvg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
-const NR_ICONS: [RegExp, string][] = [
-  [/nda|non.?disclos|confidential/i, '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'],
-  [/msa|master|service/i, '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>'],
-  [/dpa|data|privacy|gdpr/i, '<rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/><path d="M7 7h.01M7 17h.01"/>'],
-  [/vendor|supplier|procure/i, '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>'],
-  [/review/i, '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>'],
-  [/question|triage|general|ask/i, '<circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.8.4-1 .9-1 1.7M12 17h.01"/>'],
-];
-const nrIcon = (s: string): string => (NR_ICONS.find(([re]) => re.test(s)) ?? [null, '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>'])[1] as string;
 
 const NR_CSS = `
 .nr{--ext:#75589f;--ext-soft:#efe8f7;--ai:#5a49c0;--ai-soft:#ecebf9;--shadow:0 1px 2px rgba(20,26,40,.05),0 10px 26px rgba(20,26,40,.06);--sans:var(--font-sans);max-width:940px;margin:0 auto;color:var(--ink);font:400 13px/1.5 var(--sans)}
@@ -422,9 +359,8 @@ const NR_CSS = `
 @media (max-width:640px){.nr .types{grid-template-columns:1fr}.nr .fgrid{grid-template-columns:1fr}}
 `;
 
-function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; seed?: string }) {
-  const { data: types } = useQuery({ queryKey: ["intake-types"], queryFn: () => intakeApi.listTypes() });
-  const [mode, setMode] = useState<"catalog" | "form" | "chat" | "agreement">("catalog");
+function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
+  const [mode, setMode] = useState<"catalog" | "chat" | "agreement">("catalog");
   const [agreementDef, setAgreementDef] = useState<AgreementFormDef | null>(null);
   const [draft, setDraft] = useState<IntakeDraft | null>(null);
   const qc = useQueryClient();
@@ -437,22 +373,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
       notify("Draft deleted", "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Couldn't delete the draft", "error"); }
   }
-  const [showOther, setShowOther] = useState(false);
-  const [seedDesc, setSeedDesc] = useState(seed);
-  const [preType, setPreType] = useState("");
-  // A topic handed over from the Self-Service tab seeds the structured form.
-  useEffect(() => { if (seed) { setSeedDesc(seed); setMode("form"); } }, [seed]);
-
-  // The catalog: real request types from the DB + two built-in intake paths.
-  const catalog = [
-    // Agreement-wizard forms are request types too, but they already have
-    // their own cards above; only admin-built types belong in this list.
-    ...(types ?? []).filter((t) => !t.form_key).map((t) => ({ key: t.id, name: t.name, desc: t.description ?? "", tag: t.workstream ?? "Workflow", icon: nrIcon(`${t.name} ${t.key}`) })),
-    { key: "Contract Question", name: "Review a contract", desc: "Send us their paper to check against the playbook.", tag: "Review workflow", icon: nrIcon("review") },
-    { key: "Legal Question — General", name: "General legal question", desc: "Not sure what you need? Just ask legal.", tag: "Triage", icon: nrIcon("question") },
-  ];
-
-  // The eight-step agreement forms own the full page width — they carry their
+  // The request forms own the full page width — they carry their
   // own two-column layout, so they must not sit inside the 940px `.nr` shell.
   if (mode === "agreement" && agreementDef) {
     return (
@@ -473,9 +394,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
       <div className="nr">
         <style dangerouslySetInnerHTML={{ __html: NR_CSS }} />
         <button className="nrback" onClick={() => setMode("catalog")}>← Raise a request</button>
-        {mode === "form"
-          ? <RequestForm types={(types ?? []).filter((t) => !t.form_key)} onFiled={onFiled} initialDesc={seedDesc} initialType={preType} />
-          : <div style={{ maxWidth: 760, margin: "0 auto" }}><CopilotChat onFiled={onFiled} /></div>}
+        <div style={{ maxWidth: 760, margin: "0 auto" }}><CopilotChat onFiled={onFiled} /></div>
       </div>
     );
   }
@@ -487,7 +406,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
       <header className="pb-6 pt-1">
         <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-slate-900">What do you need from Legal?</h1>
         <p className="mt-1.5 max-w-[70ch] text-[13.5px] text-slate-500">
-          Pick the closest match — each one opens the eight-step form for that request. You can change type later without re-filing.
+          Pick the closest match. Each one is a short form that only asks what that request needs.
         </p>
       </header>
 
@@ -507,7 +426,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-[13.5px] font-semibold text-slate-900">{d.title || form?.name || d.form_key}</span>
                     <span className="block text-[12px] text-slate-500">
-                      {form?.name ?? d.form_key} · step {d.page_index + 1} of 8 · saved {new Date(d.updated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                      {form?.name ?? d.form_key} · step {d.page_index + 1} of {form ? form.steps.length + 1 : "?"} · saved {new Date(d.updated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
                     </span>
                   </span>
                   <Button size="sm" disabled={!form} onClick={() => { if (form) { setDraft(d); setAgreementDef(form); setMode("agreement"); } }}>Continue</Button>
@@ -520,7 +439,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
       )}
 
       <div className="flex flex-col gap-7">
-        {(["New paper", "Change an existing agreement", "Records & corrections"] as const).map((group) => (
+        {(["New paper", "Change an agreement", "Records"] as const).map((group) => (
           <section key={group}>
             <div className="mb-3 flex items-center gap-3">
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{group}</h2>
@@ -548,6 +467,28 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
             </div>
           </section>
         ))}
+        <section>
+          <div className="mb-3 flex items-center gap-3">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Not an agreement</h2>
+            <span className="h-px flex-1 bg-slate-200" />
+            <span className="text-[11px] text-slate-400">Ask Legal in the chat</span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {[["General legal question", "Not sure what you need? Ask Legal in plain words."],
+              ["Trademark", "Clear, file or defend a brand name or logo."]].map(([name, desc]) => (
+              <button key={name} onClick={() => setMode("chat")}
+                className="flex items-start gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-left transition-colors hover:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35">
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 bg-slate-100 text-slate-500">
+                  <Mail className="h-[18px] w-[18px]" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[13.5px] font-semibold text-slate-900">{name}</span>
+                  <span className="mt-1 block text-[12.2px] leading-snug text-slate-500">{desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
       </div>
 
       {/* The other ways in, as one quiet strip rather than three more panels. */}
@@ -561,200 +502,12 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
           <button onClick={() => setMode("chat")} className="font-medium text-brand-700 underline-offset-2 hover:underline">
             Not sure what you need? Ask the intake assistant
           </button>
-          <span className="h-4 w-px bg-slate-200" />
-          <button onClick={() => setShowOther((v) => !v)} className="font-medium text-brand-700 underline-offset-2 hover:underline">
-            {showOther ? "Hide other request types" : `Other request types (${catalog.length})`}
-          </button>
+
         </div>
 
-        {showOther && (
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
-            {catalog.map((c) => (
-              <button
-                key={c.key}
-                onClick={() => { setPreType(c.key); setMode("form"); }}
-                className="rounded-full border border-slate-300 bg-slate-100 px-3 py-1.5 text-[12px] font-medium text-slate-700 hover:border-brand-300 hover:text-brand-700"
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
-}
-
-function RequestForm({ types, onFiled, initialDesc, initialType = "" }: { types: IntakeRequestType[]; onFiled: (id: string) => void; initialDesc: string; initialType?: string }) {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const { user } = useAuth();
-  const [subject, setSubject] = useState("");
-  const [department, setDepartment] = useState("Product");
-  const [urgency, setUrgency] = useState("Standard");
-  const [typeSel, setTypeSel] = useState<string>(initialType);
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [description, setDescription] = useState(initialDesc);
-  const [file, setFile] = useState<File | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [showErr, setShowErr] = useState(false);
-
-  // A configured request-type from the DB carries dynamic fields + a stage
-  // ladder; the built-in extras carry only their label and file as general.
-  const gridItems = [
-    ...types.map((t) => ({ key: t.id, label: t.name, type: t as IntakeRequestType | null })),
-    ...BUILTIN_EXTRAS.map((label) => ({ key: label, label, type: null as IntakeRequestType | null })),
-  ];
-  const selected = gridItems.find((g) => g.key === typeSel) ?? null;
-  const selType = selected?.type ?? null;
-
-  const missingRequired = (selType?.fields ?? []).filter((f) => f.required && !String(values[f.key] ?? "").trim());
-  const preview = derivePreview(description, selType ?? undefined);
-  const canSubmit = !!subject.trim() && (description.trim().length >= 10 || !!file) && missingRequired.length === 0;
-
-  async function submit() {
-    const fileProblem = file ? attachmentProblem(file) : null;
-    if (fileProblem) { notify(fileProblem, "error"); return; }
-    setBusy(true);
-    try {
-      const r = await intakeApi.create({
-        type_label: selType ? selType.name + " Request" : (selected ? selected.label : "General request"),
-        subject: subject.trim() || null,
-        request_type_id: selType?.id ?? null,
-        priority: urgencyToPriority(urgency),
-        department: department || null,
-        requester_name: user?.full_name ?? null,
-        description,
-        field_values: Object.keys(values).length ? values : null,
-        // Sent with the filing: a bad file files nothing, and the request never
-        // exists without its attachment.
-        attachments: file ? [await toAttachment(file)] : [],
-      });
-      if (file) {
-        try {
-          await intakeApi.ingestAttachment(r.id);
-        } catch {
-          // The request and its file are saved; only the automatic read failed.
-          notify(`${r.ref} filed. The attachment could not be read automatically — legal will open it manually.`, "info");
-        }
-      }
-      qc.invalidateQueries({ queryKey: ["intake-mine"] });
-      qc.invalidateQueries({ queryKey: ["intake-list"] });
-      notify(`Filed ${r.ref} — routed for triage`, "success");
-      onFiled(r.id);
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Submit failed", "error");
-    } finally { setBusy(false); }
-  }
-
-  const needDesc = description.trim().length < 10 && !file;
-
-  return (
-    <div className="nrform">
-      {/* type header + inline change */}
-      <div className="fhead">
-        <div className="fhic">{nrSvg(nrIcon(selType?.name ?? selected?.label ?? "request"))}</div>
-        <div className="fhtx"><div className="fhk">New request</div><h2>{selType?.name ?? selected?.label ?? "General request"}</h2></div>
-      </div>
-      <div className="tchips">
-        {gridItems.map((g) => (
-          <button key={g.key} type="button" className={`tchip${typeSel === g.key ? " on" : ""}`}
-            onClick={() => { setTypeSel(typeSel === g.key ? "" : g.key); setValues({}); }}>{g.label}</button>
-        ))}
-      </div>
-      {selType && (selType.stages?.length ?? 0) > 0 && (
-        <div className="wfrow"><span className="wlab">Workflow</span>{(selType.stages ?? []).map((s, i) => <span key={i} className="wchip">{i + 1}. {titleCase(s)}</span>)}</div>
-      )}
-
-      {/* the basics */}
-      <div className="fsec"><div className="fsh">The basics</div>
-        <div className="fgrid">
-          <div className="fld wide"><label className="lab">Subject <span className="req">*</span></label>
-            <input className={`inp${showErr && !subject.trim() ? " bad" : ""}`} value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="e.g. Mutual NDA with Acme Corp" />
-            <div className="help">A short title legal will see in the queue.</div></div>
-        </div>
-      </div>
-
-      {/* type-specific deal terms */}
-      {(selType?.fields ?? []).length > 0 && (
-        <div className="fsec"><div className="fsh">Deal terms</div>
-          <div className="fgrid">
-            {[...(selType?.fields ?? [])].sort((a, b) => a.sort_order - b.sort_order).map((f) => (
-              <NrField key={f.key} f={f} value={values[f.key] ?? ""} showError={showErr} onChange={(v) => setValues((s) => ({ ...s, [f.key]: v }))} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* context */}
-      <div className="fsec"><div className="fsh">Context</div>
-        <div className="fgrid">
-          <div className="fld wide"><label className="lab">Describe your request <span className="req">*</span></label>
-            <textarea className={`ta${showErr && needDesc ? " bad" : ""}`} rows={6} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="E.g. Mutual NDA for discussions with Acme Corp — 2-year term, Delaware law." />
-            <div className="help">Be specific — triage and the AI agent route on this. Or attach the paper below.</div></div>
-          <div className="fld wide"><label className="lab">Attach a document <span className="help" style={{ fontWeight: 400 }}>· optional</span></label>
-            <div className="drop">
-              <label className="dropbtn"><Paperclip className="h-3.5 w-3.5" /> Choose file
-                <input type="file" accept={ATTACHMENT_ACCEPT} onChange={(e) => { const f = e.target.files?.[0] ?? null; const p = f ? attachmentProblem(f) : null; if (p) { notify(p, "error"); return; } setFile(f); }} style={{ display: "none" }} /></label>
-              <span className="help">{ATTACHMENT_LIMITS_TEXT}. Scanned PDFs can't be read.</span>
-            </div>
-            {file && <div className="filepill"><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {file.name} · {(file.size / 1024).toFixed(0)} KB</span><button type="button" onClick={() => setFile(null)} style={{ background: "none", border: 0, cursor: "pointer", color: "var(--ink-3)", fontSize: 13 }}>✕</button></div>}
-          </div>
-        </div>
-      </div>
-
-      {/* priority & routing */}
-      <div className="fsec"><div className="fsh">Priority &amp; routing</div>
-        <div className="fgrid">
-          <div className="fld"><label className="lab">Department <span className="req">*</span></label>
-            <select className="sel" value={department} onChange={(e) => setDepartment(e.target.value)}>{DEPARTMENTS.map((d) => <option key={d}>{d}</option>)}</select></div>
-          <div className="fld"><label className="lab">Urgency</label>
-            <select className="sel" value={urgency} onChange={(e) => setUrgency(e.target.value)}>{URGENCIES.map((u) => <option key={u}>{u}</option>)}</select></div>
-        </div>
-      </div>
-
-      {/* submit bar */}
-      <div className="fbar">
-        {preview && <div className="routepill">Routes as <b>{preview}</b></div>}
-        <div style={{ flex: 1 }} />
-        {showErr && !canSubmit && <span className="miss">Still needed: {[!subject.trim() ? "Subject" : null, needDesc ? "a description or a file" : null, ...missingRequired.map((f) => f.label)].filter(Boolean).join(", ")}</span>}
-        <button className="btn pri" disabled={busy} onClick={() => { setShowErr(true); if (canSubmit) submit(); }}>{busy ? "Filing…" : "File request →"}</button>
-      </div>
-    </div>
-  );
-}
-
-// A dynamic request-type field, rendered in the `.nr` form style. Textareas span
-// the full width; a required-but-empty field shows a red border once submit is tried.
-function NrField({ f, value, onChange, showError }: { f: IntakeFieldSpec; value: string; onChange: (v: string) => void; showError: boolean }) {
-  const bad = showError && f.required && !String(value).trim();
-  const lab = <label className="lab">{f.label}{f.required ? <span className="req"> *</span> : null}</label>;
-  if (f.kind === "boolean")
-    return <div className="fld"><label className="chk"><input type="checkbox" checked={value === "true"} onChange={(e) => onChange(e.target.checked ? "true" : "false")} />{f.label}{f.required ? <span className="req"> *</span> : null}</label></div>;
-  if (f.kind === "textarea")
-    return <div className="fld wide">{lab}<textarea className={`ta${bad ? " bad" : ""}`} rows={3} value={value} onChange={(e) => onChange(e.target.value)} /></div>;
-  if (f.kind === "select")
-    return (
-      <div className="fld">{lab}
-        <select className={`sel${bad ? " bad" : ""}`} value={value} onChange={(e) => onChange(e.target.value)}>
-          <option value="">Select…</option>
-          {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
-    );
-  const type = f.kind === "date" ? "date" : f.kind === "number" ? "number" : "text";
-  return <div className="fld">{lab}<input type={type} className={`inp${bad ? " bad" : ""}`} value={value} onChange={(e) => onChange(e.target.value)} /></div>;
-}
-
-function derivePreview(desc: string, type?: IntakeRequestType): string | null {
-  const v = desc.toLowerCase();
-  if (type) return `${type.name}${type.workstream ? ` · ${type.workstream}` : ""}`;
-  if (!v.trim()) return null;
-  if (/litig|dispute/.test(v)) return "Litigation → senior counsel";
-  if (/privacy|dpa|data protection/.test(v)) return "Privacy / DPA → DPO review";
-  if (/nda|non-disclosure/.test(v)) return "NDA → fast lane";
-  if (/msa|contract|review/.test(v)) return "Contract review → counsel";
-  return "General → triage queue";
 }
 
 // ---- My Requests (requester portal) --------------------------------------
@@ -931,8 +684,8 @@ function stageBadge(r: IntakeRequest): { kind: "stage" | "rec"; text: string; su
   const steps = r.workflow ?? [];
   if (steps.length) {
     const done = steps.filter((s) => s.done).length;
-    const active = steps.find((s) => s.active) ?? steps[done] ?? steps[steps.length - 1];
-    return { kind: "stage", text: active?.label ?? "In progress", sub: `${done}/${steps.length}` };
+    const active = steps.find((s) => s.active);
+    return { kind: "stage", text: active?.label ?? (done === steps.length ? "Complete" : "In progress"), sub: `${done}/${steps.length}` };
   }
   const fs = (r.ai_triage as { flow_suggestion?: WorkflowSuggestion } | null)?.flow_suggestion;
   if (fs?.flow_name) return { kind: "rec", text: fs.flow_name, sub: `${Math.round((fs.confidence ?? 0) * 100)}%` };
@@ -1021,7 +774,7 @@ function StageCell({ r }: { r: IntakeRequest }) {
     return (
       <div>
         <div className="text-[12px] font-medium text-slate-800">
-          {active?.label ?? "In progress"} <span className="font-mono text-[10px] text-slate-400">{done}/{steps.length}</span>
+          {active?.label ?? (done === steps.length ? "Complete" : "In progress")} <span className="font-mono text-[10px] text-slate-400">{done}/{steps.length}</span>
         </div>
         <div className="mt-1 flex gap-0.5">
           {steps.map((s, i) => (
@@ -1047,14 +800,13 @@ function StageCell({ r }: { r: IntakeRequest }) {
   return <span className="text-xs text-slate-400">—</span>;
 }
 
-// Row flags — derived from real signals (SLA posture, assignment, AI confidence, gates).
+// Row flags — derived from real signals (SLA posture, assignment, AI confidence).
 function rowFlags(r: IntakeRequest): { label: string; cls: string }[] {
   const f: { label: string; cls: string }[] = [];
   if (r.sla_status === "overdue") f.push({ label: "overdue", cls: "bg-danger-subtle text-danger" });
   else if (r.sla_status === "at_risk") f.push({ label: "at risk", cls: "bg-warning-subtle text-warning" });
   if (isOpenReq(r) && !r.assigned_to_user_id) f.push({ label: "unassigned", cls: "bg-slate-200 text-slate-600" });
   if (lowConfidence(r)) f.push({ label: "low confidence", cls: "bg-warning-subtle text-warning" });
-  if ((r.gates?.effective_keys?.length ?? 0) > 0) f.push({ label: "gated", cls: "bg-brand-50 text-brand-700" });
   return f;
 }
 
@@ -1264,194 +1016,7 @@ function MyWorkTab({ onOpen }: { onOpen: (id: string) => void }) {
   );
 }
 
-// ---- Request Types admin --------------------------------------------------
-
-function RequestTypesTab() {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const { data, isLoading, error } = useQuery({ queryKey: ["intake-types-all"], queryFn: () => intakeApi.listTypes(true) });
-  const [creating, setCreating] = useState(false);
-  const [editing, setEditing] = useState<IntakeRequestType | null>(null);
-
-  async function remove(t: IntakeRequestType) {
-    if (!window.confirm(`Delete request type "${t.name}"?`)) return;
-    try {
-      await intakeApi.deleteType(t.id);
-      qc.invalidateQueries({ queryKey: ["intake-types-all"] });
-      qc.invalidateQueries({ queryKey: ["intake-types"] });
-      notify("Type deleted", "success");
-    } catch (e) { notify(e instanceof Error ? e.message : "Delete failed", "error"); }
-  }
-
-  if (isLoading) return <CenterSpinner />;
-  if (error) return <ErrorState error={error} />;
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-500">No-code request types — fields + stage workflow, live on the New Request form instantly.</p>
-        <Button onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New type</Button>
-      </div>
-      <Card>
-        {(data ?? []).length === 0 ? (
-          <CardBody><EmptyState title="No request types" description="Create one to give filers a structured form." /></CardBody>
-        ) : (
-          <Table>
-            <THead><TR><TH>Type</TH><TH>Workstream</TH><TH>Fields</TH><TH>Stage workflow</TH><TH></TH></TR></THead>
-            <tbody>{(data ?? []).map((t) => (
-              <TR key={t.id}>
-                <TD className="font-medium">{t.name}{t.form_key && <Badge tone="blue" className="ml-2">Agreement form</Badge>}{!t.active && <span className="ml-2 text-xs text-slate-400">(inactive)</span>}</TD>
-                <TD className="text-slate-500">{t.workstream ?? "—"}</TD>
-                <TD className="tabular-nums text-slate-500">{t.fields.length}</TD>
-                <TD className="text-xs text-slate-500">{["Submitted", ...(t.stages ?? ["Assigned", "Review"]), "Complete"].join(" → ")}</TD>
-                <TD className="text-right">
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(t)}><PenLine className="h-3.5 w-3.5" />Edit</Button>
-                  {!t.form_key && <Button variant="ghost" size="sm" onClick={() => remove(t)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>}
-                </TD>
-              </TR>
-            ))}</tbody>
-          </Table>
-        )}
-      </Card>
-      {(creating || editing) && <TypeEditorModal
-        key={editing?.id ?? "new"} existing={editing ?? undefined}
-        onClose={() => { setCreating(false); setEditing(null); }}
-        onSaved={() => { qc.invalidateQueries({ queryKey: ["intake-types-all"] }); qc.invalidateQueries({ queryKey: ["intake-types"] }); setCreating(false); setEditing(null); }} />}
-    </div>
-  );
-}
-
-// A select field's choices are edited as one "value|Label" line each ("Label"
-// alone derives the value). They're stored as [{value,label}] — exactly what the
-// New Request form's <option> list reads, so a select saved without them renders
-// a dropdown containing nothing but the "Select…" placeholder.
-type FieldRow = { key: string; label: string; kind: string; required: boolean; options: string };
-
-function parseOptions(text: string): { value: string; label: string }[] {
-  return text.split("\n").map((l) => l.trim()).filter(Boolean).map((line) => {
-    const i = line.indexOf("|");
-    if (i === -1) return { value: line.toLowerCase().replace(/[^a-z0-9]+/g, "_"), label: line };
-    return { value: line.slice(0, i).trim(), label: line.slice(i + 1).trim() };
-  });
-}
-function serializeOptions(options?: { value: string; label: string }[] | null): string {
-  return (options ?? []).map((o) => `${o.value}|${o.label}`).join("\n");
-}
-
-function TypeEditorModal({ existing, onClose, onSaved }: { existing?: IntakeRequestType; onClose: () => void; onSaved: () => void }) {
-  const { notify } = useToast();
-  const [name, setName] = useState(existing?.name ?? "");
-  const [key, setKey] = useState(existing?.key ?? "");
-  const [workstream, setWorkstream] = useState(existing?.workstream ?? "");
-  const [stages, setStages] = useState((existing?.stages ?? []).join(", "));
-  const [fields, setFields] = useState<FieldRow[]>(
-    (existing?.fields ?? []).map((f) => ({
-      key: f.key, label: f.label, kind: f.kind, required: f.required, options: serializeOptions(f.options),
-    })),
-  );
-  const [busy, setBusy] = useState(false);
-
-  const canSave = name.trim() && key.trim();
-  // Agreement forms' fields are defined by the wizard's code: show them, don't edit them.
-  const codeOwned = !!existing?.form_key;
-  async function save() {
-    setBusy(true);
-    try {
-      const payload = {
-        key: key.trim().toLowerCase(), name: name.trim(),
-        workstream: workstream.trim() || null,
-        stages: stages.trim() ? stages.split(",").map((s) => s.trim()).filter(Boolean) : null,
-        fields: codeOwned ? undefined : fields.map((f, i) => ({
-          key: f.key, label: f.label, kind: f.kind, required: f.required,
-          sort_order: (i + 1) * 10,
-          options: f.kind === "select" ? parseOptions(f.options) : null,
-        })),
-      };
-      if (existing) await intakeApi.updateType(existing.id, payload);
-      else await intakeApi.createType(payload);
-      notify(existing ? "Request type updated" : "Request type created", "success"); onSaved();
-    } catch (e) { notify(e instanceof Error ? e.message : "Save failed", "error"); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <Modal open onClose={onClose} title={existing ? `Edit ${existing.name}` : "New request type"} size="lg">
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Name"><Input value={name} onChange={(e) => { setName(e.target.value); if (!key) setKey(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")); }} placeholder="NDA" /></Field>
-          <Field label="Key" hint="lowercase, unique"><Input value={key} onChange={(e) => setKey(e.target.value)} placeholder="nda" /></Field>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Field label="Workstream"><Input value={workstream} onChange={(e) => setWorkstream(e.target.value)} placeholder="Commercial" /></Field>
-          <Field label="Stages" hint="comma-separated mid-stages (blank = default)"><Input value={stages} onChange={(e) => setStages(e.target.value)} placeholder="draft, review" /></Field>
-        </div>
-        <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Fields</p>
-            {!codeOwned && <Button variant="outline" size="sm" onClick={() => setFields((s) => [...s, { key: "", label: "", kind: "text", required: false, options: "" }])}>Add field</Button>}
-          </div>
-          {codeOwned ? (
-            <div className="space-y-1">
-              <p className="text-xs text-slate-500">These fields come from the agreement form itself. The server checks the required ones when a request is filed.</p>
-              <ul className="divide-y divide-slate-100 rounded-md border border-slate-200 text-sm">
-                {fields.map((f) => (
-                  <li key={f.key} className="flex items-center justify-between px-3 py-1.5">
-                    <span className="text-slate-700">{f.label}</span>
-                    <span className="text-xs text-slate-500">{f.kind}{f.required ? " · required" : ""}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-          <div className="space-y-2">
-            {fields.map((f, i) => (
-              <div key={i} className="space-y-1">
-                <div className="grid grid-cols-[1fr_1fr_auto_auto_auto] items-center gap-2">
-                  <Input value={f.label} onChange={(e) => setFields((s) => s.map((x, j) => j === i ? { ...x, label: e.target.value, key: x.key || e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_") } : x))} placeholder="Label" />
-                  <Input value={f.key} onChange={(e) => setFields((s) => s.map((x, j) => j === i ? { ...x, key: e.target.value } : x))} placeholder="key" />
-                  <Select value={f.kind} onChange={(e) => setFields((s) => s.map((x, j) => j === i ? { ...x, kind: e.target.value } : x))}>
-                    {["text", "textarea", "select", "date", "number", "boolean"].map((k) => <option key={k}>{k}</option>)}
-                  </Select>
-                  <label className="flex items-center gap-1 text-xs"><input type="checkbox" className="accent-brand-600" checked={f.required} onChange={(e) => setFields((s) => s.map((x, j) => j === i ? { ...x, required: e.target.checked } : x))} />req</label>
-                  <Button variant="ghost" size="sm" onClick={() => setFields((s) => s.filter((_, j) => j !== i))}><Trash2 className="h-3.5 w-3.5" /></Button>
-                </div>
-                {f.kind === "select" && (
-                  <div className="pl-1">
-                    <Textarea
-                      value={f.options} rows={3}
-                      onChange={(e) => setFields((s) => s.map((x, j) => j === i ? { ...x, options: e.target.value } : x))}
-                      placeholder={"Dropdown choices — one per line, as value|Label\nmutual|Mutual NDA\none_way|One-way NDA"}
-                    />
-                    {!f.options.trim() && (
-                      <p className="mt-1 text-xs text-warning">A select with no choices shows an empty dropdown on the New Request form.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          )}
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} loading={busy} disabled={!canSave}>{existing ? "Save changes" : "Create type"}</Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // ---- Request detail (inline, reference-style) -----------------------------
-
-// The five derived Tier-0 gates (mirror backend app/intake/gates.py). Labels are
-// display-only; the server is the source of truth for what a gate forces.
-const GATE_CATALOG = [
-  { key: "exclusivity", label: "Exclusivity / exclusive licence" },
-  { key: "clinical", label: "Clinical-trial agreement" },
-  { key: "sensitive_data", label: "Sensitive personal data" },
-  { key: "regulated_marketing", label: "Regulated / therapeutic claim" },
-  { key: "litigation", label: "Litigation / breach-termination" },
-] as const;
 
 // RAG per rung — dot colour + name emphasis. "planned" = a preview rung (the
 // ladder before it's been started), rendered as a hollow dot.
@@ -1468,241 +1033,6 @@ const RUNG_LABEL: Record<string, string> = {
   rejected: "Rejected", cancelled: "Skipped", planned: "Planned",
 };
 
-// Workflows tab — the approval-ladder builder (reuses the routing-rule builder)
-// plus the read-only Tier-0 gate catalogue that always forces its own rungs.
-function WorkflowsBuilderTab() {
-  return (
-    <div className="space-y-5">
-      <div>
-        <p className="text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">
-          <span className="text-brand-600">◎</span> Approval ladders · workflow builder
-        </p>
-        <p className="mt-1.5 max-w-2xl text-sm text-slate-500">
-          Define the ordered approver chain a request runs through. The rule&rsquo;s criteria (value / type / risk) pick
-          the ladder; each step is a group, role, or person, activated in turn. Tier-0 gates below always force their
-          own senior rung on top — no matter which ladder matches.
-        </p>
-      </div>
-      <RulesTab />
-      <Card>
-        <CardHeader>
-          <CardTitle>Tier-0 hard gates</CardTitle>
-          <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">always applied</span>
-        </CardHeader>
-        <CardBody className="space-y-2">
-          <div className="flex flex-wrap gap-1.5">
-            {GATE_CATALOG.map((g) => <Badge key={g.key} tone="amber">{g.label}</Badge>)}
-          </div>
-          <p className="text-xs text-slate-400">
-            An AI classifier fires these from the request text/fields and forces a senior rung regardless of the ladder
-            above. A reviewer can add or remove any gate per request from its Approval-ladder card.
-          </p>
-        </CardBody>
-      </Card>
-    </div>
-  );
-}
-
-// The rule-driven approval ladder, always visible: Tier-0 gate chips (add/remove
-// overrides) over a RAG rung strip. Before submission the rungs are a preview
-// (planned); after, they show live RAG status with inline Approve / Reject.
-function ApprovalLadderCard({ r, canTriage, onRefreshed }: {
-  r: IntakeRequest; canTriage: boolean; onRefreshed: () => void;
-}) {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const [busy, setBusy] = useState(false);
-  const [addKey, setAddKey] = useState("");
-  const [reassign, setReassign] = useState<"delegate" | "escalate" | null>(null);
-  const [reassignTo, setReassignTo] = useState("");
-  const { data: chain } = useQuery({ queryKey: ["intake-chain", r.id], queryFn: () => intakeApi.approvalChain(r.id) });
-  const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees });
-
-  const gates = r.gates ?? { detected: [], overrides: [], effective: [], effective_keys: [] };
-  const effectiveKeys = new Set(gates.effective_keys);
-  const addable = GATE_CATALOG.filter((g) => !effectiveKeys.has(g.key));
-  const rungs = (chain ?? []).filter((x) => x.status !== "cancelled");
-  const started = rungs.some((x) => x.status !== "planned");
-  const pending = rungs.find((x) => x.status === "pending");
-  const closed = r.status === "closed" || r.status === "approved";
-
-  async function run(fn: () => Promise<unknown>, msg: string) {
-    setBusy(true);
-    try {
-      await fn();
-      qc.invalidateQueries({ queryKey: ["intake-chain", r.id] });
-      onRefreshed();
-      notify(msg, "success");
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Action failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function decide(decision: "approve" | "reject") {
-    if (!pending?.approval_request_id) return;
-    let comment: string | undefined;
-    if (decision === "reject") {
-      comment = window.prompt("Reason for rejection (required):") ?? "";
-      if (!comment.trim()) return;
-    }
-    return run(
-      () => approvalsApi.decide(pending.approval_request_id as string, decision, comment),
-      decision === "approve" ? "Step approved" : "Sent back for review",
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Approval ladder</CardTitle>
-        <span className="ml-auto text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
-          {closed ? "Closed" : started ? "Running" : "Preview"}
-        </span>
-      </CardHeader>
-      <CardBody className="space-y-4">
-        {/* Tier-0 gates */}
-        <div>
-          <p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">Mandatory gates</p>
-          {gates.effective.length === 0 ? (
-            <p className="text-xs text-slate-400">No hard gates — the ladder follows the value / type routing rules.</p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {gates.effective.map((g) => (
-                <Badge key={g.key} tone="amber">
-                  {g.label} → {g.approver_group}
-                  {canTriage && !closed && (
-                    <button disabled={busy} title="Remove gate"
-                      onClick={() => run(() => intakeApi.overrideGate(r.id, { gate_key: g.key, action: "remove", reason: "removed by reviewer" }), "Gate removed")}
-                      className="ml-0.5 hover:text-warning disabled:opacity-50">×</button>
-                  )}
-                </Badge>
-              ))}
-            </div>
-          )}
-          {canTriage && !closed && addable.length > 0 && (
-            <div className="mt-2 flex items-center gap-2">
-              <Select value={addKey} onChange={(e) => setAddKey(e.target.value)}>
-                <option value="">Add a gate…</option>
-                {addable.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-              </Select>
-              <Button size="sm" variant="ghost" loading={busy} disabled={!addKey}
-                onClick={() => run(() => intakeApi.overrideGate(r.id, { gate_key: addKey, action: "add", reason: "added by reviewer" }).then(() => setAddKey("")), "Gate added")}>
-                Add
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* RAG rung strip — always shown (preview before submit, live after) */}
-        <div>
-          <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
-            Governance ladder{!started && !closed ? " · preview" : ""}
-          </p>
-          {rungs.length === 0 ? (
-            <p className="text-xs text-slate-400">No approvers resolved — set a routing rule or add a gate.</p>
-          ) : (
-            <div className="flex flex-wrap items-center gap-x-1 gap-y-2">
-              {rungs.map((rung, i) => {
-                const ui = RUNG_UI[rung.status] ?? RUNG_UI.waiting;
-                return (
-                  <Fragment key={rung.approval_request_id ?? `p${rung.step_order}`}>
-                    <span className="inline-flex items-center gap-1.5"
-                      title={`${rung.step_order}. ${rung.approver_label} — ${RUNG_LABEL[rung.status] ?? rung.status}${(rung.needed ?? 1) > 1 ? ` · needs all ${rung.needed}` : ""}`}>
-                      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", ui.dot)} />
-                      <span className={cn("text-[11px]", ui.name)}>{rung.approver_label}</span>
-                      {(rung.needed ?? 1) > 1 && (rung.status === "pending" || rung.status === "approved") && (
-                        <span className={cn("rounded px-1 text-[9px] font-semibold tabular-nums",
-                          (rung.approvals ?? 0) >= (rung.needed ?? 1) ? "bg-success-subtle text-success" : "bg-warning-subtle text-warning")}>
-                          {rung.approvals ?? 0}/{rung.needed}
-                        </span>
-                      )}
-                    </span>
-                    {i < rungs.length - 1 && <span className="px-1 text-slate-300">—</span>}
-                  </Fragment>
-                );
-              })}
-            </div>
-          )}
-
-          {/* actions */}
-          {!closed && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {!started && canTriage && (
-                <Button size="sm" loading={busy}
-                  onClick={() => run(() => intakeApi.submitForApproval(r.id), "Submitted for approval")}>
-                  Submit for approval
-                </Button>
-              )}
-              {started && pending && canTriage && (reassign ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-500">{reassign === "delegate" ? "Delegate this step to" : "Escalate this step to"}</span>
-                  <Select value={reassignTo} onChange={(e) => setReassignTo(e.target.value)} className="h-8 w-48 text-[13px]">
-                    <option value="">Select a person…</option>
-                    {(assignees ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                  </Select>
-                  <Button size="sm" loading={busy} disabled={!reassignTo}
-                    onClick={() => run(() => approvalsApi.reassign(pending.approval_request_id as string, reassignTo, reassign), reassign === "delegate" ? "Delegated" : "Escalated").then(() => { setReassign(null); setReassignTo(""); })}>Go</Button>
-                  <Button size="sm" variant="ghost" onClick={() => { setReassign(null); setReassignTo(""); }}>Cancel</Button>
-                </div>
-              ) : (
-                <>
-                  <Button size="sm" loading={busy} onClick={() => decide("approve")}>✓ Approve step</Button>
-                  <Button size="sm" variant="outline" loading={busy} onClick={() => decide("reject")}>✕ Reject</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setReassign("delegate")}>Delegate</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setReassign("escalate")}>Escalate</Button>
-                  <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-slate-400">
-                    step {pending.step_order} · {pending.approver_label}{(pending.needed ?? 1) > 1 ? ` · ${pending.approvals ?? 0} of ${pending.needed} signed` : ""}
-                  </span>
-                </>
-              ))}
-              {started && !pending && (
-                <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-success">Ladder complete</span>
-              )}
-            </div>
-          )}
-        </div>
-      </CardBody>
-    </Card>
-  );
-}
-
-function WorkflowStepper({ steps }: { steps: IntakeRequest["workflow"] }) {
-  return (
-    <section>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">Request workflow</p>
-      <div className="flex overflow-x-auto rounded-md border border-slate-200">
-        {steps.map((s) => (
-          <div key={s.stage}
-            className={cn("min-w-[128px] flex-1 border-r border-slate-200 px-3 py-3 text-center last:border-r-0",
-              s.active ? "bg-brand-50" : s.done ? "bg-slate-50" : "")}>
-            <div className={cn("text-sm leading-none", s.done ? "text-success" : s.active ? "text-brand-600" : "text-slate-300")}>
-              {s.done ? "✓" : s.active ? "⏳" : "○"}
-            </div>
-            <div className={cn("mt-1.5 text-xs font-medium", s.active || s.done ? "text-slate-900" : "text-slate-400")}>{s.label}</div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-// The CLM contract lifecycle — once a request has a drafted contract, the ticket
-// rides these stages instead of the intake spine.
-const CONTRACT_STAGES: { key: string; label: string }[] = [
-  { key: "intake", label: "Intake" },
-  { key: "drafting", label: "Drafting" },
-  { key: "review", label: "Review" },
-  { key: "approval", label: "Approval" },
-  { key: "signature", label: "Signature" },
-  { key: "active", label: "Active" },
-  { key: "closed", label: "Closed" },
-];
-
-const _NEXT_STAGE: Record<string, string> = {
-  intake: "drafting", drafting: "review", review: "approval", approval: "signature", signature: "active",
-};
 
 // Which draftable document (if any) a request maps to — mirrors the backend
 // resolve_doc_type keyword pass so the "Draft" button shows for the 4 types.
@@ -1813,35 +1143,6 @@ function RelatedContractsCard({ r, contracts }: { r: IntakeRequest; contracts: C
   );
 }
 
-// Contract lifecycle stage tracker — replaces the intake WorkflowStepper once a
-// contract exists. Fed by the contract's review-status (current stage).
-function ContractLifecycleTracker({ contractId }: { contractId: string }) {
-  const { data: rs } = useQuery({
-    queryKey: ["contract-review", contractId],
-    queryFn: () => contractsApi.reviewStatus(contractId),
-  });
-  const curIdx = rs ? CONTRACT_STAGES.findIndex((s) => s.key === rs.lifecycle_stage) : -1;
-  return (
-    <section>
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-400">Contract lifecycle</p>
-      <div className="flex overflow-x-auto rounded-md border border-slate-200">
-        {CONTRACT_STAGES.map((s, i) => {
-          const done = curIdx > i, active = curIdx === i;
-          return (
-            <div key={s.key}
-              className={cn("min-w-[100px] flex-1 border-r border-slate-200 px-2 py-3 text-center last:border-r-0",
-                active ? "bg-brand-50" : done ? "bg-slate-50" : "")}>
-              <div className={cn("text-sm leading-none", done ? "text-success" : active ? "text-brand-600" : "text-slate-300")}>
-                {done ? "✓" : active ? "⏳" : "○"}
-              </div>
-              <div className={cn("mt-1.5 text-xs font-medium", active || done ? "text-slate-900" : "text-slate-400")}>{s.label}</div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
 
 // The AI analysis surfaced on the ticket once a contract exists: weighted risk
 // + the playbook deviations, severity-ranked, so a reviewer can act without
@@ -2160,6 +1461,11 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   // step; a click on any step overrides it. (Hook must precede the early return.)
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   useEffect(() => { setSelectedIdx(null); }, [flowRun?.current_index]);
+  const { data: contractStatus } = useQuery({
+    queryKey: ["contract-review", r?.contract_id],
+    queryFn: () => contractsApi.reviewStatus(r!.contract_id!),
+    enabled: !!r?.contract_id,
+  });
 
   // Pump a mid-beat step: a run parked in "running" is an ai_task showing its
   // "Agent is working…" animation with the agent not yet run. Hold ~1s so the
@@ -2201,7 +1507,7 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   const owner = r.assigned_to_label;
   const flowSteps = flowRun?.steps ?? [];
   const current = flowRun ? flowSteps[flowRun.current_index] : undefined;
-  const doneCount = flowSteps.filter((s) => ["done", "complete", "skipped"].includes(s.status)).length;
+  const stageNow = currentStage({ run: hasRun ? flowRun : null, contractStage: contractStatus?.lifecycle_stage, requestClosed: !open });
   // Click any ladder step to inspect it; defaults to (and follows) the current step.
   const selIdx = selectedIdx ?? flowRun?.current_index ?? 0;
   const selStep = flowSteps[selIdx];
@@ -2263,18 +1569,9 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
       <Card className="p-5">
         {hasRun && flowRun ? (
           <>
-            {head(`Governance Ladder · ${flowRun.flow_name}`,
+            {head(`Contract lifecycle · ${flowRun.flow_name}`,
               <>Step {Math.min(flowRun.current_index + 1, flowSteps.length)} of {flowSteps.length} · <span className={flowRun.status === "complete" ? "text-success" : "text-slate-500"}>{titleCase(flowRun.status)}</span></>)}
-            <div className="mb-4 h-1.5 overflow-hidden rounded-full bg-slate-200">
-              <div className="h-full rounded-full bg-brand-600 transition-all duration-500" style={{ width: `${flowSteps.length ? Math.round((doneCount / flowSteps.length) * 100) : 0}%` }} />
-            </div>
-            <GovernanceLadderSteps
-              steps={flowSteps}
-              currentIndex={flowRun.current_index}
-              complete={flowRun.status === "complete"}
-              selectedIdx={selIdx}
-              onSelect={setSelectedIdx}
-            />
+            <LifecycleView steps={flowSteps} current={stageNow} selectedStepIdx={selIdx} onSelectStep={setSelectedIdx} />
             {selStep && (
               <div className="mt-4 flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-brand-50 text-brand-700">
@@ -2313,15 +1610,10 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
               )}
             </div>
           </>
-        ) : r.contract_id ? (
-          <>
-            <ContractLifecycleTracker contractId={r.contract_id} />
-            <div className="mt-3"><WorkflowPanel requestId={id} suggestion={r.ai_triage?.flow_suggestion as WorkflowSuggestion | undefined} /></div>
-          </>
         ) : (
           <>
-            {head("Request Workflow")}
-            <WorkflowStepper steps={r.workflow} />
+            {head("Contract lifecycle", <>No workflow running yet</>)}
+            <LifecycleView steps={[]} current={stageNow} />
             <div className="mt-3"><WorkflowPanel requestId={id} suggestion={r.ai_triage?.flow_suggestion as WorkflowSuggestion | undefined} /></div>
           </>
         )}
@@ -2343,14 +1635,6 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
           {ai.complexity != null && <Fact label="Complexity">{titleCase(String(ai.complexity))}</Fact>}
           {r.contract_id && r.contract_title && <Fact label="Contract"><a className="text-brand-700 hover:underline" href={`/contracts/${r.contract_id}`}>{r.contract_title}</a></Fact>}
         </dl>
-        {(r.fired_rules as { summaries?: { name: string; actions: string[] }[] } | null)?.summaries?.length ? (
-          <div className="mt-3 border-t border-slate-100 pt-3">
-            <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-400">Routing rules fired</p>
-            <ul className="space-y-1 text-xs text-slate-600">
-              {(r.fired_rules as { summaries: { name: string; actions: string[] }[] }).summaries.map((s, i) => <li key={i}>▸ <b>{s.name}</b> — {s.actions.join(", ")}</li>)}
-            </ul>
-          </div>
-        ) : null}
         {/* contract access / draft */}
         {r.contract_id ? (
           <a href={`/contracts/${r.contract_id}`} className="mt-4 flex items-center justify-between rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5 text-sm hover:bg-brand-100">
@@ -2381,9 +1665,9 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
       {/* ===== AI analysis ===== */}
       {r.contract_id && <Card className="p-5">{head("Playbook Deviations · Risk")}<AiAnalysisCard contractId={r.contract_id} /></Card>}
 
-      {/* ===== counterparty & screening + documents ===== */}
-      <Card className="p-5">{head("Counterparty & Screening")}
-        <div className="space-y-4"><PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} /><ScreeningPanel r={r} canTriage={canTriage} onRefreshed={refresh} /></div>
+      {/* ===== counterparty & relationship ===== */}
+      <Card className="p-5">{head("Counterparty & Relationship")}
+        <div className="space-y-4"><PartiesPanel r={r} canTriage={canTriage} onRefreshed={refresh} /><RelationshipPanel r={r} canTriage={canTriage} onRefreshed={refresh} /></div>
       </Card>
         </div>
 
@@ -2424,7 +1708,7 @@ function RequestDetailView({ id, onBack, canTriage, inPane = false }: { id: stri
   );
 }
 
-// ---- screening + documents panels (gap-fill) -------------------------------
+// ---- parties, relationship + documents panels (gap-fill) -------------------------------
 
 const ROLE_LABEL: Record<string, string> = {
   counterparty: "Counterparty", adverse: "Adverse", related: "Related", our_side: "Our side",
@@ -2439,7 +1723,7 @@ function PartiesPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTria
 
   async function save(next: { name: string; role: string }[]) {
     setBusy(true);
-    try { await intakeApi.setParties(r.id, next); onRefreshed(); notify("Parties updated — re-screened", "success"); }
+    try { await intakeApi.setParties(r.id, next); onRefreshed(); notify("Parties updated", "success"); }
     catch (e) { notify(e instanceof Error ? e.message : "Update failed", "error"); }
     finally { setBusy(false); }
   }
@@ -2474,70 +1758,31 @@ function PartiesPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTria
   );
 }
 
-function ScreeningPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTriage: boolean; onRefreshed: () => void }) {
+// What we already have on file with the primary counterparty. Sanctions and
+// conflict screening were removed: they matched names only and blocked nothing.
+function RelationshipPanel({ r, canTriage, onRefreshed }: { r: IntakeRequest; canTriage: boolean; onRefreshed: () => void }) {
   const { notify } = useToast();
   const [busy, setBusy] = useState(false);
-  const sc = (r.screening ?? null) as {
-    status?: string; note?: string; counterparty?: string;
-    sanctions?: { status?: string; party?: string; matches?: { name?: string; programs?: string | null }[]; note?: string };
-    conflicts?: { kind: string; severity?: string; party?: string; role_here?: string; via?: string; ref?: string; title?: string }[];
-    relationship?: { note?: string };
-  } | null;
-  const sanTone = (st?: string) => (st === "hit" ? "red" : st === "clear" ? "green" : "amber");
-  const conflicts = sc?.conflicts ?? [];
-  const high = conflicts.filter((c) => c.severity === "high").length;
+  const sc = (r.screening ?? null) as { status?: string; note?: string; counterparty?: string; relationship?: { note?: string } } | null;
   return (
     <div>
       <div className="mb-1 flex items-center gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Screening</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Relationship</p>
         {canTriage && (
           <button className="text-xs text-brand-600 hover:underline disabled:opacity-50" disabled={busy}
             onClick={async () => {
               setBusy(true);
-              try { await intakeApi.screen(r.id); onRefreshed(); notify("Screening re-run", "success"); }
-              catch (e) { notify(e instanceof Error ? e.message : "Screening failed", "error"); }
+              try { await intakeApi.screen(r.id); onRefreshed(); notify("Relationship refreshed", "success"); }
+              catch (e) { notify(e instanceof Error ? e.message : "Refresh failed", "error"); }
               finally { setBusy(false); }
-            }}>{busy ? "Running…" : "Re-run"}</button>
+            }}>{busy ? "Refreshing…" : "Refresh"}</button>
         )}
       </div>
-      {!sc || sc.status === "skipped" || sc.status === "error" ? (
-        <p className="text-xs text-slate-400">{sc?.note ?? "Not screened — no parties captured."}</p>
-      ) : (
-        <div className="space-y-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-slate-500">Sanctions:</span>
-            <Badge tone={sanTone(sc.sanctions?.status) as never}>
-              {sc.sanctions?.status === "hit" ? "HIT" : sc.sanctions?.status === "clear" ? "Clear" : "Unavailable"}
-            </Badge>
-            {sc.sanctions?.party && <span className="text-slate-500">{sc.sanctions.party}</span>}
-            {(sc.sanctions?.matches ?? []).slice(0, 2).map((m, i) => (
-              <span key={i} className="text-danger">{m.name}{m.programs ? ` · ${m.programs}` : ""}</span>
-            ))}
-          </div>
-          {sc.sanctions?.note && (
-            <p className="text-slate-500">{sc.sanctions.note}</p>
-          )}
-          <div>
-            <div className="mb-1 flex items-center gap-2">
-              <span className="text-slate-500">Conflicts:</span>
-              {conflicts.length === 0 ? <span className="text-slate-400">none found</span>
-                : high > 0 ? <Badge tone="red">{high} high</Badge> : <Badge tone="amber">{conflicts.length} to review</Badge>}
-            </div>
-            <ul className="space-y-1">
-              {conflicts.slice(0, 6).map((c, i) => (
-                <li key={i} className="flex items-start gap-1.5">
-                  <Badge tone={c.severity === "high" ? "red" : "amber"}>{c.severity === "high" ? "HIGH" : "REVIEW"}</Badge>
-                  <span className="text-slate-600">
-                    <span className="font-medium">{c.party}</span>
-                    {c.role_here ? ` (${ROLE_LABEL[c.role_here] ?? c.role_here})` : ""} — {c.via}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-          {sc.relationship?.note && <p className="text-slate-600"><span className="text-slate-500">Relationship: </span>{sc.relationship.note}</p>}
-        </div>
-      )}
+      <p className="text-xs text-slate-600">
+        {sc?.relationship?.note
+          ? <>{sc.counterparty && <span className="font-medium">{sc.counterparty}: </span>}{sc.relationship.note}</>
+          : <span className="text-slate-400">{sc?.note ?? "No parties captured."}</span>}
+      </p>
     </div>
   );
 }
@@ -2611,7 +1856,7 @@ function DocumentsPanel({ requestId }: { requestId: string }) {
 }
 
 
-// ---- consolidated wrappers: My Work + one Operations door -------------------
+// ---- consolidated wrappers: My Work -------------------
 
 function MyWorkView({ isStaff, onOpen }: { isStaff: boolean; onOpen: (id: string) => void }) {
   if (!isStaff) return <MyRequestsTab onOpen={onOpen} />;
@@ -2622,32 +1867,6 @@ function MyWorkView({ isStaff, onOpen }: { isStaff: boolean; onOpen: (id: string
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Filed by me</p>
         <MyRequestsTab onOpen={onOpen} />
       </div>
-    </div>
-  );
-}
-
-function OperationsView({ isAdmin }: { isAdmin: boolean }) {
-  // SLA and Agents are now first-class tabs; Smart Routing lives under Approvals → Intake routing.
-  const items = [
-    { id: "pool", label: "Pool Ops" },
-    ...(isAdmin ? [{ id: "teams", label: "Teams" }, { id: "types", label: "Request Types" }, { id: "parties", label: "Entities & counterparties" }] : []),
-  ];
-  const [sub, setSub] = useState("pool");
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-1 border-b border-slate-200">
-        {items.map((it) => (
-          <button key={it.id} onClick={() => setSub(it.id)}
-            className={cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-              sub === it.id ? "border-brand-600 text-slate-900" : "border-transparent text-slate-500 hover:text-slate-900")}>
-            {it.label}
-          </button>
-        ))}
-      </div>
-      {sub === "pool" && <PoolOpsTab />}
-      {sub === "teams" && isAdmin && <TeamsTab isAdmin={isAdmin} />}
-      {sub === "types" && isAdmin && <RequestTypesTab />}
-      {sub === "parties" && isAdmin && <PartiesRegisterTab />}
     </div>
   );
 }

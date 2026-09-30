@@ -1,28 +1,26 @@
-"""A request type's declared field kinds must actually be enforced.
+"""A form's declared field kinds must actually be enforced.
 
-The no-code form builder lets an admin declare a field as `number`, `date`,
-`boolean` or `select` with a fixed option list — and the only thing ever
-checked was required-ness. So a `number` field accepted "banana", a `date`
+A form field is declared `number`, `date`, `boolean` or `select` with a fixed
+option list — and the only thing ever checked was required-ness. So a `number` field accepted "banana", a `date`
 accepted "next Tuesday-ish", and a `select` accepted any string at all.
 Everything reading those values back — arithmetic, date comparison, filtering
 by option — was working on whatever the caller happened to send.
 """
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
-from app.intake.models import IntakeRequestField, IntakeRequestType
 from app.intake.service import _validate_field_values
 
 
-def _type(*fields: IntakeRequestField) -> IntakeRequestType:
-    rtype = IntakeRequestType(key="vendor", name="Vendor Agreement")
-    rtype.fields = list(fields)
-    return rtype
+def _type(*fields) -> list:
+    return list(fields)
 
 
 def _field(key, kind="text", *, required=False, label=None, options=None):
-    return IntakeRequestField(
+    return SimpleNamespace(
         key=key, label=label or key.replace("_", " ").title(),
         kind=kind, required=required, options=options,
     )
@@ -179,22 +177,20 @@ def test_update_validates_too(monkeypatch):
     a typed one replaced with anything at all once the request was filed."""
     from types import SimpleNamespace
 
-    from app.intake import service
+    from app.intake import agreement_forms, service
 
-    rtype = _type(_field("contract_value", "number", required=True))
     request = SimpleNamespace(
         status="open", stage="new", priority="Medium", department=None,
-        description="", work_status=None, request_type_id="type-1",
-        field_values={"contract_value": 1500},
+        description="", work_status=None,
+        field_values={"request_form": "new_agreement", "contract_value": 1500},
     )
+    monkeypatch.setattr(agreement_forms, "form_fields",
+                        lambda key: _type(_field("contract_value", "number", required=True)))
 
     monkeypatch.setattr(service, "get_request", lambda db, *, user, request_id: request)
     monkeypatch.setattr(service, "serialize_request", lambda db, r: {"ok": True})
 
     class _Db:
-        def get(self, model, pk):
-            return rtype
-
         def commit(self):
             pass
 
@@ -211,4 +207,4 @@ def test_update_validates_too(monkeypatch):
     assert exc.value.status_code == 422
 
     # The stored value is untouched by the rejected update.
-    assert request.field_values == {"contract_value": 1500}
+    assert request.field_values == {"request_form": "new_agreement", "contract_value": 1500}

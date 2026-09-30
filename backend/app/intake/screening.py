@@ -1,202 +1,30 @@
-"""Third-party risk screening for intake: sanctions/OFAC, conflict-of-interest,
-and counterparty relationship enrichment.
+"""Counterparty relationship enrichment for intake: what we already have on file
+with the parties a request names (prior contracts, NDAs, requests).
 
-Safety posture mirrors the reference implementation: an empty or stale (>30d)
-sanctions list returns "unavailable" — never "clear". Every screening run is an
-audit event (the check itself is defensibility evidence).
+Sanctions and conflict screening used to live here too. They were removed
+(2026-09-28): matching was name-only against one US list, and a hit blocked
+nothing outside one workflow step, so a green "Clear" looked like compliance
+that was not happening. Sanctions checks belong with a dedicated screening
+provider. The ``screening`` column and ``intake_screening`` job keep their
+names so queued jobs and stored rows stay valid.
 """
 
 from __future__ import annotations
 
-import csv
-import io
 import re
-from datetime import timedelta
 
-import httpx
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.contracts.models import Contract, ContractParty
+from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
-from app.intake.models import IntakeRequest, SanctionsListEntry
-
-OFAC_SDN_URL = "https://www.treasury.gov/ofac/downloads/sdn.csv"
-STALE_AFTER = timedelta(days=30)
-# The whole list is scanned in Python (~19k rows, ~100ms). Beyond this the
-# scan is refused rather than sampled — see screen_sanctions.
-_MAX_SCAN_ROWS = 200_000
-_MAX_REPORTED_MATCHES = 10
-# Comprehensively embargoed jurisdictions — a mention is a hit regardless of list state.
-EMBARGOED = ("iran", "north korea", "dprk", "cuba", "syria", "crimea")
-
-
-def _norm(name: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", " ", name.lower()).strip()
-
-
-def _tokens(name: str) -> set[str]:
-    return {t for t in _norm(name).split() if len(t) > 2}
-
-
-# Words that carry no identity: they appear in thousands of SDN rows, so
-# matching on them alone is what made "Joint Stock Company X" share two tokens
-# with every other Russian JSC on the list. `_SUFFIXES` (defined below, and
-# already used for party-name matching) covers the entity forms; these are the
-# remaining boilerplate the SDN list is full of.
-_GENERIC_TOKENS = frozenset({
-    "joint", "stock", "open", "closed", "public", "state", "owned", "enterprise",
-    "the", "and", "for", "llc", "ooo", "oao", "pao", "zao", "jsc", "ojsc", "cjsc",
-})
-
-
-def _distinctive_tokens(name: str) -> set[str]:
-    """Tokens that actually identify an entity.
-
-    Scoring on every token let boilerplate carry a match: two names sharing
-    only "company" and "limited" cleared the two-token bar while having nothing
-    to do with each other. Strip the entity forms and the list's stock phrasing
-    and what remains is the name.
-    """
-    return {
-        token for token in _tokens(name)
-        if token not in _GENERIC_TOKENS and not _SUFFIXES.fullmatch(token)
-    }
-
-
-# ---- sanctions -------------------------------------------------------------
-
-def screen_sanctions(db: Session, org_id: str, name: str) -> dict:
-    now = utcnow()
-    checked = {"checked_at": now.isoformat(), "name": name}
-
-    # Embargoed-jurisdiction mention is a hit independent of list freshness.
-    # Whole words only: a plain substring test blocked "Miranda" on `iran`,
-    # "Cubana" on `cuba` and "Syriac" on `syria`. A false embargo hit is a hard
-    # stop on a legitimate counterparty, so it has to be as deliberate as a
-    # real one.
-    low = _norm(name)
-    embargo = [j for j in EMBARGOED if re.search(rf"\b{re.escape(j)}\b", low)]
-    if embargo:
-        return {**checked, "status": "hit", "matches": [
-            {"kind": "embargo", "name": j.title(), "programs": "comprehensive embargo"} for j in embargo
-        ]}
-
-    newest = db.query(func.max(SanctionsListEntry.refreshed_at)).filter(
-        SanctionsListEntry.org_id == org_id).scalar()
-    if newest is None or (now - newest) > STALE_AFTER:
-        return {**checked, "status": "unavailable", "matches": [],
-                "note": "Sanctions list empty or stale (>30d) — treat as unscreened, not clear."}
-
-    q_tokens = _distinctive_tokens(name)
-    if not q_tokens:
-        return {**checked, "status": "unavailable", "matches": [], "note": "No screenable name."}
-
-    # Scan the WHOLE list.
-    #
-    # This used to narrow with an ILIKE on the query's longest token and take
-    # the first 200 rows. Both halves were wrong. "Company" and "Limited" match
-    # thousands of SDN rows, so real designated entities — JOINT STOCK COMPANY
-    # PLASMA (RUSSIA-EO14024), CHERY STAR CO., LIMITED (SDGT/IFSR) — could not
-    # be found by a search for their own exact name, and the answer came back
-    # "clear": the one verdict a sanctions check must never give when it has
-    # not finished looking.
-    #
-    # The list is ~19k rows and a full scan costs roughly 100ms, so there was
-    # nothing to optimise. Scanning everything also removes the unescaped
-    # ILIKE, where a `%` or `_` in a counterparty name was a wildcard.
-    rows = db.execute(
-        select(
-            SanctionsListEntry.name, SanctionsListEntry.source,
-            SanctionsListEntry.source_ref, SanctionsListEntry.programs,
-        )
-        .where(SanctionsListEntry.org_id == org_id)
-        .limit(_MAX_SCAN_ROWS + 1)
-    ).all()
-    if len(rows) > _MAX_SCAN_ROWS:
-        # Fail closed, the same way a stale list does. A sampled scan is an
-        # unfinished scan, and this is the guard that stops the original bug
-        # returning the next time the corpus grows.
-        return {**checked, "status": "unavailable", "matches": [],
-                "note": f"Sanctions list exceeds {_MAX_SCAN_ROWS} rows — scan incomplete, "
-                        "treat as unscreened. Move matching into the database."}
-
-    required = max(1, min(len(q_tokens), 2))
-    scored: list[tuple[tuple[int, float], dict]] = []
-    for row in rows:
-        entry_tokens = _distinctive_tokens(row.name)
-        overlap = q_tokens & entry_tokens
-        if len(overlap) < required:
-            continue
-        # Jaccard, so an exact name scores 1.0 and sorts to the top. Without a
-        # score the display truncation below showed an arbitrary ten of the
-        # several hundred generic matches a name like "Joint Stock Company X"
-        # produces — the designated entity itself very possibly not among them.
-        # An exact name is the strongest signal there is, and it needs its own
-        # rank: a name that reduces to one distinctive token ("Joint Stock
-        # Company PLASMA" -> {plasma}) scores 1.0 against everything else
-        # sharing that token, so Jaccard alone leaves the real entity tied with
-        # the noise and ordered arbitrarily.
-        exact = 1 if _norm(row.name) == low else 0
-        union = len(q_tokens | entry_tokens) or 1
-        scored.append(((exact, len(overlap) / union), {
-            "kind": "list", "name": row.name, "source": row.source,
-            "programs": row.programs, "ref": row.source_ref,
-        }))
-
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    result = {
-        **checked,
-        "status": "hit" if scored else "clear",
-        "matches": [match for _, match in scored[:_MAX_REPORTED_MATCHES]],
-    }
-    if len(scored) > _MAX_REPORTED_MATCHES:
-        # Say so rather than letting the reviewer believe ten is all there was.
-        result["match_count"] = len(scored)
-        result["note"] = (
-            f"{len(scored)} candidate matches; showing the {_MAX_REPORTED_MATCHES} "
-            "closest by name overlap."
-        )
-    return result
-
-
-def refresh_ofac(db: Session, org_id: str) -> dict:
-    """Pull the live Treasury SDN CSV and upsert entries. Returns counts."""
-    resp = httpx.get(OFAC_SDN_URL, timeout=60, follow_redirects=True)
-    resp.raise_for_status()
-    now = utcnow()
-    added = updated = 0
-    reader = csv.reader(io.StringIO(resp.text))
-    existing = {e.source_ref: e for e in db.query(SanctionsListEntry).filter(
-        SanctionsListEntry.org_id == org_id, SanctionsListEntry.source == "OFAC_SDN").all()}
-    for row in reader:
-        if len(row) < 2 or not row[0].strip().isdigit():
-            continue
-        ref, name = row[0].strip(), row[1].strip()
-        if not name or name == "-0-":
-            continue
-        programs = row[3].strip() if len(row) > 3 and row[3].strip() != "-0-" else None
-        e = existing.get(ref)
-        if e:
-            e.name, e.name_normalized, e.programs, e.refreshed_at = name, _norm(name), programs, now
-            updated += 1
-        else:
-            db.add(SanctionsListEntry(org_id=org_id, source="OFAC_SDN", source_ref=ref,
-                                      name=name, name_normalized=_norm(name),
-                                      programs=programs, refreshed_at=now))
-            added += 1
-    db.commit()
-    return {"source": "OFAC_SDN", "added": added, "updated": updated, "refreshed_at": now.isoformat()}
-
+from app.intake.models import IntakeRequest
 
 # ---- canonical name matching -----------------------------------------------
 # Entity suffixes stripped so "Umbrella Corp" ≡ "Umbrella Corporation" ≡ "Umbrella".
 _SUFFIXES = re.compile(
     r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|llc|llp|lp|plc|"
     r"gmbh|pbc|sa|nv|bv|ag|pvt|private|group|holdings?|partners?)\b")
-# Roles that make THIS request adverse to a matched existing relationship.
-ADVERSE_ROLES = {"adverse", "opposing", "defendant", "plaintiff", "claimant", "respondent"}
 
 
 def normalize_party_name(name: str) -> str:
@@ -231,66 +59,10 @@ def request_party_names(r: IntakeRequest) -> list[str]:
     return names
 
 
-# ---- conflict of interest + relationship -----------------------------------
-
-def conflict_check(db: Session, org_id: str, parties: list[dict],
-                   exclude_request_id: str | None = None) -> list[dict]:
-    """Screen every party on THIS request against existing relationships —
-    contract counterparties, contract parties, and other intake requests — with
-    canonical name matching. A party we're ADVERSE to that we already do business
-    with is a HIGH-severity conflict; other name matches are flagged for review.
-    Each hit carries its `via` linkage (how it matched).
-
-    ponytail: scans org rows in Python (fine single-tenant). Add a normalized-name
-    column + index if the portfolio grows past a few thousand.
-    """
-    contracts = db.query(Contract).filter(Contract.org_id == org_id).all()
-    cparties = db.query(ContractParty).filter(ContractParty.org_id == org_id).all()
-    reqs = db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
-    by_contract = {c.id: c for c in contracts}
-
-    hits: list[dict] = []
-    for p in parties:
-        pname = (p.get("name") or "").strip()
-        if not pname:
-            continue
-        prole = (p.get("role") or "counterparty").lower()
-        adverse = prole in ADVERSE_ROLES
-
-        for c in contracts:
-            if c.counterparty_name and _name_match(pname, c.counterparty_name):
-                hits.append({"kind": "contract", "id": c.id, "title": c.title,
-                             "party": pname, "role_here": prole, "matched": c.counterparty_name,
-                             "via": f"counterparty on “{c.title}”",
-                             "severity": "high" if adverse else "review"})
-        for cp in cparties:
-            if _name_match(pname, cp.name):
-                title = by_contract[cp.contract_id].title if cp.contract_id in by_contract else "a contract"
-                hits.append({"kind": "contract_party", "id": cp.contract_id, "title": title,
-                             "party": pname, "role_here": prole, "matched": cp.name,
-                             "via": f"{cp.party_type or 'party'} “{cp.name}” on “{title}”",
-                             "severity": "high" if adverse else "review"})
-        for rq in reqs:
-            if rq.id == exclude_request_id:
-                continue
-            if any(_name_match(pname, n) for n in request_party_names(rq)):
-                hits.append({"kind": "request", "id": rq.id, "ref": rq.ref, "title": rq.type_label,
-                             "party": pname, "role_here": prole, "matched": pname,
-                             "via": f"party on {rq.ref}", "severity": "review"})
-
-    # dedupe by (kind, id, party); keep the highest severity
-    order = {"high": 2, "review": 1}
-    best: dict[tuple, dict] = {}
-    for h in hits:
-        k = (h["kind"], h.get("id"), h["party"])
-        if k not in best or order[h["severity"]] > order[best[k]["severity"]]:
-            best[k] = h
-    out = sorted(best.values(), key=lambda h: -order[h["severity"]])
-    return out[:20]
-
+# ---- relationship ---------------------------------------------------------
 
 def counterparty_relationship(db: Session, org_id: str, name: str) -> dict:
-    """A relationship dossier for the agent draft: prior contracts (count, stage
+    """A relationship dossier: prior contracts (count, stage
     mix, total value), prior NDAs, and prior intake requests — canonically matched."""
     contracts = [c for c in db.query(Contract).filter(Contract.org_id == org_id).all()
                  if c.counterparty_name and _name_match(name, c.counterparty_name)]
@@ -350,26 +122,16 @@ def gather_parties(r: IntakeRequest) -> list[dict]:
 
 
 def compute_screening(db: Session, r: IntakeRequest) -> dict:
-    """Pure screening bundle — queries only, no writes. Safe to persist alone.
-    Screens EVERY party: sanctions on each (worst reported), conflict-of-interest
-    across all, and a relationship dossier on the primary counterparty."""
+    """Queries only, no writes. The relationship note is for the primary
+    counterparty (the first party with that role, else the first party)."""
     parties = gather_parties(r)
     if not parties:
         return {"status": "skipped", "note": "No parties captured on this request.",
                 "checked_at": utcnow().isoformat()}
     primary = next((p for p in parties if p["role"] == "counterparty"), parties[0])
-
-    # Sanctions on each party — report the most severe.
-    rank = {"hit": 3, "unavailable": 2, "clear": 1}
-    per = [(p, screen_sanctions(db, r.org_id, p["name"])) for p in parties]
-    worst_party, sanctions = max(per, key=lambda x: rank.get(x[1].get("status"), 0))
-    sanctions = {**sanctions, "party": worst_party["name"]}
-
     return {
         "counterparty": primary["name"],
         "parties": parties,
-        "sanctions": sanctions,
-        "conflicts": conflict_check(db, r.org_id, parties, exclude_request_id=r.id),
         "relationship": counterparty_relationship(db, r.org_id, primary["name"]),
         "checked_at": utcnow().isoformat(),
         "status": "done",
@@ -377,25 +139,22 @@ def compute_screening(db: Session, r: IntakeRequest) -> dict:
 
 
 def run_screening(db: Session, r: IntakeRequest, *, actor_user_id: str | None = None) -> dict:
-    """Screen the request, then record a best-effort audit event. The screen and
-    the audit are committed in SEPARATE transactions: the screen persists first
-    and definitively, so audit-chain advisory-lock contention (write_audit_log
-    flushes) can never roll back the screening result. Idempotent commits — the
-    callers may commit again harmlessly."""
+    """Compute and store the relationship note, then a best-effort audit event.
+    Stored and audited in SEPARATE transactions so audit-chain lock contention
+    can never roll back the result."""
     result = compute_screening(db, r)
     r.screening = result
-    db.commit()          # persist the screen on its own — nothing can lose it now
+    db.commit()
     db.refresh(r)
     if result.get("status") == "done":
         try:
-            write_audit_log(db, action="intake.screening.run", resource_type="intake_request",
+            write_audit_log(db, action="intake.relationship.checked", resource_type="intake_request",
                             resource_id=r.id, org_id=r.org_id, actor_user_id=actor_user_id,
-                            after={"status": result.get("status"),
-                                   "sanctions": (result.get("sanctions") or {}).get("status"),
-                                   "conflicts": len(result.get("conflicts") or [])})
+                            after={"counterparty": result.get("counterparty"),
+                                   "prior_contracts": result["relationship"]["prior_contracts"]})
             db.commit()
         except Exception:
-            db.rollback()  # screen already persisted; only the audit row is lost
+            db.rollback()  # result already persisted; only the audit row is lost
     return result
 
 

@@ -59,7 +59,7 @@ def _count_sources(sources: dict) -> int:
 
 def run_retrieval(db, user) -> dict:
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope="portfolio", contract_id=None, matter_id=None
+        db, user=user, scope="portfolio", contract_id=None
     )
     hits, kw_hits, rows = 0, 0, []
     for q in GOLDEN["brain_queries"]:
@@ -127,7 +127,7 @@ async def run_faithfulness(db, user) -> dict:
     from app.ai.schemas import BrainAnswerOutput
 
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope="portfolio", contract_id=None, matter_id=None
+        db, user=user, scope="portfolio", contract_id=None
     )
     total_cites, valid_cites, rows = 0, 0, []
     for q in GOLDEN["brain_queries"]:

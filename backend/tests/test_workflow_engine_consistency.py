@@ -123,16 +123,16 @@ def test_an_escalated_ai_step_goes_to_the_escalation_team_and_they_are_told(monk
         return "wait"
 
     def assign(db, *, run, sr, cfg):
-        roles.append(cfg.get("approver_role"))
+        roles.append(cfg.get("team_id"))
         sr.assignee_user_id = "u-attorney"
 
     monkeypatch.setattr(service, "_execute_step", escalate)
     monkeypatch.setattr(service, "_assign_step", assign)
     db = DB({service.WorkflowStepRun: [sr]})
-    run = _run([{"type": "ai_task", "config": {"escalate_role": "attorney"}}], status="running")
+    run = _run([{"type": "ai_task", "config": {"team_id": "team-legal"}}], status="running")
     asyncio.run(service.advance_run(db, run=run, actor=ACTOR))
 
-    assert roles == ["attorney"] and sr.assignee_user_id == "u-attorney"
+    assert roles == ["team-legal"] and sr.assignee_user_id == "u-attorney"
     [notice] = [row for row in db.added if isinstance(row, Notification)]
     assert notice.user_id == "u-attorney" and "escalated" in notice.body
 
@@ -171,7 +171,10 @@ def _request(type_label, description=""):
 
 
 def _flows(specs):
-    return [SimpleNamespace(name=f["name"], criteria=f["criteria"], steps=f["steps"])
+    # As seed_builtin_flows stores them: a spec's type and conditions live in criteria.
+    def criteria(f):
+        return {**f["criteria"], **({"used_for": f["used_for"], "conditions": f.get("conditions", [])} if f.get("used_for") else {})}
+    return [SimpleNamespace(name=f["name"], criteria=criteria(f), steps=f["steps"])
             for f in sorted(specs, key=lambda f: f["eval_order"])]
 
 
@@ -180,7 +183,10 @@ def _flows(specs):
     ("Data Privacy Incident (DPA)", "Suspected personal-data breach: our analytics vendor exposed records.",
      "Data Privacy Incident (DPDP)"),
     ("Vendor Due Diligence", "Onboard Acme Logistics as a new logistics partner.", "Vendor / Counterparty Due Diligence"),
-    ("NDA Request", "Mutual NDA with Globex.", "NDA Fast-Track"),
+    # An emailed NDA (no form) no longer reaches NDA Fast-Track by its words:
+    # typed workflows are only for form requests; email gets the general
+    # ladder and a person confirms (see select_flow).
+    ("NDA Request", "Mutual NDA with Globex.", "Contract Approval Ladder"),
 ])
 def test_each_request_kind_starts_its_intended_flow(type_label, description, expected):
     flow = service.select_flow(DB({service.Workflow: _flows(BUILTIN_FLOWS)}), request=_request(type_label, description))

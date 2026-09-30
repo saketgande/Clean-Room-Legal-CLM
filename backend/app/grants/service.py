@@ -21,8 +21,8 @@ from app.core.database import utcnow
 from app.grants.models import ResourceGrant
 
 LEVELS = ["read", "comment", "update", "share", "owner"]
-PRINCIPAL_TYPES = {"user", "role", "group"}
-RESOURCE_TYPES = {"contract", "project", "playbook"}
+PRINCIPAL_TYPES = {"user", "role", "team"}
+RESOURCE_TYPES = {"contract", "playbook"}
 
 
 def _levels_at_least(min_level: str) -> list[str]:
@@ -44,7 +44,7 @@ def _active_clause():
 
 def _principal_clause(user: User):
     """SQL predicate matching grants whose principal is this user, or any role
-    the user holds. (Group principals resolve via ApproverGroup membership below,
+    the user holds. (Team principals resolve via team membership below,
     handled in user_has_grant for the row check; the list filter covers user+role
     which is the common case.)"""
     conds = [
@@ -76,7 +76,7 @@ def user_has_grant(
     db: Session, *, user: User, resource_type: str, resource_id: str, min_level: str = "read"
 ) -> bool:
     """Row check: does the user have an active grant (direct, by role, or by
-    approver-group membership) on this specific resource at >= min_level?"""
+    team membership) on this specific resource at >= min_level?"""
     direct = db.scalar(
         granted_resource_ids(user, resource_type, min_level)
         .where(ResourceGrant.resource_id == resource_id)
@@ -84,14 +84,14 @@ def user_has_grant(
     )
     if direct is not None:
         return True
-    # Group principals: any approver group the user belongs to.
-    from app.approvals.models import ApproverGroup
+    # Team principals: any team the user is an active member of.
+    from app.intake.models import IntakeTeam, IntakeTeamMember
 
-    group_ids = [
-        g.id
-        for g in db.scalars(select(ApproverGroup).where(ApproverGroup.org_id == user.org_id)).all()
-        if any(m.id == user.id for m in g.members)
-    ]
+    group_ids = list(db.scalars(
+        select(IntakeTeamMember.team_id).join(IntakeTeam, IntakeTeam.id == IntakeTeamMember.team_id)
+        .where(IntakeTeamMember.user_id == user.id, IntakeTeamMember.active.is_(True),
+               IntakeTeam.org_id == user.org_id)
+    ).all())
     if not group_ids:
         return False
     return (
@@ -99,7 +99,7 @@ def user_has_grant(
             select(ResourceGrant.id).where(
                 ResourceGrant.resource_type == resource_type,
                 ResourceGrant.resource_id == resource_id,
-                ResourceGrant.principal_type == "group",
+                ResourceGrant.principal_type == "team",
                 ResourceGrant.principal_id.in_(group_ids),
                 ResourceGrant.access_level.in_(_levels_at_least(min_level)),
                 _active_clause(),
@@ -117,11 +117,6 @@ def _resource_owner_id(db: Session, resource_type: str, resource_id: str) -> str
 
         c = db.get(Contract, resource_id)
         return c.owner_user_id if c else None
-    if resource_type == "project":
-        from app.matters.models import Matter
-
-        p = db.get(Matter, resource_id)
-        return p.owner_user_id if p else None
     if resource_type == "playbook":
         from app.playbooks.models import Playbook
 
@@ -151,11 +146,11 @@ def _principal_label(db: Session, principal_type: str, principal_id: str) -> str
     if principal_type == "role":
         r = db.get(Role, principal_id)
         return r.name if r else principal_id
-    if principal_type == "group":
-        from app.approvals.models import ApproverGroup
+    if principal_type == "team":
+        from app.intake.models import IntakeTeam
 
-        g = db.get(ApproverGroup, principal_id)
-        return g.name if g else principal_id
+        t = db.get(IntakeTeam, principal_id)
+        return t.name if t else principal_id
     return principal_id
 
 
@@ -204,10 +199,10 @@ def _validate_principal(db: Session, *, org_id: str, principal_type: str, princi
         r = db.get(Role, principal_id)
         ok = r is not None and r.org_id == org_id
     else:
-        from app.approvals.models import ApproverGroup
+        from app.intake.models import IntakeTeam
 
-        g = db.get(ApproverGroup, principal_id)
-        ok = g is not None and g.org_id == org_id
+        t = db.get(IntakeTeam, principal_id)
+        ok = t is not None and t.org_id == org_id
     if not ok:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Principal not found in this organization")
 

@@ -1,43 +1,40 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { AGREEMENT_FORMS, classifyFor } from "./_agreement-forms";
+import { AGREEMENT_FORMS, _layout, shown } from "./_agreement-forms";
 
-type ServerField = { key: string; label: string; kind: string; required: boolean; options?: string[] };
-type ServerForm = { key: string; name: string; fields: ServerField[] };
+type ServerForm = { key: string; name: string; fields: { key: string }[] };
 
-// The server validates wizard submissions against its own copy of these forms.
+// The wizard renders the server's questions, so labels and options can't drift;
+// what CAN drift is the layout: a server question no step shows would be
+// required on filing but impossible to answer.
 const server: ServerForm[] = JSON.parse(
   readFileSync(resolve(__dirname, "../../../../../backend/app/intake/agreement_forms.json"), "utf8"),
 );
-// Fields the wizard enforces in code rather than through a FieldSpec.
-const STRUCTURAL = new Set(["entity", "entity_id", "counterparty", "counterparty_id", "parent_contract_id", "cancel_request_ref", "note_approvers"]);
 
-describe("agreement forms match the server's copy", () => {
-  it("has the same nine forms", () => {
-    expect(server.map((f) => f.key)).toEqual(AGREEMENT_FORMS.map((d) => d.key));
+describe("request form layout matches the server's forms", () => {
+  it("has the same forms, in order, with the same names", () => {
+    expect(server.map((f) => [f.key, f.name])).toEqual(AGREEMENT_FORMS.map((d) => [d.key, d.name]));
   });
 
   for (const def of AGREEMENT_FORMS) {
-    it(`${def.key}: same fields, labels, required flags and options`, () => {
-      // If this fails, the wizard changed without backend/app/intake/agreement_forms.json:
-      // the server would then accept or reject the wrong things.
-      const specs = [...(def.parentFields ?? []), ...(def.partyFields ?? []), ...classifyFor(def), ...def.detail];
-      const want = new Map<string, { label: string; required: boolean; options?: string[] }>();
-      for (const f of specs) {
-        const prev = want.get(f.k);
-        if (prev) { prev.required ||= !!f.req; continue; }
-        want.set(f.k, { label: f.label, required: !!f.req, options: f.options });
-      }
-      const form = server.find((s) => s.key === def.key)!;
-      const got = form.fields.filter((f) => !STRUCTURAL.has(f.key) || want.has(f.key));
-      expect(got.map((f) => f.key).sort()).toEqual([...want.keys()].sort());
-      for (const f of got) {
-        const w = want.get(f.key)!;
-        expect([f.key, f.label, f.required]).toEqual([f.key, w.label, w.required]);
-        if (f.kind === "select") expect([f.key, f.options]).toEqual([f.key, w.options]);
-      }
-      expect(form.fields.find((f) => f.key === "note_approvers")?.required).toBe(true);
+    it(`${def.key}: every question is placed, and nothing unknown is`, () => {
+      const placed = def.steps.flatMap((s) => s.fields);
+      const covered = new Set([...placed, ...placed.flatMap((k) => _layout.COMPANION[k] ?? []), "note_approvers"]);
+      const keys = server.find((s) => s.key === def.key)!.fields.map((f) => f.key);
+      expect(keys.filter((k) => !covered.has(k))).toEqual([]);
+      expect(placed.filter((k) => !keys.includes(k) && !_layout.FILE_KEYS.includes(k))).toEqual([]);
+      for (const k of placed) expect(_layout.UI[k]?.uses, `${k} says what it does`).toBeTruthy();
     });
   }
+});
+
+describe("show-when rules", () => {
+  it("needs every rule to match; a multi-select matches on any pick", () => {
+    const rules = [{ field: "agreement_type", in: ["Services (MSA)"] }, { field: "term", in: ["Renews automatically"] }];
+    expect(shown(rules, { agreement_type: "Services (MSA)", term: "Renews automatically" })).toBe(true);
+    expect(shown(rules, { agreement_type: "NDA", term: "Renews automatically" })).toBe(false);
+    expect(shown([{ field: "what_changes", in: ["Value"] }], { what_changes: ["Dates", "Value"] })).toBe(true);
+    expect(shown(undefined, {})).toBe(true);
+  });
 });

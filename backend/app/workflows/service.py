@@ -14,12 +14,13 @@ import re
 import uuid
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.schemas import confidence_score
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.database import utcnow
 from app.core.rbac import has_permission
 from app.intake.models import IntakeRequest, IntakeTeam
@@ -30,37 +31,40 @@ logger = logging.getLogger(__name__)
 # Contract lifecycle order — walk one edge at a time to respect the engine.
 _STAGE_ORDER = ["intake", "drafting", "review", "approval", "signature", "active", "closed"]
 
-# A no-contract approval step (litigation / notice / regulatory / board matters)
-# gates the intake request itself. Its flow role token maps to a functional
-# approver group so the fallback rung is decidable + emailed when no routing
-# rule or Tier-0 gate already supplies one.
-_FLOW_ROLE_GROUP = {
-    "gc": "Executive",
-    "board": "Executive",
-    "attorney": "Legal Counsel",
-    "legal_ops": "Compliance",
-    # Product role tokens and the department names the built-in MSA flow uses.
-    "legal_counsel": "Legal Counsel",
-    "legal & ip": "Legal Counsel",
-    "finance": "Finance",
-    "finance & tax": "Finance",
-    "procurement": "Procurement",
-    "compliance": "Compliance",
-    "quality & compliance": "Compliance",
-    "privacy / dpo": "Compliance",
-    "executive": "Executive",
-}
+def approval_target(db: Session, *, org_id: str, cfg: dict, request: IntakeRequest | None) -> dict:
+    """Who an Approval step asks. The step itself decides — there are no routing
+    rules or lookup tables. "Specific person" / "The requester" name one user;
+    otherwise the step's team (``config.team_id``, from Admin → Teams), where
+    "All members must approve" makes every member's approval required. No team
+    and no person: nobody, and submitting says the step has no approver.
+
+    The designer saves the person as ``assignee_user_id``; approvals used to read
+    only ``approver_user_id``, so a named approver was silently ignored."""
+    assign_by = (cfg.get("assign_by") or "").lower()
+    person = cfg.get("assignee_user_id") or cfg.get("approver_user_id")
+    if "requester" in assign_by and request is not None:
+        person = request.requester_user_id
+    if person and ("specific" in assign_by or "requester" in assign_by or cfg.get("approver_user_id")):
+        return {"approver_user_id": person, "approver_team_id": None, "approver_role": None, "mode": "any"}
+    team = cfg.get("team_id")
+    if team:
+        found = db.get(IntakeTeam, team)
+        team = found.id if found is not None and found.org_id == org_id else None
+    return {"approver_user_id": None, "approver_team_id": team, "approver_role": None,
+            "mode": "all" if "all members" in assign_by else "any"}
 
 
-def _flow_role_group(db: Session, *, org_id: str, role: str | None):
-    """The approver group a flow's role token stands for. Library tokens like
-    "gc" are not product roles, so a rung routed to them could never be decided."""
-    from app.approvals.models import ApproverGroup
+def planned_approvals(db: Session, *, org_id: str, steps: list, request: IntakeRequest) -> list[dict]:
+    """The Approval steps a request will actually run — its skip rules and
+    "run only when" conditions applied, as the engine applies them — each with
+    the approver it will ask. Used to preview approvals before they start."""
+    return [
+        {"step_name": st.get("name") or "Approval",
+         **approval_target(db, org_id=org_id, cfg=st.get("config") or {}, request=request)}
+        for st in steps
+        if (st or {}).get("type") == "approval" and _skip_reason(st, request) is None
+    ]
 
-    name = _FLOW_ROLE_GROUP.get(str(role or "").strip().lower())
-    if not name:
-        return None
-    return db.scalar(select(ApproverGroup).where(ApproverGroup.org_id == org_id, ApproverGroup.name == name))
 
 # Registered AI agents for ai_task steps: maps the ported library's agent keys
 # (github.com/Letscode82/aegis) AND our own ids/short names onto an intake
@@ -207,18 +211,150 @@ def _validate_condition(cond: dict, step_name: str) -> None:
         )
 
 
+def _used_for(criteria: dict | None) -> list[tuple[str, str]]:
+    """The workflow's "Used for" entries as (form key, agreement_type) —
+    agreement_type lowercased, "" meaning any agreement type on that form."""
+    out = []
+    for e in (criteria or {}).get("used_for") or []:
+        if isinstance(e, dict) and e.get("form"):
+            out.append((str(e["form"]), str(e.get("agreement_type") or "").strip().lower()))
+    return out
+
+
+def _used_for_rank(criteria: dict | None, request: IntakeRequest) -> int | None:
+    """2 = this request's form AND its agreement-type answer, 1 = its form (any
+    agreement type), None = not used for it."""
+    fv = request.field_values or {}
+    form_of_request = fv.get("request_form")
+    if not form_of_request:
+        return None
+    answer = str(fv.get("agreement_type") or "").strip().lower()
+    best = None
+    for form, agreement in _used_for(criteria):
+        if form != form_of_request:
+            continue
+        if not agreement:
+            best = max(best or 0, 1)
+        elif agreement == answer:
+            best = 2
+    return best
+
+
+# "Chosen when" conditions on a workflow: {field, op, value[, value2][, currency]}.
+CHOOSE_OPS = ("is", "is_not", "under", "at_least", "between", "within_days")
+_AMOUNT_OPS = ("under", "at_least", "between")
+# A date question: "Needed by is within 7 days" of the day the request is routed.
+_DATE_OPS = ("within_days",)
+# "value" means the request's money figure, whichever form asked it.
+_VALUE_KEYS = ("value", "new_value", "renew_value")
+
+
+def _answer(fv: dict, field: str):
+    if field == "value":
+        return next((fv[k] for k in _VALUE_KEYS if fv.get(k) not in (None, "")), None)
+    return fv.get(field)
+
+
+def conditions_hold(conditions: list | None, request: IntakeRequest) -> bool:
+    """Every condition holds for this request. A question left blank never
+    holds, so a request with no value can't slip into a low-value workflow; an
+    amount in another currency than the condition's doesn't hold either."""
+    fv = request.field_values or {}
+    for c in conditions or []:
+        have = _answer(fv, c.get("field", ""))
+        if have in (None, "", []):
+            return False
+        op = c.get("op")
+        if op in _DATE_OPS:
+            from datetime import date
+
+            try:
+                days = (date.fromisoformat(str(have)[:10]) - utcnow().date()).days
+                ok = days <= int(c["value"])  # a date already past is the most urgent of all
+            except (TypeError, ValueError, KeyError):
+                return False
+        elif op in _AMOUNT_OPS:
+            if (c.get("currency") or settings.default_currency) != (fv.get("currency") or settings.default_currency):
+                return False
+            try:
+                amount, lo = float(str(have).replace(",", "")), float(c["value"])
+            except (TypeError, ValueError, KeyError):
+                return False
+            ok = (amount < lo if op == "under" else amount >= lo if op == "at_least"
+                  else lo <= amount < float(c.get("value2") or 0))
+        else:
+            picked = have if isinstance(have, list) else [have]
+            ok = (c.get("value") in picked) == (op == "is")
+        if not ok:
+            return False
+    return True
+
+
+def used_for_clash(db: Session, *, org_id: str, criteria: dict | None, exclude_id: str | None = None) -> str | None:
+    """Name of another enabled workflow with the same agreement type AND the
+    same conditions — two such workflows could never be told apart. Different
+    conditions are fine: that is how one type gets several workflows."""
+    mine = (set(_used_for(criteria)), _conditions_key(criteria))
+    if not mine[0]:
+        return None
+    for f in db.scalars(select(Workflow).where(Workflow.org_id == org_id, Workflow.enabled.is_(True))).all():
+        if f.id != exclude_id and mine[0] & set(_used_for(f.criteria)) and _conditions_key(f.criteria) == mine[1]:
+            return f.name
+    return None
+
+
+def _conditions_key(criteria: dict | None) -> str:
+    import json
+
+    return json.dumps(sorted((criteria or {}).get("conditions") or [], key=lambda c: json.dumps(c, sort_keys=True)),
+                      sort_keys=True)
+
+
+def _enabled_flows(db: Session, org_id: str) -> list[Workflow]:
+    return db.scalars(
+        select(Workflow).where(Workflow.org_id == org_id, Workflow.enabled.is_(True)).order_by(Workflow.eval_order.asc())
+    ).all()
+
+
+def _pick_used_for(flows: list[Workflow], request: IntakeRequest) -> Workflow | None:
+    """Of the workflows for this request's type, the one whose conditions all
+    hold. If several do: one for this kind of agreement beats one for the whole
+    form, then the one with more conditions, then the lowest priority order."""
+    ranked = []
+    for f in flows:
+        rank = _used_for_rank(f.criteria, request)
+        conditions = (f.criteria or {}).get("conditions") or []
+        if rank is not None and conditions_hold(conditions, request):
+            ranked.append(((rank, len(conditions)), f))
+    return max(ranked, key=lambda rf: rf[0])[1] if ranked else None  # max keeps the first: lowest eval_order
+
+
+def flow_used_for(db: Session, *, request: IntakeRequest) -> Workflow | None:
+    """The workflow set up for this request's type whose conditions it meets —
+    an admin's explicit choice, which no guess (word match or AI) may override."""
+    return _pick_used_for(_enabled_flows(db, request.org_id), request)
+
+
 def select_flow(db: Session, *, request: IntakeRequest) -> Workflow | None:
-    """First enabled flow (lowest eval_order) whose criteria match. An empty
-    criteria dict matches everything, so a high-eval_order catch-all is the
-    default workflow. A request for a document only picks a flow that drafts one,
-    so a DPA to draft can't land in the privacy-incident flow because both say "DPA"."""
+    """The workflow for this request.
+
+    A form request only ever gets a workflow set up for its agreement type
+    whose conditions it meets; if none fits it gets none and waits for a person
+    to pick (no word match, no catch-all — a request must never land on a
+    workflow by accident). Requests without a form (email, chat) keep the older
+    word criteria: first enabled untyped flow (lowest eval_order) whose words
+    match, an empty criteria dict matching everything. A request for a document
+    only picks a flow that drafts one, so a DPA to draft can't land in the
+    privacy-incident flow because both say "DPA"."""
     from app.intake.drafting import resolve_doc_type
 
+    flows = _enabled_flows(db, request.org_id)
+    if (request.field_values or {}).get("request_form"):
+        return _pick_used_for(flows, request)
     wants_document = resolve_doc_type(request) is not None
-    flows = db.scalars(
-        select(Workflow).where(Workflow.org_id == request.org_id, Workflow.enabled.is_(True)).order_by(Workflow.eval_order.asc())
-    ).all()
     for f in flows:
+        if _used_for(f.criteria):
+            continue  # typed workflows are only for their form's requests
         if wants_document and not any((st or {}).get("type") == "clm_draft" for st in (f.steps or [])):
             continue
         if _matches(f.criteria, request):
@@ -365,6 +501,21 @@ async def start_flow(
     return await advance_run(db, run=run, actor=actor)
 
 
+async def start_flow_for_contract(
+    db: Session, *, actor, contract, flow: Workflow | None = None, request_id: str | None = None
+) -> WorkflowRun:
+    """Every contract gets a workflow — including one uploaded straight into the CLM,
+    which has no request. File one for it, then start the workflow on it with the
+    contract attached (its draft step is skipped: the document exists)."""
+    from app.intake.service import file_request_for_contract
+
+    run = get_run_for_contract(db, contract_id=contract.id, org_id=contract.org_id)
+    if run is not None and run.status in ("running", "waiting"):
+        return run
+    request = file_request_for_contract(db, actor=actor, contract=contract)
+    return await start_flow(db, actor=actor, request=request, flow=flow, request_id=request_id)
+
+
 def _record_step_finding(run: WorkflowRun, step: dict, sr: WorkflowStepRun | None) -> None:
     """Aggregate each completed step's result into a run-level BRIEF — the shared
     "what the agents have established" trace that flows across the whole workflow.
@@ -405,6 +556,15 @@ def _record_step_finding(run: WorkflowRun, step: dict, sr: WorkflowStepRun | Non
     run.context = ctx  # reassign so the JSON column change is detected
 
 
+def _apply_change_request(db: Session, *, run: WorkflowRun, actor) -> None:
+    """A finished amendment / renewal / termination / novation changes its contract."""
+    from app.intake.drafting import apply_change_request
+
+    request = db.get(IntakeRequest, run.request_id) if run.request_id else None
+    if request is not None:
+        apply_change_request(db, request=request, actor_id=actor.id if actor else None)
+
+
 async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
     """Walk steps until one must wait, the flow completes, or a step fails."""
     guard = 0
@@ -421,6 +581,7 @@ async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
                 details={"flow_run_id": run.id},
             )
             _finalize_intake_if_approved(db, run=run, actor=actor)
+            _apply_change_request(db, run=run, actor=actor)
             break
         # Execute every not-yet-terminal step in the current parallel group (a
         # size-1 group is a plain sequential step). The group holds the run until
@@ -484,16 +645,15 @@ def _finalize_intake_if_approved(db: Session, *, run: WorkflowRun, actor) -> Non
     # M2: only finalize when an approval step actually RAN and cleared. Checking
     # the flow *definition* for an approval step (the old behavior) let a
     # `skip_when` rule that skips the approval step auto-approve the request — but
-    # a skipped step never created its Tier-0 gate rungs (litigation, sensitive-
-    # data, …), so that would approve with zero sign-off, bypassing a mandatory
-    # gate. Require a real, cleared (or no-rungs-needed) approval step-run.
+    # a skipped step asked nobody, so that would approve with zero sign-off.
+    # Require a real, cleared (or no-rungs-needed) approval step-run.
     approval_srs = [s for s in _step_runs(db, run) if s.step_type == "approval"]
     if not approval_srs:
         return
     if not any(s.status in ("done", "complete") for s in approval_srs):
         logger.warning(
             "intake flow completed with its approval step skipped/unresolved — NOT "
-            "auto-approving (a skip_when rule likely bypassed a Tier-0 gate)",
+            "auto-approving (a skip_when rule likely skipped the approval)",
             extra={"flow_run_id": run.id, "request_id": run.request_id},
         )
         return
@@ -517,17 +677,9 @@ def _ai_agent_failed(sr: WorkflowStepRun | None, exc: Exception, label: str) -> 
     return "wait"
 
 
-def _resolve_role_team(db: Session, *, org_id: str, role: str) -> IntakeTeam | None:
-    """Best-effort map a flow step's approver_role token onto an intake team pool
-    (by key, then by name substring), so a step that names a group actually routes
-    to it."""
-    r = (role or "").strip().lower()
-    if not r:
-        return None
-    team = db.scalar(select(IntakeTeam).where(IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True), func.lower(IntakeTeam.key) == r))
-    if team:
-        return team
-    return db.scalar(select(IntakeTeam).where(IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True), func.lower(IntakeTeam.name).like(f"%{r}%")))
+def _team_name(db: Session, team_id: str | None) -> str | None:
+    team = db.get(IntakeTeam, team_id) if team_id else None
+    return team.name if team else None
 
 
 def _team_head(db: Session, team_id: str) -> str | None:
@@ -546,17 +698,17 @@ def _team_head(db: Session, team_id: str) -> str | None:
 def _assign_step(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dict) -> None:
     """Route a human step per its "pick the person by" strategy (config.assign_by):
     the requester, the team head, a specific named person, or — the default —
-    the least-loaded member of the team the approver_role resolves to. Always
-    falls back to the request's owner so a step is never assigned to nobody."""
+    the step's team (``config.team_id``) shares it by its own rule (fewest open
+    items / taking turns). Always falls back to the request's owner so a step is
+    never assigned to nobody."""
     from app.intake.teams import pick_from_pool
 
-    role = cfg.get("approver_role") or cfg.get("assignee_role")
     assign_by = (cfg.get("assign_by") or "").lower()
     user_id = cfg.get("assignee_user_id")
     team_id = cfg.get("team_id")
-    if not team_id and role:
-        team = _resolve_role_team(db, org_id=run.org_id, role=role)
-        team_id = team.id if team else None
+    if team_id:
+        team = db.get(IntakeTeam, team_id)
+        team_id = team.id if team is not None and team.org_id == run.org_id else None
     req = db.get(IntakeRequest, run.request_id)
 
     # Honor the "pick the person by" strategy before the default balancer.
@@ -575,27 +727,39 @@ def _assign_step(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dic
             if pick:
                 user_id = pick.user_id
         except Exception:  # a balancer hiccup must not wedge the step
-            logger.warning("flow %s: pool pick failed for team %s", run.flow_name, team_id, exc_info=True)
+            logger.warning("flow %s: team pick failed for team %s", run.flow_name, team_id, exc_info=True)
     if not user_id:
         user_id = req.assigned_to_user_id if req else None
     sr.assignee_user_id = user_id
     sr.team_id = team_id
-    if role or assign_by:
-        sr.result = {**(sr.result or {}), "role": role, "assign_by": cfg.get("assign_by")}
+    if assign_by:
+        sr.result = {**(sr.result or {}), "assign_by": cfg.get("assign_by")}
 
 
 def _assign_escalation(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, cfg: dict) -> None:
     """An AI step that stopped for a human lands in a real person's queue: someone on
-    the escalation role's team (else the request's owner), who is told about it."""
+    the step's team (else the request's owner), who is told about it."""
     from app.notifications.models import Notification
 
-    _assign_step(db, run=run, sr=sr, cfg={"approver_role": cfg.get("escalate_role") or cfg.get("approver_role")})
+    _assign_step(db, run=run, sr=sr, cfg={"team_id": cfg.get("team_id")})
     if sr.assignee_user_id:
         db.add(Notification(
             org_id=run.org_id, user_id=sr.assignee_user_id, channel="in_app", event_type="workflow.step_escalated",
             subject=f"Needs your review: {sr.step_name}",
             body=sr.note or f'"{sr.step_name}" in {run.flow_name} was escalated to you.', status="sent",
         ))
+
+
+def _commit_before_slow_work(db: Session) -> None:
+    """Commit what this request has written so far before an AI call or a draft.
+
+    write_audit_log holds an app-wide advisory lock until the transaction ends,
+    and starting or advancing a run has already written audit rows. Holding that
+    across a model call froze every writer in the app for as long as the call
+    took (2026-09-29: repeated "Start workflow" clicks on requests whose first
+    step is an AI review queued behind one another). The run's progress up to
+    here is complete and safe to persist."""
+    db.commit()
 
 
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
@@ -611,6 +775,8 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
             if sr:
                 sr.status = "skipped"; sr.note = reason
             return "advance"
+
+    _enter_step_stage(db, run=run, step=step, actor=actor)
 
     if t == "notify":
         write_timeline_event(
@@ -636,6 +802,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         if sr is not None and sr.status != "running":
             sr.status = "running"
             return "yield"
+        _commit_before_slow_work(db)
         # Run the configured agent best-effort. If it's a registered intake
         # agent (incl. the ported library's agent keys), run the deterministic
         # classifier for a real confidence; otherwise try it as an AI skill.
@@ -725,32 +892,6 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                             "outside_counsel_likely": assessment.get("outside_counsel_likely"),
                             "summary": assessment.get("summary"),
                         })
-                elif mapped == "vendor_agent":
-                    # Sanctions/conflict screening (intake/screening.py) is a real
-                    # watchlist + relationship check, not an LLM judgment call — an
-                    # LLM guessing at sanctions hits would be the wrong tool here.
-                    # It already ran synchronously at intake time and is sitting on
-                    # the request; reuse it rather than replace it with a regex
-                    # category guess that never looked at any of this.
-                    screening = request.screening if isinstance(request.screening, dict) else None
-                    if screening and screening.get("status") == "done":
-                        sanctions = screening.get("sanctions") or {}
-                        conflicts = screening.get("conflicts") or []
-                        s_status = sanctions.get("status")
-                        high_conflict = any(c.get("severity") == "high" for c in conflicts)
-                        if s_status == "hit" or high_conflict:
-                            vconf = 0.1  # a real hit or high-severity conflict always escalates
-                        elif s_status == "unavailable":
-                            vconf = 0.2  # unscreened is never "clear" — escalate, don't guess
-                        else:
-                            vconf = 0.95
-                        real = (vconf, {
-                            "agent": mapped, "source": "screening", "confidence": vconf,
-                            "counterparty": screening.get("counterparty"),
-                            "sanctions_status": s_status,
-                            "sanctions_matches": sanctions.get("matches"),
-                            "conflicts": conflicts[:5],
-                        })
                 elif mapped == "privacy_agent":
                     # Unlike litigation/vendor, there's no pre-computed signal to
                     # reuse here — this domain gets a genuine, purpose-built skill
@@ -811,7 +952,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
             # not "did the review pass?" -- never let it clear the step.
             if sr:
                 sr.status = "waiting_human"
-                who = cfg.get("escalate_role") or "a human"
+                who = _team_name(db, cfg.get("team_id")) or "a human"
                 base = f"No analysis ran for this step (only a keyword match) -- escalated to {who}"
                 detail = (sr.result or {}).get("note") if isinstance(sr.result, dict) else None
                 sr.note = f"{base} ({detail})" if detail else base
@@ -821,7 +962,7 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         if thr is not None and conf is not None and conf < thr:
             if sr:
                 sr.status = "waiting_human"
-                base = f"AI confidence {conf} < {thr} — escalated to {cfg.get('escalate_role') or 'a human'}"
+                base = f"AI confidence {conf} < {thr} — escalated to {_team_name(db, cfg.get('team_id')) or 'a human'}"
                 # A branch may have already left a more specific explanation in
                 # sr.result (e.g. "risk score not ready in time" for the contract
                 # review fallback) — surface it instead of only the generic number.
@@ -830,7 +971,15 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
             return "wait"
         return "advance"
 
+    if t == "clm_draft" and run.contract_id:
+        # The document already exists (uploaded, or drafted before a send-back):
+        # nothing to draft.
+        if sr:
+            sr.status = "skipped"; sr.note = "The contract already exists — nothing to draft."
+        return "advance"
+
     if t == "clm_draft":
+        _commit_before_slow_work(db)
         # The requester's chosen path (from the intake form) decides HOW the
         # document is produced: fast-lane uses the standard template; "custom"
         # routes to an attorney to draft fresh (no template); "attach" waits for
@@ -871,22 +1020,15 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         return "advance"
 
     if t == "approval":
+        req = db.get(IntakeRequest, run.request_id)
+        target = approval_target(db, org_id=run.org_id, cfg=cfg, request=req)
         if not run.contract_id:
             # No contract yet (litigation / notice / regulatory / employment /
             # board matters): gate the intake REQUEST through the shared ladder
-            # rather than silently skipping. Its routing rules + Tier-0 gates
-            # decide the rungs; the flow role token maps to a functional group
-            # as the decidable fallback.
+            # rather than silently skipping.
             from app.intake.approval_bridge import submit_request_for_approval
 
-            req = db.get(IntakeRequest, run.request_id)
-            group = _flow_role_group(db, org_id=run.org_id, role=cfg.get("approver_role"))
-            reqs = await submit_request_for_approval(
-                db, actor=actor, request=req,
-                approver_group_id=group.id if group else None,
-                approver_role=None if group else (cfg.get("approver_role") or None),
-                routing_rule_id=cfg.get("routing_rule_id") or None,
-            )
+            reqs = await submit_request_for_approval(db, actor=actor, request=req, **target)
             if not reqs:
                 if sr:
                     sr.note = "No approval rungs required — skipped."
@@ -898,14 +1040,8 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         contract = _get_contract(db, run.contract_id)
         _advance_contract_to(db, contract=contract, target="approval", actor=actor, reason=f"workflow: {run.flow_name}")
         from app.approvals.service import submit_contract_for_approval
-        role = cfg.get("approver_role") or "legal_counsel"
-        group = _flow_role_group(db, org_id=run.org_id, role=role)
         await submit_contract_for_approval(
-            db, user=actor, contract=contract, contract_version_id=None,
-            approver_user_id=cfg.get("approver_user_id"),
-            approver_group_id=group.id if group else None,
-            approver_role=None if group else role,
-            routing_rule_id=cfg.get("routing_rule_id") or None,
+            db, user=actor, contract=contract, contract_version_id=None, **target,
         )
         if sr:
             sr.status = "waiting_job"
@@ -1157,6 +1293,8 @@ async def refresh_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
         return run
     outcome = _resolve_waiting_group(db, run=run, steps=steps)
     if outcome == "failed":
+        if _send_back_after_rejection(db, run=run, steps=steps, actor_user_id=actor.id if actor else None):
+            return await advance_run(db, run=run, actor=actor)
         _fail_run_after_rejection(db, run=run, actor_user_id=actor.id if actor else None)
         db.commit()
         return run
@@ -1168,6 +1306,78 @@ async def refresh_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
         run.status = "running"
         return await advance_run(db, run=run, actor=actor)
     return run
+
+
+def _rework_target(db: Session, *, run: WorkflowRun, steps: list) -> int | None:
+    """Where a rejected approval (or a signature pulled back) sends the workflow:
+    the step's own "send back to" setting, else the last Review step before it
+    that actually ran, else any earlier Review step, else Drafting. None when the
+    workflow has no earlier Review/Drafting step to fix things in."""
+    start = run.current_index
+    failed = next((sr.idx for sr in _step_runs(db, run)
+                   if start <= sr.idx < _group_end(steps, start) and sr.status == "failed"), start)
+    rt = ((steps[failed] or {}).get("config") or {}).get("return_to")
+    if isinstance(rt, int) and 0 <= rt < start:
+        return rt
+    ran = {sr.idx for sr in _step_runs(db, run) if sr.status in ("done", "complete")}
+    earlier = range(start - 1, -1, -1)
+    for want in (lambda j: _stage_of(steps, j) == "review" and j in ran,
+                 lambda j: _stage_of(steps, j) == "review",
+                 lambda j: _stage_of(steps, j) == "drafting"):
+        j = next((j for j in earlier if want(j)), None)
+        if j is not None:
+            return j
+    return None
+
+
+def _stage_of(steps: list, j: int) -> str:
+    return (steps[j] or {}).get("stage") or "review"
+
+
+def _rejection_note(db: Session, *, run: WorkflowRun) -> str:
+    """The approver's reason, from the latest rejection on this contract or request."""
+    from app.approvals.models import ApprovalDecision, ApprovalRequest
+
+    on = (ApprovalRequest.contract_id == run.contract_id if run.contract_id
+          else ApprovalRequest.intake_request_id == run.request_id)
+    d = db.scalars(
+        select(ApprovalDecision).join(ApprovalRequest, ApprovalDecision.approval_request_id == ApprovalRequest.id)
+        .where(on, ApprovalDecision.decision == "reject").order_by(ApprovalDecision.decided_at.desc())
+    ).first()
+    return d.comment.strip() if d is not None and d.comment and d.comment.strip() else "no reason given"
+
+
+def _send_back_after_rejection(db: Session, *, run: WorkflowRun, steps: list, actor_user_id: str | None) -> bool:
+    """A rejected approval sends the workflow back to Review to fix what the approver
+    raised; the steps from there on run again, approval included. The contract is
+    already back in Review (the approval / signature subsystem moved it). False
+    when there is nowhere to send it — the caller then stops the run as before."""
+    from app.auth.models import User
+
+    to_idx = _rework_target(db, run=run, steps=steps)
+    if to_idx is None:
+        return False
+    from_idx = run.current_index
+    for sr in _step_runs(db, run):
+        if sr.idx >= to_idx:
+            sr.status = "pending"
+    actor = db.get(User, actor_user_id) if actor_user_id else None
+    note = f"Sent back to Review — {(steps[from_idx] or {}).get('name', 'approval')} was rejected: {_rejection_note(db, run=run)}"
+    add_run_comment(db, run=run, actor=actor, idx=to_idx, text=note, kind="return")
+    run.current_index = to_idx
+    run.status = "running"
+    run.error = None
+    write_timeline_event(
+        db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+        event_type="flow.returned", title=f"Rejected — back to “{steps[to_idx].get('name', 'step')}”",
+        actor_user_id=actor_user_id, details={"flow_run_id": run.id, "to_idx": to_idx, "note": note},
+    )
+    write_audit_log(
+        db, action="workflow.step_returned", resource_type="workflow_run", resource_id=run.id,
+        org_id=run.org_id, actor_user_id=actor_user_id,
+        after={"from_idx": from_idx, "to_idx": to_idx, "note": note, "cause": "rejected"},
+    )
+    return True
 
 
 def _fail_run_after_rejection(db: Session, *, run: WorkflowRun, actor_user_id: str | None) -> None:
@@ -1255,6 +1465,9 @@ def advance_flow_for_contract(db: Session, *, contract, actor_user_id: str | Non
         return
     outcome = _resolve_waiting_group(db, run=run, steps=steps)
     if outcome == "failed":
+        if _send_back_after_rejection(db, run=run, steps=steps, actor_user_id=actor_user_id):
+            _schedule_resume()
+            return
         _fail_run_after_rejection(db, run=run, actor_user_id=actor_user_id)
         return
     if outcome == "wait":
@@ -1301,6 +1514,21 @@ def _get_contract(db: Session, contract_id: str):
     return c
 
 
+def _enter_step_stage(db: Session, *, run: WorkflowRun, step: dict, actor) -> None:
+    """A Drafting or Review step starting brings its contract to that stage, so the
+    contract's lifecycle follows the workflow. Approval and Signature steps move it
+    in their own branches; Active is reached only by signing. Forward only — going
+    back is a send-back's job."""
+    stage = step.get("stage")
+    if not run.contract_id or stage not in ("drafting", "review"):
+        return
+    contract = _get_contract(db, run.contract_id)
+    now = (contract.lifecycle_stage or "intake").lower()
+    if now in _STAGE_ORDER and _STAGE_ORDER.index(now) < _STAGE_ORDER.index(stage):
+        _advance_contract_to(db, contract=contract, target=stage, actor=actor,
+                             reason=f"workflow: {run.flow_name} · {step.get('name') or stage}")
+
+
 def _advance_contract_to(db: Session, *, contract, target: str, actor, reason: str):
     """Walk the contract forward one allowed lifecycle edge at a time up to
     `target` (never past SIGNATURE — reaching ACTIVE is the signature subsystem's
@@ -1345,8 +1573,11 @@ def create_flow(db: Session, *, actor, payload: dict) -> Workflow:
         name=payload["name"], description=payload.get("description"),
         enabled=payload.get("enabled", True), is_builtin=False,
         eval_order=payload.get("eval_order", 100), version=1,
-        criteria=payload.get("criteria") or {}, steps=_clean_steps(payload.get("steps") or []),
+        criteria=_clean_criteria(db, actor.org_id, payload.get("criteria")),
+        steps=_clean_steps(payload.get("steps") or []),
     )
+    if f.enabled:
+        _refuse_clash(db, f)
     db.add(f); db.commit(); db.refresh(f)
     return f
 
@@ -1364,9 +1595,11 @@ def update_flow(
         if k in payload and payload[k] is not None:
             setattr(flow, k, payload[k])
     if "criteria" in payload:
-        flow.criteria = payload["criteria"] or {}
+        flow.criteria = _clean_criteria(db, flow.org_id, payload["criteria"])
     if "steps" in payload:
         flow.steps = _clean_steps(payload["steps"] or [])
+    if flow.enabled:
+        _refuse_clash(db, flow)
     flow.version = (flow.version or 1) + 1
     flow.updated_by_user_id = actor.id
     write_audit_log(
@@ -1376,6 +1609,87 @@ def update_flow(
     )
     db.commit(); db.refresh(flow)
     return flow
+
+
+def _clean_criteria(db: Session, org_id: str, criteria: dict | None) -> dict:
+    """Keep only real "Used for" entries: one of the agreement forms, and at most
+    one entry per (form, agreement type)."""
+    from app.intake.agreement_forms import form_defs
+
+    c = dict(criteria or {})
+    if "used_for" not in c:
+        return c
+    if {e[0] for e in _used_for(c)} - {f["key"] for f in form_defs()}:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Used for names a form that doesn't exist.")
+    seen, entries = set(), []
+    for e in c.get("used_for") or []:
+        if not isinstance(e, dict) or not e.get("form"):
+            continue
+        agreement = str(e.get("agreement_type") or "").strip() or None
+        key = (e["form"], (agreement or "").lower())
+        if key not in seen:
+            seen.add(key)
+            entries.append({"form": e["form"], "agreement_type": agreement})
+    c["used_for"] = entries
+    c["conditions"] = _clean_conditions(c.get("conditions"), entries)
+    return c
+
+
+def _clean_conditions(conditions, used_for: list[dict]) -> list[dict]:
+    """"Chosen when" conditions, checked: a real operator, numbers where an
+    amount is compared, and only on a question the workflow's form asks — a
+    condition on a question the form never asks could never be met."""
+    from app.intake.agreement_forms import form_def
+
+    if not conditions:
+        return []
+    if not used_for:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick an agreement type before adding conditions.")
+    kinds = {f["key"]: f.get("kind") for f in (form_def(used_for[0]["form"]) or {}).get("fields", [])}
+    asked = set(kinds)
+    out = []
+    for c in conditions:
+        field, op = str(c.get("field") or ""), str(c.get("op") or "")
+        if op not in CHOOSE_OPS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown condition '{op}'.")
+        if field != "value" and field not in asked:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"This form doesn't ask '{field}'.")
+        if field == "value" and not asked & set(_VALUE_KEYS):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This form doesn't ask a value.")
+        cond = {"field": field, "op": op, "value": c.get("value")}
+        if (op in _DATE_OPS) != (kinds.get(field) == "date"):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                "'Within days' is for date questions, and a date question needs it.")
+        if op in _DATE_OPS:
+            try:
+                cond["value"] = int(c.get("value"))
+                if cond["value"] < 0:
+                    raise ValueError
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                    "Days must be a whole number, 0 or more.") from exc
+        elif op in _AMOUNT_OPS:
+            try:
+                cond["value"] = float(str(c.get("value")).replace(",", ""))
+                if op == "between":
+                    cond["value2"] = float(str(c.get("value2")).replace(",", ""))
+                    if cond["value2"] <= cond["value"]:
+                        raise ValueError
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                                    "Amounts must be numbers, and a range must go from low to high.") from exc
+            cond["currency"] = c.get("currency") or settings.default_currency
+        elif not str(c.get("value") or "").strip():
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick an answer for each condition.")
+        out.append(cond)
+    return out
+
+
+def _refuse_clash(db: Session, flow: Workflow) -> None:
+    other = used_for_clash(db, org_id=flow.org_id, criteria=flow.criteria, exclude_id=flow.id)
+    if other:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            f"“{other}” is already used for that request — each can pick only one workflow.")
 
 
 def _clean_steps(steps: list) -> list:
@@ -1394,6 +1708,8 @@ def _clean_steps(steps: list) -> list:
         # the first step can't be parallel (nothing to pair with).
         if s.get("parallel") and i > 0:
             step["parallel"] = True
+        if s.get("stage"):
+            step["stage"] = s["stage"]
         # A run-only-when condition (the designer's "only when X"): keep only a
         # well-formed {field, op, value} so the executor can evaluate it.
         cond = s.get("cond")
@@ -1409,6 +1725,14 @@ def _clean_steps(steps: list) -> list:
             if isinstance(rule, dict) and rule.get("field"):
                 _validate_condition(rule, step["name"])
         out.append(step)
+    # Every step sits under a lifecycle stage (workflows/stages.py): fill in any
+    # the designer left out, then refuse an order the lifecycle can't follow.
+    from app.workflows import stages
+
+    stages.infer(out)
+    bad = stages.problems(out)
+    if bad:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, " ".join(bad[:3]))
     return out
 
 
@@ -1420,16 +1744,42 @@ def serialize_flow(f: Workflow) -> dict:
     }
 
 
+def _authority_notes(db: Session, run: WorkflowRun, cfgs: list) -> dict[int, str]:
+    """Per approval step: the authority it needs and how many of its approvers
+    hold it (see authority_limits / Admin → Authority). Empty while no authority
+    policy exists — then nobody is limited."""
+    from app.authority.service import approval_authority_note
+    from app.intake.teams import member_users
+
+    idxs = [i for i, c in enumerate(cfgs) if (c or {}).get("type") == "approval"]
+    if not idxs:
+        return {}
+    request = db.get(IntakeRequest, run.request_id)
+    contract = _get_contract(db, run.contract_id) if run.contract_id else None
+    out = {}
+    for i in idxs:
+        t = approval_target(db, org_id=run.org_id, cfg=(cfgs[i] or {}).get("config") or {}, request=request)
+        ids = [t["approver_user_id"]] if t["approver_user_id"] else [
+            u.id for u in member_users(db, team_id=t["approver_team_id"], org_id=run.org_id)]
+        note = approval_authority_note(db, org_id=run.org_id, user_ids=ids, contract=contract)
+        if note:
+            out[i] = note
+    return out
+
+
 def serialize_run(db: Session, run: WorkflowRun) -> dict:
     from app.auth.models import User
 
     srs = _step_runs(db, run)
     # Resolve the labels the UI needs (who / which team) in two batched lookups.
     uids = {s.assignee_user_id for s in srs if s.assignee_user_id}
-    tids = {s.team_id for s in srs if s.team_id}
+    cfgs = list(run.steps or [])
+    # A step that hasn't started has no team yet; show the one its workflow names.
+    planned = {i: ((c.get("config") or {}).get("team_id")) for i, c in enumerate(cfgs)}
+    tids = {s.team_id for s in srs if s.team_id} | {t for t in planned.values() if t}
     users = {u.id: (u.full_name or u.email) for u in db.scalars(select(User).where(User.id.in_(uids))).all()} if uids else {}
     teams = {t.id: t.name for t in db.scalars(select(IntakeTeam).where(IntakeTeam.id.in_(tids))).all()} if tids else {}
-    cfgs = list(run.steps or [])
+    authority = _authority_notes(db, run, cfgs)
     return {
         "id": run.id, "request_id": run.request_id, "flow_id": run.flow_id, "flow_name": run.flow_name,
         "status": run.status, "current_index": run.current_index, "contract_id": run.contract_id,
@@ -1443,10 +1793,13 @@ def serialize_run(db: Session, run: WorkflowRun) -> dict:
                 "assignee_user_id": s.assignee_user_id,
                 "assignee_label": users.get(s.assignee_user_id) if s.assignee_user_id else None,
                 "team_id": s.team_id, "team_label": teams.get(s.team_id) if s.team_id else None,
-                "role": (cfgs[s.idx].get("config") or {}).get("approver_role") if s.idx < len(cfgs) else None,
+                "planned_team_label": teams.get(planned.get(s.idx)) if planned.get(s.idx) else None,
+                "authority_note": authority.get(s.idx),
+                "sla_hours": ((cfgs[s.idx].get("config") or {}).get("sla_hours") if s.idx < len(cfgs) else None),
                 "note": s.note, "result": s.result,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 "parallel": bool(cfgs[s.idx].get("parallel")) if s.idx < len(cfgs) else False,
+                "stage": cfgs[s.idx].get("stage") if s.idx < len(cfgs) else None,
                 "cond": cfgs[s.idx].get("cond") if s.idx < len(cfgs) else None,
             }
             for s in srs

@@ -21,7 +21,6 @@ from app.ai.tool_registry import (
     AddCommentInput,
     AdvanceContractStageInput,
     AdvanceIntakeWorkflowInput,
-    ApprovalSubmitInput,
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
@@ -42,8 +41,6 @@ from app.ai.tool_registry import (
     ListNoticesInput,
     ListObligationsInput,
     ListRenewalsInput,
-    MatterContractsInput,
-    MatterRef,
     NoticeRef,
     PlaybookToolInput,
     PromptRunInput,
@@ -60,7 +57,6 @@ from app.ai.tool_registry import (
     tool_registry,
 )
 from app.approvals.models import ApprovalRequest
-from app.approvals.service import submit_contract_for_approval
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
 from app.contract_brain.retrieval import assemble_context
@@ -96,8 +92,6 @@ from app.integrations.resend import resend_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
 from app.obligations.models import Obligation
 from app.playbooks.models import Playbook, PlaybookVersion
 from app.playbooks.service import execute_playbook_run, get_playbook_for_user, select_run_version
@@ -323,8 +317,6 @@ class ToolRuntime:
             return self._read_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "find_in_contract":
             return self._find_in_contract(db, payload=payload, user=user, session_id=session_id)
-        if tool_name == "list_project_contracts":
-            return self._list_project_contracts(db, payload=payload, user=user)
         if tool_name == "get_contract_status":
             return self._get_contract_status(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_workflows":
@@ -359,8 +351,6 @@ class ToolRuntime:
             )
         if tool_name == "ask_contract_brain":
             return await self._ask_contract_brain(db, payload=payload, user=user, session_id=session_id)
-        if tool_name == "submit_for_approval":
-            return await self._submit_for_approval(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "send_for_signature":
             return await self._send_for_signature(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "extract_obligations":
@@ -412,8 +402,6 @@ class ToolRuntime:
             return self._list_renewals(db, payload=payload, user=user)
         if tool_name == "list_my_requests":
             return self._list_my_requests(db, user=user)
-        if tool_name == "list_projects":
-            return self._list_projects(db, user=user)
         if tool_name == "complete_task":
             return self._complete_task(db, payload=payload, user=user)
         if tool_name == "get_signature_status":
@@ -422,8 +410,6 @@ class ToolRuntime:
             return self._advance_contract_stage(db, payload=payload, user=user)
         if tool_name == "list_my_approvals":
             return self._list_my_approvals(db, user=user)
-        if tool_name == "read_project":
-            return self._read_project(db, payload=payload, user=user)
         if tool_name == "read_notice":
             return self._read_notice(db, payload=payload, user=user)
         return {"status": "feature_not_enabled", "tool": tool_name}
@@ -719,14 +705,6 @@ class ToolRuntime:
             "status": r.status, "stage": r.stage,
         } for r in rows[:25]]}
 
-    def _list_projects(self, db: Session, *, user: User) -> dict[str, Any]:
-        from app.matters.models import Matter
-
-        rows = db.scalars(
-            select(Matter).where(Matter.org_id == user.org_id).order_by(Matter.created_at.desc())
-        ).all()
-        return {"count": len(rows), "projects": [{"id": p.id, "name": p.name} for p in rows[:50]]}
-
     def _complete_task(self, db: Session, *, payload: CompleteTaskInput, user: User) -> dict[str, Any]:
         from app.intake.schemas import TaskUpdateReq
         from app.intake.service import update_task
@@ -776,14 +754,6 @@ class ToolRuntime:
         return {"count": len(rows), "approvals": [{
             "id": a.id, "contract_id": a.contract_id, "intake_request_id": a.intake_request_id,
         } for a in rows[:25]]}
-
-    def _read_project(self, db: Session, *, payload: MatterRef, user: User) -> dict[str, Any]:
-        from app.matters.models import Matter
-
-        p = db.get(Matter, payload.matter_id)
-        if p is None or p.org_id != user.org_id:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "Matter not found")
-        return {"id": p.id, "name": p.name, "description": p.description, "type": p.matter_type}
 
     def _read_notice(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
         from app.notices.service import get_notice
@@ -845,34 +815,6 @@ class ToolRuntime:
             matches.append({"start_char": start, "end_char": end, "excerpt": text[excerpt_start:excerpt_end]})
             start = lower_text.find(query, end)
         return {"contract_id": contract.id, "query": payload.query, "matches": matches}
-
-    def _list_project_contracts(self, db: Session, *, payload: MatterContractsInput, user: User) -> dict[str, Any]:
-        get_project_for_user(db, matter_id=payload.matter_id, user=user)
-        contract_ids = db.scalars(
-            select(MatterContract.contract_id).where(
-                MatterContract.org_id == user.org_id,
-                MatterContract.matter_id == payload.matter_id,
-            )
-        ).all()
-        contracts = db.scalars(
-            select(Contract).where(
-                Contract.org_id == user.org_id,
-                Contract.id.in_(contract_ids),
-                accessible_contract_filter(user),
-            )
-        ).all() if contract_ids else []
-        return {
-            "matter_id": payload.matter_id,
-            "contracts": [
-                {
-                    "contract_id": contract.id,
-                    "title": contract.title,
-                    "lifecycle_stage": contract.lifecycle_stage,
-                    "risk_level": contract.risk_level,
-                }
-                for contract in contracts
-            ],
-        }
 
     # --- Spec A: read-only portfolio tools ---
     def _my_attention_items(self, db: Session, *, payload: AttentionItemsInput, user: User) -> dict[str, Any]:
@@ -1184,8 +1126,6 @@ class ToolRuntime:
         payload: GenerateContractInput,
         user: User,
     ) -> dict[str, Any]:
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=user, access="update")
         # Draft the real contract with the AI skill. Fall back to a structured
         # skeleton only if the skill is unavailable or returns nothing usable,
         # so the tool never hard-fails mid-conversation.
@@ -1282,16 +1222,6 @@ class ToolRuntime:
         contract_file.current_version_id = version.id
         contract.current_contract_file_id = contract_file.id
         contract.current_authoritative_version_id = version.id
-        if payload.matter_id:
-            db.add(
-                MatterContract(
-                    org_id=user.org_id,
-                    matter_id=payload.matter_id,
-                    contract_id=contract.id,
-                    created_by_user_id=user.id,
-                    updated_by_user_id=user.id,
-                )
-            )
         write_audit_log(
             db,
             action="assistant.contract_generated",
@@ -1313,7 +1243,7 @@ class ToolRuntime:
             event_type="assistant.contract_generated",
             title="Assistant generated contract",
             actor_user_id=user.id,
-            details={"contract_version_id": version.id, "matter_id": payload.matter_id},
+            details={"contract_version_id": version.id},
         )
         queued_jobs = _queue_initial_contract_jobs(
             db, user=user, contract=contract, version=version, snapshot=snapshot
@@ -1950,8 +1880,6 @@ class ToolRuntime:
             contract_id = contract.id
         if payload.query_scope == "contract" and not contract_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=user)
         # The Brain page's retrieval, off the event loop (DB queries plus an embedding call).
         context = await run_in_threadpool(
             assemble_context,
@@ -1960,7 +1888,6 @@ class ToolRuntime:
             question=payload.question,
             scope=payload.query_scope,
             contract_id=contract_id,
-            matter_id=payload.matter_id,
         )
         source_text = context["context_text"]
         # Grounded answer — the SAME engine the Brain page uses. Retrieve (incl.
@@ -1996,31 +1923,6 @@ class ToolRuntime:
             "total_citations": grounded["total_citations"],
             "graph_fact_count": len(context["graph_facts"]),
             "source_count": context["source_count"],
-        }
-
-    async def _submit_for_approval(
-        self,
-        db: Session,
-        *,
-        payload: ApprovalSubmitInput,
-        user: User,
-        session_id: str,
-    ) -> dict[str, Any]:
-        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
-        requests = await submit_contract_for_approval(
-            db,
-            user=user,
-            contract=contract,
-            contract_version_id=contract.current_authoritative_version_id,
-            approver_user_id=payload.approver_user_id,
-            approver_role=payload.approver_role,
-        )
-        db.flush()
-        return {
-            "status": "submitted",
-            "contract_id": contract.id,
-            "approval_request_ids": [approval.id for approval in requests],
-            "approval_count": len(requests),
         }
 
     async def _send_for_signature(
@@ -2172,17 +2074,6 @@ class ToolRuntime:
             )
             contract_ids.append(contract.id)
         contract_ids = list(dict.fromkeys(contract_ids))
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=user)
-            if not contract_ids:
-                contract_ids = list(
-                    db.scalars(
-                        select(MatterContract.contract_id).where(
-                            MatterContract.org_id == user.org_id,
-                            MatterContract.matter_id == payload.matter_id,
-                        )
-                    ).all()
-                )
         if not contract_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
         for contract_id in contract_ids:
@@ -2190,7 +2081,6 @@ class ToolRuntime:
         review = TabularReview(
             org_id=user.org_id,
             name=payload.name,
-            matter_id=payload.matter_id,
             source_contract_ids=contract_ids,
             status="running",
             created_by_user_id=user.id,

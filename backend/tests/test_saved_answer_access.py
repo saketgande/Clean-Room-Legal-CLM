@@ -11,7 +11,7 @@ from app.contract_brain.models import BrainQuery
 def _saved(**fields):
     base = dict(
         id="q-1", org_id="org-1", query_scope="portfolio", question="Who caps liability?",
-        contract_id=None, matter_id=None,
+        contract_id=None,
         answer="Acme caps liability at fees paid; Globex caps it at $5M.",
         citations=[{"quote": "fees paid"}],
         retrieval_metadata={
@@ -64,5 +64,6 @@ def test_visibility_is_decided_in_the_query_not_after_the_limit():
     sql = str(condition.compile(dialect=postgresql.dialect()))
 
     assert "brain_query.created_by_user_id" in sql
-    assert "brain_query.contract_id IN" in sql and "brain_query.matter_id IN" in sql
+    assert "brain_query.contract_id IN" in sql
+    assert "matter" not in sql  # matters are gone; nothing can widen visibility through one
     assert "ethical_wall" in sql  # walls are part of the condition, for admins too

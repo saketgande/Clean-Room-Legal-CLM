@@ -40,7 +40,7 @@ def _run_skill_step(monkeypatch, confidence):
             "config": {"skill": "custom_review_skill", "escalate_role": "legal", "escalate_below_confidence": 0.7}}
     sr = SimpleNamespace(status="running", note=None, result=None, updated_at=None)
     run = SimpleNamespace(id="run-1", org_id="org-1", request_id="req-1", contract_id=None, flow_name="Review")
-    outcome = asyncio.run(service._execute_step(SimpleNamespace(get=lambda *_: request), run=run, step=step, sr=sr,
+    outcome = asyncio.run(service._execute_step(SimpleNamespace(get=lambda *_: request, commit=lambda: None), run=run, step=step, sr=sr,
                                                 actor=SimpleNamespace(id="u-1")))
     return outcome, sr
 

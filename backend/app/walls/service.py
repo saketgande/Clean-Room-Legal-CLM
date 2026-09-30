@@ -19,17 +19,16 @@ including on the RAG retrieval path, which funnels through the same predicates.
 from __future__ import annotations
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import Role, User
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
-from app.matters.models import Matter, MatterContract
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 
-SCOPE_TYPES = {"contract", "project"}
+SCOPE_TYPES = {"contract"}
 PRINCIPAL_TYPES = {"user", "role"}
 
 
@@ -55,25 +54,7 @@ def _principal_match_sql(user: User):
 
 def _wall_covers_contract_sql():
     """Correlated on the outer ``Contract``: does this wall's scope cover the row?"""
-    contract_scope = and_(
-        EthicalWall.scope_type == "contract", EthicalWall.scope_id == Contract.id
-    )
-    # A contract reaches a matter two ways: the canonical Contract.matter_id (set
-    # when it's filed under a matter) and the older MatterContract link. Cover
-    # both, or a contract filed the canonical way escapes a project-scoped wall.
-    project_scope = and_(
-        EthicalWall.scope_type == "project",
-        or_(
-            Contract.matter_id == EthicalWall.scope_id,
-            exists(
-                select(MatterContract.id).where(
-                    MatterContract.matter_id == EthicalWall.scope_id,
-                    MatterContract.contract_id == Contract.id,
-                )
-            ),
-        ),
-    )
-    return or_(contract_scope, project_scope)
+    return and_(EthicalWall.scope_type == "contract", EthicalWall.scope_id == Contract.id)
 
 
 def wall_block_filter(user: User):
@@ -94,29 +75,15 @@ def wall_block_filter(user: User):
 
 def user_is_walled(db: Session, *, user: User, contract: Contract) -> bool:
     """Row check: is the user sealed off from this specific contract by an active
-    ethical wall (scoped to the contract, or to a project it belongs to)?"""
-    project_ids = [
-        pc.matter_id
-        for pc in db.scalars(
-            select(MatterContract).where(MatterContract.contract_id == contract.id)
-        ).all()
-    ]
-    if getattr(contract, "matter_id", None):
-        project_ids.append(contract.matter_id)
-    scope_conds = [
-        and_(EthicalWall.scope_type == "contract", EthicalWall.scope_id == contract.id)
-    ]
-    if project_ids:
-        scope_conds.append(
-            and_(EthicalWall.scope_type == "project", EthicalWall.scope_id.in_(project_ids))
-        )
+    ethical wall scoped to the contract?"""
     hit = db.scalar(
         select(EthicalWallPrincipal.id)
         .join(EthicalWall, EthicalWall.id == EthicalWallPrincipal.wall_id)
         .where(
             EthicalWall.active.is_(True),
             EthicalWall.org_id == user.org_id,
-            or_(*scope_conds),
+            EthicalWall.scope_type == "contract",
+            EthicalWall.scope_id == contract.id,
             _principal_match_sql(user),
         )
         .limit(1)
@@ -130,9 +97,6 @@ def _scope_label(db: Session, scope_type: str, scope_id: str) -> str | None:
     if scope_type == "contract":
         c = db.get(Contract, scope_id)
         return c.title if c else None
-    if scope_type == "project":
-        p = db.get(Matter, scope_id)
-        return p.name if p else None
     return None
 
 
@@ -181,12 +145,8 @@ def list_walls(db: Session, *, org_id: str, include_inactive: bool = True) -> li
 def _validate_scope(db: Session, *, org_id: str, scope_type: str, scope_id: str) -> None:
     if scope_type not in SCOPE_TYPES:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid scope_type")
-    if scope_type == "contract":
-        c = db.get(Contract, scope_id)
-        ok = c is not None and c.org_id == org_id
-    else:
-        p = db.get(Matter, scope_id)
-        ok = p is not None and p.org_id == org_id
+    c = db.get(Contract, scope_id)
+    ok = c is not None and c.org_id == org_id
     if not ok:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Walled resource not found")
 

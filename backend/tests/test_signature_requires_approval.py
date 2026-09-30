@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-import app.models  # noqa: F401  (register every mapper, e.g. ApproverGroup -> User)
+import app.models  # noqa: F401  (register every mapper)
 from app.contracts import lifecycle, stage_triggers
 from app.core.enums import ApprovalStatus
 

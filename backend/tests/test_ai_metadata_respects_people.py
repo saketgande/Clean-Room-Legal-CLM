@@ -50,6 +50,14 @@ def test_ai_refreshes_a_value_it_wrote_itself():
     assert contract.contract_type == "Master Services Agreement"
 
 
+def test_ai_never_overwrites_a_value_the_request_form_stated():
+    """The form's INR value was replaced by the model's USD reading of the draft."""
+    contract = _contract(value_amount=4500000, currency="INR",
+                         metadata_json={"field_sources": {"value_amount": "form", "currency": "form"}})
+    _extract(contract, value_amount=54000, currency="USD")
+    assert (contract.value_amount, contract.currency) == (4500000, "INR")
+
+
 class _NoopDB:
     def commit(self):
         pass

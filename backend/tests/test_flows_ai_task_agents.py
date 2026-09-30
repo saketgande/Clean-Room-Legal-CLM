@@ -64,25 +64,6 @@ def test_ai_task_step_only_trusts_litigation_confidence_from_a_real_model_call()
     assert degraded_conf < 0.7
 
 
-def test_ai_task_step_reuses_real_screening_and_never_treats_unscreened_as_clear():
-    """vendor_agent must reuse the real sanctions/conflict screening that already
-    ran at intake time (intake/screening.py) instead of an LLM/regex guess — and
-    must never treat an unscreened ("unavailable") vendor as safe to auto-advance,
-    matching screening.py's own documented safety posture."""
-    source = inspect.getsource(_execute_step)
-
-    assert 'mapped == "vendor_agent"' in source
-    vendor_branch = source.split('mapped == "vendor_agent"', 1)[1].split("if real:", 1)[0]
-
-    assert "request.screening" in vendor_branch
-    assert 's_status == "hit" or high_conflict' in vendor_branch
-
-    # "unavailable" gets its own low-confidence branch — it must not fall through
-    # to the "clear" (0.95) case.
-    unavailable_branch = vendor_branch.split('s_status == "unavailable"', 1)[1].split("else:", 1)[0]
-    assert "vconf = 0.2" in unavailable_branch
-
-
 def test_ai_task_step_waits_for_the_real_risk_score_before_falling_back():
     """contract_review_agent must use the genuine weighted risk score
     (contracts/risk.py) once the background clause-extraction + risk job has

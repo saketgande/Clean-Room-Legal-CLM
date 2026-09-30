@@ -1,9 +1,7 @@
 """The shape every OCR provider returns.
 
-Vendor-neutral on purpose: Reducto and Databricks both produce one of these, so
-contract_files.service can swap providers without knowing which ran. It lived
-in reducto.py originally, which made the Databricks client look as though it
-depended on Reducto — it never did.
+Vendor-neutral on purpose, so contract_files.service and docstudio can loop
+over providers without knowing which ran. Reducto is the only one today.
 """
 
 from __future__ import annotations

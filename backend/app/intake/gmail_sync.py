@@ -204,11 +204,10 @@ def sync_gmail_inbox(db: Session) -> dict:
                         if triage.get("category") != "General":
                             thread_request.ai_triage = {
                                 **(thread_request.ai_triage or {}),
-                                **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")},
+                                **{k: v for k, v in triage.items() if k != "type_label"},
                             }
                         if triage.get("type_label"):
                             thread_request.type_label = triage["type_label"]
-                            thread_request.request_type_id = triage.get("request_type_id")
                         write_audit_log(
                             db, action="intake.ingest.gmail_email.thread_followup",
                             resource_type="intake_request", resource_id=thread_request.id,
@@ -255,10 +254,9 @@ def sync_gmail_inbox(db: Session) -> dict:
                     if r:
                         if triage.get("category") != "General":
                             r.ai_triage = {**(r.ai_triage or {}),
-                                           **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")}}
+                                           **{k: v for k, v in triage.items() if k != "type_label"}}
                         if triage.get("type_label"):
                             r.type_label = triage["type_label"]
-                            r.request_type_id = triage.get("request_type_id")
                         if thread_id:
                             r.field_values = {**(r.field_values or {}), "gmail_thread_id": thread_id}
                         db.commit()

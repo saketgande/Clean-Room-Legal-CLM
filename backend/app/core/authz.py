@@ -11,14 +11,22 @@ behavior change.
 
 ``record_decision`` writes on its OWN short-lived session so it is isolated
 from (and survives the rollback of) the request transaction that a 403
-aborts.
+aborts — and on a background thread, because the write takes the audit-chain
+advisory lock. A request that had already written an audit row still holds
+that lock until it commits; writing inline, it waited on its own lock forever
+and every other audit writer queued behind it (the whole app froze,
+2026-09-28). Off-thread, the row simply lands once the request finishes.
 """
 
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger(__name__)
+
+
+_WRITER = ThreadPoolExecutor(max_workers=2, thread_name_prefix="authz-audit")
 
 
 def record_decision(
@@ -34,6 +42,14 @@ def record_decision(
     """Append an access-decision row to the immutable audit log, on an isolated
     session so it persists even when the request transaction is rolled back by a
     403. Best-effort: a logging failure must never change the access outcome."""
+    _WRITER.submit(_write_decision, org_id=getattr(user, "org_id", None),
+                   user_id=getattr(user, "id", None), action=action, outcome=outcome,
+                   resource_type=resource_type, resource_id=resource_id, reason=reason,
+                   request_id=request_id)
+
+
+def _write_decision(*, org_id, user_id, action, outcome, resource_type, resource_id,
+                    reason, request_id) -> None:
     from app.core.audit import write_audit_log
     from app.core.database import SessionLocal
 
@@ -44,8 +60,8 @@ def record_decision(
             action=f"access.{outcome}",
             resource_type=resource_type or "authz",
             resource_id=resource_id,
-            org_id=getattr(user, "org_id", None),
-            actor_user_id=getattr(user, "id", None),
+            org_id=org_id,
+            actor_user_id=user_id,
             request_id=request_id,
             metadata={
                 "permission": action,

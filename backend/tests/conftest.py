@@ -15,7 +15,7 @@ Two things matter here:
 * The mocks are FORCED on, not defaulted. The documented way to run the suite is
   ``docker compose exec backend pytest``, and the dev container exports
   ``MOCK_CLAUDE=false`` with real API keys — ``setdefault`` would let every test
-  run spend real Claude/Databricks calls.
+  run spend real Claude/Reducto calls.
 
 pydantic-settings resolves env vars (``os.environ``) ahead of the ``.env``
 file, so values set here also override anything stale in a local ``.env``.
@@ -24,7 +24,7 @@ file, so values set here also override anything stale in a local ``.env``.
 import os
 
 os.environ.setdefault("ENVIRONMENT", "test")
-for _mock in ("MOCK_CLAUDE", "MOCK_DATABRICKS", "MOCK_DOCUSIGN", "MOCK_REDUCTO", "MOCK_RESEND"):
+for _mock in ("MOCK_CLAUDE", "MOCK_DOCUSIGN", "MOCK_REDUCTO", "MOCK_RESEND"):
     os.environ[_mock] = "true"
 # Forced off for the same reason the mocks are forced on: the dev container
 # exports DISABLE_RBAC=true, and inheriting it would make every permission
@@ -37,6 +37,10 @@ os.environ["DISABLE_RBAC"] = "false"
 # anything they don't name — so inheriting it made them fail in-container while
 # passing in CI. Pin the production value.
 os.environ["INTAKE_DEMO_AGENTS"] = "false"
+# Same leak again: the dev container turns the Word editor on with its published
+# local secret, which the production-config tests rightly refuse. CI has no
+# editor; tests that need one switch it on themselves (test_word_editor.py).
+os.environ.pop("ONLYOFFICE_URL", None)
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm",

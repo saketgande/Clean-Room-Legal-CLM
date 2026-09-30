@@ -101,11 +101,7 @@ def test_the_background_job_extracts_text_and_moves_the_contract_to_review(monke
     async def extracted(**kwargs):
         return uploads._ExtractedText(method="pdf_text", text="1. Term. One year.", quality_score=0.9, page_map=None)
 
-    async def no_metadata(db, **kwargs):
-        return None
-
     monkeypatch.setattr(uploads, "_resolve_extracted_text", extracted)
-    monkeypatch.setattr(uploads, "_fill_contract_metadata", no_metadata)
     monkeypatch.setattr(uploads, "_persist_document_elements", lambda db, snapshot, elements: None)
     monkeypatch.setattr(uploads, "_queue_initial_contract_jobs", lambda db, **kw: [])
     monkeypatch.setattr(uploads, "_dispatch_initial_jobs", lambda db, **kw: ([], []))

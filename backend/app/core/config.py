@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
     db_pool_recycle_seconds: int = 1800
     db_pool_timeout_seconds: int = 30
+    # See database.py: ends a session idle inside a transaction this long (ms).
+    db_idle_transaction_timeout_ms: int = 360_000
 
     secret_key: str = "change-me-before-production"
     access_token_expire_minutes: int = 60
@@ -179,17 +181,10 @@ class Settings(BaseSettings):
 
     reducto_api_key: str | None = None
     mock_reducto: bool = False
+    # Contract currency when a request states none (the agreement forms have no
+    # currency field).
+    default_currency: str = "INR"
 
-    # --- Databricks document extraction ------------------------------------
-    # OCR (ai_parse_document) plus structured field extraction (ai_extract),
-    # reached over the SQL Statement Execution API. Inert until host, token and
-    # warehouse are all set, so the app runs unchanged without them.
-    databricks_host: str | None = None            # https://<workspace>.cloud.databricks.com
-    databricks_token: str | None = None
-    databricks_warehouse_id: str | None = None    # must be a SERVERLESS warehouse
-    databricks_volume: str = "/Volumes/main/legal/contracts"
-    databricks_precision_mode: bool = True        # off for short paper, on for long agreements
-    mock_databricks: bool = False
 
     resend_api_key: str | None = None
     resend_from_email: str = "legal-clm@example.com"
@@ -208,7 +203,18 @@ class Settings(BaseSettings):
     docusign_connect_hmac_key: str | None = None
     mock_docusign: bool = False
 
-    # Legal Intake channel ingestion + screening (all optional; features are
+    # The Word editor in the contract page: ONLYOFFICE Docs, run as its own
+    # service. Off while `onlyoffice_url` (as the browser reaches it) is unset.
+    onlyoffice_url: str | None = None
+    # How the backend reaches the editor, and how the editor reaches the
+    # backend to fetch a file and hand back a saved one.
+    onlyoffice_internal_url: str = "http://onlyoffice"
+    onlyoffice_callback_base_url: str = "http://backend:8000"
+    # Shared with the editor: it signs every callback with it, and trusts only
+    # configs signed with it.
+    onlyoffice_jwt_secret: str | None = None
+
+    # Legal Intake channel ingestion (all optional; features are
     # inert until configured). Webhook auth fails CLOSED in production.
     intake_webhook_secret: str | None = None
     intake_teams_secret: str | None = None
@@ -382,6 +388,14 @@ def validate_runtime_settings(settings: Settings) -> None:
     # on them is noise that still looks like a real embedding.
     if settings.allow_mock_embeddings:
         problems.append("disable ALLOW_MOCK_EMBEDDINGS (writes meaningless vectors)")
+    # With the editor on, this secret is all that makes a save callback
+    # trustworthy; the local default is published in docker-compose.override.yml.
+    if settings.onlyoffice_url and (
+        not settings.onlyoffice_jwt_secret
+        or settings.onlyoffice_jwt_secret == "aegis-dev-onlyoffice-secret-local-only"
+        or len(settings.onlyoffice_jwt_secret) < 32
+    ):
+        problems.append("set a real ONLYOFFICE_JWT_SECRET (32+ chars) or unset ONLYOFFICE_URL")
     # The not-production-ready gate in intake/agents.py is a no-op while this is
     # on, so a demo agent added later would reach real tenants by default.
     if settings.intake_demo_agents:

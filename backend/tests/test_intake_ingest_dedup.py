@@ -145,7 +145,7 @@ def test_requests_without_a_key_are_not_deduped_against_each_other(db_session):
 
     payload = SimpleNamespace(
         source="form", requester_name=owner.email, department=None,
-        request_type_id=None, type_label="Other", subject="No key",
+        type_label="Other", subject="No key",
         description="filed twice", field_values=None, priority="Medium",
     )
     first = service.create_request(db_session, actor=owner, payload=payload)

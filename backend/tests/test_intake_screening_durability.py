@@ -1,4 +1,4 @@
-"""Conflicts and sanctions screening must survive the things that kill it.
+"""The intake relationship-check job must survive the things that kill it.
 
 It used to run inline after the request had already been committed, inside a
 try/except that wrote `{"status": "error"}` and stopped. Two ways a request

@@ -14,7 +14,6 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.database import utcnow
 from app.core.enums import ContractLifecycleStage, ObligationStatus
-from app.matters.access import get_project_for_user
 from app.obligations.models import Obligation
 from app.search.fts import (
     clause_vector,
@@ -313,7 +312,6 @@ def resolve_scope_contract_ids(
     user: User,
     scope: str,
     contract_id: str | None,
-    matter_id: str | None,
 ) -> list[str]:
     """Permission-aware contract id set for the requested scope."""
     if scope == "contract":
@@ -326,12 +324,6 @@ def resolve_scope_contract_ids(
         Contract.deleted_at.is_(None),
         accessible_contract_filter(user),
     )
-    if scope == "project":
-        if not matter_id:
-            return []
-        get_project_for_user(db, matter_id=matter_id, user=user)
-        # One matter -> many contracts: filter by the canonical contract.matter_id.
-        base = base.where(Contract.matter_id == matter_id)
     return list(db.scalars(base).all())
 
 
@@ -364,7 +356,6 @@ def aggregate_answer(
     question: str,
     scope: str,
     contract_id: str | None,
-    matter_id: str | None,
 ) -> dict | None:
     """Answer a plain count/list-of-contracts question from the database. Returns
     None for anything else, so content questions still go through retrieval."""
@@ -375,12 +366,11 @@ def aggregate_answer(
         return None
 
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope=scope, contract_id=contract_id, matter_id=matter_id
+        db, user=user, scope=scope, contract_id=contract_id
     )
     n = len(contract_ids)
     label = {
         "portfolio": "portfolio",
-        "project": "project",
         "contract": "selected contract",
     }.get(scope, "portfolio")
 
@@ -900,14 +890,13 @@ def assemble_context(
     question: str,
     scope: str,
     contract_id: str | None,
-    matter_id: str | None,
 ) -> dict:
     """The assistant's Contract Brain context: the same hybrid retrieval and the
     same text block the Brain page grounds its answers in, so the two surfaces
     can't disagree. A question nothing matches gets an empty context (and a
     "not found" answer), never a filler slice of unrelated clauses."""
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope=scope, contract_id=contract_id, matter_id=matter_id
+        db, user=user, scope=scope, contract_id=contract_id
     )
     sources = hybrid_sources(
         db, org_id=user.org_id, contract_ids=contract_ids, question=question, user=user

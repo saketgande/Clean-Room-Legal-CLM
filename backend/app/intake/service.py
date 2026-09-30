@@ -44,11 +44,7 @@ from app.intake.constants import (
 )
 from app.intake.models import (
     IntakeHandoff,
-    IntakeKbArticle,
     IntakeRequest,
-    IntakeRequestField,
-    IntakeRequestType,
-    IntakeRoutingRule,
     IntakeTask,
     IntakeTeam,
 )
@@ -73,9 +69,8 @@ def _user_label(db: Session, uid: str | None) -> str | None:
     return (u.full_name or u.email) if u else uid
 
 
-def stages_for(rtype: IntakeRequestType | None) -> list[str]:
-    mid = (rtype.stages if rtype and rtype.stages else None) or SPINE_DEFAULT_MID
-    return SPINE_HEAD + list(mid) + SPINE_TAIL
+def stages_for() -> list[str]:
+    return SPINE_HEAD + list(SPINE_DEFAULT_MID) + SPINE_TAIL
 
 
 def _iso(dt) -> str | None:
@@ -121,21 +116,41 @@ def posture(r: IntakeRequest, now=None) -> str:
 
 # --- workflow derivation (serializer-only, never stored) -------------------
 
-def _workflow(r: IntakeRequest, rtype: IntakeRequestType | None) -> list[dict]:
-    stages = stages_for(rtype)
-    cur = r.stage if r.stage in stages else stages[0]
-    idx = stages.index(cur)
-    steps = []
-    for i, s in enumerate(stages):
-        steps.append(
-            {
-                "label": STAGE_LABELS.get(s, s.replace("-", " ").replace("_", " ").title()),
-                "stage": s,
-                "done": i < idx or r.stage == "complete",
-                "active": i == idx and r.stage != "complete",
-            }
-        )
-    return steps
+_LIFECYCLE = ("intake", "drafting", "review", "approval", "signature", "active", "closed")
+
+
+def _latest_run(db: Session, r: IntakeRequest):
+    """The request's most recent workflow run (prefetched for lists)."""
+    if hasattr(r, "_latest_run"):
+        return r._latest_run
+    from app.workflows.models import WorkflowRun
+
+    return db.scalars(select(WorkflowRun).where(WorkflowRun.request_id == r.id)
+                      .order_by(WorkflowRun.created_at.desc())).first()
+
+
+def _workflow(r: IntakeRequest, run) -> list[dict]:
+    """Where the request really is: the lifecycle stages its workflow run passes
+    through, with the current step's stage active. It used to be a request-status
+    spine (new → assigned → review → complete) that nothing advanced once the
+    workflow engine ran, so every request showed "New · 0/4" for its whole life.
+    No run yet → no stages (the list shows the recommended workflow instead)."""
+    if run is None:
+        return []
+    steps = list(run.steps or [])
+    used = {s.get("stage") for s in steps if s.get("stage")}
+    stages = [st for st in _LIFECYCLE if st == "intake" or st in used]
+    finished = run.status == "complete"
+    current = steps[min(run.current_index, len(steps) - 1)] if steps and not finished else None
+    cur_stage = (current or {}).get("stage") or "intake"
+    idx = len(stages) if finished else stages.index(cur_stage) if cur_stage in stages else 0
+    out = []
+    for i, st in enumerate(stages):
+        label = st.title()
+        if i == idx and current:
+            label = f"{label} · {current.get('name')}"
+        out.append({"label": label, "stage": st, "done": i < idx, "active": i == idx and not finished})
+    return out
 
 
 def _contract_title(db: Session, contract_id: str | None) -> str | None:
@@ -148,7 +163,6 @@ def _contract_title(db: Session, contract_id: str | None) -> str | None:
 
 def serialize_request(db: Session, r: IntakeRequest) -> dict:
     from app.intake.screening import gather_parties
-    rtype = db.get(IntakeRequestType, r.request_type_id) if r.request_type_id else None
     return {
         "id": r.id,
         "ref": r.ref,
@@ -156,7 +170,6 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "requester_user_id": r.requester_user_id,
         "requester_name": r.requester_name or _user_label(db, r.requester_user_id),
         "department": r.department,
-        "request_type_id": r.request_type_id,
         "counterparty_id": r.counterparty_id,
         "legal_entity_id": r.legal_entity_id,
         "type_label": r.type_label,
@@ -178,173 +191,17 @@ def serialize_request(db: Session, r: IntakeRequest) -> dict:
         "triaged_by_user_id": r.triaged_by_user_id,
         "triage_action": r.triage_action,
         "ai_triage": r.ai_triage,
-        "gates": _gates_summary(r),
-        "fired_rules": r.fired_rules,
         "screening": r.screening,
-        # Expose the EFFECTIVE parties screening actually uses (structured list,
-        # else the legacy field_values.counterparty), so the Parties panel and
-        # the Screening panel never contradict each other.
+        # The EFFECTIVE parties (structured list, else the legacy
+        # field_values.counterparty), the same set the relationship note uses.
         "parties": gather_parties(r),
         "handoff_holder": r.handoff_holder,
         "handoff_user_id": r.handoff_user_id,
-        "matter_id": r.matter_id,
         "contract_id": r.contract_id,
         "contract_title": _contract_title(db, r.contract_id),
-        "workflow": _workflow(r, rtype),
+        "workflow": _workflow(r, _latest_run(db, r)),
         "created_at": _iso(r.created_at),
     }
-
-
-def _gates_summary(r: IntakeRequest) -> dict:
-    """Tier-0 gates for the UI: what the classifier detected, the human overrides,
-    and the effective set that will force ladder rungs."""
-    from app.intake import gates as gates_mod
-
-    at = r.ai_triage or {}
-    effective = gates_mod.effective_gate_keys(at)
-    return {
-        "detected": at.get("gates", []),
-        "overrides": at.get("gate_overrides", []),
-        "effective": [
-            {"key": g.key, "label": g.label, "approver_group": g.approver_group}
-            for g in gates_mod.effective_gates(at)
-        ],
-        "effective_keys": effective,
-    }
-
-
-# --- request-type CRUD -----------------------------------------------------
-
-def serialize_type(t: IntakeRequestType) -> dict:
-    return {
-        "id": t.id,
-        "key": t.key,
-        "name": t.name,
-        "workstream": t.workstream,
-        "description": t.description,
-        "active": t.active,
-        "stages": t.stages,
-        "sort_order": t.sort_order,
-        "sla_hours": t.sla_hours,
-        "form_key": t.form_key,
-        "fields": [
-            {
-                "key": f.key,
-                "label": f.label,
-                "kind": f.kind,
-                "required": f.required,
-                "sort_order": f.sort_order,
-                "options": f.options,
-            }
-            for f in sorted(t.fields, key=lambda f: f.sort_order)
-        ],
-    }
-
-
-def list_types(db: Session, *, org_id: str, include_inactive: bool = False) -> list[dict]:
-    # The agreement-wizard forms are request types too; make sure this org has
-    # them before listing, so Operations shows them and filed requests link up.
-    from app.intake.agreement_forms import ensure_agreement_types
-
-    ensure_agreement_types(db, org_id)
-    db.commit()
-    q = select(IntakeRequestType).where(IntakeRequestType.org_id == org_id)
-    if not include_inactive:
-        q = q.where(IntakeRequestType.active.is_(True))
-    rows = db.scalars(q.order_by(IntakeRequestType.sort_order, IntakeRequestType.name)).all()
-    return [serialize_type(t) for t in rows]
-
-
-def _apply_fields(db: Session, t: IntakeRequestType, org_id: str, fields) -> None:
-    rows = []
-    seen: set[str] = set()
-    for f in fields:
-        if not _KEY_RE.match(f.key):
-            raise HTTPException(422, f"Invalid field key '{f.key}'")
-        if f.key in seen:
-            raise HTTPException(422, f"Duplicate field key '{f.key}'")
-        seen.add(f.key)
-        rows.append(
-            IntakeRequestField(
-                org_id=org_id, key=f.key, label=f.label, kind=f.kind,
-                required=f.required, sort_order=f.sort_order, options=f.options,
-            )
-        )
-    # Drop the old rows and flush the DELETEs *before* attaching the new ones.
-    # Assigning straight over the collection leaves both sets pending in one
-    # flush, where SQLAlchemy emits the INSERTs first and trips the
-    # (request_type_id, key) unique constraint for any reused key — which is
-    # every edit that isn't a wholesale rename.
-    t.fields.clear()
-    db.flush()
-    t.fields = rows
-
-
-def create_type(db: Session, *, actor: User, payload) -> dict:
-    key = (payload.key or "").strip().lower()
-    if not _KEY_RE.match(key):
-        raise HTTPException(422, "Type key must be lowercase alphanumeric / dash / underscore")
-    if db.scalar(
-        select(IntakeRequestType.id).where(
-            IntakeRequestType.org_id == actor.org_id, IntakeRequestType.key == key
-        )
-    ):
-        raise HTTPException(409, f'A request type "{key}" already exists')
-    t = IntakeRequestType(
-        org_id=actor.org_id, key=key, name=payload.name.strip(),
-        workstream=(payload.workstream or None), description=(payload.description or None),
-        stages=payload.stages or None, sort_order=payload.sort_order,
-        sla_hours=payload.sla_hours,
-        created_by_user_id=actor.id, updated_by_user_id=actor.id,
-    )
-    _apply_fields(db, t, actor.org_id, payload.fields)
-    db.add(t)
-    db.flush()
-    write_audit_log(db, action="intake.request_type.created", resource_type="intake_request_type",
-                    resource_id=t.id, org_id=actor.org_id, actor_user_id=actor.id,
-                    after={"key": t.key, "name": t.name})
-    db.commit()
-    db.refresh(t)
-    return serialize_type(t)
-
-
-def _get_type(db: Session, org_id: str, type_id: str) -> IntakeRequestType:
-    t = db.get(IntakeRequestType, type_id)
-    if t is None or t.org_id != org_id:
-        raise HTTPException(404, "Request type not found")
-    return t
-
-
-def update_type(db: Session, *, actor: User, type_id: str, payload) -> dict:
-    t = _get_type(db, actor.org_id, type_id)
-    for attr in ("name", "workstream", "description", "sort_order", "active", "stages",
-                 "sla_hours"):
-        val = getattr(payload, attr, None)
-        if val is not None:
-            setattr(t, attr, val)
-    # An agreement form's fields belong to the wizard's code; editing them here
-    # would be overwritten on the next sync, so they are left as they are.
-    if payload.fields is not None and not t.form_key:
-        _apply_fields(db, t, actor.org_id, payload.fields)
-    t.updated_by_user_id = actor.id
-    db.flush()
-    write_audit_log(db, action="intake.request_type.updated", resource_type="intake_request_type",
-                    resource_id=t.id, org_id=actor.org_id, actor_user_id=actor.id,
-                    after={"key": t.key})
-    db.commit()
-    db.refresh(t)
-    return serialize_type(t)
-
-
-def delete_type(db: Session, *, actor: User, type_id: str) -> None:
-    t = _get_type(db, actor.org_id, type_id)
-    if t.form_key:
-        raise HTTPException(409, "Agreement forms can't be deleted — deactivate the type instead")
-    write_audit_log(db, action="intake.request_type.deleted", resource_type="intake_request_type",
-                    resource_id=t.id, org_id=actor.org_id, actor_user_id=actor.id,
-                    before={"key": t.key})
-    db.delete(t)  # fields cascade
-    db.commit()
 
 
 # --- transition choke-point ------------------------------------------------
@@ -401,7 +258,7 @@ _TRUE = {"true", "yes", "y", "1", "on"}
 _FALSE = {"false", "no", "n", "0", "off"}
 
 
-def _coerce_field(f: IntakeRequestField, raw):
+def _coerce_field(f, raw):
     """Return ``raw`` as the type the field declares, or raise 422.
 
     Forms post everything as strings, so a `number` arrives as "1500" and a
@@ -444,6 +301,14 @@ def _coerce_field(f: IntakeRequestField, raw):
                 422, f'Field "{f.label}" must be a date in YYYY-MM-DD form'
             ) from exc
 
+    if kind == "multiselect":
+        allowed = [str(o.get("value")) for o in (f.options or []) if isinstance(o, dict)]
+        picked = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
+        bad = [p for p in picked if allowed and str(p) not in allowed]
+        if bad:
+            raise HTTPException(422, f'Field "{f.label}" must be from: {", ".join(allowed)}')
+        return [str(p) for p in picked]
+
     if kind == "select":
         allowed = [
             str(o.get("value")) for o in (f.options or []) if isinstance(o, dict) and "value" in o
@@ -468,8 +333,8 @@ def _coerce_field(f: IntakeRequestField, raw):
 _FIELD_TEXT_MAX = 20_000
 
 
-def _validate_field_values(rtype: IntakeRequestType | None, values: dict | None) -> dict | None:
-    """Enforce what the request type declares, and return the cleaned values.
+def _validate_field_values(fields: list, values: dict | None) -> dict | None:
+    """Enforce what the request's form declares, and return the cleaned values.
 
     Previously this checked required-ness and nothing else, so a `number` field
     accepted "banana" and a `select` accepted any string at all — the form
@@ -477,15 +342,23 @@ def _validate_field_values(rtype: IntakeRequestType | None, values: dict | None)
     those values back (arithmetic, date comparison, filtering by option) was
     working on whatever the caller happened to send.
 
-    Keys the type does not declare are passed through untouched: channel intake
+    Keys the form does not declare are passed through untouched: channel intake
     legitimately stores `channel_from`, `counterparty` and `gmail_thread_id`
     alongside the declared fields, and rejecting them would break email and
     Gmail ingestion.
     """
-    if rtype is None:
+    from app.intake.agreement_forms import shown
+
+    if not fields:
         return values
     cleaned = dict(values or {})
-    for f in rtype.fields:
+    for f in fields:
+        if not shown(f, cleaned):
+            # A question that doesn't apply (an NDA has no value) is neither
+            # required nor kept: a stale answer from an earlier choice would
+            # otherwise reach the contract.
+            cleaned.pop(f.key, None)
+            continue
         raw = cleaned.get(f.key)
         missing = raw is None or (isinstance(raw, str) and not raw.strip())
         if missing:
@@ -522,9 +395,14 @@ def _compute_intake_analysis(db: Session, request: IntakeRequest) -> None:
     else:
         from app.intake import triage_agent
 
-        # Re-run the full context-aware triage; merge so gates/overrides survive.
+        # Re-run the full context-aware triage; merge so earlier keys survive.
         at.update(triage_agent.triage(db, request))
         at.pop("litigation_assessment", None)
+    from app.intake.flow_agent import used_for_suggestion
+
+    set_up = used_for_suggestion(db, request)
+    if set_up:  # the admin's "Used for" choice beats any agent's pick
+        at["flow_suggestion"] = set_up
     request.ai_triage = at  # reassign so SQLAlchemy tracks the JSON mutation
 
 
@@ -565,16 +443,15 @@ def _derive_subject(subject: str | None, description: str | None, type_label: st
 
 
 def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
-                     department: str | None, complexity: str):
+                     department: str | None):
     """The team that should own this request: the one whose expertise covers the
     matter category, narrowed to the team that serves the request's department
-    when there's a match. Falls back to the complexity→tier heuristic when
-    nothing has expertise for the category (so orgs that haven't tagged teams
-    still get an owner)."""
-    from sqlalchemy import func
+    when there's a match. Falls back to the default intake team (Admin → Teams)
+    when nothing has expertise for the category."""
     from sqlalchemy import select as _select
 
-    from app.intake.models import IntakeTeam
+    from app.intake.teams import default_intake_team
+
 
     teams = db.scalars(
         _select(IntakeTeam)
@@ -595,31 +472,26 @@ def _pick_owner_team(db: Session, *, org_id: str, category: str | None,
     if cands:
         return cands[0]  # sort_order wins; pick_from_pool balances members within
 
-    # 3. fallback: complexity → tier
-    key = "tier1" if complexity == "simple" else "tier2"
-    return db.scalar(_select(IntakeTeam).where(
-        IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True), func.lower(IntakeTeam.key) == key))
+    # 3. fallback: the default intake team
+    return default_intake_team(db, org_id=org_id)
 
 
 def _assign_owner_from_triage(db: Session, request: IntakeRequest) -> None:
-    """Auto-assign the request owner from the triage read — replaces the keyword
-    routing rules. Routes by matter-type EXPERTISE and business unit (with
-    complexity→tier as the fallback); pick_from_pool balances by load. Never
+    """Auto-assign the request owner from the triage read. Routes by matter-type EXPERTISE and business unit (with
+    the default intake team as the fallback); pick_from_pool balances by load. Never
     overrides a human decision or an existing assignee; best-effort — no eligible
-    pool means the request just waits in the queue."""
+    team means the request just waits in the queue."""
     if request.triaged_by_user_id or request.triage_action or request.assigned_to_user_id:
         return
     from app.intake import teams as teams_mod
 
     at = request.ai_triage or {}
     category = at.get("category")
-    complexity = at.get("complexity") or "standard"
     department = request.department or (at.get("understanding") or {}).get("business_unit")
-    team = _pick_owner_team(db, org_id=request.org_id, category=category,
-                            department=department, complexity=complexity)
+    team = _pick_owner_team(db, org_id=request.org_id, category=category, department=department)
     if not team:
         return
-    pick = teams_mod.pick_from_pool(db, team_id=team.id)
+    pick = teams_mod.pick_from_pool(db, team_id=team.id, exclude_user_id=request.requester_user_id)
     if pick and pick.user_id:
         request.assigned_to_user_id = pick.user_id
         request.handoff_holder = "human"
@@ -656,6 +528,42 @@ def _maybe_autostart_workflow(db: Session, request: IntakeRequest, actor: User) 
         logging.getLogger(__name__).warning("workflow auto-start failed for %s", request.id, exc_info=True)
 
 
+def file_request_for_contract(db: Session, *, actor: User, contract) -> IntakeRequest:
+    """The request behind a contract uploaded straight into the CLM. Workflows run
+    on requests, so without one an uploaded contract never got a lifecycle, an owner
+    queue or an approval. Reuses the contract's request if it already has one."""
+    existing = db.scalars(select(IntakeRequest).where(
+        IntakeRequest.org_id == contract.org_id, IntakeRequest.contract_id == contract.id,
+    ).order_by(IntakeRequest.submitted_at.desc())).first()
+    if existing is not None:
+        return existing
+    now = utcnow()
+    label = (contract.contract_type or "Uploaded contract").strip()
+    r = IntakeRequest(
+        org_id=contract.org_id, ref=_next_ref(db), source="upload",
+        requester_user_id=actor.id, requester_name=actor.full_name or actor.email,
+        type_label=label[:120], subject=(contract.title or label)[:200],
+        description=f"Uploaded straight into the CLM: {contract.title}",
+        field_values={}, priority="Medium", status="open", stage="new",
+        sla_hours=settings.intake_default_sla_hours,
+        assigned_to_user_id=contract.owner_user_id or actor.id, contract_id=contract.id,
+        parties=[{"name": contract.counterparty_name, "role": "counterparty", "is_person": False}]
+        if contract.counterparty_name else None,
+        submitted_at=now, handoff_holder="human",
+        stage_timestamps=[{"stage": "new", "at": now.isoformat()}],
+        created_by_user_id=actor.id, updated_by_user_id=actor.id,
+    )
+    db.add(r)
+    db.flush()
+    write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
+                    org_id=r.org_id, actor_user_id=actor.id,
+                    after={"ref": r.ref, "type": r.type_label, "contract_id": contract.id, "source": "upload"})
+    write_timeline_event(db, org_id=r.org_id, resource_type="intake_request", resource_id=r.id,
+                         event_type="intake.created", title=f"Filed for uploaded contract “{contract.title}”",
+                         actor_user_id=actor.id, details={"contract_id": contract.id})
+    return r
+
+
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
                    conversation: list | None = None, defer_triage: bool = False,
                    external_message_id: str | None = None) -> dict:
@@ -668,17 +576,12 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     ``uq_intake_request_org_extmsg`` then does the real work — callers catch
     IntegrityError and treat it as "already filed".
     """
-    rtype = None
-    if payload.request_type_id:
-        rtype = _get_type(db, actor.org_id, payload.request_type_id)
-    else:
-        # The agreement wizard identifies its form by `request_form`; resolve it
-        # to the backing request type so its required fields are enforced here
-        # and not only in the browser.
-        from app.intake.agreement_forms import type_for_form
+    # The agreement wizard names its form in `request_form`; its required and
+    # typed fields are enforced here, not only in the browser.
+    from app.intake.agreement_forms import form_fields
 
-        rtype = type_for_form(db, actor.org_id, (payload.field_values or {}).get("request_form"))
-    field_values = _validate_field_values(rtype, payload.field_values)
+    field_values = _validate_field_values(form_fields((payload.field_values or {}).get("request_form")),
+                                          payload.field_values)
     counterparty_id, legal_entity_id = _resolve_party_records(db, actor.org_id, field_values)
     # Check every attached file before anything is saved: a file that is too
     # big or the wrong type must stop the filing, not leave a request behind
@@ -696,14 +599,13 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     r = IntakeRequest(
         org_id=actor.org_id, ref=_next_ref(db), source=payload.source,
         requester_user_id=actor.id, requester_name=payload.requester_name,
-        department=payload.department, request_type_id=(rtype.id if rtype else None),
+        department=payload.department,
         type_label=payload.type_label.strip(),
         subject=_derive_subject(getattr(payload, "subject", None), payload.description, payload.type_label),
         description=payload.description or "",
         field_values=field_values, priority=payload.priority,
         status="open", stage="new",
-        sla_hours=(rtype.sla_hours if rtype and rtype.sla_hours
-                   else settings.intake_default_sla_hours),
+        sla_hours=settings.intake_default_sla_hours,
         external_message_id=external_message_id,
         counterparty_id=counterparty_id, legal_entity_id=legal_entity_id,
         submitted_at=now, handoff_holder="queue", conversation=conversation,
@@ -713,14 +615,12 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     # Context-aware triage first: the AI reads the WHOLE request and decides
     # category/complexity/risk/urgency + the workflow pick, driving the gates,
     # priority and owner below. Falls back to the keyword classifier on failure.
-    cp = (field_values or {}).get("counterparty")
-    # Seed the parties list from the captured counterparty so it's editable and
-    # conflict-screenable; adverse/related parties can be added later.
-    if cp and str(cp).strip():
-        party = {"name": str(cp).strip(), "role": "counterparty", "is_person": False}
-        if counterparty_id:
-            party["counterparty_id"] = counterparty_id
-        r.parties = [party]
+    # Seed the parties list with EVERY party the form captured. Only the first
+    # counterparty used to be added, so a second counterparty or a novation's
+    # incoming party never appeared on the request's parties.
+    seeded = _initial_parties(field_values)
+    if seeded:
+        r.parties = seeded
     if defer_triage:
         r.ai_triage = {"status": "pending"}  # run_intake_triage fills this in the background
     else:
@@ -737,11 +637,10 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
     write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
                          event_type="intake.created", title=f"Request filed — {r.type_label}",
                          actor_user_id=actor.id, request_id=request_id)
-    # Conflicts/sanctions screening is queued HERE, inside the request's own
-    # transaction: if the request exists, its screening job exists. Queued
-    # after the enrichment that used to run it inline, it can no longer be
-    # lost to a crash or swallowed by a bare except.
-    r.screening = {"status": "pending", "note": "Screening queued."}
+    # The relationship-note job is queued HERE, inside the request's own
+    # transaction: if the request exists, its job exists, so it can no longer
+    # be lost to a crash or swallowed by a bare except.
+    r.screening = {"status": "pending", "note": "Relationship check queued."}
     screening_job = queue_screening(db, r, actor.id)
     if defer_triage:
         from app.jobs.service import create_job, dispatch_job
@@ -771,22 +670,18 @@ def create_request(db: Session, *, actor: User, payload, request_id: str | None 
 
 def _apply_ai_triage(db: Session, r: IntakeRequest) -> None:
     """Context-aware triage: the AI reads the WHOLE request and decides category,
-    complexity, risk, urgency and the workflow pick, which drive the gates,
-    priority and owner. Tier-0 hard gates then force senior rungs into the
-    approval ladder (litigation etc. escalate here, before routing runs)."""
-    from app.intake import gates as gates_mod
+    complexity, risk, urgency and the workflow pick, which drive priority and
+    owner."""
     from app.intake import triage_agent
 
     r.ai_triage = triage_agent.triage(db, r)
     _urgency = (r.ai_triage.get("understanding") or {}).get("urgency")
     if _urgency in ("Low", "Medium", "High"):
         r.priority = _urgency
-    r.ai_triage = {**r.ai_triage, "gates": gates_mod.classify_gates(db, r), "gate_overrides": []}
-    gates_mod.apply_gate_side_effects(r)
 
 
 def _assign_and_notify(db: Session, r: IntakeRequest, actor: User) -> None:
-    """Auto-assign the owner from the triage read: complexity picks the tier pool,
+    """Auto-assign the owner from the triage read: expertise picks the team,
     least-loaded within."""
     _assign_owner_from_triage(db, r)
     if r.assigned_to_user_id and r.assigned_to_user_id != actor.id:
@@ -809,7 +704,7 @@ def _enrich_after_commit(db: Session, r: IntakeRequest, actor: User) -> None:
 
 
 def run_intake_triage(db: Session, *, request_id: str, actor_id: str | None) -> None:
-    """The background half of a web-form submission: AI triage, gates, owner
+    """The background half of a web-form submission: AI triage, owner
     assignment, screening and workflow autostart. A no-op once triage has run."""
     r = db.get(IntakeRequest, request_id)
     actor = db.get(User, actor_id) if actor_id else None
@@ -833,6 +728,37 @@ _PARTY_REFS = (
     ("counterparty_id", "counterparty", "counterparty", "counterparty"),
     ("counterparty_2_id", "counterparty_2", "counterparty", "second counterparty"),
 )
+
+
+# (name key, id key, role). Novation's outgoing and remaining parties may be
+# us or them depending on who transfers, so they are recorded as related.
+_FORM_PARTIES = (
+    ("counterparty", "counterparty_id", "counterparty"),
+    ("counterparty_2", "counterparty_2_id", "counterparty"),
+    ("incoming_party", None, "counterparty"),
+    ("outgoing_party", None, "related"),
+    ("remaining_party", None, "related"),
+)
+
+
+def _initial_parties(field_values: dict | None) -> list[dict]:
+    """Every party a filing names, deduped by name (the first counterparty is
+    the primary)."""
+    from app.intake.screening import normalize_party_name
+
+    fv = field_values or {}
+    out, seen = [], set()
+    for name_key, id_key, role in _FORM_PARTIES:
+        name = str(fv.get(name_key) or "").strip()
+        key = normalize_party_name(name) if name else ""
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        party = {"name": name[:255], "role": role, "is_person": False}
+        if id_key and fv.get(id_key):
+            party["counterparty_id"] = fv[id_key]
+        out.append(party)
+    return out
 
 
 def _resolve_party_records(db: Session, org_id: str, field_values: dict | None) -> tuple[str | None, str | None]:
@@ -895,8 +821,8 @@ _PARTY_ROLES = {"counterparty", "adverse", "related", "our_side"}
 
 
 def set_parties(db: Session, *, actor: User, request_id: str, parties: list) -> dict:
-    """Replace a request's parties, then re-run screening so conflicts/relationship
-    reflect the new party set (e.g. an adverse party added to a dispute)."""
+    """Replace a request's parties, then refresh the relationship note so it
+    reflects the new party set."""
     r = get_request(db, user=actor, request_id=request_id)
     clean = []
     for p in parties or []:
@@ -909,15 +835,15 @@ def set_parties(db: Session, *, actor: User, request_id: str, parties: list) -> 
         clean.append({"name": name[:255], "role": role, "is_person": is_person})
     # Persist the explicit list — even when empty. Storing None here would let
     # gather_parties fall back to field_values.counterparty, so a removed party
-    # would keep getting re-screened. [] means "the reviewer cleared the parties".
+    # would keep coming back. [] means "the reviewer cleared the parties".
     r.parties = clean
     write_audit_log(db, action="intake.parties.updated", resource_type="intake_request",
                     resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                     after={"count": len(clean)})
-    # A changed party list must actually re-screen, so this job is deliberately
+    # A changed party list must actually re-run, so this job is deliberately
     # NOT idempotent against the original — folding into it would return the
-    # verdict for the parties the reviewer just replaced.
-    r.screening = {"status": "pending", "note": "Re-screening queued."}
+    # note for the parties the reviewer just replaced.
+    r.screening = {"status": "pending", "note": "Relationship check queued."}
     rescreen_job = queue_screening(db, r, actor.id, idempotent=False)
     db.commit()
     db.refresh(r)
@@ -928,7 +854,7 @@ def set_parties(db: Session, *, actor: User, request_id: str, parties: list) -> 
 
 def queue_screening(db: Session, r: IntakeRequest, actor_id: str | None,
                     *, idempotent: bool = True):
-    """Enqueue conflicts/sanctions screening as a durable job.
+    """Enqueue the relationship check as a durable job.
 
     Screening used to run inline after the request had already been committed,
     in a try/except that wrote ``{"status": "error"}`` and stopped there. Two
@@ -1028,23 +954,30 @@ def list_requests(db: Session, *, user: User, status_filter: str | None = None,
 
 def _prefetch_serialize_dependencies(db: Session, rows: list[IntakeRequest]) -> None:
     """Warm the session identity map so serialize_request's per-row db.get()
-    calls (request type, requester/assignee labels, contract title) hit the
+    calls (requester/assignee labels, contract title) hit the
     map instead of issuing one query per row — this was an N+1 on the main
     Legal Intake queue. Behavior-preserving: serialize_request is unchanged,
     db.get() just becomes a cache hit for anything fetched here."""
     from app.contracts.models import Contract
 
-    type_ids = {r.request_type_id for r in rows if r.request_type_id}
     user_ids = {r.requester_user_id for r in rows if r.requester_user_id} | {
         r.assigned_to_user_id for r in rows if r.assigned_to_user_id
     }
     contract_ids = {r.contract_id for r in rows if r.contract_id}
-    if type_ids:
-        db.scalars(select(IntakeRequestType).where(IntakeRequestType.id.in_(type_ids))).all()
     if user_ids:
         db.scalars(select(User).where(User.id.in_(user_ids))).all()
     if contract_ids:
         db.scalars(select(Contract).where(Contract.id.in_(contract_ids))).all()
+    # Latest workflow run per request, attached to the row so the stage column
+    # doesn't cost one query per request.
+    from app.workflows.models import WorkflowRun
+
+    latest: dict = {}
+    for run in db.scalars(select(WorkflowRun).where(WorkflowRun.request_id.in_([r.id for r in rows]))
+                          .order_by(WorkflowRun.created_at.asc())).all() if rows else []:
+        latest[run.request_id] = run
+    for r in rows:
+        r._latest_run = latest.get(r.id)
 
 
 def get_request(db: Session, *, user: User, request_id: str) -> IntakeRequest:
@@ -1236,16 +1169,56 @@ def record_triage_action(db: Session, *, actor: User, request_id: str, payload,
 
 # --- approval ladder -------------------------------------------------------
 
-def _rung_label(db: Session, *, user_id: str | None, group_id: str | None, role: str | None) -> str:
-    from app.approvals.models import ApproverGroup
-
+def _rung_label(db: Session, *, user_id: str | None, team_id: str | None, role: str | None) -> str:
     if user_id:
         u = db.get(User, user_id)
         return (u.full_name or u.email) if u else user_id
-    if group_id:
-        g = db.get(ApproverGroup, group_id)
-        return g.name if g else (role or "Approver")
+    if team_id:
+        t = db.get(IntakeTeam, team_id)
+        return t.name if t else (role or "Approver")
     return role or "Approver"
+
+
+def preview_approvals(db: Session, *, actor: User, payload) -> dict:
+    """Who will approve and sign a request that hasn't been filed yet — the
+    wizard's "Check Approvers". Builds the request in memory (never saved) and
+    runs the same workflow selection and step conditions filing will, so the
+    answer is the real one, not a guess.
+
+    The owner is not predicted: it is chosen by the AI read of the request,
+    which only runs once it is filed."""
+    from app.intake.teams import member_users
+    from app.parties.models import Counterparty, LegalEntity
+    from app.workflows.service import planned_approvals, select_flow
+
+    fv = dict(payload.field_values or {})
+    r = IntakeRequest(org_id=actor.org_id, type_label=payload.type_label.strip(),
+                      description=payload.description or "", field_values=fv,
+                      priority=payload.priority, department=payload.department)
+    flow = select_flow(db, request=r)
+    approvers = []
+    for t in planned_approvals(db, org_id=actor.org_id, steps=flow.steps or [], request=r) if flow else []:
+        team = t["approver_team_id"]
+        approvers.append({
+            "step_name": t["step_name"],
+            "approver": _rung_label(db, user_id=t["approver_user_id"], team_id=team,
+                                    role=t["approver_role"]),
+            "kind": "person" if t["approver_user_id"] else "team" if team else "role",
+            "mode": t.get("mode", "any"),
+            # An empty team can't decide anything; filing would stall there.
+            "members": len(member_users(db, team_id=team, org_id=actor.org_id)) if team else None,
+        })
+    entity = db.get(LegalEntity, fv["entity_id"]) if fv.get("entity_id") else None
+    party = db.get(Counterparty, fv["counterparty_id"]) if fv.get("counterparty_id") else None
+    ours_ok = entity is not None and entity.org_id == actor.org_id
+    theirs_ok = party is not None and party.org_id == actor.org_id
+    return {
+        "workflow": {"id": flow.id, "name": flow.name} if flow else None,
+        "approvers": approvers,
+        "our_signatory": entity.authorised_signatory if ours_ok else None,
+        "our_entity": entity.name if ours_ok else None,
+        "counterparty_contact": party.contact_email if theirs_ok else None,
+    }
 
 
 def _serialize_chain(db: Session, rows: list) -> list[dict]:
@@ -1260,73 +1233,16 @@ def _serialize_chain(db: Session, rows: list) -> list[dict]:
         "approvals": (a.metadata_json or {}).get("approvals", 0),
         "needed": _quorum_needed(db, a),
         "approver_label": _rung_label(db, user_id=a.approver_user_id,
-                                      group_id=a.approver_group_id, role=a.approver_role),
+                                      team_id=a.approver_team_id, role=a.approver_role),
         "due_at": a.due_at.isoformat() if a.due_at else None,
     } for a in rows]
 
 
-async def start_approval_ladder(db: Session, *, actor: User, request_id: str,
-                                approver_user_id: str | None = None,
-                                approver_role: str | None = None,
-                                http_request_id: str | None = None) -> dict:
-    """Submit an intake request into the shared approval ladder. The active
-    value/type/risk routing rules decide the rungs; falls back to the passed
-    approver when no rule matches."""
-    r = get_request(db, user=actor, request_id=request_id)
-    _require_staff(actor)
-    if r.status == "closed":
-        raise HTTPException(409, "Request is closed — file a follow-up")
-    from app.intake.approval_bridge import submit_request_for_approval
-
-    requests = await submit_request_for_approval(
-        db, actor=actor, request=r, approver_user_id=approver_user_id,
-        approver_role=approver_role, request_id=http_request_id,
-    )
-    db.commit()
-    db.refresh(r)
-    return {"request": serialize_request(db, r), "chain": _serialize_chain(db, requests)}
-
-
-def override_gate(db: Session, *, actor: User, request_id: str, gate_key: str, action: str,
-                  reason: str | None = None, http_request_id: str | None = None) -> dict:
-    """Manually add or remove a Tier-0 gate. The override wins over the classifier
-    and is audited; adding a gate applies its escalation side-effects immediately."""
-    from app.intake import gates as gates_mod
-
-    if action not in ("add", "remove"):
-        raise HTTPException(422, "action must be 'add' or 'remove'")
-    if gate_key not in gates_mod.GATE_BY_KEY:
-        raise HTTPException(422, f"Unknown gate '{gate_key}'")
-    r = get_request(db, user=actor, request_id=request_id)
-    _require_staff(actor)
-    if r.status == "closed":
-        raise HTTPException(409, "Request is closed — file a follow-up")
-
-    at = dict(r.ai_triage or {})
-    overrides = list(at.get("gate_overrides", []))
-    overrides.append({
-        "action": action, "gate_key": gate_key,
-        "by_user_id": actor.id, "by_name": (actor.full_name or actor.email),
-        "reason": (reason or "").strip() or None, "at": utcnow().isoformat(),
-    })
-    at["gate_overrides"] = overrides
-    r.ai_triage = at  # reassign so SQLAlchemy tracks the JSON mutation
-    if action == "add":
-        gates_mod.apply_gate_side_effects(r)
-    write_audit_log(db, action="intake.gate_overridden", resource_type="intake_request",
-                    resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
-                    request_id=http_request_id,
-                    after={"gate": gate_key, "override": action, "reason": reason})
-    r.updated_by_user_id = actor.id
-    db.commit()
-    db.refresh(r)
-    return serialize_request(db, r)
-
-
 def get_approval_chain(db: Session, *, actor: User, request_id: str) -> list[dict]:
     """The request's approval rungs. If a chain is live, its real rows (RAG). If
-    not yet submitted, the PLANNED rungs (status 'planned') so the ladder is
-    always visible — value/type routing rules + Tier-0 gates decide them."""
+    not yet submitted, the PLANNED rungs (status 'planned'): one per Approval
+    step of the request's workflow (its run, else the workflow it would get) —
+    exactly who the workflow will ask."""
     from app.approvals.models import ApprovalRequest
 
     r = get_request(db, user=actor, request_id=request_id)
@@ -1342,18 +1258,20 @@ def get_approval_chain(db: Session, *, actor: User, request_id: str) -> list[dic
         return _serialize_chain(db, rows)
     if r.status in ("closed", "approved"):
         return []
-    # Preview the planned ladder from the same planner submit uses.
-    from app.approvals.service import plan_chain
-    from app.intake.approval_bridge import build_intake_subject
+    from app.workflows.service import get_run_for_request, planned_approvals, select_flow
 
-    subject = build_intake_subject(db, r.id, org_id=actor.org_id)
-    targets = plan_chain(db, subject=subject, org_id=actor.org_id)
+    run = get_run_for_request(db, request_id=r.id, org_id=actor.org_id)
+    flow = None if run else select_flow(db, request=r)
+    steps = (run.steps if run else (flow.steps if flow else None)) or []
+    targets = planned_approvals(db, org_id=actor.org_id, steps=steps, request=r)
+    for i, t in enumerate(targets):
+        t["step_order"] = i + 1
     return [{
         "approval_request_id": None,
         "step_order": t["step_order"],
         "status": "planned",
         "approver_label": _rung_label(db, user_id=t.get("approver_user_id"),
-                                      group_id=t.get("approver_group_id"), role=t.get("approver_role")),
+                                      team_id=t.get("approver_team_id"), role=t.get("approver_role")),
         "due_at": None,
     } for t in targets]
 
@@ -1473,18 +1391,11 @@ def promote(db: Session, *, actor: User, request_id: str, payload,
             http_request_id: str | None = None) -> dict:
     r = get_request(db, user=actor, request_id=request_id)
     _require_staff(actor)
-    if payload.target == "contract":
-        from app.contracts.models import Contract
-        c = db.get(Contract, payload.target_id)
-        if c is None or c.org_id != actor.org_id:
-            raise HTTPException(404, "Contract not found")
-        r.contract_id = c.id
-    else:
-        from app.matters.models import Matter
-        p = db.get(Matter, payload.target_id)
-        if p is None or p.org_id != actor.org_id:
-            raise HTTPException(404, "Matter not found")
-        r.matter_id = p.id
+    from app.contracts.models import Contract
+    c = db.get(Contract, payload.target_id)
+    if c is None or c.org_id != actor.org_id:
+        raise HTTPException(404, "Contract not found")
+    r.contract_id = c.id
     r.updated_by_user_id = actor.id
     write_audit_log(db, action="intake.promoted", resource_type="intake_request", resource_id=r.id,
                     org_id=actor.org_id, actor_user_id=actor.id, request_id=http_request_id,
@@ -1633,11 +1544,6 @@ def sla_ops_summary(db: Session, *, org_id: str) -> dict:
         .where(AuditLog.org_id == org_id, AuditLog.action == "intake.sla_breached",
                AuditLog.created_at >= since)
     ) or 0
-    # top 5 rules by firings
-    rules = db.scalars(
-        select(IntakeRoutingRule).where(IntakeRoutingRule.org_id == org_id)
-        .order_by(IntakeRoutingRule.times_fired.desc()).limit(5)
-    ).all()
     return {
         "generated_at": now.isoformat(),
         "open_total": len(rows), "open": awaiting, "escalated": escalated,
@@ -1650,9 +1556,6 @@ def sla_ops_summary(db: Session, *, org_id: str) -> dict:
         "oldest_open": oldest.isoformat() if oldest else None,
         "workload": [{"user_id": uid, "name": _user_label(db, uid), "open": n,
                       "overdue": workload_over.get(uid, 0)} for uid, n in sorted(workload.items(), key=lambda x: -x[1])],
-        "rule_effectiveness": [{"id": r.id, "name": r.name, "times_fired": r.times_fired,
-                                "last_fired_at": r.last_fired_at.isoformat() if r.last_fired_at else None}
-                               for r in rules],
     }
 
 
@@ -1703,136 +1606,6 @@ def file_from_copilot(db: Session, *, actor: User, payload, request_id: str | No
     return create_request(db, actor=actor, payload=rc, request_id=request_id, conversation=convo)
 
 
-# --- knowledge base --------------------------------------------------------
-
-def serialize_kb(a: IntakeKbArticle) -> dict:
-    return {"id": a.id, "source_ref": a.source_ref, "title": a.title, "body": a.body,
-            "tags": a.tags or [], "active": a.active}
-
-
-def list_kb(db: Session, *, org_id: str, include_inactive: bool = False) -> list[dict]:
-    q = select(IntakeKbArticle).where(IntakeKbArticle.org_id == org_id)
-    if not include_inactive:
-        q = q.where(IntakeKbArticle.active.is_(True))
-    rows = db.scalars(q.order_by(IntakeKbArticle.title)).all()
-    return [serialize_kb(a) for a in rows]
-
-
-def create_kb(db: Session, *, actor: User, payload) -> dict:
-    ref = (payload.source_ref or "").strip()
-    if not ref:
-        raise HTTPException(422, "source_ref is required")
-    if db.scalar(select(IntakeKbArticle.id).where(
-            IntakeKbArticle.org_id == actor.org_id, IntakeKbArticle.source_ref == ref)):
-        raise HTTPException(409, f'An article "{ref}" already exists')
-    a = IntakeKbArticle(org_id=actor.org_id, source_ref=ref, title=payload.title.strip(),
-                        body=payload.body, tags=payload.tags or None, active=True,
-                        created_by_user_id=actor.id, updated_by_user_id=actor.id)
-    db.add(a)
-    db.flush()
-    write_audit_log(db, action="intake.kb.created", resource_type="intake_kb_article",
-                    resource_id=a.id, org_id=actor.org_id, actor_user_id=actor.id, after={"ref": ref})
-    db.commit()
-    db.refresh(a)
-    return serialize_kb(a)
-
-
-def update_kb(db: Session, *, actor: User, kb_id: str, payload) -> dict:
-    a = db.get(IntakeKbArticle, kb_id)
-    if a is None or a.org_id != actor.org_id:
-        raise HTTPException(404, "Article not found")
-    for attr in ("title", "body", "tags", "active"):
-        val = getattr(payload, attr, None)
-        if val is not None:
-            setattr(a, attr, val)
-    a.updated_by_user_id = actor.id
-    db.commit()
-    db.refresh(a)
-    return serialize_kb(a)
-
-
-def delete_kb(db: Session, *, actor: User, kb_id: str) -> None:
-    a = db.get(IntakeKbArticle, kb_id)
-    if a is None or a.org_id != actor.org_id:
-        raise HTTPException(404, "Article not found")
-    db.delete(a)
-    db.commit()
-
-
-# --- pool ops analytics ----------------------------------------------------
-
-def pool_ops_summary(db: Session, *, org_id: str, days: int = 30) -> dict:
-    from datetime import timedelta
-
-    now = utcnow()
-    since = now - timedelta(days=days)
-    since7 = now - timedelta(days=7)
-    teams = db.scalars(
-        select(IntakeTeam).where(IntakeTeam.org_id == org_id)
-        .order_by(IntakeTeam.sort_order, IntakeTeam.name)
-    ).all()
-    reqs = db.scalars(select(IntakeRequest).where(IntakeRequest.org_id == org_id)).all()
-    by_assignee: dict[str, list[IntakeRequest]] = {}
-    for r in reqs:
-        if r.assigned_to_user_id:
-            by_assignee.setdefault(r.assigned_to_user_id, []).append(r)
-    # effort per user (via tasks)
-    effort_rows = db.execute(
-        select(IntakeTask.assignee_user_id, func.sum(IntakeTask.effort_minutes))
-        .where(IntakeTask.org_id == org_id).group_by(IntakeTask.assignee_user_id)
-    ).all()
-    effort_by_user = {uid: int(m or 0) for uid, m in effort_rows}
-
-    def member_stats(uid: str):
-        rs = by_assignee.get(uid, [])
-        open_rs = [r for r in rs if r.status in OPEN_STATUSES]
-        return {
-            "open": len(open_rs),
-            "overdue": sum(1 for r in open_rs if posture(r, now) == "overdue"),
-            "at_risk": sum(1 for r in open_rs if posture(r, now) == "at_risk"),
-            "closed_7d": sum(1 for r in rs if r.closed_at and r.closed_at >= since7),
-            "closed_30d": sum(1 for r in rs if r.closed_at and r.closed_at >= since),
-            "effort": effort_by_user.get(uid, 0),
-        }
-
-    tiers = []
-    tot_open = tot_over = tot_closed30 = tot_effort = tot_overflow = 0
-    mix = {"simple": 0, "standard": 0, "complex": 0}
-    for t in teams:
-        members = []
-        for m in t.members:
-            s = member_stats(m.user_id)
-            util = int(s["open"] / m.capacity * 100) if m.capacity > 0 else None
-            members.append({"user_id": m.user_id, "name": _user_label(db, m.user_id),
-                            "capacity": m.capacity, "utilization": util, **s})
-            tot_open += s["open"]; tot_over += s["overdue"]; tot_closed30 += s["closed_30d"]
-            tot_effort += s["effort"]
-            for r in by_assignee.get(m.user_id, []):
-                if r.status in OPEN_STATUSES:
-                    cx = (r.ai_triage or {}).get("complexity", "standard")
-                    if cx in mix:
-                        mix[cx] += 1
-                if (r.fired_rules or {}) and any("overflow" in str(a).lower()
-                        for s2 in (r.fired_rules or {}).get("summaries", []) for a in s2.get("actions", [])):
-                    tot_overflow += 1
-        tiers.append({
-            "id": t.id, "name": t.name, "strategy": t.strategy,
-            "overflow_team_name": (db.get(IntakeTeam, t.overflow_team_id).name
-                                   if t.overflow_team_id else None),
-            "members": members,
-            "open": sum(x["open"] for x in members),
-            "overdue": sum(x["overdue"] for x in members),
-            "closed_30d": sum(x["closed_30d"] for x in members),
-            "effort": sum(x["effort"] for x in members),
-        })
-    return {
-        "generated_at": now.isoformat(), "days": days, "tiers": tiers,
-        "totals": {"open": tot_open, "overdue": tot_over, "closed_30d": tot_closed30,
-                   "effort_minutes": tot_effort, "overflow_events": tot_overflow},
-        "complexity_mix": mix,
-    }
-
-
 def list_assignees(db: Session, *, org_id: str) -> list[dict]:
     from app.core.enums import UserStatus
 
@@ -1860,11 +1633,12 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
         # Validated here too: the update path wrote straight through, so a
         # required field could be emptied and a typed one replaced with
         # anything after the request was filed.
-        rtype = db.get(IntakeRequestType, r.request_type_id) if r.request_type_id else None
-        r.field_values = _validate_field_values(rtype, payload.field_values)
+        from app.intake.agreement_forms import form_fields
+
+        form = (r.field_values or {}).get("request_form") or (payload.field_values or {}).get("request_form")
+        r.field_values = _validate_field_values(form_fields(form), payload.field_values)
     if payload.stage is not None and payload.stage != r.stage:
-        rtype = db.get(IntakeRequestType, r.request_type_id) if r.request_type_id else None
-        valid = stages_for(rtype)
+        valid = stages_for()
         if payload.stage not in valid:
             raise HTTPException(422, f"Unknown stage '{payload.stage}'")
         # Only the head/tail stages carry a canonical status (new→open,

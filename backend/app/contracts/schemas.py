@@ -18,6 +18,8 @@ class ContractResponse(BaseModel):
     archived: bool = False
     owner_user_id: str
     counterparty_name: str | None
+    counterparty_id: str | None = None
+    legal_entity_id: str | None = None
     jurisdiction: str | None
     confidentiality: str = "internal"
     risk_level: str | None

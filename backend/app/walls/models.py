@@ -19,14 +19,13 @@ class EthicalWall(
     org-admin). This is the deny-override the whole legal-RBAC pipeline honours
     first — see app/contracts/access.py.
 
-    scope_type is 'contract' (bar people from one matter) or 'project' (bar them
-    from every contract in a matter/workspace). Barred principals live in
+    scope_type is 'contract' (bar people from one contract). Barred principals live in
     ``ethical_wall_principal`` and may be individual users or whole roles.
     """
 
     name = Column(String(200), nullable=False)
     reason = Column(Text, nullable=True)
-    scope_type = Column(String(40), index=True, nullable=False)  # 'contract' | 'project'
+    scope_type = Column(String(40), index=True, nullable=False)  # 'contract'
     scope_id = Column(String(36), index=True, nullable=False)
     active = Column(Boolean, index=True, nullable=False, default=True)
     deactivated_at = Column(DateTime(timezone=True), nullable=True)

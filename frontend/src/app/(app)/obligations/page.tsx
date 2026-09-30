@@ -9,6 +9,7 @@ import {
   ChevronRight,
   ClipboardList,
   Clock,
+  FileText,
   ListChecks,
   Quote,
   Repeat,
@@ -65,12 +66,32 @@ export default function ObligationsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [remindersBusy, setRemindersBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [folded, setFolded] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["obligations", status],
-    queryFn: () => obligationsApi.list(status ? { status_filter: status } : {}),
+    queryFn: () => obligationsApi.list({ limit: 200, ...(status ? { status_filter: status } : {}) }),
   });
   const obligations = data ?? [];
+
+  // Every obligation sits under the contract it comes from. Rows arrive
+  // earliest-due first, so the contract with the most pressing duty leads.
+  const groups: { id: string; title: string; counterparty: string | null; items: Obligation[] }[] = [];
+  for (const o of obligations) {
+    let g = groups.find((x) => x.id === o.contract_id);
+    if (!g) {
+      g = { id: o.contract_id, title: o.contract_title ?? o.contract_id, counterparty: o.counterparty_name ?? null, items: [] };
+      groups.push(g);
+    }
+    g.items.push(o);
+  }
+  const toggleGroup = (id: string) =>
+    setFolded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const counts: Record<ObligationStatus, number> = {
     open: 0,
@@ -151,7 +172,10 @@ export default function ObligationsPage() {
             ))}
           </select>
         </label>
-        <p className="hint">Click any row to see the exact contract language it came from.</p>
+        <p className="hint">
+          {groups.length} contract{groups.length === 1 ? "" : "s"} · click a contract to fold it, an obligation
+          to see the exact language it came from.
+        </p>
       </div>
 
       {isLoading ? (
@@ -178,14 +202,42 @@ export default function ObligationsPage() {
                 <th className="chev"> </th>
                 <th>Obligation</th>
                 <th>Responsible party</th>
-                <th>Contract</th>
                 <th>Timing</th>
                 <th>Status</th>
                 <th className="right">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {obligations.map((o) => {
+              {groups.map((g) => {
+                const shut = folded.has(g.id);
+                const tally = STATUSES.map((s) => [s, g.items.filter((o) => o.status === s).length] as const).filter(([, n]) => n);
+                return (
+                  <Fragment key={g.id}>
+                    <tr className="grp" onClick={() => toggleGroup(g.id)}>
+                      <td className="chev">
+                        <ChevronRight size={15} className={`chevicon${shut ? "" : " down"}`} />
+                      </td>
+                      <td colSpan={5}>
+                        <div className="grphd">
+                          <FileText size={14} className="dim" />
+                          <Link href={`/contracts/${g.id}`} onClick={(e) => e.stopPropagation()} className="clink">
+                            {g.title}
+                          </Link>
+                          {g.counterparty && <span className="psub">with {g.counterparty}</span>}
+                          <span className="gcount">
+                            {g.items.length} obligation{g.items.length === 1 ? "" : "s"}
+                          </span>
+                          <span className="gtally">
+                            {tally.map(([s, n]) => (
+                              <span key={s} className={`pill ${STATUS_TONE[s]}`}>
+                                {n} {titleCase(s)}
+                              </span>
+                            ))}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {!shut && g.items.map((o) => {
                 const t = timing(o);
                 const open = expanded === o.id;
                 const tone = STATUS_TONE[o.status];
@@ -212,16 +264,6 @@ export default function ObligationsPage() {
                             {o.owner_name && <p className="psub">tracked by {o.owner_name}</p>}
                           </div>
                         </div>
-                      </td>
-                      <td>
-                        <Link
-                          href={`/contracts/${o.contract_id}`}
-                          onClick={(e) => e.stopPropagation()}
-                          className="clink"
-                        >
-                          {o.contract_title ?? o.contract_id}
-                        </Link>
-                        {o.counterparty_name && <p className="psub">with {o.counterparty_name}</p>}
                       </td>
                       <td>
                         <div className="party">
@@ -269,7 +311,7 @@ export default function ObligationsPage() {
                     {open && (
                       <tr className="detail">
                         <td />
-                        <td colSpan={6}>
+                        <td colSpan={5}>
                           <div className="dgrid">
                             <div>
                               <p className="dlabel">
@@ -311,6 +353,9 @@ export default function ObligationsPage() {
                         </td>
                       </tr>
                     )}
+                  </Fragment>
+                );
+                    })}
                   </Fragment>
                 );
               })}
@@ -530,7 +575,7 @@ const OBLG_CSS = `
 .oblg .hint{margin:0 0 0 auto;font-size:12.5px;color:var(--ink-3)}
 
 .oblg .tbl{overflow-x:auto}
-.oblg .tbl table{min-width:760px}
+.oblg .tbl table{min-width:680px}
 .oblg table{width:100%;border-collapse:collapse}
 .oblg thead th{text-align:left;font:600 10.5px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--border)}
 .oblg thead th.right{text-align:right}
@@ -540,7 +585,14 @@ const OBLG_CSS = `
 .oblg tbody .row td{padding:11px 14px;vertical-align:top}
 .oblg tbody .row.open{background:var(--inset)}
 .oblg .chevicon{transition:transform .12s;color:var(--ink-3)}
-.oblg .row.open .chevicon{transform:rotate(90deg)}
+.oblg .row.open .chevicon,.oblg .chevicon.down{transform:rotate(90deg)}
+.oblg tbody .grp{cursor:pointer;background:var(--surface-2);border-bottom:1px solid var(--border)}
+.oblg tbody .grp td{padding:10px 14px}
+.oblg .grphd{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.oblg .grphd .psub{margin:0}
+.oblg .gcount{font-size:11.5px;font-weight:600;color:var(--ink-2)}
+.oblg .gtally{margin-left:auto;display:flex;gap:4px;flex-wrap:wrap}
+.oblg tbody .row td:nth-child(2){padding-left:22px}
 .oblg td.right{text-align:right}
 .oblg .obl{max-width:340px}
 .oblg .tag{display:inline-block;margin-bottom:4px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font:600 10.5px var(--sans);letter-spacing:.04em;text-transform:uppercase;padding:2px 7px}

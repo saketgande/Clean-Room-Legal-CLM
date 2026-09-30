@@ -56,7 +56,6 @@ INTERNAL_RESULT_KEYS = {
     "base_version_id",
     "contract_edit_id",
     "current_authoritative_version_id",
-    "matter_id",
     "workflow_id",
     "workflow_run_id",
     "playbook_id",
@@ -196,7 +195,6 @@ class AIController:
         assistant_run_id: str,
         message: str,
         request_id: str | None,
-        matter_id: str | None = None,
         contract_id: str | None = None,
         contract_ids: list[str] | None = None,
     ):
@@ -228,7 +226,6 @@ class AIController:
             model_config_hash=prompt_bundle.model_config_hash,
             input_payload={
                 "message": message,
-                "matter_id": matter_id,
                 "contract_id": contract_id,
                 "contract_ids": contract_ids or [],
                 "handles": handles,
@@ -264,7 +261,6 @@ class AIController:
                 "role": "user",
                 "content": self._assistant_user_prompt(
                     message=message,
-                    matter_id=matter_id,
                     contract_id=contract_id,
                     contract_ids=contract_ids or [],
                     handles=handles,
@@ -743,7 +739,6 @@ class AIController:
         self,
         *,
         message: str,
-        matter_id: str | None,
         contract_id: str | None,
         contract_ids: list[str],
         handles: list[dict[str, Any]],
@@ -753,7 +748,6 @@ class AIController:
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
-            "has_project_scope": bool(matter_id),
             "primary_contract_handle": _handle_for_contract_id(contract_id, handles),
             "contract_handles": [
                 handle
@@ -776,7 +770,7 @@ class AIController:
                 "for due-date questions):"
             ),
             self._json_tool_result(contract_inventory or []),
-            "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
+            "Use tools when contract data is needed. Use handles like contract-0 in tool inputs.",
         ]
         return "\n\n".join(part for part in parts if part)
 
@@ -1103,6 +1097,14 @@ class AIController:
             details={"skill_run_id": skill_run.id, "skill_name": spec.name},
         )
 
+        # Commit BEFORE waiting on Claude when this call owns the commit: a
+        # caller's earlier audit write holds the app-wide audit-chain lock
+        # until commit, and the AI call can take minutes — every other writer
+        # would queue behind it. Both outcomes below commit anyway, so this
+        # only makes the lock go sooner. commit=False callers keep their
+        # atomicity and hold it (bounded by the DB's idle-transaction timeout).
+        if commit:
+            db.commit()
         ai_call_log: AICallLog | None = None
         try:
             provider_response = await claude_client.complete_structured(
@@ -1441,6 +1443,11 @@ class AIController:
     ) -> None:
         metadata = output if isinstance(output, ContractMetadataOutput) else ContractMetadataOutput.model_validate(output)
         contract = context.contract
+        # The row was loaded before a slow model call. Re-read it under a lock, or
+        # a flag or value written meanwhile (auto_review_pending, a person's edit)
+        # is silently overwritten by the stale metadata_json copied below.
+        if db is not None:
+            db.refresh(contract, with_for_update=True)
         before = {
             "title": contract.title,
             "contract_type": contract.contract_type,

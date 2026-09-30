@@ -12,6 +12,9 @@ class FakeDB:
     def __init__(self, request):
         self.request = request
 
+    def commit(self):  # the engine commits before an agent's slow work
+        pass
+
     def get(self, _model, _key):
         return self.request
 

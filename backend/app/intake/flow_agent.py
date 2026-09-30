@@ -102,6 +102,20 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def used_for_suggestion(db: Session, request: IntakeRequest) -> dict | None:
+    """The workflow an admin set up ("Used for") for this request's type. It is
+    a decision, not a guess, so neither the word match nor the model overrides it."""
+    from app.workflows.service import flow_used_for
+
+    flow = flow_used_for(db, request=request)
+    if flow is None:
+        return None
+    met = " and its conditions are met" if (flow.criteria or {}).get("conditions") else ""
+    return {"flow_id": flow.id, "flow_name": flow.name, "confidence": 1.0,
+            "reasoning": f"“{flow.name}” is set up for {request.type_label} requests{met}.",
+            "alternatives": [], "needs_human": False, "source": "used_for"}
+
+
 def suggest_flow(db: Session, request: IntakeRequest) -> dict:
     """Best-fit flow for a request. Always returns a dict (never raises)."""
     from app.core.config import settings
@@ -112,6 +126,9 @@ def suggest_flow(db: Session, request: IntakeRequest) -> dict:
                 "reasoning": "No workflows are configured yet.", "alternatives": [],
                 "needs_human": True, "source": "deterministic"}
 
+    set_up = used_for_suggestion(db, request)
+    if set_up:
+        return set_up
     baseline = _baseline(db, request, catalog)
     if settings.mock_claude:
         return baseline

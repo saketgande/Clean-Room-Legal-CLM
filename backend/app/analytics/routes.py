@@ -38,7 +38,6 @@ def _rate_for(model: str | None) -> tuple[float, float]:
 
 # prompt_key -> (human label, user-facing action category)
 _LABELS: dict[str, tuple[str, str]] = {
-    "intake_gate_classifier": ("Intake triage gate", "Raise a request"),
     "intake_triage": ("Intake triage", "Raise a request"),
     "contract_metadata_extraction": ("Metadata extraction", "Raise a request"),
     "contract_docx_generation": ("Auto-draft generation", "Raise a request"),

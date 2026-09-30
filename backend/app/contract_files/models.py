@@ -179,6 +179,43 @@ class ContractEdit(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, T
     citation = Column(JSON, nullable=True)
 
 
+class RevisionRound(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
+    """One negotiation round: the version we sent (`base_version_id`) against
+    the version the counterparty sent back (`revision_version_id`). Its changes
+    are worked out once, when their file arrives; the decisions are ours."""
+
+    contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
+    base_version_id = Column(String(36), ForeignKey("contract_version.id"), nullable=False)
+    revision_version_id = Column(String(36), ForeignKey("contract_version.id"), nullable=False)
+    round_number = Column(Integer, nullable=False, default=1)
+    status = Column(String(20), index=True, nullable=False, default="open")  # open | closed
+    # agreed: every change accepted; counter: we sent back our own version.
+    outcome = Column(String(20), nullable=True)
+    outcome_version_id = Column(String(36), ForeignKey("contract_version.id"), nullable=True)
+    # Their file marked its changes (Word tracked changes), so an unmarked one
+    # can be told apart. False for a clean copy or a PDF.
+    tracked = Column(Boolean, nullable=False, default=False)
+
+
+class RevisionChange(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
+    round_id = Column(String(36), ForeignKey("revision_round.id"), index=True, nullable=False)
+    contract_id = Column(String(36), ForeignKey("contract.id"), index=True, nullable=False)
+    seq = Column(Integer, nullable=False)  # order in their version
+    label = Column(String(120), nullable=True)  # "10.2 Limitation of liability"
+    # changed | added | removed | reverted (put back their original) |
+    # countered (changed our change) | ours (kept our change; nothing to decide)
+    kind = Column(String(20), nullable=False)
+    unmarked = Column(Boolean, nullable=False, default=False)  # not a tracked change in their file
+    our_text = Column(Text, nullable=True)
+    their_text = Column(Text, nullable=True)
+    parts = Column(JSON, nullable=False, default=list)  # [["=", w], ["-", w], ["+", w]]
+    # open | accepted (theirs) | kept (ours) | countered | agreed (kind=ours)
+    decision = Column(String(20), nullable=False, default="open")
+    counter_text = Column(Text, nullable=True)
+    decided_by_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class ContractShare(
     TableNameMixin,
     IdMixin,

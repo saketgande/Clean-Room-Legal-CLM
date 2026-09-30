@@ -84,6 +84,28 @@ def list_flows(db: Session = Depends(get_db), current_user=Depends(require_permi
     return [service.serialize_flow(f) for f in service.list_flows(db, org_id=current_user.org_id)]
 
 
+@router.get("/lifecycle")
+def lifecycle(request_id: str | None = None, contract_id: str | None = None, db: Session = Depends(get_db),
+              current_user=Depends(require_permission("intake:read"))):
+    """The lifecycle rows that aren't workflow steps (request events, signers,
+    obligations, renewal, expiry), keyed by stage."""
+    from sqlalchemy import select
+
+    from app.intake.service import get_request
+    from app.workflows.lifecycle_rows import lifecycle_rows
+
+    request = get_request(db, user=current_user, request_id=request_id) if request_id else None
+    contract_id = contract_id or (request.contract_id if request is not None else None)
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user) if contract_id else None
+    if request is None and contract is not None:
+        request = db.scalars(select(IntakeRequest).where(
+            IntakeRequest.org_id == current_user.org_id, IntakeRequest.contract_id == contract.id,
+        ).order_by(IntakeRequest.submitted_at.desc())).first()
+    run = (service.get_run_for_request(db, request_id=request.id, org_id=current_user.org_id)
+           if request is not None else None)
+    return lifecycle_rows(db, request=request, contract=contract, run=run)
+
+
 @router.get("/{flow_id}")
 def get_flow(flow_id: str, db: Session = Depends(get_db),
              current_user=Depends(require_permission("workflow:read"))):
@@ -125,6 +147,22 @@ async def start(payload: StartPayload, http_request: Request, db: Session = Depe
     flow = _get_flow(db, current_user.org_id, payload.flow_id) if payload.flow_id else None
     run = await service.start_flow(db, actor=current_user, request=request, flow=flow,
                                    request_id=_request_id(http_request))
+    return service.serialize_run(db, _authorize_run(db, run, current_user))
+
+
+class StartForContractPayload(BaseModel):
+    contract_id: str
+    flow_id: str | None = None
+
+
+@router.post("/start-for-contract")
+async def start_for_contract(payload: StartForContractPayload, http_request: Request,
+                             db: Session = Depends(get_db),
+                             current_user=Depends(require_permission("intake:read"))):
+    contract = get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
+    flow = _get_flow(db, current_user.org_id, payload.flow_id) if payload.flow_id else None
+    run = await service.start_flow_for_contract(db, actor=current_user, contract=contract, flow=flow,
+                                                request_id=_request_id(http_request))
     return service.serialize_run(db, _authorize_run(db, run, current_user))
 
 

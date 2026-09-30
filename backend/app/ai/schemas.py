@@ -193,7 +193,7 @@ class RenewalExtractionOutput(BaseModel):
 
 
 class BrainQueryParseOutput(BaseModel):
-    query_scope: Literal["contract", "project", "portfolio"] = "portfolio"
+    query_scope: Literal["contract", "portfolio"] = "portfolio"
     target_clause_types: list[str] = Field(default_factory=list)
     party_filters: list[str] = Field(default_factory=list)
     needs_vector_search: bool = True

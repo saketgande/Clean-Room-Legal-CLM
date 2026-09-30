@@ -14,8 +14,6 @@ from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
 from app.core.deps import get_db, require_permission
 from app.core.enums import TabularCellStatus
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
 from app.tabular_review.models import (
     TabularReview,
     TabularReviewCell,
@@ -57,7 +55,6 @@ class TabularColumnCreate(BaseModel):
 
 class TabularReviewCreate(BaseModel):
     name: str
-    matter_id: str | None = None
     contract_ids: list[str] = Field(default_factory=list)
     columns: list[TabularColumnCreate] = Field(min_length=1)
 
@@ -91,12 +88,6 @@ def _review_is_accessible(
     accessible_contract_ids: set[str] | None = None,
 ) -> bool:
     if is_org_admin(current_user) or review.created_by_user_id == current_user.id:
-        return True
-    if review.matter_id:
-        try:
-            get_project_for_user(db, matter_id=review.matter_id, user=current_user)
-        except HTTPException:
-            return False
         return True
     if accessible_contract_ids is not None:
         # Batched fast path: caller already resolved the user's full
@@ -154,17 +145,6 @@ def create_review(
     current_user=Depends(require_permission("assistant:use_ai_tools")),
 ):
     contract_ids = list(dict.fromkeys(payload.contract_ids))
-    if payload.matter_id:
-        get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
-        if not contract_ids:
-            contract_ids = list(
-                db.scalars(
-                    select(MatterContract.contract_id).where(
-                        MatterContract.org_id == current_user.org_id,
-                        MatterContract.matter_id == payload.matter_id,
-                    )
-                ).all()
-            )
     if not contract_ids:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
     # Access-check every row contract.
@@ -175,7 +155,6 @@ def create_review(
     review = TabularReview(
         org_id=current_user.org_id,
         name=payload.name,
-        matter_id=payload.matter_id,
         source_contract_ids=contract_ids,
         status="running",
         created_by_user_id=current_user.id,

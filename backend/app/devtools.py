@@ -4,7 +4,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 import app.models  # noqa: F401
-from app.approvals.service import ensure_default_approver_groups
 from app.auth.models import Role, User
 from app.auth.schemas import SetupAdminRequest
 from app.auth.service import create_first_admin
@@ -77,23 +76,25 @@ def seed() -> None:
         except HTTPException as exc:
             # Seeding is a one-time bootstrap. Re-running it once the org/admin
             # exists is a no-op, not a failure — report it cleanly and continue
-            # so we still top up the approver groups below (also idempotent).
+            # so we still top up the default teams below (also idempotent).
             if exc.status_code != 409:
                 raise
             print(
                 f"Admin/org already set up — log in as {settings.dev_seed_admin_email}."
             )
 
-        # Ensure the default approver groups exist (idempotent), so the routing
-        # form has real options whether the org is new or pre-existing.
+        # Ensure the default teams exist (idempotent), so workflow steps have
+        # real teams to name whether the org is new or pre-existing.
         org = db.scalar(select(Organization))
         if org is not None:
-            created = ensure_default_approver_groups(db, org_id=org.id)
+            from app.intake.teams import ensure_default_teams
+
+            created = ensure_default_teams(db, org_id=org.id)
             db.commit()
             if created:
-                print("Seeded approver groups: " + ", ".join(g.name for g in created))
+                print("Seeded teams: " + ", ".join(t.name for t in created))
             else:
-                print("Approver groups already present.")
+                print("Default teams already present.")
 
             # Demo users per role — local/dev only, never where real accounts live.
             if settings.environment in {"local", "development", "test"}:
@@ -122,6 +123,11 @@ def seed() -> None:
                         print("Seeded legal intake demo data.")
                     else:
                         print("Intake demo data already present.")
+                    from app.playbooks.library import seed_playbook_library
+
+                    added = seed_playbook_library(db, org_id=org.id, actor_id=admin_user.id)
+                    db.commit()
+                    print(f"Seeded playbooks: {', '.join(added)}" if added else "Starter playbooks already present.")
     finally:
         db.close()
 

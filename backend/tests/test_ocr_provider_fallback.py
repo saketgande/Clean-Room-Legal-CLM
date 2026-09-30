@@ -138,20 +138,3 @@ def test_no_configured_provider_does_not_claim_ocr_failed(monkeypatch, scanned):
 
     assert result.method == "pdf_text"
     assert result.ocr_error is None
-
-
-# --- the ordering that makes citations possible ------------------------------
-
-
-def test_databricks_is_still_preferred_when_it_works():
-    """Order is not arbitrary: Databricks returns page elements that
-    `page_map_from_elements` turns into page citations, and Reducto does not.
-    Preferring Reducto because it happens to work here would cost every future
-    page citation."""
-    from app.core.config import settings
-
-    names = [p.provider for p in service._ocr_providers()]
-    if not names:
-        pytest.skip("no OCR provider configured in this deployment")
-    if settings.reducto_api_key and "databricks" in names:
-        assert names.index("databricks") < names.index("reducto")

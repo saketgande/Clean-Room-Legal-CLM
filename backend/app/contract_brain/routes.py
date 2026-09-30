@@ -3,7 +3,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
@@ -30,8 +30,6 @@ from app.core.enums import JobStatus
 from app.core.rate_limit import limiter
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.matters.access import get_project_for_user, project_scope_query
-from app.matters.models import Matter
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +41,8 @@ class BrainAskRequest(BaseModel):
     # could burn an org's whole daily token budget. 8k chars is far longer
     # than any real question and still cheap to embed.
     question: str = Field(min_length=3, max_length=8000)
-    query_scope: str = Field(default="portfolio", pattern="^(contract|project|portfolio)$")
+    query_scope: str = Field(default="portfolio", pattern="^(contract|portfolio)$")
     contract_id: str | None = None
-    matter_id: str | None = None
 
 
 def _rank_sources_by_citation(sources: dict, citations: list[dict]) -> None:
@@ -90,10 +87,6 @@ async def ask_contract_brain(
         if not payload.contract_id:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract_id required for contract scope")
         get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
-    if payload.query_scope == "project":
-        if not payload.matter_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "matter_id required for project scope")
-        get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
 
     request_id = getattr(request.state, "request_id", None)
 
@@ -106,7 +99,6 @@ async def ask_contract_brain(
         question=payload.question,
         scope=payload.query_scope,
         contract_id=payload.contract_id,
-        matter_id=payload.matter_id,
     )
     if agg is not None:
         query = BrainQuery(
@@ -114,7 +106,6 @@ async def ask_contract_brain(
             query_scope=payload.query_scope,
             question=payload.question,
             contract_id=payload.contract_id,
-            matter_id=payload.matter_id,
             answer=agg["answer"],
             citations=[],
             retrieval_metadata={
@@ -139,13 +130,12 @@ async def ask_contract_brain(
 
     # Retrieve the SAME hybrid sources that "Find sources only" returns, so the
     # answer is grounded in exactly what the user can see — the two can never
-    # diverge. Scope-resolved to portfolio / project / contract.
+    # diverge. Scope-resolved to portfolio / contract.
     contract_ids = resolve_scope_contract_ids(
         db,
         user=current_user,
         scope=payload.query_scope,
         contract_id=payload.contract_id,
-        matter_id=payload.matter_id,
     )
     # hybrid_sources does a sync DB query plus a CPU/HTTP-bound embedding call
     # (_embed) — this is the one Contract Brain route that's `async def`, so
@@ -194,7 +184,6 @@ async def ask_contract_brain(
         query_scope=payload.query_scope,
         question=payload.question,
         contract_id=payload.contract_id,
-        matter_id=payload.matter_id,
         answer=grounded["display_answer"],
         citations=grounded["citations"],
         retrieval_metadata={
@@ -354,8 +343,8 @@ def _active_ingestion_job(db: Session, *, org_id: str, contract_id: str) -> JobR
 def _visible_brain_queries(db: Session, current_user):
     """Which saved answers this user may see, as a SQL condition so the limit counts
     only those — filtering after the limit hid a user's own older questions behind
-    the org's newest 200. Their own; contract- or matter-scoped answers they can
-    open (ethical walls bind admins too); portfolio-wide answers only for admins."""
+    the org's newest 200. Their own; contract-scoped answers they can open
+    (ethical walls bind admins too); portfolio-wide answers only for admins."""
     clauses = [
         BrainQuery.created_by_user_id == current_user.id,
         BrainQuery.contract_id.in_(
@@ -364,16 +353,10 @@ def _visible_brain_queries(db: Session, current_user):
                 accessible_contract_filter(current_user),
             )
         ),
-        and_(
-            BrainQuery.contract_id.is_(None),
-            BrainQuery.matter_id.in_(
-                project_scope_query(db, user=current_user).with_only_columns(Matter.id)
-            ),
-        ),
     ]
     if is_org_admin(current_user):
         # A portfolio-wide answer names no record whose access could be checked.
-        clauses.append(and_(BrainQuery.contract_id.is_(None), BrainQuery.matter_id.is_(None)))
+        clauses.append(BrainQuery.contract_id.is_(None))
     return or_(*clauses)
 
 _WITHHELD_ANSWER = "This answer drew on contracts you don't have access to, so it isn't shown."

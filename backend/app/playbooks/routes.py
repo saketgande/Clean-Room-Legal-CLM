@@ -516,6 +516,16 @@ def expand_playbook_route(
     return expand_playbook(db, playbook=playbook, user=current_user)
 
 
+@router.post("/seed-library")
+def seed_library(db: Session = Depends(get_db), current_user=Depends(require_permission("playbook:publish"))):
+    """Add the starter playbooks (one per agreement type) this org doesn't have."""
+    from app.playbooks.library import seed_playbook_library
+
+    added = seed_playbook_library(db, org_id=current_user.org_id, actor_id=current_user.id)
+    db.commit()
+    return {"added": added}
+
+
 @router.post("/{playbook_id}/publish", response_model=PlaybookResponse)
 def publish_playbook(
     playbook_id: str,

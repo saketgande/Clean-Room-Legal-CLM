@@ -26,7 +26,7 @@ STEP_TYPES = ("ai_task", "human_task", "clm_draft", "approval", "signature", "co
 class Workflow(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     """A prebuilt, selectable workflow. ``steps`` is an ordered JSON list of
     ``{id, type, name, config}``; ``criteria`` is the when-to-pick-this matcher
-    (same condition shape as IntakeRoutingRule)."""
+    (``match_type`` / ``match_keyword``)."""
 
     name = Column(String(160), nullable=False)
     description = Column(Text, nullable=True)

@@ -66,7 +66,6 @@ async def upload_contract(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     counterparty_name: str | None = Form(default=None),
-    matter_id: str | None = Form(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:create")),
 ):
@@ -74,7 +73,6 @@ async def upload_contract(
         db,
         upload=file,
         user=current_user,
-        matter_id=matter_id,
         title=title,
         counterparty_name=counterparty_name,
         request_id=getattr(request.state, "request_id", None),

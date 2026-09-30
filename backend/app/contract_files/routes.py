@@ -18,10 +18,11 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from app.contract_files import revisions
 from app.contract_files.models import (
     ContractDocumentElement,
     ContractEdit,
@@ -29,6 +30,8 @@ from app.contract_files.models import (
     ContractShare,
     ContractTextSnapshot,
     ContractVersion,
+    RevisionChange,
+    RevisionRound,
     StorageObject,
 )
 from app.contract_files.schemas import (
@@ -45,6 +48,7 @@ from app.contract_files.schemas import (
     ExternalShareResponse,
 )
 from app.contract_files.service import (
+    _persist_document_elements,
     add_version_from_upload,
     next_version_number,
     promote_version,
@@ -179,6 +183,8 @@ async def log_counterparty_revision(
 
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     req_id = getattr(request.state, "request_id", None)
+    # The version we sent: what their file is compared against.
+    sent_version_id = contract.current_authoritative_version_id
     version = await add_version_from_upload(
         db,
         contract=contract,
@@ -206,6 +212,13 @@ async def log_counterparty_revision(
     meta = dict(contract.metadata_json or {})
     meta["auto_review_pending"] = True
     contract.metadata_json = meta
+    round_id = None
+    if sent_version_id:
+        storage = db.get(StorageObject, version.storage_object_id) if version.storage_object_id else None
+        file_bytes = storage_service.read_bytes(storage.storage_key) if storage else None
+        rnd = revisions.start_round(db, contract=contract, base_version_id=sent_version_id,
+                                    revision_version=version, user=current_user, file_bytes=file_bytes)
+        round_id = rnd.id
     write_timeline_event(
         db,
         org_id=contract.org_id,
@@ -215,11 +228,208 @@ async def log_counterparty_revision(
         title="Counterparty revision received",
         actor_user_id=current_user.id,
         request_id=req_id,
-        details={"contract_version_id": version.id},
+        details={"contract_version_id": version.id, "revision_round_id": round_id},
     )
     db.commit()
     db.refresh(version)
     return version
+
+
+def _round_for(db: Session, *, contract_id: str, round_id: str, user) -> RevisionRound:
+    rnd = db.get(RevisionRound, round_id)
+    if rnd is None or rnd.contract_id != contract_id or rnd.org_id != user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Revision round not found")
+    return rnd
+
+
+@router.get("/clauses")
+def contract_clause_tree(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """The current version's clauses in document order, each with its parent —
+    the clause tree the Documents reader built for uploads since it took over
+    (older contracts: a flat list, nested only by their numbering)."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    version = (db.get(ContractVersion, contract.current_authoritative_version_id)
+               if contract.current_authoritative_version_id else None)
+    if version is None or not version.text_snapshot_id:
+        return {"version_number": None, "tree": False, "clauses": []}
+    rows = db.scalars(
+        select(ContractDocumentElement)
+        .where(ContractDocumentElement.text_snapshot_id == version.text_snapshot_id,
+               ContractDocumentElement.org_id == current_user.org_id,
+               ContractDocumentElement.element_type != "page_artifact")
+        .order_by(ContractDocumentElement.seq)
+    ).all()
+    if not rows:
+        # A version made before its clauses were stored: split its text now
+        # (the same split every upload used to get), without writing anything.
+        from types import SimpleNamespace
+
+        from app.contract_files.structure import elements_from_flat_text
+
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
+        flat, _ = elements_from_flat_text(snapshot.text if snapshot else "")
+        rows = [SimpleNamespace(id=f"{version.id}:{e['seq']}", parent_id=None, page_number=None, **{
+            k: e[k] for k in ("seq", "element_type", "level", "number_label", "text")}) for e in flat]
+    clauses = []
+    for r in rows:
+        label = (r.number_label or "").strip()
+        words = " ".join(r.text.split())
+        body = words[len(label):].strip() if label and words.startswith(label) else words
+        clauses.append({
+            "id": r.id, "parent_id": r.parent_id, "seq": r.seq, "type": r.element_type,
+            "level": r.level, "number": label or None, "page": r.page_number,
+            # A heading is its own title; a clause is named by its opening words.
+            "title": body[:90] + ("…" if len(body) > 90 else ""),
+            "text": r.text,
+        })
+    return {"version_number": version.version_number,
+            "tree": any(c["parent_id"] for c in clauses), "clauses": clauses}
+
+
+@router.get("/editor/config")
+def word_editor_config(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """What the page needs to open the current version in the Word editor
+    ({"enabled": false} when no editor is configured). Read-only for people
+    who can't add versions."""
+    from app.contract_files import editor
+    from app.core.rbac import has_permission
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return editor.build_config(db, contract=contract, user=current_user,
+                               can_edit=has_permission(current_user.permission_values, "contract_file:update"))
+
+
+@router.get("/revisions/current")
+def current_revision_round(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """The open round of changes the counterparty sent back, else the latest
+    one (so a finished round still shows how it ended); null when none."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = db.scalar(
+        select(RevisionRound)
+        .where(RevisionRound.contract_id == contract.id, RevisionRound.org_id == current_user.org_id,
+               or_(RevisionRound.outcome.is_(None), RevisionRound.outcome != "superseded"))
+        .order_by((RevisionRound.status == "open").desc(), RevisionRound.created_at.desc())
+        .limit(1)
+    )
+    return revisions.serialize_round(db, rnd) if rnd else None
+
+
+class RevisionDecision(BaseModel):
+    decision: str = Field(pattern="^(open|accepted|kept|countered)$")
+    counter_text: str | None = Field(default=None, max_length=20000)
+
+
+@router.post("/revisions/{round_id}/changes/{change_id}")
+def decide_revision_change(
+    contract_id: str,
+    round_id: str,
+    change_id: str,
+    payload: RevisionDecision,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = _round_for(db, contract_id=contract.id, round_id=round_id, user=current_user)
+    if rnd.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This round is finished.")
+    change = db.get(RevisionChange, change_id)
+    if change is None or change.round_id != rnd.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Change not found")
+    revisions.decide(change, decision=payload.decision, counter=payload.counter_text, user=current_user)
+    write_audit_log(
+        db, action="contract.revision_change_decided", resource_type="revision_change",
+        resource_id=change.id, org_id=current_user.org_id, actor_user_id=current_user.id,
+        metadata={"contract_id": contract.id, "round_id": rnd.id, "label": change.label,
+                  "decision": change.decision},
+    )
+    db.commit()
+    return revisions.serialize_round(db, rnd)
+
+
+@router.post("/revisions/{round_id}/finish")
+async def finish_revision_round(
+    contract_id: str,
+    round_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """Close the round. Every change accepted: the text is agreed, and the
+    workflow's waiting counterparty step is completed so it moves on. Anything
+    kept or countered: our next version is made — their text with our wording
+    back in those places — ready to send to them."""
+    from app.workflows import service as workflow_service
+    from app.workflows.models import WorkflowRun
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = _round_for(db, contract_id=contract.id, round_id=round_id, user=current_user)
+    if rnd.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This round is finished.")
+    if rnd.revision_version_id != contract.current_authoritative_version_id:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The contract has a newer version than their revision; log their latest file.")
+    changes = revisions.changes_of(db, rnd.id)
+    left = [c.label for c in changes if c.decision == "open"]
+    if left:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Decide every change first ({len(left)} left).")
+    pushed = [c for c in changes if c.decision in ("kept", "countered")]
+    note = None
+    if pushed:
+        theirs = db.get(ContractVersion, rnd.revision_version_id)
+        snapshot = db.get(ContractTextSnapshot, theirs.text_snapshot_id) if theirs.text_snapshot_id else None
+        contract_file = db.get(ContractFile, theirs.contract_file_id)
+        version = _text_version(
+            db, contract=contract, base_snapshot=snapshot, contract_file=contract_file,
+            text=revisions.counter_text(snapshot.text if snapshot else "", changes),
+            summary=f"Our reply to their revision: {len(pushed)} change(s) pushed back",
+            user=current_user, source=ContractVersionSource.MANUAL_EDIT,
+            extraction_method="revision_counter_text", audit_action="contract.revision_countered",
+            title="Our reply to their revision prepared", file_tag="our-reply",
+        )
+        rnd.outcome, rnd.outcome_version_id = "counter", version.id
+    else:
+        rnd.outcome = "agreed"
+        write_timeline_event(
+            db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+            event_type="contract.revision_agreed", title="Counterparty revision agreed",
+            actor_user_id=current_user.id, details={"round_id": rnd.id},
+        )
+    rnd.status = "closed"
+    rnd.updated_by_user_id = current_user.id
+    write_audit_log(
+        db, action="contract.revision_round_finished", resource_type="revision_round",
+        resource_id=rnd.id, org_id=current_user.org_id, actor_user_id=current_user.id,
+        metadata={"contract_id": contract.id, "outcome": rnd.outcome, "pushed_back": len(pushed)},
+    )
+    db.commit()
+    if rnd.outcome == "agreed":
+        # The text is settled: the negotiation step is done and the workflow moves on.
+        run = db.scalar(select(WorkflowRun).where(
+            WorkflowRun.contract_id == contract.id, WorkflowRun.status.in_(("running", "waiting")))
+            .order_by(WorkflowRun.created_at.desc()).limit(1))
+        steps = list(run.steps or []) if run else []
+        if run and run.current_index < len(steps) and steps[run.current_index].get("type") == "counterparty":
+            try:
+                workflow_service.complete_human_step(db, run=run, actor=current_user,
+                                                     note="Counterparty revision agreed")
+                await workflow_service.advance_run(db, run=run, actor=current_user)
+            except HTTPException as exc:
+                db.rollback()
+                note = f"The Negotiate step is left for its owner to complete ({exc.detail})."
+    out = revisions.serialize_round(db, rnd)
+    out["note"] = note
+    return out
 
 
 @router.post(
@@ -445,7 +655,8 @@ def _build_plain_docx(*, title: str, subtitle: str, text: str) -> bytes:
     from docx import Document
 
     document = Document()
-    document.add_heading(title, level=1)
+    if title:  # the Word editor opens the text without one: it would become part of the contract
+        document.add_heading(title, level=1)
     if subtitle:
         document.add_paragraph(subtitle)
     for para in _split_paragraphs(text):
@@ -508,7 +719,8 @@ def _build_structured_docx(db: Session, snapshot: ContractTextSnapshot, *, title
     ).all()
 
     document = Document()
-    document.add_heading(title, level=1)
+    if title:  # the Word editor opens the text without one: it would become part of the contract
+        document.add_heading(title, level=1)
     if subtitle:
         document.add_paragraph(subtitle)
     for e in els:
@@ -760,6 +972,95 @@ class ManualTextUpdate(BaseModel):
     change_summary: str | None = None
 
 
+def _text_version(
+    db: Session,
+    *,
+    contract,
+    base_snapshot: ContractTextSnapshot | None,
+    contract_file: ContractFile,
+    text: str,
+    summary: str,
+    user,
+    source: str = ContractVersionSource.MANUAL_EDIT,
+    extraction_method: str = "manual_edit_text",
+    audit_action: str = "contract.text_manually_edited",
+    title: str = "Document edited manually",
+    file_tag: str = "manual-edit",
+) -> ContractVersion:
+    """A new authoritative version from plain text, with a generated .docx.
+    Versions stay immutable: the text lives in a fresh snapshot. The caller commits."""
+    docx_bytes = _build_plain_docx(
+        title=contract.title,
+        subtitle=summary,
+        text=text,
+    )
+    storage_object = _store_generated_docx(
+        db,
+        org_id=user.org_id,
+        user_id=user.id,
+        filename=f"{contract.title[:60]}-{file_tag}.docx",
+        content=docx_bytes,
+    )
+    new_version = ContractVersion(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=storage_object.id,
+        source=source,
+        change_summary=summary,
+        is_authoritative=False,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(new_version)
+    db.flush()
+    snapshot = ContractTextSnapshot(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_version_id=new_version.id,
+        extraction_method=extraction_method,
+        extraction_quality_score=1.0,
+        text=text,
+        page_map=base_snapshot.page_map if base_snapshot else None,
+        ocr_provider=base_snapshot.ocr_provider if base_snapshot else None,
+        validation_status="complete",
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(snapshot)
+    db.flush()
+    new_version.text_snapshot_id = snapshot.id
+    # Its clauses, split from the text, so it has a clause tree like an upload.
+    _persist_document_elements(db, snapshot, elements=[])
+
+    promote_version(db, contract=contract, version=new_version, actor_user_id=user.id)
+    contract.current_contract_file_id = contract_file.id
+    contract_file.current_version_id = new_version.id
+    contract_file.updated_by_user_id = user.id
+
+    write_audit_log(
+        db,
+        action=audit_action,
+        resource_type="contract_version",
+        resource_id=new_version.id,
+        org_id=user.org_id,
+        actor_user_id=user.id,
+        metadata={"contract_id": contract.id, "summary": summary},
+    )
+    write_timeline_event(
+        db,
+        org_id=user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type=audit_action,
+        title=title,
+        actor_user_id=user.id,
+        details={"contract_version_id": new_version.id, "summary": summary},
+    )
+    return new_version
+
+
 @router.put("/text", response_model=ContractVersionResponse)
 def update_contract_text(
     contract_id: str,
@@ -792,72 +1093,9 @@ def update_contract_text(
 
     author_name = current_user.full_name or "Reviewer"
     summary = (payload.change_summary or f"Manual edit by {author_name}")[:240]
-    docx_bytes = _build_plain_docx(
-        title=contract.title,
-        subtitle=summary,
-        text=payload.text,
-    )
-    storage_object = _store_generated_docx(
-        db,
-        org_id=current_user.org_id,
-        user_id=current_user.id,
-        filename=f"{contract.title[:60]}-manual-edit.docx",
-        content=docx_bytes,
-    )
-    new_version = ContractVersion(
-        org_id=current_user.org_id,
-        contract_id=contract.id,
-        contract_file_id=contract_file.id,
-        version_number=next_version_number(db, contract_file.id),
-        storage_object_id=storage_object.id,
-        source=ContractVersionSource.MANUAL_EDIT,
-        change_summary=summary,
-        is_authoritative=False,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(new_version)
-    db.flush()
-    snapshot = ContractTextSnapshot(
-        org_id=current_user.org_id,
-        contract_id=contract.id,
-        contract_version_id=new_version.id,
-        extraction_method="manual_edit_text",
-        extraction_quality_score=1.0,
-        text=payload.text,
-        page_map=base_snapshot.page_map if base_snapshot else None,
-        ocr_provider=base_snapshot.ocr_provider if base_snapshot else None,
-        validation_status="complete",
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(snapshot)
-    db.flush()
-    new_version.text_snapshot_id = snapshot.id
-
-    promote_version(db, contract=contract, version=new_version, actor_user_id=current_user.id)
-    contract.current_contract_file_id = contract_file.id
-    contract_file.current_version_id = new_version.id
-    contract_file.updated_by_user_id = current_user.id
-
-    write_audit_log(
-        db,
-        action="contract.text_manually_edited",
-        resource_type="contract_version",
-        resource_id=new_version.id,
-        org_id=current_user.org_id,
-        actor_user_id=current_user.id,
-        metadata={"contract_id": contract.id, "summary": summary},
-    )
-    write_timeline_event(
-        db,
-        org_id=current_user.org_id,
-        resource_type="contract",
-        resource_id=contract.id,
-        event_type="contract.text_manually_edited",
-        title="Document edited manually",
-        actor_user_id=current_user.id,
-        details={"contract_version_id": new_version.id, "summary": summary},
+    new_version = _text_version(
+        db, contract=contract, base_snapshot=base_snapshot,
+        contract_file=contract_file, text=payload.text, summary=summary, user=current_user,
     )
     db.commit()
     db.refresh(new_version)
@@ -1734,6 +1972,8 @@ def _apply_decided_redline(
     db.add(snapshot)
     db.flush()
     new_version.text_snapshot_id = snapshot.id
+    # Its clauses, split from the text, so it has a clause tree like an upload.
+    _persist_document_elements(db, snapshot, elements=[])
 
     promote_version(db, contract=contract, version=new_version, actor_user_id=user.id)
     contract.current_contract_file_id = contract_file.id

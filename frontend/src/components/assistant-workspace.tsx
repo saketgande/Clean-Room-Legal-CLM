@@ -15,7 +15,6 @@ import {
   Check,
   X,
   Sparkles,
-  FolderKanban,
   Wand2,
   ChevronRight,
   ChevronDown,
@@ -31,7 +30,6 @@ import {
 import {
   assistantApi,
   contractsApi,
-  mattersApi,
   promptsApi,
   approvalsApi,
   renewalsApi,
@@ -50,7 +48,6 @@ import type {
   Citation,
   ContractEditResponse,
   ContractResponse,
-  MatterResponse,
   Prompt,
 } from "@/lib/types";
 
@@ -131,7 +128,6 @@ export function AssistantWorkspace() {
   const params = useSearchParams();
   const router = useRouter();
   const contractParam = params.get("contract");
-  const projectParam = params.get("project");
   const sessionParam = params.get("session");
   const workflowParam = params.get("workflow");
   const qc = useQueryClient();
@@ -181,8 +177,6 @@ export function AssistantWorkspace() {
   const [workflow, setWorkflow] = useState<Prompt | null>(null);
   const [wfModalOpen, setWfModalOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
-  const [projPickerOpen, setProjPickerOpen] = useState(false);
-  const [newProjectId, setNewProjectId] = useState(projectParam ?? "");
   const [railOpen, setRailOpen] = useState(false);
   const [generatedDocs, setGeneratedDocs] = useState<
     { id: string; contractId: string; kind: "draft" | "redline" }[]
@@ -282,10 +276,9 @@ export function AssistantWorkspace() {
   }, [chatSearch]);
 
   const { data: sessions, isLoading } = useQuery({
-    queryKey: ["assistant-sessions", projectParam, debouncedChatSearch],
+    queryKey: ["assistant-sessions", debouncedChatSearch],
     queryFn: () =>
       assistantApi.sessions({
-        ...(projectParam ? { matter_id: projectParam } : {}),
         ...(debouncedChatSearch ? { q: debouncedChatSearch } : {}),
       }),
   });
@@ -300,10 +293,6 @@ export function AssistantWorkspace() {
     await assistantApi.updateSession(id, { title: value });
     qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
   }
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-  });
   const { data: allWorkflows } = useQuery({
     queryKey: ["workflows"],
     queryFn: promptsApi.list,
@@ -369,12 +358,6 @@ export function AssistantWorkspace() {
       /* ignore storage errors */
     }
   }, []);
-
-  const projectName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of projects ?? []) m.set(p.id, p.name);
-    return (id?: string | null) => (id ? m.get(id) ?? "Matter" : null);
-  }, [projects]);
 
   const sessionContractId =
     activeSession?.contract_id ?? contractParam ?? null;
@@ -528,7 +511,6 @@ export function AssistantWorkspace() {
         .createSession({
           session_type: "contract",
           contract_id: contractParam,
-          matter_id: projectParam ?? undefined,
           title: "Contract review",
         })
         .then((s) => {
@@ -540,19 +522,17 @@ export function AssistantWorkspace() {
         );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionParam, contractParam, projectParam]);
+  }, [sessionParam, contractParam]);
 
   async function selectSession(s: AssistantSession) {
     stopWatch();
     abortActiveStream();
     sessRef.current = s.id;
     setActiveSession(s);
-    // Keep the URL in sync with the active session so project scope stays
-    // explicit and reload / back / share land on the same scoped chat.
+    // Keep the URL in sync with the active session so reload / back / share
+    // land on the same chat.
     const sp = new URLSearchParams();
-    const pid = s.matter_id ?? projectParam;
     const cid = s.contract_id ?? contractParam;
-    if (pid) sp.set("project", pid);
     if (cid) sp.set("contract", cid);
     sp.set("session", s.id);
     router.replace(`/assistant?${sp.toString()}`, { scroll: false });
@@ -584,13 +564,11 @@ export function AssistantWorkspace() {
   }
 
   async function newSession() {
-    const pid = newProjectId || projectParam || undefined;
     const s = await assistantApi.createSession({
-      session_type: pid ? "project" : "general",
-      matter_id: pid,
+      session_type: "general",
       title: "New conversation",
     });
-    qc.invalidateQueries({ queryKey: ["assistant-sessions", projectParam] });
+    qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
     void selectSession(s);
   }
 
@@ -598,17 +576,15 @@ export function AssistantWorkspace() {
   async function startConversation(text: string) {
     const t = text.trim();
     if (!t || streaming) return;
-    const pid = newProjectId || projectParam || undefined;
     const cid = activeContractId ?? undefined;
     setInput("");
     try {
       const s = await assistantApi.createSession({
-        session_type: cid ? "contract" : pid ? "project" : "general",
+        session_type: cid ? "contract" : "general",
         contract_id: cid,
-        matter_id: pid,
         title: t.slice(0, 60),
       });
-      qc.invalidateQueries({ queryKey: ["assistant-sessions", projectParam] });
+      qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
       sessRef.current = s.id;
       setActiveSession(s);
       setItems([{ id: crypto.randomUUID(), role: "user", text: t }]);
@@ -929,13 +905,6 @@ export function AssistantWorkspace() {
                       <Wand2 className="h-4 w-4" />
                       Prompts
                     </button>
-                    <button
-                      onClick={() => setProjPickerOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      <FolderKanban className="h-4 w-4" />
-                      Matters
-                    </button>
                     <span className="ml-auto mr-1.5 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
                       <span className="h-1.5 w-1.5 rounded-full bg-success" />
                       grounded in your portfolio
@@ -1250,14 +1219,6 @@ export function AssistantWorkspace() {
                         <Wand2 className="h-4 w-4" />
                         Prompts
                       </button>
-                      <button
-                        onClick={() => setProjPickerOpen(true)}
-                        disabled={streaming || !!pending}
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 disabled:opacity-40"
-                      >
-                        <FolderKanban className="h-4 w-4" />
-                        Matters
-                      </button>
                       <span className="ml-auto mr-1 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
                         <span className="h-1.5 w-1.5 rounded-full bg-success" />
                         grounded
@@ -1366,7 +1327,7 @@ export function AssistantWorkspace() {
           <aside className="relative z-10 flex h-full w-72 flex-col border-r border-slate-200 bg-slate-100 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 p-3">
               <span className="text-sm font-semibold text-slate-900">
-                {projectParam ? "Matter chats" : "Your chats"}
+                Your chats
               </span>
               <button
                 onClick={() => setRailOpen(false)}
@@ -1387,20 +1348,6 @@ export function AssistantWorkspace() {
                 <Plus className="h-3.5 w-3.5" />
                 New chat
               </Button>
-              {!projectParam && (
-                <Select
-                  value={newProjectId}
-                  onChange={(e) => setNewProjectId(e.target.value)}
-                  className="h-8 text-xs"
-                >
-                  <option value="">New chats: no matter</option>
-                  {(projects ?? []).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      New chats in: {p.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
@@ -1448,12 +1395,6 @@ export function AssistantWorkspace() {
                         <div className="mt-0.5 flex items-center gap-1.5">
                           {s.contract_id && (
                             <FileText className="h-3 w-3 text-slate-400" />
-                          )}
-                          {s.matter_id && (
-                            <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
-                              <FolderKanban className="h-3 w-3" />
-                              {projectName(s.matter_id)}
-                            </span>
                           )}
                           <span className="text-xs text-slate-400">
                             {fmtRelative(s.updated_at)}
@@ -1503,15 +1444,6 @@ export function AssistantWorkspace() {
           notify(`Attached "${c.title}" to this chat`, "success");
         }}
       />
-      <MatterPickerModal
-        open={projPickerOpen}
-        onClose={() => setProjPickerOpen(false)}
-        onPick={(p) => {
-          setNewProjectId(p.id);
-          setProjPickerOpen(false);
-          notify(`New chats will be scoped to "${p.name}"`, "success");
-        }}
-      />
     </div>
   );
 }
@@ -1547,10 +1479,6 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   ],
   list_playbooks: ["Looking up playbooks", "Found playbooks"],
   list_workflows: ["Looking up prompts", "Found prompts"],
-  list_project_contracts: [
-    "Listing project contracts",
-    "Listed project contracts",
-  ],
   get_contract_status: [
     "Checking contract status",
     "Checked contract status",
@@ -1565,10 +1493,6 @@ const TOOL_LABELS: Record<string, [string, string]> = {
     "Contract duplicated",
   ],
   run_workflow: ["Running the prompt", "Prompt complete"],
-  submit_for_approval: [
-    "Submitting for approval",
-    "Submitted for approval",
-  ],
   send_for_signature: ["Sending for signature", "Sent for signature"],
   create_intake_request: ["Raising the request", "Request raised"],
   get_intake_request: ["Looking up the request", "Found the request"],
@@ -1592,8 +1516,6 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   complete_obligation: ["Completing the obligation", "Obligation completed"],
   list_renewals: ["Looking up renewals", "Found renewals"],
   list_obligations: ["Looking up obligations", "Found obligations"],
-  list_projects: ["Looking up projects", "Found projects"],
-  read_project: ["Reading the project", "Read the project"],
   find_contracts: ["Searching contracts", "Found contracts"],
   my_attention_items: ["Checking what needs you", "Found your items"],
 };
@@ -1679,10 +1601,6 @@ function confirmCopy(name: string): { title: string; body: string } {
     send_for_signature: {
       title: "Send for e-signature?",
       body: "I'll send this contract to the recipients for signature.",
-    },
-    submit_for_approval: {
-      title: "Submit for approval?",
-      body: "I'll submit this contract into the approval workflow.",
     },
     run_workflow: {
       title: "Run this prompt?",
@@ -2386,67 +2304,6 @@ function DocPickerModal({
       }}
     />
     </>
-  );
-}
-
-function MatterPickerModal({
-  open,
-  onClose,
-  onPick,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onPick: (p: MatterResponse) => void;
-}) {
-  const [q, setQ] = useState("");
-  const { data, isLoading } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-    enabled: open,
-  });
-  const items = uniqById(data).filter((p) =>
-    p.name.toLowerCase().includes(q.toLowerCase()),
-  );
-  return (
-    <Modal open={open} onClose={onClose} title="Scope this chat to a matter">
-      <div className="space-y-3">
-        <Input
-          autoFocus
-          placeholder="Search matters…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div className="max-h-80 space-y-1 overflow-y-auto">
-          {isLoading ? (
-            <CenterSpinner />
-          ) : items.length ? (
-            items.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p)}
-                className="flex w-full items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50/50"
-              >
-                <FolderKanban className="h-4 w-4 shrink-0 text-slate-400" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-slate-800">
-                    {p.name}
-                  </span>
-                  {p.description && (
-                    <span className="block truncate text-xs text-slate-400">
-                      {p.description}
-                    </span>
-                  )}
-                </span>
-              </button>
-            ))
-          ) : (
-            <p className="py-6 text-center text-sm text-slate-400">
-              No projects found.
-            </p>
-          )}
-        </div>
-      </div>
-    </Modal>
   );
 }
 

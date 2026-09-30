@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -8,7 +8,6 @@ from app.core.deps import get_db, require_permission
 from app.core.rate_limit import limiter
 from app.intake import copilot as copilot_mod
 from app.intake import drafts as drafts_mod
-from app.intake import routing as routing_mod
 from app.intake import service
 from app.intake import teams as teams_mod
 from app.intake.schemas import (
@@ -20,20 +19,11 @@ from app.intake.schemas import (
     DraftSave,
     HandoffCreate,
     HandoffResponse,
-    KbCreate,
-    KbResponse,
-    KbUpdate,
     PartiesUpdate,
     PromoteRequest,
     RequestCreate,
     RequestResponse,
-    RequestTypeCreate,
-    RequestTypeResponse,
-    RequestTypeUpdate,
     RequestUpdate,
-    RuleCreate,
-    RuleResponse,
-    RuleUpdate,
     TaskCreateReq,
     TaskResponse,
     TaskUpdateReq,
@@ -55,47 +45,15 @@ def _req_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
 
-# ---- request types --------------------------------------------------------
-# Reading types is needed to render the New Request form, so any filer may list.
+# ---- request forms ----------------------------------------------------------
+# The nine forms' questions, labels, options and show-when rules. The wizard
+# renders from these so the browser and filing validation can't disagree.
 
-@router.get("/request-types", response_model=list[RequestTypeResponse])
-def list_request_types(
-    include_inactive: bool = False,
-    db: Session = Depends(get_db),
-    current_user=Depends(_CREATE),
-):
-    return service.list_types(
-        db, org_id=current_user.org_id, include_inactive=include_inactive
-    )
+@router.get("/forms")
+def list_forms(current_user=Depends(_CREATE)):
+    from app.intake.agreement_forms import form_defs
 
-
-@router.post("/request-types", response_model=RequestTypeResponse, status_code=status.HTTP_201_CREATED)
-def create_request_type(
-    payload: RequestTypeCreate,
-    db: Session = Depends(get_db),
-    current_user=Depends(_MANAGE),
-):
-    return service.create_type(db, actor=current_user, payload=payload)
-
-
-@router.patch("/request-types/{type_id}", response_model=RequestTypeResponse)
-def update_request_type(
-    type_id: str,
-    payload: RequestTypeUpdate,
-    db: Session = Depends(get_db),
-    current_user=Depends(_MANAGE),
-):
-    return service.update_type(db, actor=current_user, type_id=type_id, payload=payload)
-
-
-@router.delete("/request-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_request_type(
-    type_id: str,
-    db: Session = Depends(get_db),
-    current_user=Depends(_MANAGE),
-):
-    service.delete_type(db, actor=current_user, type_id=type_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return list(form_defs())
 
 
 # ---- drafts (agreement wizard "Save as Draft") ------------------------------
@@ -207,26 +165,19 @@ def suggest_flow(
 
 # ---- approval ladder ------------------------------------------------------
 
-class _ApprovalLadderSubmit(BaseModel):
-    # Optional manual fallback approver, used only when no routing rule matches.
-    approver_user_id: str | None = None
-    approver_role: str | None = None
+class _ApprovalPreview(BaseModel):
+    type_label: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=20000)
+    priority: str = "Medium"
+    department: str | None = None
+    field_values: dict = Field(default_factory=dict)
 
 
-@router.post("/requests/{request_id}/submit-for-approval")
-async def submit_for_approval(
-    request_id: str,
-    request: Request,
-    payload: _ApprovalLadderSubmit | None = None,
-    db: Session = Depends(get_db),
-    current_user=Depends(_READ),
-):
-    p = payload or _ApprovalLadderSubmit()
-    return await service.start_approval_ladder(
-        db, actor=current_user, request_id=request_id,
-        approver_user_id=p.approver_user_id, approver_role=p.approver_role,
-        http_request_id=_req_id(request),
-    )
+@router.post("/approval-preview")
+def approval_preview(payload: _ApprovalPreview, db: Session = Depends(get_db),
+                     current_user=Depends(_CREATE)):
+    """Who will approve a request before it is filed. Saves nothing."""
+    return service.preview_approvals(db, actor=current_user, payload=payload)
 
 
 @router.get("/requests/{request_id}/approval-chain")
@@ -236,26 +187,6 @@ def approval_chain(
     current_user=Depends(_READ),
 ):
     return service.get_approval_chain(db, actor=current_user, request_id=request_id)
-
-
-class _GateOverride(BaseModel):
-    gate_key: str
-    action: str  # 'add' | 'remove'
-    reason: str | None = None
-
-
-@router.post("/requests/{request_id}/gates", response_model=RequestResponse)
-def override_gate(
-    request_id: str,
-    payload: _GateOverride,
-    request: Request,
-    db: Session = Depends(get_db),
-    current_user=Depends(_READ),
-):
-    return service.override_gate(
-        db, actor=current_user, request_id=request_id, gate_key=payload.gate_key,
-        action=payload.action, reason=payload.reason, http_request_id=_req_id(request),
-    )
 
 
 # ---- handoff / custody ----------------------------------------------------
@@ -462,65 +393,6 @@ def delete_team(team_id: str, db: Session = Depends(get_db), current_user=Depend
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# ---- routing rules (read=triage, write=admin per Part 0.14) ---------------
-
-@router.get("/routing-rules", response_model=list[RuleResponse])
-def list_rules(db: Session = Depends(get_db), current_user=Depends(_READ)):
-    return routing_mod.list_rules(db, org_id=current_user.org_id)
-
-
-@router.post("/routing-rules", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
-def create_rule(payload: RuleCreate, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    return routing_mod.create_rule(db, actor=current_user, payload=payload)
-
-
-@router.patch("/routing-rules/{rule_id}", response_model=RuleResponse)
-def update_rule(rule_id: str, payload: RuleUpdate, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    return routing_mod.update_rule(db, actor=current_user, rule_id=rule_id, payload=payload)
-
-
-@router.delete("/routing-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_rule(rule_id: str, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    routing_mod.delete_rule(db, actor=current_user, rule_id=rule_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- knowledge base (read = any filer; write = admin) ---------------------
-
-@router.get("/kb", response_model=list[KbResponse])
-def list_kb(include_inactive: bool = False, db: Session = Depends(get_db), current_user=Depends(_CREATE)):
-    return service.list_kb(db, org_id=current_user.org_id,
-                           include_inactive=include_inactive and False)  # non-admins never see inactive
-
-
-@router.get("/kb/all", response_model=list[KbResponse])
-def list_kb_admin(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    return service.list_kb(db, org_id=current_user.org_id, include_inactive=True)
-
-
-@router.post("/kb", response_model=KbResponse, status_code=status.HTTP_201_CREATED)
-def create_kb(payload: KbCreate, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    return service.create_kb(db, actor=current_user, payload=payload)
-
-
-@router.patch("/kb/{kb_id}", response_model=KbResponse)
-def update_kb(kb_id: str, payload: KbUpdate, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    return service.update_kb(db, actor=current_user, kb_id=kb_id, payload=payload)
-
-
-@router.delete("/kb/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_kb(kb_id: str, db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    service.delete_kb(db, actor=current_user, kb_id=kb_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- pool ops -------------------------------------------------------------
-
-@router.get("/pool-ops")
-def pool_ops(days: int = 30, db: Session = Depends(get_db), current_user=Depends(_READ)):
-    return service.pool_ops_summary(db, org_id=current_user.org_id, days=days)
-
-
 # ---- copilot (conversational filing) --------------------------------------
 
 @router.post("/copilot/turn", response_model=CopilotTurnResponse)
@@ -613,12 +485,6 @@ def rescreen_request(request_id: str, db: Session = Depends(get_db),
     return result
 
 
-@router.post("/sanctions/refresh")
-def sanctions_refresh(db: Session = Depends(get_db), current_user=Depends(_MANAGE)):
-    """Pull the live OFAC SDN list (Treasury CSV) into the screening table."""
-    return screening_mod.refresh_ofac(db, current_user.org_id)
-
-
 @router.post("/requests/{request_id}/documents", status_code=status.HTTP_201_CREATED)
 def upload_document(request_id: str, payload: dict = Body(...),
                     db: Session = Depends(get_db), current_user=Depends(_CREATE)):
@@ -646,5 +512,5 @@ def list_request_documents(request_id: str, db: Session = Depends(get_db),
 @router.put("/requests/{request_id}/parties", response_model=RequestResponse)
 def set_request_parties(request_id: str, payload: PartiesUpdate,
                         db: Session = Depends(get_db), current_user=Depends(_READ)):
-    """Replace the request's parties (counterparty + adverse/related) and re-screen."""
+    """Replace the request's parties (counterparty + adverse/related) and refresh the relationship note."""
     return service.set_parties(db, actor=current_user, request_id=request_id, parties=payload.parties)

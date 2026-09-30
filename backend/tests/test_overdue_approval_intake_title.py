@@ -36,7 +36,7 @@ def test_overdue_intake_approval_is_titled_from_the_request(monkeypatch):
     run crashed on the first intake-linked approval and nothing was flagged."""
     req = SimpleNamespace(
         org_id="org-1", contract_id=None, intake_request_id="ir-1",
-        approver_user_id="u-approver", approver_group_id=None,
+        approver_user_id="u-approver", approver_team_id=None,
         requested_by_user_id="u-submitter", step_order=1, metadata_json={},
         due_at=datetime.now(UTC) - timedelta(days=2),
     )

@@ -2,7 +2,6 @@ from app.ai.models import AICitation, AIConfirmation, AIPromptVersion, AISkillRu
 from app.approvals.models import (
     ApprovalDecision,
     ApprovalRequest,
-    ApprovalRoutingRule,
     ApprovalToken,
 )
 from app.assistant.models import (
@@ -31,6 +30,8 @@ from app.contract_files.models import (
     ContractShare,
     ContractTextSnapshot,
     ContractVersion,
+    RevisionChange,
+    RevisionRound,
     StorageObject,
 )
 from app.contracts.comments_models import ContractComment
@@ -56,30 +57,17 @@ from app.intake.models import (
     IntakeDocument,
     IntakeDraft,
     IntakeHandoff,
-    IntakeKbArticle,
     IntakeRequest,
-    IntakeRequestField,
-    IntakeRequestType,
-    IntakeRoutingRule,
     IntakeTask,
     IntakeTeam,
     IntakeTeamMember,
-    SanctionsListEntry,
 )
 from app.jobs.models import JobRun
-from app.parties.models import Counterparty, LegalEntity
-from app.matters.models import (
-    Matter,
-    MatterActivity,
-    MatterContract,
-    MatterFolder,
-    MatterMember,
-    MatterShare,
-)
 from app.notices.models import Notice, NoticeDocument, NoticeEvent
 from app.notifications.models import Notification
 from app.obligations.models import Obligation, ObligationReminder
 from app.organizations.models import Organization
+from app.parties.models import Counterparty, LegalEntity
 from app.playbooks.models import (
     Playbook,
     PlaybookDecision,
@@ -111,7 +99,6 @@ __all__ = [
     "ApiKey",
     "ApprovalDecision",
     "ApprovalRequest",
-    "ApprovalRoutingRule",
     "ApprovalToken",
     "AssistantContractHandle",
     "AssistantMessage",
@@ -132,6 +119,7 @@ __all__ = [
     "ContractStageHistory",
     "ContractTextSnapshot",
     "ContractVersion",
+    "Counterparty",
     "DocumentExtract",
     "DsAnnotation",
     "DsClause",
@@ -142,24 +130,16 @@ __all__ = [
     "EthicalWall",
     "EthicalWallPrincipal",
     "IntakeDocument",
+    "IntakeDraft",
     "IntakeHandoff",
-    "IntakeKbArticle",
     "IntakeRequest",
-    "IntakeRequestField",
-    "IntakeRequestType",
-    "IntakeRoutingRule",
     "IntakeTask",
     "IntakeTeam",
     "IntakeTeamMember",
     "JobRun",
     "KnowledgeEdge",
     "KnowledgeNode",
-    "Matter",
-    "MatterActivity",
-    "MatterContract",
-    "MatterFolder",
-    "MatterMember",
-    "MatterShare",
+    "LegalEntity",
     "Notice",
     "NoticeDocument",
     "NoticeEvent",
@@ -182,8 +162,9 @@ __all__ = [
     "RequestLog",
     "ResourceGrant",
     "ResourceTimelineEvent",
+    "RevisionChange",
+    "RevisionRound",
     "Role",
-    "SanctionsListEntry",
     "SignatureEvent",
     "SignatureRecipient",
     "SignatureRequest",

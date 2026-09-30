@@ -5,7 +5,7 @@ and mapped onto our flow-step schema:
   their HUMAN step            -> our "human_task"  (approver_role, sla_hours)
   their HUMAN @ gc/board rung  -> our "approval"    (delegates to the DoA ladder)
   their HUMAN @ signature_screen -> our "signature"
-  their AGENT step             -> our "ai_task"     (agent, escalate_role,
+  their AGENT step             -> our "ai_task"     (agent, team,
                                    escalate_below_confidence, sla_hours)
   their metadataJson.skip_if   -> config.skip_when (field/op/value)
 
@@ -17,6 +17,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.workflows import stages
+from app.workflows.contract_library import CONTRACT_FLOWS
 from app.workflows.models import Workflow
 
 
@@ -48,10 +50,9 @@ _LIBRARY = [
          _h("Regulator / Data-Principal Notification", "notification_dispatch", "gc", 36),
      ]),
     ("vendor_onboarding", "Vendor / Counterparty Due Diligence",
-     "Third-party onboarding: the Vendor agent runs sanctions/debarment screening; compliance clears exceptions.",
+     "Third-party onboarding: compliance runs sanctions/debarment checks in its screening tool and clears the vendor.",
      {"match_keyword": "vendor"}, 20, [
          _h("Vendor Details & Documents", "vendor_intake", "requester"),
-         _a("AI Sanctions & Debarment Screening", "legal_ops", "vendor-intake-agent", 0.85, 8),
          _h("Compliance Clearance", "compliance_review", "legal_ops", 72),
          _h("Contract Terms Approval", "legal_review", "attorney", 72),
      ]),
@@ -116,7 +117,7 @@ _LIBRARY = [
          _h("Draft & Submit", "contract_draft", "requester"),
          _a("AI Risk Review", "attorney", "contract-review-agent", 0.8, 8),
          _h("Legal Review", "legal_review", "attorney", 48),
-         _h("Finance Review", "finance_review", "legal_ops", 48,
+         _h("Finance Review", "finance_review", "finance", 48,
             {"field": "contract_value", "op": "lt", "value": 10000}),
          _h("GC Approval", "gc_approval", "gc", 72),
          _h("Counter-signature", "signature_screen", "gc", 72),
@@ -131,44 +132,61 @@ _APPROVAL_SCREENS = {"gc_approval", "board_signoff"}
 _DRAFT_SCREENS = {"contract_draft", "nda_intake", "vendor_intake"}
 
 
+# The library's role words → the default team (intake/teams.DEFAULT_TEAMS) a
+# step names. Only used to write the library; a loaded workflow stores the
+# org's real team id (seed_builtin_flows) and the engine never sees these words.
+_ROLE_TEAM = {"attorney": "legal_counsel", "paralegal": "paralegals", "gc": "executive",
+              "legal_ops": "compliance", "finance": "finance"}
+
+
+def _who(role):
+    """A step's team key, or the requester."""
+    if role == "requester":
+        return {"assign_by": "The requester"}
+    return {"team": _ROLE_TEAM.get(role)}
+
+
 def _to_steps(raw):
     out = []
     for (kind, name, screen, role, sla, agent, minconf, skip) in raw:
         if screen == "signature_screen":
-            t, cfg = "signature", {"approver_role": role, "sla_hours": sla}
+            t, cfg = "signature", {**_who(role), "sla_hours": sla}
         elif screen in _DRAFT_SCREENS:
             t, cfg = "clm_draft", {"mode": "template"}
         elif kind == "AGENT":
-            t, cfg = "ai_task", {"agent": agent, "sla_hours": sla,
-                                 "escalate_role": role, "escalate_below_confidence": minconf}
+            t, cfg = "ai_task", {"agent": agent, "sla_hours": sla, **_who(role),
+                                 "escalate_below_confidence": minconf}
         elif screen in _APPROVAL_SCREENS:
-            t, cfg = "approval", {"approver_role": role, "sla_hours": sla}
+            t, cfg = "approval", {**_who(role), "sla_hours": sla}
         else:
-            t, cfg = "human_task", {"approver_role": role, "sla_hours": sla}
+            t, cfg = "human_task", {**_who(role), "sla_hours": sla}
         if skip:
             cfg["skip_when"] = skip
         cfg = {k: v for k, v in cfg.items() if v is not None}
-        out.append({"id": str(uuid.uuid4()), "type": t, "name": name, "config": cfg})
+        step = {"id": str(uuid.uuid4()), "type": t, "name": name, "config": cfg}
+        if screen.endswith("_intake") and t != "clm_draft":
+            step["stage"] = "intake"  # logging / docketing the matter as it arrives
+        out.append(step)
     return out
 
 
 BUILTIN_FLOWS = [
-    {"name": name, "description": desc, "eval_order": order, "criteria": crit, "steps": _to_steps(raw)}
+    {"name": name, "description": desc, "eval_order": order, "criteria": crit, "steps": stages.infer(_to_steps(raw))}
     for (_key, name, desc, crit, order, raw) in _LIBRARY
 ]
 
 
 # Master Services Agreement — the full lifecycle from the workflow-designer
 # reference (screen-06): a draft, sequential legal review, a conditional parallel
-# Quality + Privacy review, a conditional finance approval, counterparty
-# negotiation, signature, and automated activation. Uses the richer step schema
+# Quality + Privacy review, counterparty negotiation, then a conditional finance
+# approval of the negotiated terms, signature, and automated activation.
+# (Negotiation is part of Review, so it comes before any approval.) Uses the richer step schema
 # (outcomes / instructions / parallel / cond) directly rather than the _h/_a
 # tuple helpers, which predate those fields.
-def _msa(type_, name, dept, assign_by, sla, outcomes, instructions, parallel=False, cond=None):
+def _msa(type_, name, team, assign_by, sla, outcomes, instructions, parallel=False, cond=None):
     cfg = {"sla_hours": sla, "outcomes": outcomes, "instructions": instructions}
-    if dept:
-        cfg["dept"] = dept
-        cfg["approver_role"] = dept  # engine resolves the dept name to a team pool
+    if team:
+        cfg["team"] = team
     if assign_by:
         cfg["assign_by"] = assign_by
     step = {"id": str(uuid.uuid4()), "type": type_, "name": name,
@@ -183,37 +201,71 @@ def _msa(type_, name, dept, assign_by, sla, outcomes, instructions, parallel=Fal
 _LOADED = "Auto — least-loaded in team"
 _HEAD = "Auto — team head"
 _SPECIFIC = "Specific person"
+_ANY = "Any one member"
 _MSA_STEPS = [
-    _msa("clm_draft", "Prepare draft", "Legal & IP", _LOADED, 24, ["complete"], "Draft from the MSA template."),
-    _msa("human_task", "Legal review", "Legal & IP", _LOADED, 48, ["approve", "request_changes", "need_info", "escalate"], "Review scope, liability and IP against the playbook."),
-    _msa("human_task", "Quality review", "Quality & Compliance", _HEAD, 48, ["approve", "request_changes"], "Confirm GxP obligations.", cond={"field": "gxp", "op": "eq", "value": "true"}),
-    _msa("human_task", "Privacy review", "Privacy / DPO", _HEAD, 48, ["approve", "request_changes"], "Check data-processing terms.", parallel=True, cond={"field": "personal_data", "op": "eq", "value": "true"}),
-    _msa("approval", "Finance approval", "Finance & Tax", _HEAD, 24, ["approve", "reject", "escalate"], "Approve the contract value.", cond={"field": "contract_value", "op": "gte", "value": 10000}),
-    _msa("counterparty", "Counterparty negotiation", "Counterparty", _SPECIFIC, 120, ["approve", "request_changes"], "Exchange redlines with the counterparty until both sides agree."),
-    _msa("signature", "Internal signature", "Signatory", _SPECIFIC, 24, ["sign", "decline"], "Sign the executed agreement."),
-    _msa("ai_task", "Activate & track", "System (automated)", _LOADED, 0, [], "File the contract and start obligation tracking."),
+    _msa("clm_draft", "Prepare draft", "legal_counsel", _LOADED, 24, ["complete"], "Draft from the MSA template."),
+    _msa("human_task", "Legal review", "legal_counsel", _LOADED, 48, ["approve", "request_changes", "need_info", "escalate"], "Review scope, liability and IP against the playbook."),
+    _msa("human_task", "Quality review", "compliance", _HEAD, 48, ["approve", "request_changes"], "Confirm GxP obligations.", cond={"field": "gxp", "op": "eq", "value": "true"}),
+    _msa("human_task", "Privacy review", "compliance", _HEAD, 48, ["approve", "request_changes"], "Check data-processing terms.", parallel=True, cond={"field": "personal_data", "op": "eq", "value": "true"}),
+    _msa("counterparty", "Counterparty negotiation", None, _SPECIFIC, 120, ["approve", "request_changes"], "Exchange redlines with the counterparty until both sides agree."),
+    _msa("approval", "Finance approval", "finance", _ANY, 24, ["approve", "reject", "escalate"], "Approve the contract value.", cond={"field": "contract_value", "op": "gte", "value": 10000}),
+    _msa("signature", "Internal signature", "legal_counsel", _SPECIFIC, 24, ["sign", "decline"], "Sign the executed agreement."),
+    _msa("ai_task", "Activate & track", None, _LOADED, 0, [], "File the contract and start obligation tracking."),
 ]
+
+# NDA Fast-Track is the NDA workflow for the urgent case: our template, needed
+# within 7 days. Needed later (or no date) goes to "NDA — standard" / "— one-way".
+# The other library workflows serve email and chat requests (no agreement type).
+for _spec in BUILTIN_FLOWS:
+    if _spec["name"] == "NDA Fast-Track":
+        _spec["used_for"] = [{"form": "new_agreement", "agreement_type": "NDA"}]
+        _spec["conditions"] = [{"field": "paper", "op": "is", "value": "Our template"},
+                               {"field": "needed_by", "op": "within_days", "value": 7}]
 
 BUILTIN_FLOWS.append({
     "name": "Master Services Agreement",
-    "description": "Full MSA lifecycle — draft, legal review, a conditional parallel Quality + Privacy review, Finance approval, counterparty negotiation, signature, and automated activation.",
+    "description": "Full MSA lifecycle — draft, legal review, a conditional parallel Quality + Privacy review, counterparty negotiation, Finance approval of the agreed terms, signature, and automated activation.",
     "eval_order": 12,
     "criteria": {"match_type": "msa"},
-    "steps": _MSA_STEPS,
+    "used_for": [{"form": "new_agreement", "agreement_type": "Services (MSA)"}],
+    "conditions": [{"field": "value", "op": "under", "value": 5000000.0, "currency": "INR"}],
+    "steps": stages.infer(_MSA_STEPS),
 })
+
+# One or more workflows for every agreement type on the request forms.
+BUILTIN_FLOWS.extend(CONTRACT_FLOWS)
 
 
 def seed_builtin_flows(db: Session, *, org_id: str, actor_id: str | None = None) -> int:
     """Idempotent: create any builtin flow (by name) that this org is missing."""
+    from app.intake.models import IntakeTeam
+    from app.intake.teams import ensure_default_teams
+
     have = set(db.scalars(select(Workflow.name).where(Workflow.org_id == org_id, Workflow.is_builtin.is_(True))).all())
+    if all(spec["name"] in have for spec in BUILTIN_FLOWS):
+        return 0
+    # Steps name a default team by key; store this org's real team id instead.
+    ensure_default_teams(db, org_id=org_id, actor_user_id=actor_id)
+    team_ids = {t.key: t.id for t in db.scalars(select(IntakeTeam).where(IntakeTeam.org_id == org_id)).all()}
     added = 0
     for spec in BUILTIN_FLOWS:
         if spec["name"] in have:
             continue
+        steps = []
+        for st in spec["steps"]:
+            cfg = dict(st.get("config") or {})
+            key = cfg.pop("team", None)
+            if key and team_ids.get(key):
+                cfg["team_id"] = team_ids[key]
+            steps.append({**st, "id": str(uuid.uuid4()), "config": cfg})
+        criteria = dict(spec["criteria"])
+        if spec.get("used_for"):
+            criteria["used_for"] = [dict(u) for u in spec["used_for"]]
+            criteria["conditions"] = [dict(c) for c in spec.get("conditions", [])]
         db.add(Workflow(
             id=str(uuid.uuid4()), org_id=org_id, created_by_user_id=actor_id,
             name=spec["name"], description=spec["description"], enabled=True, is_builtin=True,
-            eval_order=spec["eval_order"], version=1, criteria=spec["criteria"], steps=spec["steps"],
+            eval_order=spec["eval_order"], version=1, criteria=criteria, steps=steps,
         ))
         added += 1
     if added:

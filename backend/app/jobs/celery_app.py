@@ -94,13 +94,6 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.check_stage_slas",
         "schedule": crontab(hour=7, minute=40),  # daily, before the other sweeps
     },
-    "refresh-sanctions-lists": {
-        "task": "app.jobs.tasks.refresh_sanctions_lists",
-        # Daily, ahead of the 07:30-08:05 sweeps and the working day: a screen
-        # run against a list older than screening.STALE_AFTER reports
-        # "unavailable", which is safe but means no screening happened.
-        "schedule": crontab(hour=6, minute=0),
-    },
     "verify-audit-integrity": {
         "task": "app.jobs.tasks.verify_audit_integrity",
         "schedule": crontab(hour=2, minute=45),  # daily, before the retention sweepers

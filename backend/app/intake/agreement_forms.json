@@ -2,19 +2,31 @@
  {
   "key": "new_agreement",
   "name": "New agreement",
-  "group": "New paper",
-  "parent": "none",
-  "sort_order": 10,
   "fields": [
    {
+    "key": "agreement_type",
+    "label": "What kind of agreement?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "NDA",
+     "Services (MSA)",
+     "Buying from a vendor",
+     "Software or SaaS",
+     "Consultancy",
+     "Selling to a customer",
+     "Something else"
+    ]
+   },
+   {
     "key": "entity",
-    "label": "Legal entity",
+    "label": "Our legal entity",
     "kind": "text",
     "required": true
    },
    {
     "key": "entity_id",
-    "label": "Legal entity (from the register)",
+    "label": "Our legal entity (from the register)",
     "kind": "text",
     "required": true
    },
@@ -31,20 +43,42 @@
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "paper",
+    "label": "Whose paper?",
     "kind": "select",
     "required": true,
     "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
+     "Our template",
+     "Their paper"
     ]
    },
    {
+    "key": "purpose",
+    "label": "What is this agreement for?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
     "key": "department",
-    "label": "Department",
+    "label": "Requesting department",
     "kind": "select",
     "required": true,
     "options": [
@@ -58,199 +92,415 @@
     ]
    },
    {
-    "key": "country",
-    "label": "Country",
+    "key": "nda_kind",
+    "label": "Mutual or one-way?",
     "kind": "select",
-    "required": false,
+    "required": true,
     "options": [
-     "Not applicable",
+     "Mutual",
+     "One-way"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nda_direction",
+    "label": "Who shares information?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "We share",
+     "They share"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     },
+     {
+      "field": "nda_kind",
+      "in": [
+       "One-way"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nda_term",
+    "label": "How long should it last?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "1 year",
+     "2 years",
+     "3 years",
+     "5 years"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "governing_law",
+    "label": "Governing law",
+    "kind": "select",
+    "required": true,
+    "options": [
      "India",
-     "United Kingdom",
-     "United States",
-     "Germany",
-     "Singapore"
-    ]
-   },
-   {
-    "key": "agreement_type",
-    "label": "Agreement type",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Confidentiality agreement — India",
-     "Consultancy agreement — India",
-     "Master Services Agreement",
-     "Review / drafting by legal counsel",
-     "Service agreement — advertising, media, facilities",
-     "Vendor / supplier agreement",
-     "Customer / sales agreement",
-     "SaaS or software licence",
-     "Others — India"
-    ]
-   },
-   {
-    "key": "area",
-    "label": "Area",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "North",
-     "South",
-     "East",
-     "West"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_sub_category",
-    "label": "Agreement sub-category",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Professional services",
-     "Managed services",
-     "Licence",
-     "Maintenance"
-    ]
-   },
-   {
-    "key": "plant",
-    "label": "Plant",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Hyderabad — Unit 1",
-     "Hyderabad — Unit 2",
-     "Bengaluru — R&D",
-     "Vizag — Unit 6"
+     "England and Wales",
+     "Singapore",
+     "New York",
+     "Delaware"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
     ]
    },
    {
     "key": "value",
-    "label": "Total monetary value of agreement",
+    "label": "Total contract value",
     "kind": "number",
-    "required": true
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
    },
    {
-    "key": "effective_date",
-    "label": "Agreement effective date",
-    "kind": "date",
-    "required": true
-   },
-   {
-    "key": "end_date",
-    "label": "Agreement end date",
-    "kind": "date",
-    "required": true
-   },
-   {
-    "key": "existing_contract",
-    "label": "Any existing contract",
+    "key": "currency",
+    "label": "Currency",
     "kind": "select",
     "required": true,
     "options": [
-     "No",
-     "Yes"
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
     ]
    },
    {
-    "key": "vendor_code",
-    "label": "Vendor code",
-    "kind": "text",
-    "required": false
+    "key": "start_date",
+    "label": "Start date",
+    "kind": "date",
+    "required": true
    },
    {
-    "key": "origin",
-    "label": "Origin of agreement",
+    "key": "term",
+    "label": "Term",
     "kind": "select",
-    "required": false,
+    "required": true,
     "options": [
-     "Our template",
-     "Counterparty paper",
-     "From a precedent"
+     "Fixed end date",
+     "Renews automatically",
+     "No end date (evergreen)"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
     ]
    },
    {
-    "key": "auto_renewal",
-    "label": "Auto-renewal",
+    "key": "end_date",
+    "label": "End date",
+    "kind": "date",
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Fixed end date",
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "renewal_term",
+    "label": "Each renewal lasts",
     "kind": "select",
-    "required": false,
+    "required": true,
     "options": [
-     "No",
-     "Annual",
-     "Evergreen"
+     "1 year",
+     "2 years",
+     "3 years"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
     ]
    },
    {
-    "key": "purpose",
-    "label": "Other information / comments",
+    "key": "notice_days",
+    "label": "Notice needed to stop it renewing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "scope",
+    "label": "Scope of services",
     "kind": "textarea",
-    "required": false
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Consultancy",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "buying",
+    "label": "What are we buying?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Goods",
+     "Services",
+     "Goods and services"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Buying from a vendor"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "hosting",
+    "label": "Where will our data be hosted?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "European Union",
+     "United States",
+     "Several regions"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Software or SaaS"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "payment_terms",
+    "label": "Payment terms",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "45 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nonstandard",
+    "label": "Non-standard terms the customer asked for",
+    "kind": "textarea",
+    "required": false,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "personal_data",
+    "label": "Will personal data be shared or processed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "gxp",
+    "label": "Is this GxP or other regulated quality work?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
    },
    {
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "sow",
   "name": "Statement of Work",
-  "group": "New paper",
-  "parent": "contract",
-  "sort_order": 11,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which master agreement is this under?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
    },
    {
     "key": "department",
-    "label": "Department",
+    "label": "Requesting department",
     "kind": "select",
     "required": true,
     "options": [
@@ -262,38 +512,6 @@
      "Finance",
      "Quality"
     ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
-    "required": true
    },
    {
     "key": "sow_title",
@@ -314,25 +532,32 @@
     "required": true
    },
    {
-    "key": "pricing_model",
-    "label": "Pricing model",
+    "key": "value",
+    "label": "Total value of this SoW",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ]
+   },
+   {
+    "key": "pricing",
+    "label": "Pricing",
     "kind": "select",
     "required": true,
     "options": [
      "Fixed fee",
      "Time and materials",
-     "Milestone-based",
-     "Retainer"
-    ]
-   },
-   {
-    "key": "rates",
-    "label": "Rates",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master rate card",
-     "Rates specific to this SoW"
+     "Milestones"
     ]
    },
    {
@@ -343,47 +568,75 @@
    },
    {
     "key": "deliverables",
-    "label": "Deliverables and acceptance",
+    "label": "Deliverables and who accepts them",
     "kind": "textarea",
     "required": true
    },
    {
-    "key": "personnel",
-    "label": "Key personnel / resources",
-    "kind": "text",
-    "required": false
+    "key": "personal_data",
+    "label": "Will personal data be shared or processed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "gxp",
+    "label": "Is this GxP or other regulated quality work?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
    },
    {
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "dpa",
   "name": "Data Processing Agreement",
-  "group": "New paper",
-  "parent": "contract",
-  "sort_order": 12,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which agreement?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "their_role",
-    "label": "Counterparty's role",
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "paper",
+    "label": "Whose paper?",
     "kind": "select",
     "required": true,
     "options": [
-     "Processor — they process on our instructions",
-     "Sub-processor",
-     "Joint controller"
+     "Our template",
+     "Their paper"
     ]
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
    },
    {
     "key": "our_role",
@@ -391,293 +644,156 @@
     "kind": "select",
     "required": true,
     "options": [
-     "Controller",
-     "Processor",
-     "Joint controller"
+     "Controller: we decide how the data is used",
+     "Processor: we act on their instructions"
     ]
    },
    {
-    "key": "privacy_contact",
-    "label": "Their data protection contact",
-    "kind": "text",
-    "required": false
-   },
-   {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
-   },
-   {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
-    "required": true
-   },
-   {
-    "key": "purpose_of_processing",
-    "label": "Purpose of processing",
+    "key": "processing_purpose",
+    "label": "Why is the data processed?",
     "kind": "textarea",
     "required": true
    },
    {
-    "key": "data_categories",
-    "label": "Categories of personal data",
+    "key": "data_types",
+    "label": "What kind of personal data?",
     "kind": "select",
     "required": true,
     "options": [
-     "Contact and identity data",
-     "Employment and HR data",
-     "Financial data",
-     "Customer and usage data",
-     "Mixed — several categories"
+     "Contact and identity",
+     "Employee / HR",
+     "Health or other special category",
+     "Financial",
+     "Several of these"
     ]
    },
    {
     "key": "data_subjects",
-    "label": "Data subjects",
+    "label": "Whose data?",
     "kind": "select",
     "required": true,
     "options": [
      "Employees",
      "Customers",
-     "Suppliers and contractors",
      "Patients or trial subjects",
-     "Mixed"
+     "Suppliers",
+     "Several"
     ]
    },
    {
-    "key": "special_category",
-    "label": "Special category data involved?",
+    "key": "transfer",
+    "label": "Will data leave India?",
     "kind": "select",
     "required": true,
     "options": [
-     "No",
-     "Yes"
+     "Yes",
+     "No"
     ]
    },
    {
-    "key": "scale",
-    "label": "Scale of processing",
+    "key": "subprocessors",
+    "label": "Will they use sub-processors?",
     "kind": "select",
     "required": true,
     "options": [
-     "Limited — under 10,000 data subjects",
-     "Moderate — 10,000 to 100,000",
-     "Large scale — over 100,000 data subjects"
-    ]
-   },
-   {
-    "key": "monitoring",
-    "label": "Systematic monitoring or profiling?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "No",
-     "Yes"
-    ]
-   },
-   {
-    "key": "location",
-    "label": "Where is data processed?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India only",
-     "India and EEA",
-     "United States",
-     "Multiple regions"
-    ]
-   },
-   {
-    "key": "retention",
-    "label": "Retention period",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Duration of the contract only",
-     "Contract plus 1 year",
-     "Contract plus 3 years",
-     "Contract plus 7 years — statutory"
-    ]
-   },
-   {
-    "key": "sub_processors",
-    "label": "Sub-processors used?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "None",
-     "Named list attached",
-     "To be approved case by case"
-    ]
-   },
-   {
-    "key": "breach_window",
-    "label": "Breach notification window",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "24 hours",
-     "48 hours",
-     "72 hours — regulatory minimum"
+     "Yes",
+     "No"
     ]
    },
    {
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "amendment",
   "name": "Amendment",
-  "group": "Change an existing agreement",
-  "parent": "contract",
-  "sort_order": 13,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which agreement?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
-   },
-   {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
-    "required": true
-   },
-   {
-    "key": "what_changes",
-    "label": "What is changing",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Commercial terms",
-     "Scope of services",
-     "Term / dates",
-     "Parties or entity details",
-     "Other"
-    ]
-   },
-   {
-    "key": "effective_date",
-    "label": "Amendment effective date",
-    "kind": "date",
-    "required": true
-   },
-   {
-    "key": "revised_end_date",
-    "label": "Revised end date",
+    "key": "needed_by",
+    "label": "Needed by",
     "kind": "date",
     "required": false
    },
    {
+    "key": "what_changes",
+    "label": "What is changing?",
+    "kind": "multiselect",
+    "required": true,
+    "options": [
+     "Value",
+     "Dates",
+     "Scope",
+     "Parties",
+     "Other"
+    ]
+   },
+   {
+    "key": "new_value",
+    "label": "New total value",
+    "kind": "number",
+    "required": true,
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Value"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Value"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "new_end_date",
+    "label": "New end date",
+    "kind": "date",
+    "required": true,
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Dates"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "change_effective",
+    "label": "Change takes effect on",
+    "kind": "date",
+    "required": true
+   },
+   {
     "key": "reason",
-    "label": "Reason for the amendment",
+    "label": "Why?",
     "kind": "textarea",
     "required": true
    },
@@ -685,119 +801,79 @@
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "renewal",
   "name": "Renewal",
-  "group": "Change an existing agreement",
-  "parent": "contract",
-  "sort_order": 14,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which agreement?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "renew_terms",
+    "label": "Renew on",
     "kind": "select",
     "required": true,
     "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
+     "Same terms",
+     "Changed terms"
     ]
    },
    {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
+    "key": "renew_end",
+    "label": "New end date",
+    "kind": "date",
+    "required": true
    },
    {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
+    "key": "renew_value",
+    "label": "New total value",
     "kind": "number",
-    "required": true
-   },
-   {
-    "key": "renewal_type",
-    "label": "Type of renewal",
-    "kind": "select",
     "required": true,
-    "options": [
-     "Straight extension — same terms",
-     "Renew with commercial changes",
-     "Renew with scope changes"
+    "show": [
+     {
+      "field": "renew_terms",
+      "in": [
+       "Changed terms"
+      ]
+     }
     ]
    },
    {
-    "key": "new_start",
-    "label": "New term starts",
-    "kind": "date",
-    "required": true
-   },
-   {
-    "key": "new_end",
-    "label": "New term ends",
-    "kind": "date",
-    "required": true
-   },
-   {
-    "key": "auto_renewal",
-    "label": "Auto-renewal after this term",
+    "key": "currency",
+    "label": "Currency",
     "kind": "select",
-    "required": false,
+    "required": true,
     "options": [
-     "No",
-     "Annual",
-     "Evergreen"
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "renew_terms",
+      "in": [
+       "Changed terms"
+      ]
+     }
     ]
    },
    {
     "key": "reason",
-    "label": "Reason for renewing",
+    "label": "Why?",
     "kind": "textarea",
     "required": true
    },
@@ -805,120 +881,79 @@
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "termination",
   "name": "Termination",
-  "group": "Change an existing agreement",
-  "parent": "contract",
-  "sort_order": 15,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which agreement?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
-   },
-   {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
-    "required": true
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
    },
    {
     "key": "grounds",
-    "label": "Grounds for termination",
+    "label": "Why is it ending?",
     "kind": "select",
     "required": true,
     "options": [
      "For convenience",
-     "For breach",
-     "By mutual agreement",
-     "Non-renewal at expiry"
+     "Breach by the other side",
+     "Mutual agreement",
+     "Not renewing at expiry"
     ]
    },
    {
     "key": "termination_date",
-    "label": "Proposed termination date",
+    "label": "Termination date",
     "kind": "date",
     "required": true
    },
    {
     "key": "clause_breached",
-    "label": "Clause breached",
+    "label": "Which clause was breached?",
     "kind": "text",
-    "required": false
+    "required": true,
+    "show": [
+     {
+      "field": "grounds",
+      "in": [
+       "Breach by the other side"
+      ]
+     }
+    ]
    },
    {
-    "key": "cure_period",
-    "label": "Cure period served",
+    "key": "cure_served",
+    "label": "Has the cure period run out?",
     "kind": "select",
-    "required": false,
+    "required": true,
     "options": [
-     "Not applicable",
      "Yes",
      "No"
+    ],
+    "show": [
+     {
+      "field": "grounds",
+      "in": [
+       "Breach by the other side"
+      ]
+     }
     ]
    },
    {
     "key": "reason",
-    "label": "Reason",
+    "label": "Why?",
     "kind": "textarea",
     "required": true
    },
@@ -926,153 +961,61 @@
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "novation",
   "name": "Novation",
-  "group": "Change an existing agreement",
-  "parent": "contract",
-  "sort_order": 16,
   "fields": [
    {
     "key": "parent_contract_id",
-    "label": "Parent agreement",
+    "label": "Which agreement?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "transferring_side",
-    "label": "Which side is transferring?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "The counterparty is transferring out",
-     "We are transferring out"
-    ]
-   },
-   {
-    "key": "outgoing_party",
-    "label": "Outgoing party",
-    "kind": "text",
-    "required": true
-   },
-   {
-    "key": "incoming_party",
-    "label": "Incoming party — the entity taking over",
-    "kind": "text",
-    "required": true
-   },
-   {
-    "key": "remaining_party",
-    "label": "Remaining party",
-    "kind": "text",
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
     "required": false
    },
    {
-    "key": "region",
-    "label": "Region",
+    "key": "transferring",
+    "label": "Who is transferring out?",
     "kind": "select",
     "required": true,
     "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
+     "They are",
+     "We are"
     ]
    },
    {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
+    "key": "incoming_party",
+    "label": "Who takes over?",
+    "kind": "text",
     "required": true
    },
    {
-    "key": "reason",
-    "label": "Reason for the novation",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Counterparty acquired or merged",
-     "Internal group restructuring",
-     "Supplier transferring the contract",
-     "Business or asset sale"
-    ]
-   },
-   {
     "key": "effective_date",
-    "label": "Novation effective date",
+    "label": "Takes effect on",
     "kind": "date",
     "required": true
    },
    {
-    "key": "liabilities",
-    "label": "Accrued liabilities",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Transfer to the incoming party",
-     "Stay with the outgoing party",
-     "Split at the effective date"
-    ]
-   },
-   {
     "key": "consent",
-    "label": "Has the outgoing party agreed?",
+    "label": "Has the outgoing party agreed in writing?",
     "kind": "select",
     "required": true,
     "options": [
-     "Yes — in writing",
-     "Yes — verbally, written to follow",
+     "Yes",
      "Not yet"
     ]
    },
    {
-    "key": "background",
-    "label": "Background",
+    "key": "reason",
+    "label": "Why?",
     "kind": "textarea",
     "required": true
    },
@@ -1080,17 +1023,26 @@
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "regularize",
-  "name": "Regularize an agreement executed outside the CLM",
-  "group": "Records & corrections",
-  "parent": "upload",
-  "sort_order": 17,
+  "name": "Signed outside the system",
   "fields": [
+   {
+    "key": "entity",
+    "label": "Our legal entity",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "entity_id",
+    "label": "Our legal entity (from the register)",
+    "kind": "text",
+    "required": true
+   },
    {
     "key": "counterparty",
     "label": "Counterparty",
@@ -1098,8 +1050,8 @@
     "required": true
    },
    {
-    "key": "agreement_type",
-    "label": "Agreement type",
+    "key": "counterparty_id",
+    "label": "Counterparty (from the register)",
     "kind": "text",
     "required": true
    },
@@ -1110,28 +1062,115 @@
     "required": true
    },
    {
-    "key": "effective_date",
-    "label": "Effective date",
+    "key": "value",
+    "label": "Total contract value",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ]
+   },
+   {
+    "key": "start_date",
+    "label": "Start date",
     "kind": "date",
     "required": true
+   },
+   {
+    "key": "term",
+    "label": "Term",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed end date",
+     "Renews automatically",
+     "No end date (evergreen)"
+    ]
    },
    {
     "key": "end_date",
     "label": "End date",
     "kind": "date",
-    "required": true
+    "required": true,
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Fixed end date",
+       "Renews automatically"
+      ]
+     }
+    ]
    },
    {
-    "key": "value",
-    "label": "Total value",
-    "kind": "number",
-    "required": true
+    "key": "renewal_term",
+    "label": "Each renewal lasts",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "1 year",
+     "2 years",
+     "3 years"
+    ],
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
    },
    {
-    "key": "entity",
-    "label": "Our entity",
-    "kind": "text",
-    "required": true
+    "key": "notice_days",
+    "label": "Notice needed to stop it renewing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "why_outside",
+    "label": "Why was it signed outside the system?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Urgency",
+     "Counterparty insisted",
+     "Signed before we used this system",
+     "Did not know it was needed"
+    ]
+   },
+   {
+    "key": "prior_approval",
+    "label": "Was it approved at the time?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes, in full",
+     "Informally, by email",
+     "No"
+    ]
    },
    {
     "key": "signed_by_us",
@@ -1140,349 +1179,51 @@
     "required": true
    },
    {
-    "key": "signed_by_them",
-    "label": "Who signed for the counterparty?",
-    "kind": "text",
-    "required": false
-   },
-   {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
-   },
-   {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "country",
-    "label": "Country",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "India",
-     "United Kingdom",
-     "United States",
-     "Germany",
-     "Singapore"
-    ]
-   },
-   {
-    "key": "area",
-    "label": "Area",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "North",
-     "South",
-     "East",
-     "West"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_sub_category",
-    "label": "Agreement sub-category",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Professional services",
-     "Managed services",
-     "Licence",
-     "Maintenance"
-    ]
-   },
-   {
-    "key": "plant",
-    "label": "Plant",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Hyderabad — Unit 1",
-     "Hyderabad — Unit 2",
-     "Bengaluru — R&D",
-     "Vizag — Unit 6"
-    ]
-   },
-   {
-    "key": "why_outside",
-    "label": "Why was it signed outside the CLM?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Urgency — no time to route it",
-     "Counterparty insisted on their process",
-     "The team was unaware of the CLM requirement",
-     "Signed before the CLM was introduced",
-     "Low value — assumed not required"
-    ]
-   },
-   {
-    "key": "prior_approval",
-    "label": "Were the usual approvals obtained at the time?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "No approvals were sought",
-     "Approved informally by email",
-     "Fully approved outside the system"
-    ]
-   },
-   {
-    "key": "signer_authority",
-    "label": "Did the signer have authority under the delegation?",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Yes",
-     "No",
-     "Not sure"
-    ]
-   },
-   {
-    "key": "circumstances",
-    "label": "Circumstances",
-    "kind": "textarea",
-    "required": true
-   },
-   {
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  },
  {
   "key": "cancellation",
-  "name": "Cancel a request in the CLM",
-  "group": "Records & corrections",
-  "parent": "request",
-  "sort_order": 18,
+  "name": "Cancel a request",
   "fields": [
    {
     "key": "cancel_request_ref",
-    "label": "Request to cancel",
+    "label": "Which request?",
     "kind": "text",
     "required": true
    },
    {
-    "key": "region",
-    "label": "Region",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "India",
-     "EMEA",
-     "North America",
-     "APAC"
-    ]
-   },
-   {
-    "key": "department",
-    "label": "Department",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Enterprise Systems",
-     "Procurement",
-     "Commercial",
-     "R&D",
-     "Human Resources",
-     "Finance",
-     "Quality"
-    ]
-   },
-   {
-    "key": "country",
-    "label": "Country",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "India",
-     "United Kingdom",
-     "United States",
-     "Germany",
-     "Singapore"
-    ]
-   },
-   {
-    "key": "agreement_type",
-    "label": "Agreement type",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Confidentiality agreement — India",
-     "Consultancy agreement — India",
-     "Master Services Agreement",
-     "Review / drafting by legal counsel",
-     "Service agreement — advertising, media, facilities",
-     "Vendor / supplier agreement",
-     "Customer / sales agreement",
-     "SaaS or software licence",
-     "Others — India"
-    ]
-   },
-   {
-    "key": "area",
-    "label": "Area",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "North",
-     "South",
-     "East",
-     "West"
-    ]
-   },
-   {
-    "key": "agreement_category",
-    "label": "Agreement category",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Master Service Agreement",
-     "Services — inbound",
-     "Services — outbound",
-     "Technology",
-     "Facilities",
-     "Marketing"
-    ]
-   },
-   {
-    "key": "business_unit",
-    "label": "Business unit",
-    "kind": "select",
-    "required": true,
-    "options": [
-     "Corporate",
-     "Global Generics",
-     "Pharmaceutical Services",
-     "Biologics"
-    ]
-   },
-   {
-    "key": "agreement_sub_category",
-    "label": "Agreement sub-category",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Professional services",
-     "Managed services",
-     "Licence",
-     "Maintenance"
-    ]
-   },
-   {
-    "key": "plant",
-    "label": "Plant",
-    "kind": "select",
-    "required": false,
-    "options": [
-     "Not applicable",
-     "Hyderabad — Unit 1",
-     "Hyderabad — Unit 2",
-     "Bengaluru — R&D",
-     "Vizag — Unit 6"
-    ]
-   },
-   {
-    "key": "value",
-    "label": "Total monetary value of agreement",
-    "kind": "number",
-    "required": true
-   },
-   {
-    "key": "reason",
-    "label": "Reason for cancelling",
+    "key": "cancel_reason",
+    "label": "Why cancel it?",
     "kind": "select",
     "required": true,
     "options": [
      "No longer needed",
-     "Duplicate of another request",
-     "Superseded by a different request",
-     "Business change — project stopped",
+     "Duplicate",
+     "Replaced by another request",
      "Raised in error",
      "Counterparty withdrew"
     ]
    },
    {
-    "key": "superseded_by",
-    "label": "Superseded by",
-    "kind": "text",
-    "required": false
-   },
-   {
-    "key": "notify_counterparty",
-    "label": "Notify the counterparty?",
+    "key": "tell_cp",
+    "label": "Does the counterparty already have a draft?",
     "kind": "select",
     "required": true,
     "options": [
-     "No — they were never contacted",
-     "Yes — they have the paper already"
+     "Yes",
+     "No"
     ]
-   },
-   {
-    "key": "note",
-    "label": "Anything the approvers should know",
-    "kind": "textarea",
-    "required": true
    },
    {
     "key": "note_approvers",
     "label": "Note to approvers",
     "kind": "textarea",
-    "required": true
+    "required": false
    }
   ]
  }

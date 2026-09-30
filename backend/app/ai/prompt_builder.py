@@ -1,6 +1,6 @@
 import json
-from dataclasses import dataclass
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from app.ai.context import ContractAIContext

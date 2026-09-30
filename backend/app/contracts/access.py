@@ -4,9 +4,7 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.contracts.models import Contract
 from app.core.access import is_org_admin
-from app.core.database import utcnow
 from app.grants.service import granted_resource_ids, user_has_grant
-from app.matters.models import Matter, MatterContract, MatterMember, MatterShare
 from app.walls.service import user_is_walled, wall_block_filter
 
 # --- Phase 3: mandatory access control (confidentiality / clearance) -------
@@ -51,10 +49,11 @@ def clearance_permits(user: User, contract: Contract) -> bool:
 
 
 def _is_pending_approver(db: Session, *, contract: Contract, user: User) -> bool:
-    """True if the user is assigned (directly, by role, or via an approver group)
+    """True if the user is assigned (directly, by role, or via a team)
     to a still-pending approval request on this contract."""
-    from app.approvals.models import ApprovalRequest, ApproverGroup
+    from app.approvals.models import ApprovalRequest
     from app.core.enums import ApprovalStatus
+    from app.intake.teams import member_users
 
     requests = db.scalars(
         select(ApprovalRequest).where(
@@ -71,10 +70,10 @@ def _is_pending_approver(db: Session, *, contract: Contract, user: User) -> bool
             return True
         if req.approver_role and req.approver_role in role_names:
             return True
-        if req.approver_group_id:
-            group = db.get(ApproverGroup, req.approver_group_id)
-            if group is not None and any(m.id == user.id for m in group.members):
-                return True
+        if req.approver_team_id and any(
+            m.id == user.id for m in member_users(db, team_id=req.approver_team_id, org_id=user.org_id)
+        ):
+            return True
     return False
 
 
@@ -92,40 +91,6 @@ def accessible_contract_filter(user: User):
     not_walled = wall_block_filter(user)
     if is_org_admin(user):
         return and_(org_scope, not_walled)
-    project_membership = (
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterMember,
-            (MatterMember.matter_id == MatterContract.matter_id)
-            & (MatterMember.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.contract_id == Contract.id,
-            MatterContract.org_id == user.org_id,
-            Matter.deleted_at.is_(None),
-            MatterMember.user_id == user.id,
-        )
-        .exists()
-    )
-    matter_share = (
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterShare,
-            (MatterShare.matter_id == MatterContract.matter_id)
-            & (MatterShare.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.contract_id == Contract.id,
-            MatterContract.org_id == user.org_id,
-            Matter.deleted_at.is_(None),
-            MatterShare.shared_with_user_id == user.id,
-            MatterShare.revoked_at.is_(None),
-            or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
-        )
-        .exists()
-    )
     return and_(
         org_scope,
         not_walled,
@@ -133,8 +98,6 @@ def accessible_contract_filter(user: User):
         or_(
             Contract.owner_user_id == user.id,
             Contract.created_by_user_id == user.id,
-            project_membership,
-            matter_share,
             # Phase 2: a direct, time-bound resource grant on this contract.
             Contract.id.in_(granted_resource_ids(user, "contract")),
         ),
@@ -174,41 +137,4 @@ def user_can_access_contract(db: Session, *, contract: Contract, user: User) -> 
     if _is_pending_approver(db, contract=contract, user=user):
         return True
     # Phase 2: a direct, time-bound resource grant on this contract.
-    if user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id):
-        return True
-    membership = (
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterMember,
-            (MatterMember.matter_id == MatterContract.matter_id)
-            & (MatterMember.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.org_id == user.org_id,
-            MatterContract.contract_id == contract.id,
-            Matter.deleted_at.is_(None),
-            MatterMember.user_id == user.id,
-        )
-        .limit(1)
-    )
-    if db.scalar(membership) is not None:
-        return True
-    return db.scalar(
-        select(MatterContract.id)
-        .join(Matter, Matter.id == MatterContract.matter_id)
-        .join(
-            MatterShare,
-            (MatterShare.matter_id == MatterContract.matter_id)
-            & (MatterShare.org_id == MatterContract.org_id),
-        )
-        .where(
-            MatterContract.org_id == user.org_id,
-            MatterContract.contract_id == contract.id,
-            Matter.deleted_at.is_(None),
-            MatterShare.shared_with_user_id == user.id,
-            MatterShare.revoked_at.is_(None),
-            or_(MatterShare.expires_at.is_(None), MatterShare.expires_at > utcnow()),
-        )
-        .limit(1)
-    ) is not None
+    return user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id)

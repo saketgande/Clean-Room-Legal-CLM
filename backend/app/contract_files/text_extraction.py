@@ -6,6 +6,7 @@ from zipfile import BadZipFile, ZipFile
 from docx.oxml.ns import qn
 
 from app.core.config import settings
+from app.docstudio.parsing.docx import _paragraph_text
 
 
 @dataclass(frozen=True)
@@ -262,9 +263,15 @@ def _render_container(parent_elm, parent, numbering=None) -> list[str]:
             # clauses on. Dropping them would merge the whole document into one
             # block.
             prefix = numbering.prefix(item) if numbering is not None else ""
+            # Not `item.text`: it reads only runs sitting directly in the
+            # paragraph, so a counterparty's tracked insertion (and hyperlink
+            # text) vanished — "capped at <ins>twelve months</ins> of fees" came
+            # out as "capped at  of fees". The Documents reader keeps insertions
+            # and drops deletions: the text as they propose it.
+            text = _paragraph_text(item)
             # A space, not a tab: `_CLAUSE_START` accepts either, and the number
             # is quoted back inside citations, where a tab reads as damage.
-            parts.append(f"{prefix} {item.text}" if prefix else item.text)
+            parts.append(f"{prefix} {text}" if prefix else text)
     return parts
 
 

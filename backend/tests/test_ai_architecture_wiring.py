@@ -173,10 +173,8 @@ def test_confirmation_decisions_require_ai_tool_permission():
 
 def test_assistant_prompt_uses_handles_not_internal_ids():
     contract_id = "11111111-1111-1111-1111-111111111111"
-    matter_id = "22222222-2222-2222-2222-222222222222"
     prompt = ai_controller._assistant_user_prompt(
         message="Summarize this contract",
-        matter_id=matter_id,
         contract_id=contract_id,
         contract_ids=[contract_id],
         handles=[{"handle": "contract-0", "contract_id": contract_id, "metadata": {}}],
@@ -184,13 +182,11 @@ def test_assistant_prompt_uses_handles_not_internal_ids():
 
     assert "contract-0" in prompt
     assert contract_id not in prompt
-    assert matter_id not in prompt
 
 
 def test_model_safe_result_strips_internal_identifier_keys():
     assert "current_authoritative_version_id" in INTERNAL_RESULT_KEYS
     assert "contract_version_id" in INTERNAL_RESULT_KEYS
-    assert "matter_id" in INTERNAL_RESULT_KEYS
 
 
 def test_phase3_tool_results_emit_frontend_artifact_events():

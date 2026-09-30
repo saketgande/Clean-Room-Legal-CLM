@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import io
 import re
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from starlette.datastructures import Headers, UploadFile
 
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.config import settings
 from app.core.database import utcnow
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
@@ -94,11 +97,11 @@ This Master Services Agreement (the "Agreement") is entered into as of {effectiv
 
 2. FEES AND PAYMENT
 
-2.1 {company} shall pay the fees set out in the applicable SOW. Undisputed invoices are payable within forty-five (45) days of receipt. {company} may withhold payment of amounts it disputes in good faith pending resolution. Fees are exclusive of applicable taxes, other than taxes on Provider's income.
+2.1 {company} shall pay the fees set out in the applicable SOW. Undisputed invoices are payable within {payment_days} days of receipt. {company} may withhold payment of amounts it disputes in good faith pending resolution. Fees are exclusive of applicable taxes, other than taxes on Provider's income.{value_sentence}
 
 3. TERM AND TERMINATION
 
-3.1 This Agreement begins on the Effective Date and continues until terminated. Either Party may terminate this Agreement or any SOW for material breach not cured within thirty (30) days of written notice, or immediately if the other Party becomes insolvent. {company} may terminate any SOW for convenience on thirty (30) days' notice, paying for Services performed through the termination date.
+3.1 This Agreement begins on the Effective Date and {msa_term}. Either Party may terminate this Agreement or any SOW for material breach not cured within thirty (30) days of written notice, or immediately if the other Party becomes insolvent. {company} may terminate any SOW for convenience on thirty (30) days' notice, paying for Services performed through the termination date.
 
 4. CONFIDENTIALITY
 
@@ -212,11 +215,11 @@ This Vendor Agreement (the "Agreement") is entered into as of {effective_date} (
 
 2. PRICING AND PAYMENT
 
-2.1 {company} shall pay the prices set out in the applicable Order. Undisputed invoices are payable within forty-five (45) days of receipt of a valid invoice and acceptance of the goods or services. Prices are firm for the initial term and exclusive of applicable taxes other than taxes on Vendor's income.
+2.1 {company} shall pay the prices set out in the applicable Order. Undisputed invoices are payable within {payment_days} days of receipt of a valid invoice and acceptance of the goods or services. Prices are firm for the initial term and exclusive of applicable taxes other than taxes on Vendor's income.{value_sentence}
 
 3. TERM
 
-3.1 This Agreement begins on the Effective Date and continues for an initial term of one (1) year, renewing for successive one-year terms unless either Party gives sixty (60) days' notice of non-renewal. Either Party may terminate for material breach not cured within thirty (30) days of written notice.
+3.1 This Agreement begins on the Effective Date and {vendor_term}. Either Party may terminate for material breach not cured within thirty (30) days of written notice.
 
 4. COMPLIANCE
 
@@ -267,12 +270,29 @@ _DOC_TYPES: dict[str, dict] = {
 }
 
 
+# Which template each form (or kind of new agreement) drafts. Selling to a
+# customer and "something else" have no template: Legal drafts them.
+_FORM_DOC = {"sow": "msa", "dpa": "dpa"}
+_KIND_DOC = {"NDA": "nda", "Services (MSA)": "msa", "Consultancy": "msa",
+             "Buying from a vendor": "vendor", "Software or SaaS": "vendor"}
+
+
 def resolve_doc_type(request: IntakeRequest) -> str | None:
     """Which draftable document (if any) this request maps to. Keyword-first so
     it works regardless of the classifier; falls back to the classified category.
     Returns None for request types that are not contracts (litigation, general)."""
     from app.intake.agents import classify
 
+    # A form says it outright: the New agreement form's kind of agreement, or the
+    # SoW / DPA form itself. Change and records forms never draft a new paper.
+    fv = request.field_values or {}
+    form = fv.get("request_form")
+    if form in _FORM_DOC:
+        return _FORM_DOC[form]
+    if form == "new_agreement":
+        return _KIND_DOC.get(str(fv.get("agreement_type") or ""))
+    if form:
+        return None
     text = f"{request.type_label} {request.description or ''}".lower()
     category = (classify(request.type_label, request.description or "").get("category") or "").lower()
 
@@ -280,7 +300,7 @@ def resolve_doc_type(request: IntakeRequest) -> str | None:
     # to run, not a document to draft ("breach notification" terms in a DPA are fine).
     if re.search(r"\bincident\b|\bbreach\b(?!\s+notif)", text):
         return None
-    if re.search(r"\b(nda|non-disclosure|non disclosure)\b", text) or category == "nda":
+    if re.search(r"\b(nda|non-disclosure|non disclosure|confidentiality agreement)\b", text) or category == "nda":
         return "nda"
     # A DPA is the document itself; "data protection", GDPR or the privacy category
     # describe a privacy matter, which isn't something to draft.
@@ -309,14 +329,13 @@ def _nda_fill(*, company: str, counterparty: str, effective: str, fields: dict) 
     governing law) into the template's placeholders. Empty fields fall back to
     the standard playbook defaults, so a bare request still yields a clean NDA."""
     f = fields or {}
-    direction = str(f.get("nda_direction") or "mutual").lower()
-    one_way = "one" in direction  # oneway_disclose / oneway_receive / one-way
+    one_way = f.get("nda_kind") == "One-way"
     purpose = str(f.get("purpose") or "").strip()
-    term = str(f.get("term") or "").strip()
+    term = str(f.get("nda_term") or "").strip()
     survival = str(f.get("survival_years") or "").strip()
     law = str(f.get("governing_law") or "").strip() or "the State of Delaware"
     if one_way:
-        disc, recv = (counterparty, company) if "receive" in direction else (company, counterparty)
+        disc, recv = (counterparty, company) if f.get("nda_direction") == "They share" else (company, counterparty)
         direction_recital = (
             f"This is a one-way disclosure in which {disc} is the Disclosing Party "
             f"and {recv} is the Receiving Party."
@@ -339,7 +358,103 @@ def render_document(doc_type: str, *, company: str, counterparty: str, effective
     spec = _DOC_TYPES[doc_type]
     if doc_type == "nda":
         return spec["template"].format(**_nda_fill(company=company, counterparty=counterparty, effective=effective, fields=fields or {}))
-    return spec["template"].format(company=company, counterparty=counterparty, effective_date=effective)
+    fv = fields or {}
+    facts = request_facts(fv)
+    end = facts.get("expiration_date")
+    value = facts.get("value_amount")
+    term = f"continues until {end.isoformat()}" if end else "continues until terminated"
+    if end and fv.get("term") == "Renews automatically":
+        term += (f", and then renews automatically for successive periods of {fv.get('renewal_term') or '1 year'}"
+                 f" unless either Party gives {fv.get('notice_days') or '60 days'}' written notice of non-renewal")
+    days = str(fv.get("payment_terms") or "45 days").split()[0]
+    return spec["template"].format(
+        company=company, counterparty=counterparty, effective_date=effective,
+        msa_term=term, vendor_term=term, payment_days=days,
+        value_sentence=f" The total value of this Agreement shall not exceed {facts['currency']} {value:,.2f}." if value else "",
+    )
+
+
+# Form answers that are contract facts. The forms ask these outright, so they are
+# the stated deal — the AI metadata extractor only fills what is still blank.
+_START_KEYS = ("start_date", "services_start")
+_END_KEYS = ("end_date", "services_end")
+
+
+def _as_date(raw) -> date | None:
+    try:
+        return date.fromisoformat(str(raw).strip()[:10])
+    except ValueError:
+        return None
+
+
+def request_facts(fv: dict) -> dict:
+    """The contract facts a request's form answers state, typed for the Contract row."""
+    facts: dict = {}
+    try:
+        value = Decimal(str(fv.get("value") or "").replace(",", "").strip())
+        if value > 0:
+            facts["value_amount"] = value
+            facts["currency"] = fv.get("currency") or settings.default_currency
+    except InvalidOperation:
+        pass
+    for column, keys in (("effective_date", _START_KEYS), ("expiration_date", _END_KEYS)):
+        found = next((d for d in (_as_date(fv.get(k)) for k in keys if fv.get(k)) if d), None)
+        if found:
+            facts[column] = found
+    return facts
+
+
+def apply_request_facts(contract, request: IntakeRequest) -> None:
+    """Write the form's facts, parties and the auto-review flag onto a new
+    contract. Runs inside create_contract_from_upload before the AI jobs are
+    dispatched, so they read the facts instead of racing them. Precedence is
+    person > form > AI: a value a person typed is never replaced here."""
+    fv = request.field_values or {}
+    contract.counterparty_id = request.counterparty_id
+    contract.legal_entity_id = request.legal_entity_id
+    meta = dict(contract.metadata_json or {})
+    sources = dict(meta.get("field_sources") or {})
+    for column, value in request_facts(fv).items():
+        if sources.get(column) != "user":
+            setattr(contract, column, value)
+            sources[column] = "form"
+    # The contract type names the kind of agreement precisely, so its playbook is
+    # the one picked for the automatic review (pick_playbook_for_contract).
+    from app.playbooks.library import CONTRACT_TYPE_OF_FORM, CONTRACT_TYPE_OF_KIND
+
+    kind_type = (CONTRACT_TYPE_OF_KIND.get(fv.get("agreement_type")) if fv.get("request_form") == "new_agreement"
+                 else CONTRACT_TYPE_OF_FORM.get(fv.get("request_form")))
+    if kind_type and sources.get("contract_type") != "user":
+        contract.contract_type = kind_type
+        sources["contract_type"] = "form"
+    meta["field_sources"] = sources
+    if fv.get("term"):
+        meta["renewal"] = {"term": fv["term"], "renews_for": fv.get("renewal_term"), "notice": fv.get("notice_days")}
+    meta["intake_request_id"] = request.id
+    # Once clause extraction finishes, the job runner runs risk + the matching
+    # playbook so REVIEW is ready without a click.
+    meta["auto_review_pending"] = True
+    # A parent the requester picked (amendment, renewal, SoW, DPA…) makes lineage
+    # a STATED fact the graph can assert, not a same-counterparty guess.
+    parent_id = str(fv.get("parent_contract_id") or "").strip()
+    if parent_id:
+        meta["parent_contract_id"] = parent_id
+        if fv.get("parent_contract_title"):
+            meta["parent_contract_title"] = fv["parent_contract_title"]
+    contract.metadata_json = meta
+    # Their signer is a party on the contract, so signature allows their email.
+    if fv.get("cp_signer_email") and getattr(contract, "counterparty_name", None):
+        from sqlalchemy.orm import object_session
+
+        from app.contracts.models import ContractParty
+
+        session = object_session(contract)
+        session.flush()  # the contract's id
+        session.add(ContractParty(
+            org_id=contract.org_id, contract_id=contract.id, name=contract.counterparty_name,
+            party_type="counterparty", contact_email=str(fv["cp_signer_email"]).strip(),
+            metadata_json={"signer_name": fv.get("cp_signer_name"), "source": "request_form"},
+        ))
 
 
 def _custom_shell(*, company: str, counterparty: str, fields: dict, label: str) -> str:
@@ -369,7 +484,35 @@ def _custom_shell(*, company: str, counterparty: str, fields: dict, label: str) 
     return "\n".join(lines)
 
 
-async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str, fields: dict) -> str | None:
+def _party_details(db, request: IntakeRequest, org_name: str) -> tuple[str, str, list[str]]:
+    """(our entity's name, the counterparty's name, extra lines for an AI draft).
+
+    The register records picked on the request win: they carry the legal name,
+    jurisdiction, address and signatory a contract needs. Requests filed before
+    the register existed fall back to the typed names, then the organisation."""
+    from app.parties import service as parties
+
+    fv = request.field_values or {}
+    entity = parties.get(db, org_id=request.org_id, kind="legal_entity", record_id=request.legal_entity_id)
+    cp = parties.get(db, org_id=request.org_id, kind="counterparty", record_id=request.counterparty_id)
+    company = entity.name if entity else (str(fv.get("entity") or "").strip() or org_name)
+    counterparty = cp.name if cp else (str(fv.get("counterparty") or "").strip() or _primary_counterparty(request))
+    lines: list[str] = []
+    if entity:
+        bits = [f"incorporated in {entity.jurisdiction}" if entity.jurisdiction else "",
+                f"registered office: {entity.registered_address}" if entity.registered_address else "",
+                f"authorised signatory: {entity.authorised_signatory}" if entity.authorised_signatory else ""]
+        lines.append(f"Our contracting entity: {entity.name}" + "".join(f"; {b}" for b in bits if b) + ".")
+    if cp:
+        bits = [f"incorporated in {cp.jurisdiction}" if cp.jurisdiction else "",
+                f"address: {cp.address}" if cp.address else "",
+                f"notices / signature email: {cp.contact_email}" if cp.contact_email else ""]
+        lines.append(f"Counterparty: {cp.name}" + "".join(f"; {b}" for b in bits if b) + ".")
+    return company, counterparty, lines
+
+
+async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str,
+                         fields: dict, party_lines: list[str] | tuple = ()) -> str | None:
     """Generate a REAL bespoke draft with the drafting skill (the same
     contract_docx_generation the assistant uses), grounded on the intake
     request's type, counterparty and captured requirements. Returns the rendered
@@ -387,6 +530,7 @@ async def _ai_draft_text(db, *, actor, request: IntakeRequest, company: str, cou
         line
         for line in [
             f"Draft a {label} between {company} (our organization) and {counterparty or '[Counterparty]'}.",
+            *party_lines,
             f"Matter type: {request.type_label}.",
             f"Purpose / context: {purpose}" if purpose else "",
             "Captured requirements from the intake request:" if reqs else "",
@@ -452,17 +596,17 @@ async def draft_contract_for_request(
     spec = _DOC_TYPES[doc_type] if doc_type else {"label": (request.type_label or "Agreement"), "contract_type": "other"}
 
     org = db.get(Organization, actor.org_id)
-    company = (org.name if org and org.name else "Company")
     fv = request.field_values or {}
-    # Prefer the details captured on the intake form; fall back to screening / today.
-    counterparty = str(fv.get("counterparty") or "").strip() or _primary_counterparty(request)
-    effective = str(fv.get("effective_date") or "").strip() or utcnow().date().isoformat()
+    # Our side and theirs come from the register records picked on the request.
+    company, counterparty, party_lines = _party_details(
+        db, request, org.name if org and org.name else "Company")
+    effective = str(fv.get("start_date") or fv.get("services_start") or "").strip() or utcnow().date().isoformat()
     if custom:
         # Real AI generation for bespoke drafts (was a placeholder skeleton).
         # Skeleton only survives as the safety net if the model is unavailable.
         text = await _ai_draft_text(
             db, actor=actor, request=request, company=company,
-            counterparty=counterparty, label=spec["label"], fields=fv,
+            counterparty=counterparty, label=spec["label"], fields=fv, party_lines=party_lines,
         )
         if not text:
             text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
@@ -470,7 +614,7 @@ async def draft_contract_for_request(
         text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
     # One-way NDAs get a clearer label than the generic template label.
     label = spec["label"]
-    if doc_type == "nda" and "one" in str(fv.get("nda_direction") or "").lower():
+    if doc_type == "nda" and fv.get("nda_kind") == "One-way":
         label = "One-Way NDA"
     if custom:
         label = f"{label} (Custom draft)"
@@ -491,22 +635,9 @@ async def draft_contract_for_request(
         counterparty_name=counterparty,
         contract_type=spec["contract_type"],
         request_id=http_request_id,
+        on_created=lambda c: apply_request_facts(c, request),
     )
     contract = result["contract"]
-
-    # Flag for auto AI review — once clause extraction finishes (async), the job
-    # runner runs risk + the matching playbook so REVIEW is ready without a click.
-    meta = dict(contract.metadata_json or {})
-    meta["auto_review_pending"] = True
-    # Carry the parent the requester picked on the agreement form (amendment,
-    # renewal, SoW, DPA…) onto the contract, so lineage is a STATED fact the
-    # graph can assert — not the same-counterparty guess the inference makes.
-    parent_id = str(fv.get("parent_contract_id") or "").strip()
-    if parent_id:
-        meta["parent_contract_id"] = parent_id
-        if fv.get("parent_contract_title"):
-            meta["parent_contract_title"] = fv["parent_contract_title"]
-    contract.metadata_json = meta
 
     # Link both directions and record it on the request's timeline.
     request.contract_id = contract.id
@@ -556,7 +687,10 @@ async def ingest_attachment_as_contract(
             "No attached document with extractable text to use as the contract.",
         )
 
-    counterparty = _primary_counterparty(request)
+    from app.parties import service as parties
+
+    cp = parties.get(db, org_id=request.org_id, kind="counterparty", record_id=request.counterparty_id)
+    counterparty = cp.name if cp else _primary_counterparty(request)
     doc_type = resolve_doc_type(request)
     contract_type = _DOC_TYPES[doc_type]["contract_type"] if doc_type else None
     base = doc.filename.rsplit(".", 1)[0] if "." in doc.filename else doc.filename
@@ -570,12 +704,9 @@ async def ingest_attachment_as_contract(
     result = await create_contract_from_upload(
         db, upload=upload, user=actor, title=title,
         counterparty_name=counterparty, contract_type=contract_type, request_id=http_request_id,
+        on_created=lambda c: apply_request_facts(c, request),
     )
     contract = result["contract"]
-
-    meta = dict(contract.metadata_json or {})
-    meta["auto_review_pending"] = True
-    contract.metadata_json = meta
     request.contract_id = contract.id
     request.updated_by_user_id = actor.id
     write_audit_log(
@@ -592,6 +723,62 @@ async def ingest_attachment_as_contract(
     db.commit()
     db.refresh(request)
     return contract
+
+
+
+def _change_facts(fv: dict) -> tuple[dict, dict]:
+    """What a finished change request writes onto its contract: (column values,
+    metadata notes). Only answers the form asked for this change are used."""
+    form, cols, notes = fv.get("request_form"), {}, {}
+    money_key = {"amendment": "new_value", "renewal": "renew_value"}.get(form)
+    if money_key and fv.get(money_key) not in (None, ""):
+        try:
+            cols["value_amount"] = Decimal(str(fv[money_key]).replace(",", ""))
+            cols["currency"] = fv.get("currency") or settings.default_currency
+        except InvalidOperation:
+            pass
+    end = {"amendment": "new_end_date", "renewal": "renew_end", "termination": "termination_date"}.get(form)
+    if end and _as_date(fv.get(end)):
+        cols["expiration_date"] = _as_date(fv[end])
+    if form == "termination":
+        notes["terminated"] = {"on": fv.get("termination_date"), "grounds": fv.get("grounds")}
+    if form == "novation" and fv.get("incoming_party"):
+        cols["counterparty_name"] = str(fv["incoming_party"])[:255]
+        notes["novated"] = {"on": fv.get("effective_date"), "transferring": fv.get("transferring")}
+    return cols, notes
+
+
+def apply_change_request(db, *, request: IntakeRequest, actor_id: str | None) -> dict | None:
+    """When an amendment, renewal, termination or novation workflow finishes,
+    write what it changed onto the agreement it names, so the register shows the
+    new value / end date / party instead of the request only recording it."""
+    from app.contracts.models import Contract
+
+    fv = request.field_values or {}
+    parent = db.get(Contract, fv.get("parent_contract_id")) if fv.get("parent_contract_id") else None
+    if parent is None or parent.org_id != request.org_id:
+        return None
+    cols, notes = _change_facts(fv)
+    if not cols and not notes:
+        return None
+    before = {k: str(getattr(parent, k)) if getattr(parent, k) is not None else None for k in cols}
+    meta = dict(parent.metadata_json or {})
+    sources = dict(meta.get("field_sources") or {})
+    for k, v in cols.items():
+        setattr(parent, k, v)
+        sources[k] = "form"
+    meta["field_sources"] = sources
+    meta.update(notes)
+    parent.metadata_json = meta
+    after = {k: str(v) for k, v in cols.items()}
+    write_audit_log(db, action="contract.changed_by_request", resource_type="contract", resource_id=parent.id,
+                    org_id=parent.org_id, actor_user_id=actor_id, before=before,
+                    after={**after, "request": request.ref, **notes})
+    write_timeline_event(db, org_id=parent.org_id, resource_type="contract", resource_id=parent.id,
+                         event_type="contract.changed_by_request",
+                         title=f"Updated by {request.ref} ({request.type_label})", actor_user_id=actor_id,
+                         details={**after, **notes})
+    return after
 
 
 if __name__ == "__main__":  # pragma: no cover - template self-check

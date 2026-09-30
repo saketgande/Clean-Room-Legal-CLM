@@ -54,10 +54,9 @@ export function humanizeEvent(action: string): string {
     "intake.closed": "Closed",
     "intake.agent_no_match": "Queued for manual triage",
     "intake.approval_blocked": "Approval blocked",
-    "intake.promoted": "Promoted to a matter",
+    "intake.promoted": "Linked to a contract",
     "intake.paused": "Paused — waiting on requester",
     "intake.resumed": "Resumed",
-    "intake.routing_rule.fired": "Routing rule applied",
     "intake.approved": "Response approved by legal",
     "intake.rejected": "Sent back for manual handling",
   };

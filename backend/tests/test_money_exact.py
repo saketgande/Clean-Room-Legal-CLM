@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from sqlalchemy import Numeric
 
 import app.models  # noqa: F401  (register every mapper)
-from app.approvals import service as approvals
 from app.authority.models import AuthorityGrant
 from app.authority.service import _grant_covers
 from app.contracts.models import Contract
@@ -35,11 +34,6 @@ def test_a_value_exactly_at_the_authority_limit_is_covered():
     assert _grant_covers(_grant(limit), _contract(Decimal("10000.10")))[0] is True
     assert _grant_covers(_grant(limit), _contract(10000.1))[0] is True  # intake values arrive as float
     assert _grant_covers(_grant(limit), _contract(Decimal("10000.11")))[0] is False
-
-
-def test_a_value_exactly_at_a_routing_minimum_matches():
-    rule = SimpleNamespace(criteria={"min_value": 10000.1})  # criteria JSON holds floats
-    assert approvals._matches(rule, SimpleNamespace(value_amount=Decimal("10000.10"))) is True
 
 
 def test_totals_are_exact():

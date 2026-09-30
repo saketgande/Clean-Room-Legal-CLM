@@ -76,6 +76,9 @@ def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
     """Does one policy's limits cover this contract? Returns (ok, miss_reason)."""
     value = to_money(contract.value_amount)
     if grant.max_value is not None:
+        # Unknown value fails closed: counting it as 0 let any limit cover it.
+        if contract.value_amount is None:
+            return False, "the value is unknown, so it can't be confirmed within this authority's limit"
         # If both carry a currency and they differ, the limit can't be compared —
         # treat as not covering (a $-limit doesn't authorise a €-contract).
         if grant.currency and contract.currency and grant.currency != contract.currency:
@@ -181,6 +184,69 @@ def enforce_authority(
             f"Outside your delegated authority — {decision.reason}.",
         )
     return decision
+
+
+# --- plain-words summaries (Teams page, workflow steps) -----------------------
+
+def _gate_live(db: Session, *, org_id: str, action: str) -> bool:
+    return db.scalar(
+        select(AuthorityGrant.id).where(
+            AuthorityGrant.org_id == org_id, AuthorityGrant.action == action, _active_clause()
+        ).limit(1)
+    ) is not None
+
+
+def _money_label(value, currency: str | None) -> str:
+    return f"{currency + ' ' if currency else ''}{to_money(value):,.0f}"
+
+
+def authority_limits(
+    db: Session, *, org_id: str, user_ids, action: str = "contract:approve"
+) -> dict[str, str] | None:
+    """Each user's limit for ``action`` in plain words ("up to INR 5,00,00,000",
+    "no value limit", "no authority"). None while no policy exists for the action:
+    the gate is dormant, so nobody is limited and there is nothing to show."""
+    ids = [u for u in set(user_ids) if u]
+    if not ids or not _gate_live(db, org_id=org_id, action=action):
+        return None
+    out: dict[str, str] = {}
+    for user in db.scalars(select(User).where(User.org_id == org_id, User.id.in_(ids))).all():
+        grants = db.scalars(select(AuthorityGrant).where(
+            AuthorityGrant.org_id == org_id, AuthorityGrant.action == action,
+            _principal_clause(user), _active_clause(),
+        )).all()
+        if not grants:
+            out[user.id] = "no authority"
+            continue
+        if any(g.max_value is None for g in grants):
+            label = "no value limit"
+        else:
+            top = max(grants, key=lambda g: to_money(g.max_value))
+            label = f"up to {_money_label(top.max_value, top.currency)}"
+        if any(g.allowed_contract_types or g.allowed_jurisdictions or g.max_risk_band for g in grants):
+            label += " · some types/regions only"
+        out[user.id] = label
+    return out
+
+
+def approval_authority_note(
+    db: Session, *, org_id: str, user_ids, contract, action: str = "contract:approve"
+) -> str | None:
+    """What an approval step needs, and how many of its approvers have it — the
+    same check the decision itself runs (``evaluate_authority``). None while the
+    gate is dormant."""
+    ids = [u for u in dict.fromkeys(user_ids) if u]
+    if not ids or not _gate_live(db, org_id=org_id, action=action):
+        return None
+    users = db.scalars(select(User).where(User.org_id == org_id, User.id.in_(ids))).all()
+    if contract is None:
+        limits = authority_limits(db, org_id=org_id, user_ids=ids, action=action) or {}
+        have = sum(1 for u in users if limits.get(u.id) != "no authority")
+        return f"Needs approval authority · {have} of {len(users)} can approve"
+    have = sum(1 for u in users if evaluate_authority(db, user=u, action=action, contract=contract).allowed)
+    need = ("for " + _money_label(contract.value_amount, contract.currency)
+            if contract.value_amount is not None else "(value unknown — only no-limit authority covers it)")
+    return f"Needs authority {need} · {have} of {len(users)} can approve"
 
 
 # --- serialization --------------------------------------------------------

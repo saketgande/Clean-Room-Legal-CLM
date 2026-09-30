@@ -14,7 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ImportContractModal } from "@/components/import-contract-modal";
-import { contractsApi, mattersApi, tabularApi } from "@/lib/endpoints";
+import { contractsApi, tabularApi } from "@/lib/endpoints";
 import {
   Badge,
   Breadcrumbs,
@@ -60,10 +60,6 @@ export default function TabularReviewDetailPage({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
   });
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-  });
 
   const contractTitle = useMemo(() => {
     const map = new Map<string, string>();
@@ -84,7 +80,6 @@ export default function TabularReviewDetailPage({
     );
 
   const { review, columns, cells } = data;
-  const project = (projects ?? []).find((p) => p.id === review.matter_id);
   const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
   const cellAt = (contractId: string, columnId: string) =>
     cells.find(
@@ -105,18 +100,10 @@ export default function TabularReviewDetailPage({
     <div className="space-y-4">
       <div>
         <Breadcrumbs
-          items={
-            project
-              ? [
-                  { label: "Matters", href: "/matters" },
-                  { label: project.name, href: `/matters/${project.id}` },
-                  { label: review.name },
-                ]
-              : [
-                  { label: "Tabular Reviews", href: "/tabular-reviews" },
-                  { label: review.name },
-                ]
-          }
+          items={[
+            { label: "Tabular Reviews", href: "/tabular-reviews" },
+            { label: review.name },
+          ]}
         />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>

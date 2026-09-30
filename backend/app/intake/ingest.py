@@ -96,8 +96,7 @@ def sender_verdict(auth_results: str | list[str] | None) -> dict:
     because that is what Exchange stamps on intra-tenant mail, where DMARC is
     not evaluated at all.
 
-    No header at all means unverified. Fails closed, for the same reason a
-    stale sanctions list reports "unavailable" and never "clear": not having
+    No header at all means unverified. Fails closed: not having
     checked is not the same as having passed.
     """
     if isinstance(auth_results, list):
@@ -194,7 +193,7 @@ def ingest_message(
     fv = fv or None
     payload = SimpleNamespace(
         source=source, requester_name=from_email or requester.email,
-        department=None, request_type_id=None,
+        department=None,
         # Not the raw subject line (that's `subject`, below) — a channel
         # message's category isn't known yet at ingest time, so it starts in
         # the same generic bucket the New Request form itself offers, and

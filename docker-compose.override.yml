@@ -31,6 +31,9 @@ x-dev-app-env: &dev_app_env
   DISABLE_RBAC: "true"
   # Demo agents default off (production posture); dev wants them visible.
   INTAKE_DEMO_AGENTS: "true"
+  # The Word editor in the contract page (the onlyoffice service below).
+  ONLYOFFICE_URL: http://localhost:8082
+  ONLYOFFICE_JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:-aegis-dev-onlyoffice-secret-local-only}"
 
 services:
   # Run migrations from the live source too (so edited migrations apply).

@@ -20,7 +20,7 @@ def test_the_assistant_uses_the_brain_pages_retrieval(monkeypatch):
     monkeypatch.setattr(retrieval, "hybrid_sources", lambda db, **kw: calls.append(kw) or sources)
     user = SimpleNamespace(id="u-1", org_id="org-1")
     context = retrieval.assemble_context(None, user=user, question="Is liability capped?", scope="contract",
-                                         contract_id="c-1", matter_id=None)
+                                         contract_id="c-1")
     assert calls[0]["contract_ids"] == ["c-1"] and calls[0]["user"] is user
     assert context["context_text"] == retrieval.sources_to_context(sources)
     assert context["source_count"] == 2
@@ -32,7 +32,7 @@ def test_a_question_nothing_matches_gets_no_filler_context(monkeypatch):
     monkeypatch.setattr(retrieval, "resolve_scope_contract_ids", lambda db, **kw: ["c-1"])
     monkeypatch.setattr(retrieval, "hybrid_sources", lambda db, **kw: empty)
     context = retrieval.assemble_context(None, user=SimpleNamespace(org_id="org-1"), question="Where is the moon clause?",
-                                         scope="portfolio", contract_id=None, matter_id=None)
+                                         scope="portfolio", contract_id=None)
     assert (context["context_text"], context["source_count"]) == ("", 0)
     assert not hasattr(retrieval, "_fulltext_clauses")
 

@@ -2,8 +2,9 @@ import asyncio
 import hashlib
 import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import timedelta
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select, update
@@ -17,22 +18,22 @@ from app.contract_files.models import (
     ContractVersion,
     StorageObject,
 )
-from app.contract_files.structure import build_elements, elements_from_flat_text
+from app.contract_files.structure import (
+    build_elements,
+    elements_from_flat_text,
+    read_with_documents_reader,
+)
 from app.contract_files.text_extraction import TextExtractionResult, extract_text
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
-from app.core.database import utcnow
+from app.core.database import new_uuid, utcnow
 from app.core.enums import ContractLifecycleStage, ContractVersionSource, StorageBackend
-from app.core.money import to_money
-from app.integrations.databricks import databricks_client
 from app.integrations.ocr import page_map_from_elements
 from app.integrations.reducto import reducto_client
 from app.integrations.storage import storage_service
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +232,15 @@ def _persist_document_elements(db, snapshot: ContractTextSnapshot, *, elements: 
     don't slice back out of the text exactly. So structuring can only help — it
     can't corrupt an upload."""
     try:
-        rows, ok = (
-            build_elements(elements, snapshot.text)
-            if elements
-            else elements_from_flat_text(snapshot.text)
-        )
+        if elements and "char_start" in elements[0]:
+            # Already placed by the Documents reader, offsets into this text.
+            rows, ok = [dict(e) for e in elements], True
+        else:
+            rows, ok = (
+                build_elements(elements, snapshot.text)
+                if elements
+                else elements_from_flat_text(snapshot.text)
+            )
         if not ok or not rows:
             return
         # Idempotent: clear any prior elements for this snapshot before writing,
@@ -243,9 +248,15 @@ def _persist_document_elements(db, snapshot: ContractTextSnapshot, *, elements: 
         db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
         if any(snapshot.text[r["char_start"]:r["char_end"]] != r["text"] for r in rows):
             return  # invariant broken — do not persist misaligned offsets
-        for r in rows:
+        # The reader's tree names parents by position; ids are assigned up front
+        # so a child can point at its parent before anything is flushed.
+        ids = [new_uuid() for _ in rows]
+        for i, r in enumerate(rows):
+            parent_seq = r.pop("parent_seq", None)
             db.add(
                 ContractDocumentElement(
+                    id=ids[i],
+                    parent_id=ids[parent_seq] if parent_seq is not None and parent_seq < len(ids) else None,
                     org_id=snapshot.org_id,
                     contract_id=snapshot.contract_id,
                     contract_version_id=snapshot.contract_version_id,
@@ -300,15 +311,8 @@ def backfill_document_elements(db, *, limit: int | None = None, batch_size: int 
 
 
 def _ocr_providers() -> list:
-    """Configured OCR providers in preference order.
-
-    Reducto has no `enabled` flag of its own, so its key is the test. Order is
-    deliberate: Databricks returns page elements that `page_map_from_elements`
-    can turn into page citations, which Reducto does not.
-    """
+    """Configured OCR providers. Reducto has no `enabled` flag, so its key is the test."""
     providers = []
-    if databricks_client.enabled:
-        providers.append(databricks_client)
     if settings.reducto_api_key:
         providers.append(reducto_client)
     return providers
@@ -320,7 +324,21 @@ async def _resolve_extracted_text(
     """Run native text extraction and, if the result looks too thin, fall back
     to the OCR provider. Encapsulates the messy OCR-fallback decision tree so
     the upload orchestrator stays linear."""
+    # The Documents reader first: page furniture removed, Word numbering and
+    # tracked insertions kept, a clause tree. When it can't do better (scan,
+    # damaged file, unsupported type) the path below runs exactly as before.
     # PDF/DOCX parsing is CPU-bound: run it off the event loop, or every request stalls behind it.
+    read = await asyncio.to_thread(
+        read_with_documents_reader, content, mime_type=mime_type, filename=filename
+    )
+    if read is not None:
+        return _ExtractedText(
+            method=read["method"],
+            text=read["text"],
+            quality_score=read["quality"],
+            page_map=read["page_map"],
+            elements=read["elements"],
+        )
     extraction: TextExtractionResult = await asyncio.to_thread(
         extract_text, content, mime_type=mime_type, filename=filename
     )
@@ -331,14 +349,9 @@ async def _resolve_extracted_text(
             quality_score=extraction.quality_score,
             page_map=extraction.page_map,
         )
-    # Every configured provider, best first — not just the best-configured one.
-    # "Enabled" means it has credentials, which says nothing about whether it
-    # works: this deployment's Databricks volume answers 403 to every upload,
-    # and a single-provider choice left every scanned PDF with an empty
-    # snapshot while a working Reducto key sat unused two lines away. A
-    # scanned contract that silently holds no text is the most expensive
-    # failure in this pipeline, so it is worth a second call to avoid.
-    # Both return OCRResult, so nothing downstream cares which one ran.
+    # Every configured provider in turn: "has credentials" says nothing about
+    # "works", and a scanned contract that silently holds no text is the most
+    # expensive failure in this pipeline. All return OCRResult.
     ocr_errors: list[str] = []
     for ocr_client in _ocr_providers():
         try:
@@ -383,67 +396,6 @@ async def _resolve_extracted_text(
         quality_score=extraction.quality_score,
         page_map=extraction.page_map,
     )
-
-
-async def _fill_contract_metadata(db, *, contract, filename: str, content: bytes) -> None:
-    """Populate counterparty, dates and value from the document itself.
-
-    Only fills blanks — anything a person typed on the upload form wins. What
-    the model was unsure about is recorded in metadata_json rather than written
-    onto the contract, so a human can confirm it.
-    """
-    if not databricks_client.enabled:
-        return
-    try:
-        result = await databricks_client.extract_fields(filename=filename, content=content)
-    except Exception as exc:  # extraction must never fail an upload
-        contract.metadata_json = {
-            **(contract.metadata_json or {}),
-            "extraction": {"provider": databricks_client.provider, "error": str(exc)},
-        }
-        return
-    if result.error:
-        contract.metadata_json = {
-            **(contract.metadata_json or {}),
-            "extraction": {"provider": databricks_client.provider, "error": result.error},
-        }
-        return
-
-    f = result.fields
-    review = set(result.needs_review())
-
-    def _confident(key: str):
-        """A value we are willing to write onto the contract row."""
-        return None if key in review else f.get(key)
-
-    if not contract.counterparty_name:
-        contract.counterparty_name = _confident("counterparty")
-    if not contract.contract_type:
-        contract.contract_type = _confident("agreement_type")
-    if contract.value_amount is None:
-        value = _confident("total_value")
-        contract.value_amount = to_money(value) if isinstance(value, (int, float)) else None
-    if not contract.currency:
-        contract.currency = _confident("currency")
-    for attr, key in (("effective_date", "effective_date"), ("expiration_date", "end_date")):
-        if getattr(contract, attr) is None:
-            raw = _confident(key)
-            if raw:
-                try:
-                    setattr(contract, attr, date.fromisoformat(str(raw)[:10]))
-                except ValueError:
-                    pass
-
-    contract.metadata_json = {
-        **(contract.metadata_json or {}),
-        "extraction": {
-            "provider": databricks_client.provider,
-            "fields": f,                       # incl. notice_days, liability_cap, governing_law
-            "confidence": result.confidence,
-            "citations": result.citations,
-            "needs_review": sorted(review),    # the human queue
-        },
-    }
 
 
 def _dedupe_extension(filename: str) -> str:
@@ -677,7 +629,6 @@ async def process_uploaded_document(db: Session, *, job: JobRun) -> dict:
         content=content, mime_type=storage_object.mime_type, filename=storage_object.filename
     )
     snapshot = _persist_text_snapshot(db, user=user, contract=contract, version=version, extracted=extracted)
-    await _fill_contract_metadata(db, contract=contract, filename=storage_object.filename, content=content)
     queued_jobs = _queue_initial_contract_jobs(db, user=user, contract=contract, version=version, snapshot=snapshot)
     details = {
         "extraction_method": extracted.method,
@@ -708,17 +659,22 @@ async def create_contract_from_upload(
     *,
     upload: UploadFile,
     user: User,
-    matter_id: str | None = None,
     title: str | None = None,
     counterparty_name: str | None = None,
     contract_type: str | None = None,
     request_id: str | None = None,
     defer_processing: bool = False,
+    on_created: Callable[[Contract], None] | None = None,
 ) -> dict:
     """Orchestrate a contract intake: validate, store, extract text, persist
     rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
     rollback-on-exception path is obvious — anything before the storage save
-    can fail freely; once bytes are on disk, exceptions must delete them."""
+    can fail freely; once bytes are on disk, exceptions must delete them.
+
+    ``on_created`` runs on the new contract inside the same transaction, before
+    any job is dispatched — so what a caller already knows (a request's form
+    facts, the auto-review flag) is on the row before the AI jobs read it,
+    instead of racing them with a second commit."""
     mime_type = upload.content_type or "application/octet-stream"
     if mime_type not in settings.allowed_mime_types:
         raise HTTPException(
@@ -726,8 +682,6 @@ async def create_contract_from_upload(
         )
     ingested = await ingest_upload(upload, default_name="contract")
     content, mime_type = ingested.content, ingested.mime_type
-    if matter_id:
-        get_project_for_user(db, matter_id=matter_id, user=user, access="update")
     if defer_processing:
         duplicate = _recent_duplicate_upload(db, user=user, content=content)
         if duplicate is not None:
@@ -758,18 +712,8 @@ async def create_contract_from_upload(
             contract_type=contract_type,
             extracted=extracted,
         )
-        if matter_id:
-            db.add(
-                MatterContract(
-                    org_id=user.org_id,
-                    matter_id=matter_id,
-                    contract_id=contract.id,
-                    created_by_user_id=user.id,
-                    updated_by_user_id=user.id,
-                )
-            )
-        # Read the key terms off the document and fill the blanks on the
-        # contract row. Never overwrites a value a human supplied.
+        if on_created is not None:
+            on_created(contract)
         if defer_processing:
             queued_jobs = [
                 create_job(
@@ -784,9 +728,6 @@ async def create_contract_from_upload(
                 )
             ]
         else:
-            await _fill_contract_metadata(
-                db, contract=contract, filename=stored.filename, content=content
-            )
             queued_jobs = _queue_initial_contract_jobs(
                 db, user=user, contract=contract, version=version, snapshot=snapshot
             )

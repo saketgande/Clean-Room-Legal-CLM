@@ -4,53 +4,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-# ---- request types --------------------------------------------------------
-
-class FieldSpec(BaseModel):
-    key: str
-    label: str
-    kind: str = Field(default="text", pattern="^(text|textarea|select|date|number|boolean)$")
-    required: bool = False
-    sort_order: int = 100
-    options: list[dict] | None = None
-
-
-class RequestTypeCreate(BaseModel):
-    key: str
-    name: str
-    workstream: str | None = None
-    description: str | None = None
-    stages: list[str] | None = None
-    sort_order: int = 100
-    sla_hours: int | None = Field(default=None, ge=1, le=8760)
-    fields: list[FieldSpec] = Field(default_factory=list)
-
-
-class RequestTypeUpdate(BaseModel):
-    name: str | None = None
-    workstream: str | None = None
-    description: str | None = None
-    active: bool | None = None
-    stages: list[str] | None = None
-    sort_order: int | None = None
-    sla_hours: int | None = Field(default=None, ge=1, le=8760)
-    fields: list[FieldSpec] | None = None  # replaced wholesale when provided
-
-
-class RequestTypeResponse(BaseModel):
-    id: str
-    key: str
-    name: str
-    workstream: str | None = None
-    description: str | None = None
-    active: bool
-    stages: list[str] | None = None
-    sort_order: int
-    sla_hours: int | None = None
-    form_key: str | None = None
-    fields: list[FieldSpec] = Field(default_factory=list)
-
-
 # ---- requests -------------------------------------------------------------
 
 class AttachmentIn(BaseModel):
@@ -62,7 +15,6 @@ class AttachmentIn(BaseModel):
 class RequestCreate(BaseModel):
     type_label: str
     subject: str | None = None
-    request_type_id: str | None = None
     department: str | None = None
     priority: str = Field(default="Medium", pattern="^(Critical|High|Medium|Low)$")
     description: str = ""
@@ -198,6 +150,7 @@ class TeamCreate(BaseModel):
     sort_order: int = 100
     expertise: list[str] = Field(default_factory=list)  # matter categories this team owns
     departments: list[str] = Field(default_factory=list)  # business units this team serves
+    is_default_intake: bool = False
     members: list[TeamMemberSpec] = Field(default_factory=list)
 
 
@@ -210,6 +163,7 @@ class TeamUpdate(BaseModel):
     sort_order: int | None = None
     expertise: list[str] | None = None
     departments: list[str] | None = None
+    is_default_intake: bool | None = None
     members: list[TeamMemberSpec] | None = None
 
 
@@ -223,104 +177,18 @@ class TeamResponse(BaseModel):
     overflow_team_id: str | None = None
     overflow_team_name: str | None = None
     sort_order: int
+    is_default_intake: bool = False
+    used_in: list[dict] = Field(default_factory=list)
     expertise: list[str] = Field(default_factory=list)
     departments: list[str] = Field(default_factory=list)
     members: list[TeamMemberResponse] = Field(default_factory=list)
 
 
-# ---- routing rules --------------------------------------------------------
-
-class RuleCreate(BaseModel):
-    name: str
-    description: str | None = None
-    enabled: bool = True
-    eval_order: int = 100
-    match_type: str | None = None
-    match_priority: str | None = None
-    match_department: str | None = None
-    match_keyword: str | None = None
-    match_complexity: str | None = None
-    set_assignee_user_id: str | None = None
-    set_priority: str | None = None
-    set_sla_hours: int | None = None
-    set_team_id: str | None = None
-    escalate_to_user_id: str | None = None
-    require_approval_from_user_id: str | None = None
-
-
-class RuleUpdate(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    enabled: bool | None = None
-    eval_order: int | None = None
-    match_type: str | None = None
-    match_priority: str | None = None
-    match_department: str | None = None
-    match_keyword: str | None = None
-    match_complexity: str | None = None
-    set_assignee_user_id: str | None = None
-    set_priority: str | None = None
-    set_sla_hours: int | None = None
-    set_team_id: str | None = None
-    escalate_to_user_id: str | None = None
-    require_approval_from_user_id: str | None = None
-
-
-class RuleResponse(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    enabled: bool
-    eval_order: int
-    match_type: str | None = None
-    match_priority: str | None = None
-    match_department: str | None = None
-    match_keyword: str | None = None
-    match_complexity: str | None = None
-    set_assignee_user_id: str | None = None
-    set_assignee_name: str | None = None
-    set_priority: str | None = None
-    set_sla_hours: int | None = None
-    set_team_id: str | None = None
-    set_team_name: str | None = None
-    escalate_to_user_id: str | None = None
-    escalate_to_name: str | None = None
-    require_approval_from_user_id: str | None = None
-    require_approval_from_name: str | None = None
-    times_fired: int
-    last_fired_at: str | None = None
-
-
 # ---- promote --------------------------------------------------------------
 
 class PromoteRequest(BaseModel):
-    target: str = Field(pattern="^(project|contract)$")
+    target: str = Field(pattern="^contract$")
     target_id: str
-
-
-# ---- knowledge base -------------------------------------------------------
-
-class KbCreate(BaseModel):
-    source_ref: str
-    title: str
-    body: str
-    tags: list[str] = Field(default_factory=list)
-
-
-class KbUpdate(BaseModel):
-    title: str | None = None
-    body: str | None = None
-    tags: list[str] | None = None
-    active: bool | None = None
-
-
-class KbResponse(BaseModel):
-    id: str
-    source_ref: str
-    title: str
-    body: str
-    tags: list[str] = Field(default_factory=list)
-    active: bool
 
 
 # ---- copilot (conversational filing) --------------------------------------
@@ -366,7 +234,6 @@ class RequestResponse(BaseModel):
     requester_user_id: str
     requester_name: str | None = None
     department: str | None = None
-    request_type_id: str | None = None
     counterparty_id: str | None = None
     legal_entity_id: str | None = None
     type_label: str
@@ -389,12 +256,10 @@ class RequestResponse(BaseModel):
     triage_action: str | None = None
     ai_triage: dict | None = None
     gates: dict | None = None
-    fired_rules: dict | None = None
     screening: dict | None = None
     parties: list[dict] = Field(default_factory=list)
     handoff_holder: str | None = None
     handoff_user_id: str | None = None
-    matter_id: str | None = None
     contract_id: str | None = None
     contract_title: str | None = None
     workflow: list[WorkflowStep] = Field(default_factory=list)

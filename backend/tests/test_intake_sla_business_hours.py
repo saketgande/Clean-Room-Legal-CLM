@@ -155,14 +155,13 @@ def test_a_pause_is_subtracted_in_working_time_too(monkeypatch):
 # --- the budget -------------------------------------------------------------
 
 
-def test_a_request_type_sets_its_own_sla():
-    """Guards the hardcoded 24: a Critical escalation and a routine NDA shared
-    one deadline because `sla_hours=24` was a literal in create_request."""
+def test_the_sla_comes_from_settings_not_a_literal():
+    """Guards the hardcoded 24: the budget was a literal in create_request, so
+    it could not be changed without a deploy."""
     import inspect
 
     from app.intake.service import create_request
 
     source = inspect.getsource(create_request)
     assert "sla_hours=24" not in source
-    assert "rtype.sla_hours" in source
     assert "intake_default_sla_hours" in source
