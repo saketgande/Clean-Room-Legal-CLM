@@ -17,6 +17,7 @@ from app.ai.registry import skill_registry
 from app.ai.schemas import (
     CitationInput,
     ClauseExtractionOutput,
+    ClauseLabelingOutput,
     ContractMetadataOutput,
     ObligationExtractionOutput,
     RenewalExtractionOutput,
@@ -1438,6 +1439,8 @@ class AIController:
             self._persist_metadata(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
         elif spec.name == "clause_extraction":
             self._persist_clauses(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
+        elif spec.name == "clause_labeling":
+            self._persist_clause_labels(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
         # NOTE: contract_edit_suggestions is intentionally NOT auto-persisted
         # here. The edit_contract tool (its only caller) persists anchored,
         # version-linked ContractEdit rows itself. Auto-persisting here created
@@ -1536,6 +1539,57 @@ class AIController:
         created_by_user_id: str | None,
     ) -> None:
         clauses = output if isinstance(output, ClauseExtractionOutput) else ClauseExtractionOutput.model_validate(output)
+        if context.snapshot is None:
+            return
+        rows = []
+        for clause in clauses.clauses:
+            # Never store the model's own start_char/end_char: it reads the text
+            # but cannot count it, and the error compounds with depth (measured
+            # on this corpus: 57% of stored offsets pointed at the wrong span,
+            # median 68 chars off and growing to 188 past 6k). Locate the text it
+            # returned instead — exact, or None so a citation that cannot be
+            # resolved shows as unlocated rather than quoting the wrong clause.
+            span = locate_phrase(context.snapshot.text, clause.text)
+            start_char, end_char = span if span else (None, None)
+            rows.append({"clause_type": clause.clause_type, "heading": clause.heading, "text": clause.text,
+                         "start_char": start_char, "end_char": end_char, "confidence": clause.confidence})
+        self._replace_clauses(db, rows=rows, context=context, created_by_user_id=created_by_user_id)
+
+    def _persist_clause_labels(
+        self,
+        db: Session,
+        *,
+        output: BaseModel,
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+    ) -> None:
+        """Labels name the Documents reader's segments; each stored clause takes
+        that segment's own text and exact offsets (ai/clause_segments.py). The
+        segments are rebuilt from the same pinned snapshot the prompt was built
+        from, so a label's id means the same span here as it did there."""
+        from app.ai.clause_segments import clause_rows, segments_from_elements
+        from app.contract_files.models import ContractDocumentElement
+
+        labels = output if isinstance(output, ClauseLabelingOutput) else ClauseLabelingOutput.model_validate(output)
+        if context.snapshot is None:
+            return
+        elements = db.scalars(
+            select(ContractDocumentElement)
+            .where(ContractDocumentElement.text_snapshot_id == context.snapshot.id)
+            .order_by(ContractDocumentElement.seq)
+        ).all()
+        segments = segments_from_elements(list(elements), context.snapshot.text or "")
+        rows = clause_rows(segments, labels.labels, context.snapshot.text or "")
+        self._replace_clauses(db, rows=rows, context=context, created_by_user_id=created_by_user_id)
+
+    def _replace_clauses(
+        self,
+        db: Session,
+        *,
+        rows: list[dict],
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+    ) -> None:
         if context.version is None or context.snapshot is None:
             return
         # Lock the contract so two extractions can't replace the index at once, and
@@ -1555,7 +1609,7 @@ class AIController:
                 ClauseExtraction.is_stale.is_(False),
             )
         ).all()
-        if not clauses.clauses:
+        if not rows:
             if existing:
                 # Validate the replacement before the destructive swap: an empty
                 # extraction must not wipe the clauses search, risk and the graph use.
@@ -1568,27 +1622,19 @@ class AIController:
             clause.updated_by_user_id = created_by_user_id
         from app.contract_brain.clause_taxonomy import canonical_clause_type
 
-        for clause in clauses.clauses:
-            # Never store the model's own start_char/end_char: it reads the text
-            # but cannot count it, and the error compounds with depth (measured
-            # on this corpus: 57% of stored offsets pointed at the wrong span,
-            # median 68 chars off and growing to 188 past 6k). Locate the text it
-            # returned instead — exact, or None so a citation that cannot be
-            # resolved shows as unlocated rather than quoting the wrong clause.
-            span = locate_phrase(context.snapshot.text, clause.text)
-            start_char, end_char = span if span else (None, None)
+        for row in rows:
             db.add(
                 ClauseExtraction(
                     org_id=context.contract.org_id,
                     contract_id=context.contract.id,
                     contract_version_id=context.version.id,
                     text_snapshot_id=context.snapshot.id,
-                    clause_type=canonical_clause_type(clause.clause_type),
-                    heading=clause.heading,
-                    text=clause.text,
-                    start_char=start_char,
-                    end_char=end_char,
-                    confidence=clause.confidence,
+                    clause_type=canonical_clause_type(row["clause_type"]),
+                    heading=row["heading"],
+                    text=row["text"],
+                    start_char=row["start_char"],
+                    end_char=row["end_char"],
+                    confidence=row["confidence"],
                     created_by_user_id=created_by_user_id,
                     updated_by_user_id=created_by_user_id,
                 )

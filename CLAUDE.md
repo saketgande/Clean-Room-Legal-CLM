@@ -153,6 +153,14 @@ against the other. Saves are refused unless every `{placeholder}` is one
 - **`ClauseExtraction`** (`contract_brain`) — LLM, semantic. Only the
   interesting clauses, classified by type, staleable.
 
+The `clause_extraction` job labels the reader's segments (`clause_labeling`
+skill, `app/ai/clause_segments.py`): the model gets each clause's number and a
+300-char excerpt and answers segment id → clause type; the stored clause takes
+the segment's own text and exact offsets. The old find-and-copy skill runs only
+when there are no segments (a scan the reader couldn't read). Don't send the
+full text back to the model to re-find clauses — that cut off at the output
+limit on long contracts and stored nothing.
+
 Keep the deterministic layer authoritative and the LLM layer an enrichment on
 top. LLM extraction has real recall gaps, and a clause it silently misses would
 otherwise not exist anywhere in the system.

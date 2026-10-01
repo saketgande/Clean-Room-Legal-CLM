@@ -49,6 +49,7 @@ _LABELS: dict[str, tuple[str, str]] = {
     "tabular_review_chat": ("Tabular review chat", "Ask Aegis / Chat"),
     "flow_router": ("Workflow router", "Ask Aegis / Chat"),
     "clause_extraction": ("Clause extraction", "Analysis & extraction"),
+    "clause_labeling": ("Clause labelling", "Analysis & extraction"),
     "contract_risk_assessment": ("Risk assessment", "Analysis & extraction"),
     "tabular_cell_extraction": ("Tabular cell extraction", "Analysis & extraction"),
     "tabular_row_extraction": ("Tabular row extraction", "Analysis & extraction"),

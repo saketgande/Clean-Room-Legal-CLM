@@ -34,14 +34,9 @@ class PromptBuilder:
         manifest: dict[str, Any] = {"skill_name": spec.name}
         if contract_context is not None:
             manifest.update(contract_context.manifest)
-            sections.extend(
-                [
-                    "Contract context metadata:",
-                    json.dumps(contract_context.manifest, indent=2, sort_keys=True),
-                    "Untrusted contract text:",
-                    contract_context.text,
-                ]
-            )
+            sections.extend(["Contract context metadata:", json.dumps(contract_context.manifest, indent=2, sort_keys=True)])
+            if spec.include_contract_text:
+                sections.extend(["Untrusted contract text:", contract_context.text])
         sections.append(
             "Return data that matches the supplied output schema. Use null or empty lists when the answer is not found."
         )

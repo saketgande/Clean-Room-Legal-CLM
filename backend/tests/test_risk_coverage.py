@@ -30,7 +30,8 @@ def _score(monkeypatch, clauses, judgments):
     sent = {}
 
     async def assess(*_args, input_payload, **_kwargs):
-        sent["clauses"] = input_payload["clauses"]
+        sent.setdefault("batches", []).append(input_payload["clauses"])
+        sent["clauses"] = sent["batches"][0]
         return ContractRiskOutput(clause_risks=judgments, summary="overall")
 
     monkeypatch.setattr(risk.ai_controller, "run_structured_skill", assess)
@@ -73,3 +74,15 @@ def test_each_clause_type_counts_once_at_its_worst_and_order_does_not_matter(mon
     w_l, w_c = risk.clause_weight(liability), risk.clause_weight(confidentiality)
     assert first["score"] == round(100 * (w_l * 0.95 + w_c * 0.55) / (w_l + w_c)) == again["score"]
     assert contract.risk_level == first["band"]
+
+
+def test_a_long_contract_is_rated_in_batches_that_merge_into_one_score(monkeypatch):
+    """One call for an 82-clause SaaS agreement overran the output limit and the
+    score came back "unknown"; batches keep each answer small and still cover
+    every clause under its own C-number."""
+    clauses = [SimpleNamespace(clause_type="confidentiality", text=f"Clause {n}") for n in range(70)]
+    summary, contract, sent = _score(monkeypatch, clauses, [_judgment(f"C{n}", "low") for n in range(1, 71)])
+    assert len(sent["batches"]) == 3  # 30 + 30 + 10
+    assert sent["batches"][1].startswith("[C31] [") and "[C61]" in sent["batches"][2]
+    assert (summary["assessed_count"], summary["coverage"]) == (70, 1.0)
+    assert contract.risk_score is not None

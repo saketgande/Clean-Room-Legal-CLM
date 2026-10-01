@@ -185,16 +185,16 @@ async def _run_ai_job(job_id: str) -> dict:
             )
             _sync_job_from_skill_runs(db, job_id=job.id)
         elif job.job_type == "clause_extraction":
-            await ai_controller.run_job_skill(
-                db,
-                job=job,
-                skill_name="clause_extraction",
-                input_payload={
-                    "contract_id": job.resource_id,
-                    "contract_version_id": job.metadata_json.get("contract_version_id"),
-                    "text_snapshot_id": job.metadata_json.get("text_snapshot_id"),
-                },
+            # Label the Documents reader's segments when it segmented the
+            # document; find-and-copy extraction only for what it couldn't read.
+            from app.ai.clause_segments import clause_skill_input
+
+            skill_name, payload = clause_skill_input(
+                db, contract_id=job.resource_id,
+                contract_version_id=job.metadata_json.get("contract_version_id"),
+                text_snapshot_id=job.metadata_json.get("text_snapshot_id"),
             )
+            await ai_controller.run_job_skill(db, job=job, skill_name=skill_name, input_payload=payload)
             _sync_job_from_skill_runs(db, job_id=job.id)
             _queue_contract_brain_ingestion(db, job=job, reason="after_clause_extraction")
             await _maybe_auto_review(db, job=job)

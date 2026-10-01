@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 _SEVERITY = {"low": 0.15, "medium": 0.55, "high": 0.95}
 # Below this share of clauses judged, the answer is partial and no score is given.
 _MIN_COVERAGE = 0.8
+# Clauses rated per call; each answer carries a rationale + quote per clause.
+_RISK_BATCH = 30
 
 
 def _band(score: int) -> str:
@@ -132,33 +134,41 @@ class ContractRiskService:
             )
 
         refs = {f"C{n}": clause for n, clause in enumerate(clauses, 1)}
-        clause_block = "\n\n".join(
-            f"[{ref}] [{canonical_clause_type(c.clause_type)}] {(c.text or '')[:800]}"
-            for ref, c in refs.items()
-        )
-        out = await self.ai.run_structured_skill(
-            db,
-            skill_name="contract_risk_assessment",
-            org_id=contract.org_id,
-            created_by_user_id=user.id,
-            input_payload={"clauses": clause_block, "contract_title": contract.title},
-            request_id=request_id,
-            resource_type="contract",
-            resource_id=contract.id,
-        )
-        out = out if isinstance(out, ContractRiskOutput) else ContractRiskOutput.model_validate(out)
-
-        # Key every judgment to a clause that was actually sent; unknown or repeated refs don't count.
+        # Rated in batches: every clause comes back with a rationale and a
+        # verbatim quote, so one call for an 82-clause SaaS agreement overran
+        # the output limit and the score came back "unknown". Labels stay
+        # global (C1…Cn), so the batches merge into one judgment per clause.
+        items = list(refs.items())
         judged: dict[str, ClauseRiskOutput] = {}
-        for cr in out.clause_risks:
-            ref = (cr.clause_ref or "").strip().strip("[]").upper()
-            if ref in refs:
-                judged.setdefault(ref, cr)
+        summaries: list[str] = []
+        for i in range(0, len(items), _RISK_BATCH):
+            clause_block = "\n\n".join(
+                f"[{ref}] [{canonical_clause_type(c.clause_type)}] {(c.text or '')[:800]}"
+                for ref, c in items[i:i + _RISK_BATCH]
+            )
+            out = await self.ai.run_structured_skill(
+                db,
+                skill_name="contract_risk_assessment",
+                org_id=contract.org_id,
+                created_by_user_id=user.id,
+                input_payload={"clauses": clause_block, "contract_title": contract.title},
+                request_id=request_id,
+                resource_type="contract",
+                resource_id=contract.id,
+            )
+            out = out if isinstance(out, ContractRiskOutput) else ContractRiskOutput.model_validate(out)
+            if out.summary:
+                summaries.append(out.summary)
+            # Key every judgment to a clause that was actually sent; unknown or repeated refs don't count.
+            for cr in out.clause_risks:
+                ref = (cr.clause_ref or "").strip().strip("[]").upper()
+                if ref in refs:
+                    judged.setdefault(ref, cr)
         counted = {
             "clause_count": len(clauses),
             "assessed_count": len(judged),
             "coverage": round(len(judged) / len(clauses), 2),
-            "summary": out.summary,
+            "summary": " ".join(summaries) or None,
         }
         if len(judged) < _MIN_COVERAGE * len(clauses):
             # 6 judgments for a 40-clause contract would otherwise read as the whole

@@ -57,6 +57,19 @@ class ClauseExtractionOutput(BaseModel):
     extraction_notes: str | None = None
 
 
+class ClauseLabel(BaseModel):
+    """One segment of the Documents reader's segmentation, named. The text and
+    offsets come from the segment, never from the model (ai/clause_segments.py)."""
+    segment_id: str = Field(min_length=1)
+    clause_type: str = Field(min_length=1)
+    confidence: Literal["high", "medium", "low"] = "medium"
+
+
+class ClauseLabelingOutput(BaseModel):
+    labels: list[ClauseLabel] = Field(default_factory=list)
+    extraction_notes: str | None = None
+
+
 class ClauseRiskOutput(BaseModel):
     # The [C<n>] label of the clause judged, so coverage is counted per clause.
     clause_ref: str | None = None

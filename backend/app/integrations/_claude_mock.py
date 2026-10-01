@@ -33,6 +33,10 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "clauses": [],
             "extraction_notes": "Mock Claude mode returned no clauses.",
         },
+        "return_clause_labeling": {
+            "labels": [],
+            "extraction_notes": "Mock Claude mode returned no clause labels.",
+        },
         "return_obligation_extraction": {
             "obligations": [],
             "extraction_notes": "Mock Claude mode returned no obligations.",

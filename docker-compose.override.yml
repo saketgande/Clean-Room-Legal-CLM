@@ -19,10 +19,8 @@
 x-dev-app-env: &dev_app_env
   ENVIRONMENT: development
   DEBUG: "true"
-  # Host port 3000 is already taken by another local process, so this stack's
-  # frontend is remapped to 3001 (container-internal port is still 3000).
-  APP_BASE_URL: http://localhost:3001
-  CORS_ORIGINS: http://localhost:3001,http://127.0.0.1:3001
+  APP_BASE_URL: http://localhost:3000
+  CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
   ALLOWED_HOSTS: "*"
   FORCE_HTTPS: "false"
   REFRESH_COOKIE_SECURE: "false"
@@ -38,13 +36,6 @@ x-dev-app-env: &dev_app_env
   ONLYOFFICE_JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:-aegis-dev-onlyoffice-secret-local-only}"
 
 services:
-  # Exposed to the host so a local client (pgAdmin, psql) can connect for
-  # manual inspection. Internal container traffic still uses postgres:5432
-  # over the compose network; 5434 avoids clashing with a local Postgres.
-  postgres:
-    ports:
-      - "5434:5432"
-
   # Run migrations from the live source too (so edited migrations apply).
   migrate:
     environment:
@@ -97,11 +88,6 @@ services:
       target: dev
     image: aegis/frontend:dev
     command: ["npm", "run", "dev"]
-    # Compose merges list-typed keys (like `ports`) by concatenation across
-    # files, not replacement — `!override` is required here so this fully
-    # replaces docker-compose.yml's "3000:3000" instead of adding to it.
-    ports: !override
-      - "3001:3000"
     environment:
       NODE_ENV: development
       # Reliable HMR/file-watching for Next.js inside Docker on macOS.

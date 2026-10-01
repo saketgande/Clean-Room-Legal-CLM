@@ -2,6 +2,7 @@ from app.ai.schemas import (
     AssistantAnswerOutput,
     BrainAnswerOutput,
     ClauseExtractionOutput,
+    ClauseLabelingOutput,
     ContractDocxGenerationOutput,
     ContractEditSuggestionsOutput,
     ContractMetadataOutput,
@@ -103,6 +104,28 @@ for registered_spec in [
         max_tokens=8000,
     ),
     SkillSpec(
+        name="clause_labeling",
+        version="1.0.0",
+        description="Name the type of each clause the Documents reader segmented.",
+        execution_mode="job",
+        prompt_key="clause_labeling",
+        prompt_version="1.0.0",
+        input_model=None,
+        output_model=ClauseLabelingOutput,
+        required_permission="contract:read",
+        resource_type="contract",
+        # Text and offsets come from the segmentation, so there is nothing for
+        # the model to quote — and nothing for a citation check to catch.
+        requires_citations=False,
+        allows_mutation=True,
+        feature_flag="feature.ai.clause_extraction",
+        enabled_by_default=True,
+        # ~30 tokens a label; a 95-segment SaaS agreement overran 2048. The
+        # cut-off guard fails the job visibly if even this isn't enough.
+        max_tokens=6000,
+        include_contract_text=False,
+    ),
+    SkillSpec(
         name="contract_risk_assessment",
         version="1.0.0",
         description="Assess per-clause risk for the weighted contract risk score.",
@@ -117,6 +140,8 @@ for registered_spec in [
         allows_mutation=False,
         feature_flag="feature.ai.clause_extraction",
         enabled_by_default=True,
+        # One call rates at most _RISK_BATCH clauses (contracts/risk.py), so a
+        # long contract never overruns this.
         max_tokens=4096,
     ),
     SkillSpec(

@@ -114,13 +114,24 @@ async def rerun_clause_extraction(
     current_user=Depends(require_permission("contract:read")),
     controller: AIController = Depends(get_ai_controller),
 ):
-    get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    # Same choice as the upload job: label the reader's segments when there are
+    # any (for the version asked, else the current one), else find-and-copy.
+    from app.ai.clause_segments import clause_skill_input
+    from app.contract_files.models import ContractVersion
+
+    version_id = payload.contract_version_id or contract.current_authoritative_version_id
+    version = db.get(ContractVersion, version_id) if version_id else None
+    skill_name, skill_input = clause_skill_input(
+        db, contract_id=contract_id, contract_version_id=version_id,
+        text_snapshot_id=payload.text_snapshot_id or (version.text_snapshot_id if version else None),
+    )
     output = await controller.run_structured_skill(
         db,
-        skill_name="clause_extraction",
+        skill_name=skill_name,
         org_id=current_user.org_id,
         created_by_user_id=current_user.id,
-        input_payload={"contract_id": contract_id, **payload.model_dump(exclude_none=True)},
+        input_payload={k: v for k, v in skill_input.items() if v is not None},
         request_id=getattr(request.state, "request_id", None),
         resource_type="contract",
         resource_id=contract_id,
