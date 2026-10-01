@@ -19,10 +19,10 @@ from app.core.enums import (
     TrademarkStatus,
     TrademarkWorkflowState,
 )
+from app.intake.models import IntakeRequest
 from app.integrations.claude import ClaudeProvider
 from app.integrations.claude import claude_client as _default_claude_client
 from app.integrations.storage import StorageBackend, storage_service
-from app.intake.models import IntakeRequest
 from app.trademarks.extraction.field_capture import extract_generic_records
 from app.trademarks.extraction.vision import extract_journal_page
 from app.trademarks.models import DocumentExtract, PortfolioDigest, Trademark

@@ -170,7 +170,7 @@ async def classify_goods(
         return await service.suggest_nice_class(org_id=current_user.org_id, request=payload)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 — surface provider errors as a clean 502, not a raw 500
+    except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Classifier provider error: {exc}") from exc
 
 
@@ -186,7 +186,7 @@ async def explain_conflict(
         return await service.explain_conflict(org_id=current_user.org_id, request=payload)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Explainer provider error: {exc}") from exc
 
 
@@ -201,7 +201,7 @@ async def get_portfolio_digest(
         return await service.get_or_create_portfolio_digest(user=current_user)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Digest provider error: {exc}") from exc
 
 
@@ -216,7 +216,7 @@ async def regenerate_portfolio_digest(
         return await service.get_or_create_portfolio_digest(user=current_user, force=True)
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"Digest provider error: {exc}") from exc
 
 
