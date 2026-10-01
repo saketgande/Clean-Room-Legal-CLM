@@ -10,9 +10,6 @@ import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Send, X } from "lucide-react";
 import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
-import { can } from "@/lib/intake";
-import { ChainsTab } from "./_chains-tab";
-import { ConditionRulesTab } from "./_condition-rules-tab";
 import { contractDisplayName, fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
@@ -43,17 +40,6 @@ export default function ApprovalsPage() {
   const overdue = (allReqs ?? []).filter((r) => r.overdue).length;
   const mine = (allReqs ?? []).filter((r) => r.can_decide).length;
 
-  // Condition-driven approval chains sit beside the request list. Chains are
-  // started by a workflow's Approval step, never from this page.
-  const [tab, setTab] = useState("requests");
-  const { user } = useAuth();
-  const canManageChains = can(user, "approval_chain:manage");
-  const tabs = [
-    { id: "requests", label: "Requests" },
-    { id: "chains", label: "Chains" },
-    ...(canManageChains ? [{ id: "conditions", label: "Condition rules" }] : []),
-  ];
-
   return (
     <div className="apprv">
       <style dangerouslySetInnerHTML={{ __html: APPRV_CSS }} />
@@ -75,20 +61,7 @@ export default function ApprovalsPage() {
       </div>
 
       <div className="body">
-        <div className="tabrow">
-          {tabs.map((t) => (
-            <button key={t.id} className={`tabp${tab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        {tab === "chains" ? (
-          <ChainsTab />
-        ) : tab === "conditions" && canManageChains ? (
-          <ConditionRulesTab />
-        ) : (
-          <RequestsTab />
-        )}
+        <RequestsTab />
       </div>
     </div>
   );
@@ -507,10 +480,6 @@ const APPRV_CSS = `
 .apprv .hd .stat b{color:var(--ink);font-weight:650}
 .apprv .hd .stat .warn{color:var(--warn)} .apprv .hd .stat .crit{color:var(--crit)}
 
-.apprv .tabrow{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:16px}
-.apprv .tabp{padding:8px 12px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:var(--ink-2);font-weight:600;font-size:12.5px;cursor:pointer}
-.apprv .tabp:hover{color:var(--ink)}
-.apprv .tabp.on{color:var(--accent);border-bottom-color:var(--accent)}
 
 .apprv .actrow{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-bottom:14px}
 .apprv .note{font-size:12px;color:var(--ink-2);max-width:640px;margin:0}

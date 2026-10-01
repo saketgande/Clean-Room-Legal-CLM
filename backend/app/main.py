@@ -35,6 +35,7 @@ from app.core.request_log_queue import stop_writer as stop_request_log_writer
 from app.debug.routes import check_readiness
 from app.debug.routes import router as debug_router
 from app.docstudio.routes import router as docstudio_router
+from app.drafting_templates.routes import router as drafting_templates_router
 from app.grants.routes import router as grants_router
 from app.intake.routes import router as intake_router
 from app.integrations.claude import aclose_claude_client
@@ -190,6 +191,7 @@ def create_app() -> FastAPI:
     app.include_router(contract_files_router, prefix=prefix)
     # The Word editor's own calls (file fetch, save callback): signed links, no session.
     app.include_router(word_editor_router, prefix=prefix)
+    app.include_router(drafting_templates_router, prefix=prefix)
     app.include_router(docstudio_router, prefix=prefix)
     app.include_router(external_share_router, prefix=prefix)
     app.include_router(ai_router, prefix=prefix)

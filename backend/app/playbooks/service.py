@@ -563,8 +563,13 @@ def _create_playbook_redline_version(
         original = _clean_phrase(ev.original_text) or ""
         if not original and isinstance(ev.citation, dict):
             original = _clean_phrase(ev.citation.get("quote")) or ""
-        if not original and not replacement:
-            continue  # nothing actionable to show
+        # Only real contract wording may go into the document. With no
+        # replacement, striking the clause would propose deleting it (a payment
+        # clause was redlined to nothing over a wording nit); a sample with a
+        # fill-in blank ("the laws of [State/Country]") would put the blank in the
+        # contract. Both stay findings in the review, with their guidance.
+        if not is_document_wording(replacement):
+            continue
         # Block-anchor first: identify WHICH clause the model means (coarse and
         # robust) and strike that whole real block, instead of char-locating the
         # model's paraphrase — which misplaces the change or floats it unapplied
@@ -774,6 +779,16 @@ def _redline_instructions(deviations: list[PlaybookDeviation]) -> str:
         fix = deviation.suggested_fix or "Review and revise to match the playbook position."
         lines.append(f"{index}. {deviation.clause_type} ({deviation.severity}): {deviation.issue}\nSuggested fix: {fix}")
     return "\n\n".join(lines)
+
+
+# "[State/Country]", "[10/30]", "[insert …]" — a template blank, not contract text.
+_FILL_IN_BLANK = re.compile(r"\[[^\]\n]{1,60}\]")
+
+
+def is_document_wording(replacement: str | None) -> bool:
+    """Whether a redline replacement may be written into the contract: some
+    wording, and no fill-in blank left in it."""
+    return bool(replacement and replacement.strip()) and not _FILL_IN_BLANK.search(replacement)
 
 
 def _clean_phrase(value: str | None) -> str | None:

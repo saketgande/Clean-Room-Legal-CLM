@@ -56,7 +56,7 @@ def test_the_new_agreement_answer_decides_what_gets_drafted():
     assert drafting.resolve_doc_type(_req("Services (MSA)")) == "msa"
     assert drafting.resolve_doc_type(_req("NDA")) == "nda"
     assert drafting.resolve_doc_type(_req("Selling to a customer")) is None  # Legal drafts it
-    assert drafting.resolve_doc_type(_req(None, form="sow")) == "msa"
+    assert drafting.resolve_doc_type(_req(None, form="sow")) == "sow"  # its own template, its own playbook
 
 
 def test_cancelling_a_request_is_not_a_document_to_draft():

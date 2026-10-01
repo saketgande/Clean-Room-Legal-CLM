@@ -1,7 +1,8 @@
 """Turn an intake request into a real draft contract.
 
 This is the bridge from intake into the contract lifecycle. It picks a template
-for the request's document type (NDA / MSA / DPA / Vendor Agreement), renders it
+for the request's document type (one per playbook: NDA, MSA, Consultancy, SoW,
+Vendor, SaaS, DPA — see app/drafting_templates), renders it
 with the request's counterparty, pushes it through the normal contract-intake
 pipeline (storage → text snapshot → AI analysis → lifecycle) by reusing
 ``create_contract_from_upload``, and links the resulting contract back to the
@@ -25,257 +26,24 @@ from app.contract_files.service import ContractFilesService
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
+from app.drafting_templates.service import TEMPLATES as _DOC_TYPES
+from app.drafting_templates.service import DraftingTemplateService, default_body
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
 
-# Real, clause-rich templates so the contract's clause-extraction, risk-scoring
-# and playbook deviation analysis have genuine text to work on. All three
-# placeholders — {company}, {counterparty}, {effective_date} — are filled via
-# str.format; keep the bodies free of stray braces.
-
-_MUTUAL_NDA = """{nda_kind_title}NON-DISCLOSURE AGREEMENT
-
-This {nda_kind_word} Non-Disclosure Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("Counterparty"). {company} and Counterparty are each a "Party" and together the "Parties."
-
-RECITALS
-
-The Parties wish to {purpose_phrase} (the "Purpose") and, in connection with the Purpose, certain confidential and proprietary information may be disclosed. {direction_recital} This Agreement sets out the terms on which such information will be protected.
-
-1. DEFINITION OF CONFIDENTIAL INFORMATION
-
-1.1 "Confidential Information" means any non-public information disclosed by one Party (the "Disclosing Party") to the other Party (the "Receiving Party"), whether disclosed orally, in writing, electronically, visually or by any other means, that is designated as confidential or that a reasonable person would understand to be confidential given its nature and the circumstances of disclosure. Confidential Information includes, without limitation, business plans, financial information, technical data, trade secrets, know-how, product plans, customer lists, pricing, and the existence and terms of this Agreement.
-
-2. EXCLUSIONS
-
-2.1 Confidential Information does not include information that: (a) is or becomes publicly available through no breach of this Agreement by the Receiving Party; (b) was rightfully known to the Receiving Party without restriction before receipt; (c) is rightfully received from a third party without a duty of confidentiality; or (d) is independently developed by the Receiving Party without use of or reference to the Confidential Information.
-
-3. OBLIGATIONS OF THE RECEIVING PARTY
-
-3.1 The Receiving Party shall (a) hold the Confidential Information in strict confidence; (b) use it solely for the Purpose; (c) not disclose it to any third party except to its employees, advisors and contractors who have a need to know for the Purpose and are bound by confidentiality obligations no less protective than those in this Agreement; and (d) protect it using at least the same degree of care it uses for its own confidential information, and in no event less than a reasonable degree of care.
-
-4. COMPELLED DISCLOSURE
-
-4.1 If the Receiving Party is required by law or legal process to disclose Confidential Information, it shall, to the extent legally permitted, give the Disclosing Party prompt written notice and reasonable cooperation so the Disclosing Party may seek a protective order.
-
-5. TERM AND TERMINATION
-
-5.1 This Agreement commences on the Effective Date and {term_clause}, unless earlier terminated by either Party on thirty (30) days' written notice. The confidentiality obligations survive termination and {survival_clause} from the date of disclosure of each item of Confidential Information; obligations with respect to trade secrets continue for as long as the information remains a trade secret.
-
-6. RETURN OR DESTRUCTION
-
-6.1 Upon the Disclosing Party's written request or termination of this Agreement, the Receiving Party shall promptly return or destroy all Confidential Information and certify such destruction in writing, subject to reasonable retention required by law or bona fide record-retention policies.
-
-7. NO LICENSE; NO WARRANTY
-
-7.1 Nothing in this Agreement grants either Party any right or license, by implication or otherwise, in or to the other Party's Confidential Information or any patent, copyright, trademark or other intellectual property right. All Confidential Information is provided "as is," without warranty of any kind.
-
-8. REMEDIES
-
-8.1 The Parties agree that a breach of this Agreement may cause irreparable harm for which monetary damages are an inadequate remedy, and that the Disclosing Party is entitled to seek injunctive relief in addition to any other remedies available at law or in equity.
-
-9. GENERAL
-
-9.1 This Agreement is governed by the laws of {governing_law}, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior understandings. It may be amended only in a writing signed by both Parties. Neither Party may assign this Agreement without the other's prior written consent.
-
-IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
-
-{company}                                    {counterparty}
-
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
-"""
-
-
-_MSA = """MASTER SERVICES AGREEMENT
-
-This Master Services Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("Provider"). {company} and Provider are each a "Party" and together the "Parties."
-
-1. SERVICES AND STATEMENTS OF WORK
-
-1.1 Provider shall perform the services (the "Services") described in one or more statements of work executed by the Parties (each, an "SOW"). Each SOW is governed by and incorporated into this Agreement; in the event of a conflict, this Agreement controls except where an SOW expressly states otherwise for that SOW.
-
-2. FEES AND PAYMENT
-
-2.1 {company} shall pay the fees set out in the applicable SOW. Undisputed invoices are payable within {payment_days} days of receipt. {company} may withhold payment of amounts it disputes in good faith pending resolution. Fees are exclusive of applicable taxes, other than taxes on Provider's income.{value_sentence}
-
-3. TERM AND TERMINATION
-
-3.1 This Agreement begins on the Effective Date and {msa_term}. Either Party may terminate this Agreement or any SOW for material breach not cured within thirty (30) days of written notice, or immediately if the other Party becomes insolvent. {company} may terminate any SOW for convenience on thirty (30) days' notice, paying for Services performed through the termination date.
-
-4. CONFIDENTIALITY
-
-4.1 Each Party shall protect the other's Confidential Information with the same care it uses for its own (and no less than reasonable care), use it only to perform this Agreement, and not disclose it except to personnel with a need to know who are bound by confidentiality obligations.
-
-5. INTELLECTUAL PROPERTY
-
-5.1 Deliverables created for {company} under an SOW are works made for hire and, upon full payment, are owned by {company}. Provider retains ownership of its pre-existing materials and tools and grants {company} a perpetual, non-exclusive license to use them as embedded in the deliverables.
-
-6. WARRANTIES
-
-6.1 Provider warrants that the Services will be performed in a professional and workmanlike manner in accordance with the applicable SOW and generally accepted industry standards, and that the deliverables will not infringe the intellectual property rights of any third party.
-
-7. LIMITATION OF LIABILITY
-
-7.1 Except for breaches of confidentiality, indemnification obligations, and a Party's gross negligence or willful misconduct, neither Party's aggregate liability under this Agreement will exceed the fees paid or payable under the applicable SOW in the twelve (12) months preceding the claim. Neither Party is liable for indirect, incidental, special, or consequential damages.
-
-8. INDEMNIFICATION
-
-8.1 Provider shall defend, indemnify and hold {company} harmless from third-party claims arising from Provider's breach of this Agreement, its negligence or willful misconduct, or any allegation that a deliverable infringes a third party's intellectual property rights.
-
-9. INSURANCE
-
-9.1 Provider shall maintain, at its own expense, commercially reasonable insurance coverage appropriate to the Services, including commercial general liability and professional liability (errors and omissions), and shall provide certificates of insurance on request.
-
-10. GENERAL
-
-10.1 This Agreement is governed by the laws of the State of Delaware, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter, may be amended only in a signed writing, and may not be assigned by either Party without the other's prior written consent (except to a successor in a merger or sale of substantially all assets).
-
-IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
-
-{company}                                    {counterparty}
-
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
-"""
-
-
-_DPA = """DATA PROCESSING AGREEMENT
-
-This Data Processing Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("Controller") and {counterparty} ("Processor"). It supplements the underlying services agreement between the Parties (the "Principal Agreement") and governs the Processor's Processing of Personal Data on behalf of the Controller.
-
-1. DEFINITIONS
-
-1.1 "Personal Data", "Processing", "Data Subject", "Controller", "Processor", and "Supervisory Authority" have the meanings given in applicable data protection law, including the EU General Data Protection Regulation (GDPR). "Applicable Data Protection Law" means all laws and regulations applicable to the Processing of Personal Data under this Agreement.
-
-2. SCOPE AND ROLES
-
-2.1 The Processor shall Process Personal Data only as a Processor acting on behalf of the Controller, and only to the extent necessary to provide the services under the Principal Agreement. The subject matter, duration, nature, purpose, categories of Data Subjects and types of Personal Data are described in an annex to this Agreement.
-
-3. PROCESSING INSTRUCTIONS
-
-3.1 The Processor shall Process Personal Data only on the documented instructions of the Controller, including with regard to international transfers, unless required to do otherwise by law. The Processor shall promptly inform the Controller if, in its opinion, an instruction infringes Applicable Data Protection Law.
-
-4. CONFIDENTIALITY
-
-4.1 The Processor shall ensure that persons authorized to Process the Personal Data are bound by an appropriate obligation of confidentiality and Process the Personal Data only as instructed.
-
-5. SECURITY MEASURES
-
-5.1 The Processor shall implement and maintain appropriate technical and organizational measures to ensure a level of security appropriate to the risk, including, as appropriate, encryption, pseudonymization, ongoing confidentiality, integrity, availability and resilience of Processing systems, and a process for regularly testing and evaluating those measures.
-
-6. SUB-PROCESSORS
-
-6.1 The Processor shall not engage a Sub-processor without the Controller's prior specific or general written authorization. Where general authorization is given, the Processor shall inform the Controller of intended changes and give the Controller the opportunity to object. The Processor remains liable for its Sub-processors' compliance with obligations equivalent to those in this Agreement.
-
-7. DATA SUBJECT RIGHTS
-
-7.1 Taking into account the nature of the Processing, the Processor shall assist the Controller by appropriate technical and organizational measures, insofar as possible, in fulfilling the Controller's obligation to respond to requests to exercise Data Subject rights.
-
-8. PERSONAL DATA BREACH
-
-8.1 The Processor shall notify the Controller without undue delay, and in any event within seventy-two (72) hours, after becoming aware of a Personal Data Breach, and shall provide the Controller with sufficient information to allow the Controller to meet its breach-notification obligations.
-
-9. INTERNATIONAL TRANSFERS
-
-9.1 The Processor shall not transfer Personal Data outside the jurisdiction of origin unless it has taken measures required by Applicable Data Protection Law to ensure an adequate level of protection, including, where required, execution of Standard Contractual Clauses.
-
-10. AUDIT
-
-10.1 The Processor shall make available to the Controller information necessary to demonstrate compliance with this Agreement and allow for and contribute to audits, including inspections, conducted by the Controller or an auditor mandated by the Controller, subject to reasonable confidentiality and frequency limits.
-
-11. RETURN OR DELETION
-
-11.1 Upon termination of the services, the Processor shall, at the Controller's choice, delete or return all Personal Data and delete existing copies, unless retention is required by law.
-
-12. GENERAL
-
-12.1 This Agreement is governed by the law of the Principal Agreement. In the event of a conflict between this Agreement and the Principal Agreement regarding Processing of Personal Data, this Agreement prevails.
-
-IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
-
-{company}                                    {counterparty}
-
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
-"""
-
-
-_VENDOR = """VENDOR AGREEMENT
-
-This Vendor Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} ("{company}") and {counterparty} ("Vendor"). {company} and Vendor are each a "Party" and together the "Parties."
-
-1. ENGAGEMENT AND SCOPE
-
-1.1 Vendor shall supply the goods and/or services described in one or more purchase orders or order forms agreed by the Parties (each, an "Order"). Each Order is governed by this Agreement; in the event of a conflict, this Agreement controls unless the Order expressly amends it for that Order.
-
-2. PRICING AND PAYMENT
-
-2.1 {company} shall pay the prices set out in the applicable Order. Undisputed invoices are payable within {payment_days} days of receipt of a valid invoice and acceptance of the goods or services. Prices are firm for the initial term and exclusive of applicable taxes other than taxes on Vendor's income.{value_sentence}
-
-3. TERM
-
-3.1 This Agreement begins on the Effective Date and {vendor_term}. Either Party may terminate for material breach not cured within thirty (30) days of written notice.
-
-4. COMPLIANCE
-
-4.1 Vendor shall comply with all applicable laws in performing under this Agreement, including anti-bribery and anti-corruption laws (such as the U.S. Foreign Corrupt Practices Act and the UK Bribery Act), applicable economic sanctions and export-control laws, and applicable modern-slavery and labor laws. Vendor shall not, directly or indirectly, offer or give anything of value to obtain an improper advantage.
-
-5. DATA PROTECTION AND SECURITY
-
-5.1 To the extent Vendor Processes personal data on behalf of {company}, it shall do so only per {company}'s instructions and shall maintain appropriate technical and organizational security measures. Where required, the Parties shall execute a Data Processing Agreement, which is incorporated by reference.
-
-6. CONFIDENTIALITY
-
-6.1 Vendor shall hold {company}'s Confidential Information in confidence, use it only to perform under this Agreement, and not disclose it except to personnel with a need to know who are bound by confidentiality obligations no less protective than those here.
-
-7. WARRANTIES AND SERVICE LEVELS
-
-7.1 Vendor warrants that goods will be free from defects and conform to the applicable Order, and that services will be performed in a professional and workmanlike manner. Where an Order specifies service levels, Vendor shall meet them, and the associated service-level credits are {company}'s sole remedy for the corresponding failures unless the Order states otherwise.
-
-8. LIMITATION OF LIABILITY
-
-8.1 Except for breaches of confidentiality, indemnification obligations, breaches of the Compliance section, and a Party's gross negligence or willful misconduct, neither Party's aggregate liability will exceed the amounts paid or payable under the applicable Order in the twelve (12) months preceding the claim, and neither Party is liable for indirect, incidental, special, or consequential damages.
-
-9. INDEMNIFICATION
-
-9.1 Vendor shall defend, indemnify and hold {company} harmless from third-party claims arising from Vendor's breach of this Agreement, its negligence or willful misconduct, product defects, or infringement of a third party's intellectual property rights.
-
-10. GENERAL
-
-10.1 This Agreement is governed by the laws of the State of Delaware, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter, may be amended only in a signed writing, and may not be assigned by Vendor without {company}'s prior written consent.
-
-IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
-
-{company}                                    {counterparty}
-
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
-"""
-
-
-# doc_type -> template spec. contract_type is the string stored on the Contract
-# (drives approval routing + the NDA fast-lane, which matches "nda").
-_DOC_TYPES: dict[str, dict] = {
-    "nda": {"contract_type": "NDA", "label": "Mutual NDA", "template": _MUTUAL_NDA},
-    "msa": {"contract_type": "MSA", "label": "Master Services Agreement", "template": _MSA},
-    "dpa": {"contract_type": "DPA", "label": "Data Processing Agreement", "template": _DPA},
-    "vendor": {"contract_type": "Vendor Agreement", "label": "Vendor Agreement", "template": _VENDOR},
-}
+# The templates themselves live in app/drafting_templates: a shipped default
+# per key (defaults/<key>.txt), each written to pass the playbook that reviews
+# its contract type, plus any version an org has saved on the Templates page.
+# _DOC_TYPES is that table — contract_type is the string stored on the
+# Contract, which picks the reviewing playbook (and the NDA fast-lane, which
+# matches "nda").
 
 
 # Which template each form (or kind of new agreement) drafts. Selling to a
 # customer and "something else" have no template: Legal drafts them.
-_FORM_DOC = {"sow": "msa", "dpa": "dpa"}
-_KIND_DOC = {"NDA": "nda", "Services (MSA)": "msa", "Consultancy": "msa",
-             "Buying from a vendor": "vendor", "Software or SaaS": "vendor"}
+_FORM_DOC = {"sow": "sow", "dpa": "dpa"}
+_KIND_DOC = {"NDA": "nda", "Services (MSA)": "msa", "Consultancy": "consultancy",
+             "Buying from a vendor": "vendor", "Software or SaaS": "saas"}
 
 
 def resolve_doc_type(request: IntakeRequest) -> str | None:
@@ -331,16 +99,18 @@ def _primary_counterparty(r: IntakeRequest) -> str:
     return (name or "").strip() or "the Counterparty"
 
 
-def _nda_fill(*, company: str, counterparty: str, effective: str, fields: dict) -> dict:
-    """Turn the NDA intake fields (direction / purpose / term / survival /
-    governing law) into the template's placeholders. Empty fields fall back to
-    the standard playbook defaults, so a bare request still yields a clean NDA."""
+def template_values(doc_type: str, *, company: str, counterparty: str, effective: str,
+                    fields: dict | None = None) -> dict:
+    """Every placeholder a template may use (drafting_templates.PLACEHOLDERS),
+    filled from the request's answers. A blank answer falls back to the
+    playbook's preferred position, so a bare request still drafts paper the
+    playbook accepts: NDA term 3 years with 5 years' survival, payment in 45
+    days (30 for consultancy)."""
     f = fields or {}
     one_way = f.get("nda_kind") == "One-way"
     purpose = str(f.get("purpose") or "").strip()
-    term = str(f.get("nda_term") or "").strip()
+    nda_term = str(f.get("nda_term") or "").strip()
     survival = str(f.get("survival_years") or "").strip()
-    law = str(f.get("governing_law") or "").strip() or "the State of Delaware"
     if one_way:
         disc, recv = (counterparty, company) if f.get("nda_direction") == "They share" else (company, counterparty)
         direction_recital = (
@@ -349,36 +119,38 @@ def _nda_fill(*, company: str, counterparty: str, effective: str, fields: dict) 
         )
     else:
         direction_recital = "Each Party may act as both Disclosing Party and Receiving Party."
+
+    facts = request_facts(f)
+    end = facts.get("expiration_date")
+    value = facts.get("value_amount")
+    term = f"continues until {end.isoformat()}" if end else "continues until terminated"
+    if end and f.get("term") == "Renews automatically":
+        term += (f", and then renews automatically for successive periods of {f.get('renewal_term') or '1 year'}"
+                 f" unless either Party gives {f.get('notice_days') or '60 days'}' written notice of non-renewal")
+    default_days = "30 days" if doc_type == "consultancy" else "45 days"
     return {
         "company": company, "counterparty": counterparty, "effective_date": effective,
+        "governing_law": str(f.get("governing_law") or "").strip() or "the State of Delaware",
+        "agreement_term": term,
+        "payment_days": str(f.get("payment_terms") or default_days).split()[0],
+        "value_sentence": (f" The total value of this Agreement shall not exceed {facts['currency']} {value:,.2f}."
+                           if value else ""),
         "nda_kind_title": "ONE-WAY " if one_way else "MUTUAL ",
         "nda_kind_word": "One-Way" if one_way else "Mutual",
         "purpose_phrase": purpose or "explore a potential business relationship",
         "direction_recital": direction_recital,
-        "term_clause": f"continues for the term of {term}" if term else "continues for two (2) years",
-        "survival_clause": f"continue for {survival} year(s)" if survival else "continue for three (3) years",
-        "governing_law": law,
+        "term_clause": f"continues for the term of {nda_term}" if nda_term else "continues for three (3) years",
+        "survival_clause": f"continue for {survival} year(s)" if survival else "continue for five (5) years",
     }
 
 
-def render_document(doc_type: str, *, company: str, counterparty: str, effective: str, fields: dict | None = None) -> str:
-    spec = _DOC_TYPES[doc_type]
-    if doc_type == "nda":
-        return spec["template"].format(**_nda_fill(company=company, counterparty=counterparty, effective=effective, fields=fields or {}))
-    fv = fields or {}
-    facts = request_facts(fv)
-    end = facts.get("expiration_date")
-    value = facts.get("value_amount")
-    term = f"continues until {end.isoformat()}" if end else "continues until terminated"
-    if end and fv.get("term") == "Renews automatically":
-        term += (f", and then renews automatically for successive periods of {fv.get('renewal_term') or '1 year'}"
-                 f" unless either Party gives {fv.get('notice_days') or '60 days'}' written notice of non-renewal")
-    days = str(fv.get("payment_terms") or "45 days").split()[0]
-    return spec["template"].format(
-        company=company, counterparty=counterparty, effective_date=effective,
-        msa_term=term, vendor_term=term, payment_days=days,
-        value_sentence=f" The total value of this Agreement shall not exceed {facts['currency']} {value:,.2f}." if value else "",
-    )
+def render_document(doc_type: str, *, company: str, counterparty: str, effective: str,
+                    fields: dict | None = None, body: str | None = None) -> str:
+    """Fill a template. ``body`` is the org's saved wording (Templates page);
+    without it, the shipped default for ``doc_type``."""
+    text = body if body is not None else default_body(doc_type)
+    return text.format(**template_values(doc_type, company=company, counterparty=counterparty,
+                                         effective=effective, fields=fields))
 
 
 # Form answers that are contract facts. The forms ask these outright, so they are
@@ -655,7 +427,20 @@ class DraftingService:
             if not text:
                 text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
         else:
-            text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective, fields=fv)
+            # Only the NDA form asks governing law; for everything else our
+            # contracting entity's jurisdiction is the sensible law, not the
+            # template's last-resort default (Delaware for an Indian entity drew a
+            # high finding on every MSA and SaaS draft).
+            if not str(fv.get("governing_law") or "").strip() and request.legal_entity_id:
+                from app.parties.models import LegalEntity
+
+                entity = db.get(LegalEntity, request.legal_entity_id)
+                if entity is not None and (entity.jurisdiction or "").strip():
+                    fv = {**fv, "governing_law": entity.jurisdiction.strip()}
+            # The org's own wording from the Templates page, else the shipped default.
+            body = DraftingTemplateService(db).body_for(org_id=actor.org_id, key=doc_type)
+            text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective,
+                                   fields=fv, body=body)
         # One-way NDAs get a clearer label than the generic template label.
         label = spec["label"]
         if doc_type == "nda" and fv.get("nda_kind") == "One-way":

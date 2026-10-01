@@ -61,6 +61,7 @@ from app.docstudio.models import (
     DsOcrResult,
     DsVersion,
 )
+from app.drafting_templates.models import DraftingTemplateVersion
 from app.grants.models import ResourceGrant
 from app.intake.models import (
     IntakeDocument,
@@ -140,6 +141,7 @@ __all__ = [
     "Counterparty",
     "Delegation",
     "DocumentExtract",
+    "DraftingTemplateVersion",
     "DsAnnotation",
     "DsClause",
     "DsDocument",

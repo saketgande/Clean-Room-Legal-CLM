@@ -132,6 +132,19 @@ Word text is read with the Documents reader's `_paragraph_text` (keeps tracked
 insertions) — `contract_files` now imports from `app.docstudio`, so removing
 Documents means moving `parsing/docx._paragraph_text` and `versions.carry_ids`.
 
+### Drafting templates (our standard paper)
+
+"Draft" on a request fills a template (`intake/drafting.render_document`) —
+one per playbook: nda, msa, consultancy, sow, vendor, saas, dpa
+(`app/drafting_templates`). The shipped text is `defaults/<key>.txt`, each
+written to pass the playbook that reviews its contract type; an org's edits
+are versions in `drafting_template_version` (newest wins, `body` NULL = back
+to the default), made on the Templates page (`/templates`, Intelligence).
+Drafted contracts are auto-reviewed by their playbook, so a template that
+disagrees with its playbook gets our own paper redlined — change one, check it
+against the other. Saves are refused unless every `{placeholder}` is one
+`template_values` fills.
+
 ### Two clause representations — both are needed
 
 - **`ContractDocumentElement`** (`contract_files`) — deterministic, structural,

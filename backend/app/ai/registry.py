@@ -95,7 +95,12 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.clause_extraction",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Each clause comes back with its full text (it's what citations quote), so
+        # a full-length contract needs more than 4096: the playbook-aligned
+        # templates (2.4-4k words) were cut off there and stored no clauses.
+        # 8000 is settings.claude_max_tokens_ceiling; a contract that still
+        # doesn't fit now fails the job visibly (_extract_structured_output).
+        max_tokens=8000,
     ),
     SkillSpec(
         name="contract_risk_assessment",

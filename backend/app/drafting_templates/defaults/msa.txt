@@ -1,0 +1,258 @@
+MASTER SERVICES AGREEMENT
+
+This Master Services Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} (the "Customer") and {counterparty} (the "Provider"). The Customer and the Provider are each a "Party" and together the "Parties".
+
+BACKGROUND
+
+The Customer wishes to obtain certain services from the Provider from time to time, and the Provider wishes to provide those services, on the terms of this Agreement and of the Statements of Work entered into under it.
+
+1. DEFINITIONS AND INTERPRETATION
+
+1.1 In this Agreement the following terms have the following meanings:
+
+"Affiliate" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where "control" means ownership of more than fifty percent (50%) of the voting interests of the entity.
+
+"Applicable Law" means all laws, regulations, rules, codes and binding guidance applicable to a Party or to the Services, as amended from time to time.
+
+"Confidential Information" has the meaning given in Clause 9.1.
+
+"Data Protection Laws" means the Digital Personal Data Protection Act, 2023 of India and the rules made under it, the EU General Data Protection Regulation (Regulation (EU) 2016/679) and the UK GDPR where they apply, and any other Applicable Law relating to the processing of personal data.
+
+"Deliverables" means all documents, reports, software, code, designs, data, materials and other work product created or supplied by or on behalf of the Provider for the Customer under this Agreement or any Statement of Work.
+
+"Fees" means the fees for the Services set out in the applicable Statement of Work.
+
+"Intellectual Property Rights" means patents, rights in inventions, copyright and related rights, moral rights, trade marks, trade names, rights in designs, rights in software, database rights, rights in confidential information (including know-how and trade secrets) and all other intellectual property rights, in each case whether registered or unregistered, anywhere in the world.
+
+"Personal Data" means any data about an individual who is identifiable by or in relation to such data, and includes "personal data" as defined in the Data Protection Laws.
+
+"Personnel" means the employees, officers, agents and subcontractors of a Party.
+
+"Pre-Existing Materials" means materials, tools, methodologies and Intellectual Property Rights owned by or licensed to the Provider before the Effective Date or developed independently of this Agreement.
+
+"Service Levels" means the service levels set out in a Statement of Work or a service level schedule agreed in writing by the Parties.
+
+"Services" means the services described in a Statement of Work, together with any services incidental to them.
+
+"Statement of Work" or "SOW" means a statement of work entered into by the Parties under Clause 2.
+
+1.2 Headings are for convenience only. The words "including" and "include" mean "including without limitation". References to a Party include its permitted successors and assigns.
+
+2. SERVICES AND STATEMENTS OF WORK
+
+2.1 The Provider shall perform the Services described in each Statement of Work executed by both Parties. Each Statement of Work forms part of, and is governed by, this Agreement.
+
+2.2 Each Statement of Work shall identify at a minimum the Services, the Deliverables, the timetable, the acceptance criteria, the Fees and any applicable Service Levels.
+
+2.3 If there is any conflict between this Agreement and a Statement of Work, this Agreement prevails, except where the Statement of Work expressly identifies the provision of this Agreement it varies and states that it does so for that Statement of Work only.
+
+2.4 No Statement of Work or change to it is binding unless it is in writing and signed by authorised representatives of both Parties.
+
+2.5 Nothing in this Agreement obliges the Customer to enter into any Statement of Work or to purchase any minimum volume of Services.
+
+3. PROVIDER OBLIGATIONS AND WARRANTIES
+
+3.1 The Provider warrants and undertakes that it shall:
+(a) perform the Services with all due skill, care and diligence, in a professional and workmanlike manner and in accordance with good industry practice;
+(b) ensure that the Services and Deliverables conform in all material respects with the applicable Statement of Work;
+(c) use appropriately qualified, experienced and trained Personnel;
+(d) comply with all Applicable Law and with the Customer's reasonable site, security and information technology policies notified to it; and
+(e) ensure that the Deliverables and their use by the Customer as contemplated by this Agreement do not infringe the Intellectual Property Rights of any third party.
+
+3.2 If any Services or Deliverables do not conform to Clause 3.1, the Provider shall, at its own cost and without prejudice to the Customer's other rights and remedies, promptly re-perform the Services or correct the Deliverables.
+
+3.3 The Provider is responsible for the acts and omissions of its subcontractors as if they were its own. The Provider shall not subcontract any material part of the Services without the Customer's prior written consent.
+
+4. ACCEPTANCE
+
+4.1 Deliverables are accepted only when the Customer confirms acceptance in writing after testing them against the acceptance criteria set out in the applicable Statement of Work. If a Deliverable fails to meet those criteria, the Provider shall correct it and resubmit it for testing at no additional charge.
+
+5. SERVICE LEVELS
+
+5.1 The Provider shall perform the Services so as to meet or exceed the Service Levels.
+
+5.2 The Provider shall measure and report its performance against the Service Levels monthly, or at such other interval as the Statement of Work specifies, and shall promptly notify the Customer of any actual or anticipated failure to meet a Service Level, together with a remediation plan.
+
+5.3 If the Provider fails to meet a Service Level, the Provider shall credit the Customer with the service credits specified in the Statement of Work. Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.
+
+5.4 If the Provider fails to meet the same Service Level in any three (3) months within a rolling twelve (12) month period, or fails to meet a Service Level designated as critical in the Statement of Work, the Customer may terminate the affected Statement of Work, or this Agreement, immediately on written notice.
+
+6. FEES, INVOICING AND PAYMENT
+
+6.1 In consideration of the Services, the Customer shall pay the Fees set out in the applicable Statement of Work.{value_sentence}
+
+6.2 The Provider shall invoice the Customer in accordance with the applicable Statement of Work. Each invoice must reference the Statement of Work and purchase order number, itemise the Services performed and comply with Applicable Law on tax invoices.
+
+6.3 The Customer shall pay valid, undisputed invoices within {payment_days} days of receipt.
+
+6.4 The Customer may withhold any amount it disputes in good faith, provided that it notifies the Provider of the dispute and its reasons before the due date. The Parties shall resolve the dispute under Clause 19, and the Customer shall pay any amount agreed or determined to be due within {payment_days} days of resolution. The Provider shall continue to perform the Services during any dispute.
+
+6.5 Any advance or mobilisation payment shall not exceed twenty percent (20%) of the total Fees under the relevant Statement of Work and shall be credited against the first invoices issued under it.
+
+6.6 Fees are exclusive of goods and services tax or other applicable value added taxes, which the Customer shall pay against a valid tax invoice. Each Party bears its own income taxes. The Customer may deduct any tax it is required by law to withhold and shall provide the Provider with the relevant withholding certificate.
+
+6.7 The Fees are the entire consideration for the Services. No expenses are payable unless the Statement of Work provides for them or the Customer approves them in writing in advance, and approved expenses are reimbursed at cost in line with the Customer's expenses policy.
+
+7. TERM
+
+7.1 This Agreement commences on the Effective Date and {agreement_term}, unless terminated earlier in accordance with Clause 8.
+
+7.2 Each Statement of Work continues for the period stated in it. If this Agreement expires while a Statement of Work remains in effect, this Agreement continues to apply to that Statement of Work until it ends.
+
+8. TERMINATION
+
+8.1 The Customer may terminate this Agreement or any Statement of Work for convenience at any time on thirty (30) days' written notice to the Provider.
+
+8.2 Either Party may terminate this Agreement or any Statement of Work immediately on written notice if the other Party:
+(a) commits a material breach of this Agreement or that Statement of Work which is not capable of remedy, or which is capable of remedy and is not cured within thirty (30) days of written notice requiring it to be cured; or
+(b) becomes insolvent, has a receiver, liquidator, administrator or resolution professional appointed over any of its assets, enters into any arrangement with its creditors, or suffers any analogous event in any jurisdiction.
+
+8.3 On termination of this Agreement or any Statement of Work for any reason:
+(a) the Customer shall pay the Provider for Services properly performed and Deliverables accepted up to the date of termination, less any amounts already paid and any service credits due, and the Customer has no other liability to the Provider for that termination;
+(b) the Provider shall refund any Fees paid in advance for Services not performed;
+(c) the Provider shall promptly deliver to the Customer all Deliverables, whether complete or in progress, and all Customer materials in its possession; and
+(d) each Party shall return or destroy the other Party's Confidential Information in accordance with Clause 9.5.
+
+8.4 For a period of up to ninety (90) days after termination or expiry, the Provider shall provide such reasonable assistance as the Customer requests to transfer the Services to the Customer or a replacement provider, at the rates set out in the applicable Statement of Work.
+
+8.5 Termination does not affect any rights or remedies accrued up to the date of termination. Clauses 6, 8.3 to 8.5, 9, 10, 11, 12, 13, 14, 19, 20 and any other provisions that by their nature are intended to survive, survive termination or expiry of this Agreement.
+
+9. CONFIDENTIALITY
+
+9.1 "Confidential Information" means all non-public information, in any form or medium, disclosed by or on behalf of one Party (the "Disclosing Party") to the other Party (the "Receiving Party") in connection with this Agreement, including information about the Disclosing Party's business, customers, suppliers, products, pricing, finances, technology, Personal Data and the terms of this Agreement, whether or not marked as confidential.
+
+9.2 Confidential Information does not include information that the Receiving Party can show by written evidence:
+(a) is or becomes generally available to the public other than through a breach of this Agreement;
+(b) was lawfully in its possession free of any obligation of confidence before it was disclosed by the Disclosing Party;
+(c) is lawfully received from a third party who is not under an obligation of confidence in respect of it; or
+(d) is independently developed by the Receiving Party without use of or reference to the Disclosing Party's Confidential Information.
+
+9.3 The Receiving Party shall:
+(a) keep the Disclosing Party's Confidential Information confidential and protect it using at least the degree of care it uses for its own confidential information of a similar nature, and in any event no less than a reasonable degree of care;
+(b) use it only to perform its obligations or exercise its rights under this Agreement; and
+(c) not disclose it to any person except to its and its Affiliates' Personnel and professional advisers who need to know it for that purpose and who are bound by obligations of confidentiality no less protective than this Clause 9. The Receiving Party is responsible for any breach of this Clause 9 by those persons.
+
+9.4 The Receiving Party may disclose Confidential Information to the extent required by law, by a court or regulatory authority of competent jurisdiction, or by the rules of a stock exchange, provided that, where lawful, it gives the Disclosing Party prompt prior written notice, cooperates with any effort to obtain a protective order, and discloses only the minimum information required.
+
+9.5 On termination of this Agreement or on the Disclosing Party's written request, the Receiving Party shall within thirty (30) days return or securely destroy the Disclosing Party's Confidential Information and confirm in writing that it has done so, except for copies it is required to keep by law or held in routine back-up systems, which remain subject to this Clause 9.
+
+9.6 The obligations in this Clause 9 continue during the term of this Agreement and for five (5) years after its termination or expiry, and in respect of trade secrets, for as long as the information remains a trade secret under Applicable Law.
+
+9.7 Each Party acknowledges that damages alone may not be an adequate remedy for breach of this Clause 9 and that the Disclosing Party is entitled to seek injunctive relief or specific performance for any threatened or actual breach.
+
+10. DATA PROTECTION
+
+10.1 Where the Provider processes Personal Data on behalf of the Customer in performing the Services, the Provider shall comply with the Data Protection Laws, including the Digital Personal Data Protection Act, 2023 and, where it applies, the EU General Data Protection Regulation, and shall process that Personal Data only on the Customer's documented instructions.
+
+10.2 Before any Personal Data is processed, the Parties shall enter into a data processing agreement on the Customer's standard template, which forms part of this Agreement. If there is any conflict between that data processing agreement and this Agreement in relation to Personal Data, the data processing agreement prevails.
+
+10.3 The Provider shall implement and maintain appropriate technical and organisational security measures to protect Personal Data against unauthorised or unlawful processing and against accidental loss, destruction, damage, alteration or disclosure.
+
+10.4 The Provider shall notify the Customer without undue delay, and in any event within seventy-two (72) hours, after becoming aware of any personal data breach affecting Personal Data processed under this Agreement, and shall provide all information and assistance the Customer reasonably requires to investigate, mitigate and report the breach.
+
+10.5 The Provider shall not transfer, store or access any Personal Data outside India without the Customer's prior written consent and appropriate safeguards that comply with the Data Protection Laws, including any restrictions on transfer notified by the Government of India.
+
+10.6 The Provider shall not engage any sub-processor without the Customer's prior written consent and shall impose on each approved sub-processor obligations no less protective than this Clause 10.
+
+10.7 On termination of this Agreement or on the Customer's request, the Provider shall return or delete all Personal Data, at the Customer's choice, and delete existing copies unless retention is required by Applicable Law.
+
+11. INTELLECTUAL PROPERTY
+
+11.1 All Intellectual Property Rights in the Deliverables vest in and belong to the Customer upon payment of the Fees for the relevant Deliverable. The Provider hereby assigns, and shall procure that its Personnel assign, to the Customer, with effect from that payment, all right, title and interest in and to the Deliverables and all intellectual property in them, and shall procure the waiver of any moral rights in the Deliverables to the extent permitted by Applicable Law.
+
+11.2 The Provider retains ownership of its Pre-Existing Materials. To the extent any Pre-Existing Materials are incorporated into or are necessary to use a Deliverable, the Provider grants the Customer and its Affiliates a perpetual, irrevocable, worldwide, royalty-free, non-exclusive licence to use, copy, modify and sublicense those Pre-Existing Materials as part of the Deliverables.
+
+11.3 The Provider shall, at the Customer's request, execute such documents and do such things as are reasonably necessary to perfect the Customer's rights under this Clause 11.
+
+11.4 The Customer retains all Intellectual Property Rights in materials it supplies to the Provider, which the Provider may use only to perform the Services.
+
+12. INDEMNIFICATION
+
+12.1 The Provider shall defend, indemnify and hold harmless the Customer, its Affiliates and their respective Personnel from and against all losses, damages, liabilities, costs (including reasonable legal fees) and expenses arising out of any third-party claim to the extent arising from:
+(a) the Provider's breach of this Agreement;
+(b) the negligence, wilful misconduct or fraud of the Provider or its Personnel;
+(c) any allegation that the Services or Deliverables, or their use by the Customer as contemplated by this Agreement, infringe the Intellectual Property Rights of a third party; or
+(d) any breach by the Provider of Clause 10 or the Data Protection Laws.
+
+12.2 The Customer shall promptly notify the Provider of any claim for which it seeks indemnity, allow the Provider to conduct the defence of the claim (provided the Provider does not settle any claim in a manner that imposes any obligation or admission on the Customer without its prior written consent), and provide reasonable cooperation at the Provider's expense. The Customer may participate in the defence with its own counsel at its own cost.
+
+12.3 If any Deliverable becomes, or in the Provider's reasonable opinion is likely to become, the subject of an infringement claim, the Provider shall at its own cost procure the right for the Customer to continue using it or modify or replace it so that it is non-infringing without loss of functionality.
+
+13. LIMITATION OF LIABILITY
+
+13.1 Subject to Clauses 13.3 and 13.4, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim.
+
+13.2 Subject to Clauses 13.3 and 13.4, neither Party is liable to the other for any indirect, special or consequential loss or damage.
+
+13.3 The limitations and exclusions in Clauses 13.1 and 13.2 do not apply to:
+(a) a Party's breach of Clause 9 (Confidentiality) or Clause 10 (Data Protection);
+(b) the Provider's indemnification obligations under Clause 12;
+(c) a Party's gross negligence or wilful misconduct;
+(d) fraud or fraudulent misrepresentation; or
+(e) death or personal injury caused by negligence.
+
+13.4 Nothing in this Agreement limits or excludes any liability that cannot be limited or excluded under Applicable Law.
+
+13.5 Service credits paid or credited under Clause 5 do not count towards the cap in Clause 13.1.
+
+14. INSURANCE
+
+14.1 The Provider shall, at its own cost, maintain with reputable insurers during the term of this Agreement and for one (1) year after its termination or expiry:
+(a) commercial general liability insurance; and
+(b) professional indemnity (errors and omissions) insurance,
+each with limits of cover appropriate to the Services and not less than any amounts specified in a Statement of Work, together with any other insurance required by Applicable Law.
+
+14.2 The Provider shall provide certificates of insurance to the Customer on request and shall notify the Customer promptly of any cancellation or material reduction of cover. The Provider's insurance does not limit its liability under this Agreement.
+
+15. PERSONNEL AND NON-SOLICITATION
+
+15.1 The Provider's Personnel remain under the Provider's control and are not employees of the Customer. The Provider is solely responsible for their remuneration, taxes, benefits and statutory contributions.
+
+15.2 During the term of this Agreement and for twelve (12) months after it ends, neither Party shall directly solicit for employment any Personnel of the other Party who were materially involved in the Services, without the other Party's prior written consent. General recruitment advertising not specifically directed at those Personnel is not a breach of this Clause.
+
+16. COMPLIANCE
+
+16.1 Each Party shall comply with all Applicable Law relating to anti-bribery and anti-corruption, including the Prevention of Corruption Act, 1988 and, where they apply, the U.S. Foreign Corrupt Practices Act and the UK Bribery Act 2010, and with all applicable export control and sanctions laws.
+
+16.2 The Provider shall keep complete and accurate records relating to the Services and the Fees for at least three (3) years after the end of this Agreement, and shall allow the Customer or its auditors reasonable access to them on reasonable notice for the purpose of verifying compliance with this Agreement.
+
+17. FORCE MAJEURE
+
+17.1 Neither Party is liable for any delay or failure to perform caused by events beyond its reasonable control, which could not have been prevented by reasonable precautions, including natural disaster, war, terrorism, epidemic or governmental action ("Force Majeure"), provided that the affected Party promptly notifies the other Party and uses reasonable efforts to mitigate the effect. Force Majeure does not excuse the Provider's business continuity and disaster recovery obligations. If a Force Majeure event continues for more than thirty (30) days, the Customer may terminate the affected Statement of Work on written notice.
+
+18. NOTICES
+
+18.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in this Agreement or as notified in writing from time to time. A notice is effective on delivery by hand or courier, or on the next business day after it is sent by email, provided no delivery failure message is received.
+
+19. GOVERNING LAW AND DISPUTE RESOLUTION
+
+19.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
+
+19.2 The Parties shall first attempt to resolve any dispute through good-faith negotiation between senior representatives for thirty (30) days after either Party notifies the other of the dispute.
+
+19.3 If the dispute is not resolved within that period, the courts of competent jurisdiction under the laws of {governing_law} have exclusive jurisdiction, provided that either Party may seek urgent interim or injunctive relief in any court of competent jurisdiction.
+
+20. GENERAL
+
+20.1 Independent contractors. The Parties are independent contractors. Nothing in this Agreement creates a partnership, joint venture, agency or employment relationship between them.
+
+20.2 Assignment. Neither Party may assign, transfer or novate this Agreement without the other Party's prior written consent, except that the Customer may assign this Agreement to an Affiliate or to a successor to all or substantially all of its business on written notice to the Provider.
+
+20.3 Entire agreement. This Agreement, together with its Statements of Work and any data processing agreement entered into under it, constitutes the entire agreement between the Parties relating to its subject matter and supersedes all prior agreements, proposals and understandings. Any terms on the Provider's quotations, invoices or other documents do not apply.
+
+20.4 Amendment and waiver. No amendment to this Agreement is effective unless it is in writing and signed by authorised representatives of both Parties. No failure or delay in exercising any right is a waiver of that right.
+
+20.5 Severability. If any provision of this Agreement is held invalid or unenforceable, the remaining provisions continue in full force, and the Parties shall negotiate in good faith a valid replacement provision that most closely achieves the original intent.
+
+20.6 Third parties. Except for the Customer's Affiliates under Clauses 11 and 12, no person other than the Parties has any right to enforce this Agreement.
+
+20.7 Counterparts and electronic signature. This Agreement may be executed in counterparts, each of which is an original and which together constitute one instrument. Signatures delivered electronically or by any electronic signature service are binding.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

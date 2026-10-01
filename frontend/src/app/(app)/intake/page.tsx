@@ -9,7 +9,7 @@ import {
   ErrorState, Input, Pagination, Select, Table, TD, TH, THead,
   TR,
 } from "@/components/ui";
-import { intakeApi, contractsApi, approvalsApi, approvalChainsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
+import { intakeApi, contractsApi, approvalsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { Markdown } from "@/components/markdown";

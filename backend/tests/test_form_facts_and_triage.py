@@ -49,7 +49,7 @@ def test_the_msa_template_states_the_form_s_term_and_value():
                                             "term": "Renews automatically", "renewal_term": "1 year", "notice_days": "90 days"})
     assert "continues until 2027-09-30, and then renews automatically" in text
     assert "90 days' written notice of non-renewal" in text
-    assert "payable within 60 days" in text
+    assert "undisputed invoices within 60 days" in text
     assert "INR 4,500,000.00" in text
     assert "continues until terminated" in drafting.render_document(
         "msa", company="Us", counterparty="Them", effective="2026-10-01", fields={})

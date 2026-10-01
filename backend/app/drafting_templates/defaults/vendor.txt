@@ -1,0 +1,197 @@
+VENDOR AGREEMENT
+
+This Vendor Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} (the "Company") and {counterparty} (the "Vendor"). The Company and the Vendor are each a "Party" and together the "Parties".
+
+BACKGROUND
+
+The Company wishes to purchase, and the Vendor wishes to supply, certain goods and services on the terms of this Agreement.
+
+1. DEFINITIONS AND INTERPRETATION
+
+1.1 In this Agreement:
+"Affiliate" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where "control" means ownership of more than fifty percent (50%) of the voting interests;
+"Applicable Law" means all laws, regulations, codes and binding regulatory requirements that apply to a Party or to the Deliverables;
+"Confidential Information" means all non-public information disclosed by or on behalf of a Party (the "Disclosing Party") to the other Party (the "Receiving Party") in connection with this Agreement, in any form, that is marked or identified as confidential or that a reasonable person would understand to be confidential;
+"Data Protection Laws" means all Applicable Law relating to the processing of personal data, including the Digital Personal Data Protection Act, 2023 (India) and the rules made under it, and, where it applies, the EU General Data Protection Regulation (EU) 2016/679 and the UK GDPR;
+"Deliverables" means the goods and services, and any documents, materials or other output, supplied or to be supplied by the Vendor under an Order;
+"Fees" means the prices for the Deliverables set out in the applicable Order;
+"Order" means a purchase order, statement of work or order form issued by the Company and accepted by the Vendor that refers to this Agreement;
+"Specification" means the description, specification and requirements for the Deliverables set out or referred to in the applicable Order, including any service levels;
+"Supplier Code of Conduct" means the Company's supplier code of conduct as provided to the Vendor and updated from time to time.
+
+1.2 Headings are for convenience only. The words "including" and "include" mean "including without limitation". In the event of a conflict between this Agreement and an Order, this Agreement prevails unless the Order expressly states that a specific provision of this Agreement is varied for that Order only.
+
+2. SCOPE OF SUPPLY
+
+2.1 The Vendor shall supply the Deliverables described in each Order in accordance with this Agreement, the Specification, the agreed delivery dates and Applicable Law. Each Order forms a separate contract incorporating the terms of this Agreement.
+
+2.2 Nothing in this Agreement obliges the Company to place any minimum volume of Orders, and the Vendor is not appointed as an exclusive supplier.
+
+2.3 Time of delivery and performance is of the essence. The Vendor shall notify the Company promptly upon becoming aware of any likely delay, without prejudice to the Company's rights and remedies.
+
+3. DELIVERY, INSPECTION AND ACCEPTANCE
+
+3.1 Goods shall be delivered to the location stated in the Order, properly packed and labelled, together with a delivery note identifying the Order. Title and risk in goods pass to the Company on acceptance.
+
+3.2 The Company may inspect and test the Deliverables within thirty (30) days of delivery or completion. The Company may reject any Deliverable that does not conform to the Specification or this Agreement, and the Vendor shall, at the Company's option and at the Vendor's cost, promptly repair, replace or re-perform it, or refund the Fees paid for it.
+
+3.3 Acceptance, payment or use of a Deliverable does not waive any of the Company's rights in respect of defects that are not reasonably apparent on inspection.
+
+4. FEES, INVOICING AND PAYMENT
+
+4.1 In consideration of the supply of the Deliverables, the Company shall pay the Fees set out in the applicable Order. The Fees are fixed for the term of each Order and include all costs of packaging, insurance, carriage and delivery, but exclude applicable goods and services tax or equivalent indirect taxes, which shall be shown separately on each valid tax invoice.{value_sentence}
+
+4.2 The Vendor shall invoice the Company on or after acceptance of the relevant Deliverables, or on achievement of an agreed milestone where the Order provides for milestone billing. Each invoice must quote the Order number and be accompanied by such supporting documentation as the Company reasonably requests.
+
+4.3 The Company shall pay undisputed invoices within {payment_days} days of receipt of a valid, undisputed invoice. The Company may withhold, in good faith, any amount it disputes, and shall notify the Vendor of the dispute and its reasons. The Parties shall work in good faith to resolve the dispute promptly, and the undisputed portion shall be paid in accordance with this clause.
+
+4.4 No advance payment shall be made except where an Order expressly provides for one, and any such advance shall not exceed twenty percent (20%) of the Fees under that Order. Wherever possible the Parties shall prefer milestone payments tied to acceptance over any advance.
+
+4.5 The Company may deduct withholding taxes required by Applicable Law and shall provide the Vendor with the corresponding tax certificate. The Company may set off against amounts payable to the Vendor any amount owed by the Vendor to the Company under this Agreement.
+
+5. WARRANTIES AND SERVICE LEVELS
+
+5.1 The Vendor represents and warrants that the Deliverables shall:
+(a) conform in all respects to the Specification and the applicable Order;
+(b) be free from defects in design, materials and workmanship for a period of at least twelve (12) months from acceptance (the "Warranty Period");
+(c) be of satisfactory quality and fit for any purpose made known to the Vendor; and
+(d) in the case of services, be performed with the reasonable skill, care and diligence of a competent supplier of similar services, by suitably qualified and experienced personnel.
+
+5.2 Where an Order specifies service levels, the Vendor shall meet or exceed those service levels. Any service credits are a price adjustment reflecting the reduced value of the services and are without prejudice to the Company's other rights and remedies.
+
+5.3 If any Deliverable fails to comply with the warranties in this clause during the Warranty Period, the Vendor shall, at the Company's option and at the Vendor's cost, promptly repair or replace the Deliverable, re-perform the services, or refund the Fees paid for the non-conforming Deliverable. Any repaired or replaced Deliverable carries a fresh Warranty Period.
+
+5.4 The Vendor further warrants that it has full power and authority to enter into this Agreement, that it holds and will maintain all licences, permits and consents required to supply the Deliverables, and that the Deliverables and their use by the Company will not infringe the intellectual property rights of any third party.
+
+6. COMPLIANCE
+
+6.1 The Vendor shall, and shall ensure that its personnel and subcontractors shall, comply with all Applicable Law in performing this Agreement, including:
+(a) anti-bribery and anti-corruption laws, including the Prevention of Corruption Act, 1988 (India), the U.S. Foreign Corrupt Practices Act and the UK Bribery Act 2010;
+(b) economic and trade sanctions and export-control laws applicable to either Party;
+(c) labour and employment laws, including laws on minimum wages, working hours, health and safety, child labour, forced labour and modern slavery; and
+(d) environmental laws and regulations.
+
+6.2 The Vendor shall comply with the Supplier Code of Conduct. The Vendor shall not, directly or indirectly, offer, promise, give, request or accept any bribe, facilitation payment or other improper advantage in connection with this Agreement.
+
+6.3 The Vendor shall maintain adequate policies and procedures to ensure compliance with this clause, shall notify the Company promptly of any actual or suspected breach of it, and shall provide such certifications of compliance as the Company reasonably requests.
+
+6.4 Any breach of this Compliance clause is a material breach of this Agreement, and the Company may terminate this Agreement and any Order immediately by written notice, without liability to the Vendor.
+
+7. DATA PROTECTION
+
+7.1 Where the Vendor processes any personal data on behalf of the Company in connection with this Agreement, the Vendor shall comply with all Data Protection Laws and shall process such personal data only on the Company's documented instructions and only to the extent necessary to supply the Deliverables.
+
+7.2 Before any such processing begins, the Parties shall enter into a data processing agreement on the Company's standard template, which shall be incorporated into and form part of this Agreement. In the event of a conflict between that data processing agreement and this Agreement on data protection matters, the data processing agreement prevails.
+
+7.3 The Vendor shall implement and maintain appropriate technical and organisational security measures to protect personal data against unauthorised or unlawful processing and against accidental loss, destruction, damage, alteration or disclosure.
+
+7.4 The Vendor shall notify the Company without undue delay, and in any event within seventy-two (72) hours, after becoming aware of any personal data breach affecting the Company's personal data, and shall provide all information and assistance the Company reasonably requires to investigate, mitigate and report it.
+
+7.5 The Vendor shall not transfer, store or access any of the Company's personal data outside India without the Company's prior written consent and without appropriate safeguards required by Data Protection Laws being in place.
+
+8. CONFIDENTIALITY
+
+8.1 The Receiving Party shall keep the Disclosing Party's Confidential Information confidential, use it only to perform or receive the benefit of this Agreement, and protect it with at least the degree of care it uses for its own confidential information of a similar nature, and in no event less than reasonable care.
+
+8.2 The Receiving Party may disclose Confidential Information only to its and its Affiliates' employees, officers, professional advisers and permitted subcontractors who need to know it for the purposes of this Agreement and who are bound by confidentiality obligations no less protective than those in this clause. The Receiving Party is responsible for any breach of this clause by such persons.
+
+8.3 These obligations do not apply to information that the Receiving Party can show (a) is or becomes publicly available other than through its breach; (b) was lawfully in its possession before disclosure without a duty of confidence; (c) is lawfully received from a third party without a duty of confidence; or (d) is independently developed without use of the Disclosing Party's Confidential Information.
+
+8.4 If the Receiving Party is required by law, court order or a regulator to disclose Confidential Information, it shall, to the extent legally permitted, give the Disclosing Party prompt notice and disclose only the minimum information legally required.
+
+8.5 On termination or on request, the Receiving Party shall promptly return or destroy the Disclosing Party's Confidential Information and confirm in writing that it has done so, save for copies it is required by law to retain, which remain subject to this clause.
+
+8.6 This clause survives termination or expiry of this Agreement for five (5) years, and indefinitely for trade secrets and personal data.
+
+9. INTELLECTUAL PROPERTY
+
+9.1 All intellectual property rights in Deliverables created specifically for the Company under an Order ("Bespoke Deliverables") vest in the Company on creation, and the Vendor hereby assigns all such rights to the Company with full title guarantee. The Vendor shall procure waivers of any moral rights in the Bespoke Deliverables.
+
+9.2 Each Party retains ownership of its pre-existing intellectual property. The Vendor grants the Company a non-exclusive, perpetual, irrevocable, royalty-free, worldwide licence to use any Vendor pre-existing intellectual property incorporated in the Deliverables to the extent necessary for the Company and its Affiliates to receive and make full use of the Deliverables.
+
+10. INDEMNIFICATION
+
+10.1 The Vendor shall defend, indemnify and hold harmless the Company, its Affiliates and their respective officers, directors and employees from and against all losses, damages, liabilities, costs and expenses (including reasonable legal fees) arising out of any third-party claim to the extent arising from:
+(a) defective goods or any defect in the Deliverables;
+(b) the Vendor's breach of Applicable Law, including the Compliance clause and Data Protection Laws;
+(c) the negligence, wilful misconduct or fraud of the Vendor, its personnel or subcontractors; or
+(d) any allegation that the Deliverables, or their use by the Company in accordance with this Agreement, infringe the intellectual property rights of a third party.
+
+10.2 The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's consent (not to be unreasonably withheld). The Vendor shall not settle any claim in a way that imposes any obligation or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice.
+
+10.3 If the Deliverables become, or in the Vendor's reasonable opinion are likely to become, the subject of an infringement claim, the Vendor shall at its cost procure the right for the Company to continue using them or modify or replace them so they are non-infringing without loss of functionality, failing which the Company may terminate the affected Order and receive a refund of the Fees paid for the affected Deliverables.
+
+11. LIMITATION OF LIABILITY
+
+11.1 Subject to clauses 11.3 and 11.4, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim.
+
+11.2 Subject to clauses 11.3 and 11.4, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential.
+
+11.3 This limitation of liability does not limit or exclude either Party's liability for (a) breach of the Confidentiality clause; (b) its indemnification obligations, including the Vendor's obligations under the Indemnification clause, which are not subject to any cap; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
+
+11.4 Nothing in this clause limits the Company's obligation to pay undisputed Fees properly due.
+
+12. INSURANCE
+
+12.1 The Vendor shall maintain, with reputable insurers, insurance adequate to cover its liabilities under this Agreement, including public and product liability, professional indemnity and employer's liability or workmen's compensation insurance as required by Applicable Law, and shall provide evidence of such cover on request.
+
+13. SUBCONTRACTING AND ASSIGNMENT
+
+13.1 The Vendor shall not subcontract any of its obligations under this Agreement without the Company's prior written consent. The Vendor remains fully responsible for the acts and omissions of its subcontractors as if they were its own, and shall ensure each subcontractor is bound by obligations consistent with this Agreement.
+
+13.2 The Vendor shall not assign, transfer, novate or otherwise deal with any of its rights or obligations under this Agreement without the Company's prior written consent. The Company may assign this Agreement to any of its Affiliates or to a successor to all or substantially all of the relevant business on written notice to the Vendor.
+
+14. AUDIT RIGHTS
+
+14.1 The Vendor shall keep complete and accurate records relating to this Agreement, including records of Fees invoiced, compliance with the Compliance and Data Protection clauses, and the supply of the Deliverables, for at least six (6) years after the end of this Agreement.
+
+14.2 The Company, or an auditor appointed by it and bound by confidentiality, may on reasonable notice during normal business hours audit and inspect those records and the Vendor's relevant premises and systems to verify the Vendor's compliance with this Agreement. The Vendor shall cooperate fully with any such audit. If an audit reveals an overcharge, the Vendor shall promptly refund it, and if the overcharge exceeds five percent (5%) of the Fees for the audited period, the Vendor shall also bear the reasonable cost of the audit.
+
+15. TERM AND TERMINATION
+
+15.1 This Agreement commences on the Effective Date and {agreement_term}. Orders in force at the end of this Agreement continue to be governed by it until they are completed or terminated.
+
+15.2 Either Party may terminate this Agreement or any Order by written notice if the other Party commits a material breach and, where the breach is capable of remedy, fails to remedy it within thirty (30) days of written notice requiring it to do so.
+
+15.3 Either Party may terminate this Agreement immediately by written notice if the other Party becomes insolvent, makes an arrangement with its creditors, has a receiver, administrator or liquidator appointed, or is subject to any analogous event in any jurisdiction.
+
+15.4 The Company may terminate this Agreement or any Order for convenience on thirty (30) days' written notice, in which case the Company shall pay for Deliverables accepted before the termination date.
+
+15.5 On termination or expiry, the Vendor shall deliver to the Company all completed and work-in-progress Bespoke Deliverables paid for, and return or destroy the Company's Confidential Information and personal data in accordance with this Agreement. Termination does not affect accrued rights, and clauses that by their nature are intended to survive shall survive, including clauses 5, 7, 8, 9, 10, 11, 14, 17 and 18.
+
+16. FORCE MAJEURE
+
+16.1 Neither Party is liable for any delay or failure to perform caused by events beyond its reasonable control that could not have been prevented by reasonable precautions, provided it notifies the other Party promptly and uses all reasonable efforts to mitigate the effect. If such an event continues for more than thirty (30) days, the Company may terminate the affected Order by written notice without liability.
+
+17. NOTICES
+
+17.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in the applicable Order or as notified in writing from time to time. A notice is deemed received on delivery by hand or courier, or on the next business day after sending by email, provided no notice of delivery failure is received.
+
+18. GOVERNING LAW AND DISPUTE RESOLUTION
+
+18.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
+
+18.2 The Parties shall first try to resolve any dispute through good-faith negotiation between senior representatives within thirty (30) days of written notice of the dispute. If the dispute is not resolved, it shall be submitted to the exclusive jurisdiction of the competent courts of {governing_law}. Nothing in this clause prevents either Party from seeking urgent injunctive or interim relief.
+
+19. GENERAL
+
+19.1 Entire agreement. This Agreement, together with each Order and any data processing agreement entered into under it, constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior agreements, understandings and representations. Any terms printed on the Vendor's quotation, acknowledgement, invoice or other documents do not apply.
+
+19.2 Amendment and waiver. This Agreement may be amended only in writing signed by authorised representatives of both Parties. No failure or delay in exercising any right is a waiver of it.
+
+19.3 Independent contractors. The Parties are independent contractors. Nothing in this Agreement creates a partnership, joint venture, agency or employment relationship.
+
+19.4 Severability. If any provision is held invalid or unenforceable, it shall be modified to the minimum extent necessary to make it enforceable, and the remaining provisions continue in full force.
+
+19.5 Third-party rights. Except for the Company's Affiliates under the Indemnification clause, no person other than the Parties has any right to enforce this Agreement.
+
+19.6 Counterparts. This Agreement may be executed in counterparts, including by electronic signature, each of which is an original and which together constitute one instrument.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

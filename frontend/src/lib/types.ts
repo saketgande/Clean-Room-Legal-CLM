@@ -2139,3 +2139,36 @@ export interface ContractClause {
   title: string;
   text: string;
 }
+
+// ---- Drafting templates ------------------------------------------------------
+export interface DraftingTemplateSummary {
+  key: string;
+  name: string;
+  contract_type: string;
+  playbook: string | null; // the playbook that reviews contracts drafted from it
+  customized: boolean; // false = the shipped default text
+  version: number; // 0 = never edited
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface DraftingTemplatePlaceholder {
+  name: string;
+  about: string;
+  sample: string;
+}
+
+export interface DraftingTemplate extends DraftingTemplateSummary {
+  body: string;
+  default_body: string;
+  placeholders: DraftingTemplatePlaceholder[];
+}
+
+export interface DraftingTemplateVersion {
+  version: number;
+  note: string | null;
+  is_default: boolean;
+  body: string;
+  created_at: string;
+  created_by: string | null;
+}

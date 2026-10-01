@@ -51,9 +51,9 @@ _FIELDS = {"value": "4500000", "currency": "INR", "start_date": "2026-10-01", "t
 
 
 @pytest.mark.parametrize(("playbook", "doc_type"), [
-    ("Master Services Agreement Playbook", "msa"), ("Consultancy Agreement Playbook", "msa"),
-    ("Vendor Agreement Playbook", "vendor"), ("Software / SaaS Agreement Playbook", "vendor"),
-    ("Statement of Work Playbook", "msa"), ("Data Processing Agreement Playbook", "dpa"),
+    ("Master Services Agreement Playbook", "msa"), ("Consultancy Agreement Playbook", "consultancy"),
+    ("Vendor Agreement Playbook", "vendor"), ("Software / SaaS Agreement Playbook", "saas"),
+    ("Statement of Work Playbook", "sow"), ("Data Processing Agreement Playbook", "dpa"),
 ])
 def test_our_own_template_passes_the_literal_check(playbook, doc_type):
     text = drafting.render_document(doc_type, company="Aegis Pharma Ltd", counterparty="Globex", effective="2026-10-01",

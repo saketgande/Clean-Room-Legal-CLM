@@ -1305,6 +1305,13 @@ class AIController:
         )
 
     def _extract_structured_output(self, response: ClaudeProviderResponse, spec: SkillSpec) -> dict[str, Any]:
+        # An answer cut off at max_tokens arrives as a tool call with an empty or
+        # partial input, which validates as an empty result (e.g. "no clauses")
+        # and was recorded as a success. Fail instead, so it shows up.
+        if response.stop_reason == "max_tokens":
+            raise RuntimeError(
+                f"{spec.name}: the answer was cut off at max_tokens ({spec.max_tokens}); nothing was stored"
+            )
         for block in response.tool_use_blocks:
             if block.get("name") == spec.return_tool_name:
                 return block.get("input") or {}

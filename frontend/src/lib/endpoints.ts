@@ -2,6 +2,9 @@
 import { apiFetch, apiDownload } from "./api";
 import type {
   AdminSetting,
+  DraftingTemplate,
+  DraftingTemplateSummary,
+  DraftingTemplateVersion,
   AiUsageSummary,
   ApprovalChainStep,
   ApprovalRequest,
@@ -921,6 +924,19 @@ export const workflowsApi = {
 };
 
 // ---- Playbooks -----------------------------------------------------------
+// ---- Drafting templates (our standard paper, one per playbook) -------------
+export const draftingTemplatesApi = {
+  list: () => apiFetch<DraftingTemplateSummary[]>("/drafting-templates"),
+  get: (key: string) => apiFetch<DraftingTemplate>(`/drafting-templates/${key}`),
+  versions: (key: string) => apiFetch<DraftingTemplateVersion[]>(`/drafting-templates/${key}/versions`),
+  preview: (key: string, body: string) =>
+    apiFetch<{ text: string }>(`/drafting-templates/${key}/preview`, { method: "POST", body: { body } }),
+  save: (key: string, body: string, note?: string) =>
+    apiFetch<DraftingTemplate>(`/drafting-templates/${key}`, { method: "PUT", body: { body, note } }),
+  reset: (key: string, note?: string) =>
+    apiFetch<DraftingTemplate>(`/drafting-templates/${key}/reset`, { method: "POST", body: { note } }),
+};
+
 export const playbooksApi = {
   list: () => apiFetch<PlaybookResponse[]>("/playbooks"),
   create: (name: string, description?: string) =>
