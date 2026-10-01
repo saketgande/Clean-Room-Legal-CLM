@@ -7,13 +7,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { can } from "@/lib/intake";
 import { initials } from "@/lib/utils";
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 
-type Item = { href: string; label: string; icon: string; perm?: string };
+type Item = { href: string; label: string; icon: string; perm?: string; children?: Item[] };
 const GROUPS: { sec: string; items: Item[] }[] = [
   { sec: "Workspace", items: [
     { href: "/intake", label: "Legal Intake", icon: '<path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/>' },
@@ -22,6 +23,15 @@ const GROUPS: { sec: string; items: Item[] }[] = [
     { href: "/contracts", label: "Contracts", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>' },
     { href: "/matters", label: "Matters", icon: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>' },
     { href: "/search", label: "Search", icon: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>' },
+    { href: "/trademarks", label: "Trademark Suite", icon: '<path d="M12 15a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/><path d="M8.5 13.5 6 21l6-2 6 2-2.5-7.5"/>', children: [
+      { href: "/trademarks/dashboard", label: "Dashboard", icon: "" },
+      { href: "/trademarks/intake", label: "New intake", icon: "" },
+      { href: "/trademarks/extract", label: "Document extraction", icon: "" },
+      { href: "/trademarks", label: "My trademarks", icon: "" },
+      { href: "/trademarks/calendar", label: "Renewal calendar", icon: "" },
+      { href: "/trademarks/reports", label: "Reports", icon: "" },
+      { href: "/trademarks/integrations", label: "Integration status", icon: "" },
+    ] },
   ] },
   { sec: "Intelligence", items: [
     { href: "/", label: "Ask Aegis", icon: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/>' },
@@ -50,7 +60,34 @@ function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   if (href === "/contracts") return pathname === "/contracts" || pathname.startsWith("/contracts/");
   if (href === "/workflow-builder") return pathname.startsWith("/workflow-builder");
+  // "/trademarks" is both a nav item and the parent prefix of every sibling
+  // Trademark Suite route (/trademarks/intake, /trademarks/reports, ...) —
+  // an exact match here keeps it from lighting up alongside those siblings.
+  if (href === "/trademarks") return pathname === "/trademarks";
   return pathname === href || pathname.startsWith(href + "/");
+}
+
+function NavGroupItem({ it, pathname, onNavigate }: { it: Item; pathname: string; onNavigate?: () => void }) {
+  const childActive = it.children?.some((c) => isActive(pathname, c.href)) ?? false;
+  const [open, setOpen] = useState(childActive);
+  if (!it.children) {
+    return <Link href={it.href} onClick={onNavigate} className={isActive(pathname, it.href) ? "on" : ""}>{svg(it.icon)}<span>{it.label}</span></Link>;
+  }
+  return (
+    <div className="grp">
+      <button type="button" className={`gh ${childActive ? "on" : ""}`} onClick={() => setOpen((v) => !v)}>
+        {svg(it.icon)}<span>{it.label}</span>
+        <svg className={`chev ${open ? "open" : ""}`} viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="1.7" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open && (
+        <div className="children">
+          {it.children.map((c) => (
+            <Link key={c.href} href={c.href} onClick={onNavigate} className={isActive(pathname, c.href) ? "on" : ""}>{c.label}</Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AegisRail({ onNavigate }: { onNavigate?: () => void }) {
@@ -70,7 +107,7 @@ export function AegisRail({ onNavigate }: { onNavigate?: () => void }) {
             <div key={g.sec}>
               <div className="sec">{g.sec}</div>
               {items.map((it) => (
-                <Link key={it.href} href={it.href} onClick={onNavigate} className={isActive(pathname, it.href) ? "on" : ""}>{svg(it.icon)}<span>{it.label}</span></Link>
+                <NavGroupItem key={it.href} it={it} pathname={pathname} onNavigate={onNavigate} />
               ))}
             </div>
           );
@@ -93,6 +130,14 @@ const RAIL_CSS = `
 .aerail .nav a{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;color:var(--ink-2);font-weight:500;text-decoration:none;cursor:pointer;font-size:12.5px}
 .aerail .nav a:hover{background:var(--surface-2);color:var(--ink)}
 .aerail .nav a.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.aerail .nav .grp{display:flex;flex-direction:column}
+.aerail .nav .gh{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px;color:var(--ink-2);font-weight:500;text-decoration:none;cursor:pointer;font-size:12.5px;background:none;border:none;width:100%;text-align:left;font-family:inherit}
+.aerail .nav .gh:hover{background:var(--surface-2);color:var(--ink)}
+.aerail .nav .gh.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.aerail .nav .gh .chev{width:13px;height:13px;margin-left:auto;flex:none;transition:transform .15s}
+.aerail .nav .gh .chev.open{transform:rotate(90deg)}
+.aerail .nav .children{display:flex;flex-direction:column;gap:1px;padding-left:26px}
+.aerail .nav .children a{padding:6px 9px;font-size:12px}
 .aerail .me{border-top:1px solid var(--border);padding:10px 13px;display:flex;align-items:center;gap:9px}
 .aerail .me .av{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:12px;flex:none}
 .aerail .me .mi{min-width:0} .aerail .me .nm{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .aerail .me .rl{font-size:11px;color:var(--ink-3)}

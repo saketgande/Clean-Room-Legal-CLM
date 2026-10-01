@@ -8,8 +8,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { intakeApi, workflowsApi, brainApi, contractsApi } from "@/lib/endpoints";
+import { intakeApi, workflowsApi, brainApi, contractsApi, trademarksApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
 import { stepMeta } from "./_governance-ladder";
 import { NegotiationPanel } from "./_negotiation-panel";
@@ -69,6 +70,13 @@ function draftableDocType(r: IntakeRequest): string | null {
   return null;
 }
 
+// Mirrors draftableDocType's shape — a request whose subject reads as a
+// trademark matter, eligible for "Continue as Trademark".
+function isTrademarkRequest(r: IntakeRequest): boolean {
+  const t = `${r.type_label} ${r.description ?? ""}`.toLowerCase();
+  return /trademark|\btm\b|brand name|logo mark/.test(t);
+}
+
 function counterpartyOf(r: IntakeRequest): string | null {
   const parties = (r.parties ?? []) as { name?: string; role?: string }[];
   const cp = parties.find((p) => /counter|vendor|supplier|opposing|third|other/i.test(p.role ?? "")) ?? parties[0];
@@ -80,6 +88,7 @@ function counterpartyOf(r: IntakeRequest): string | null {
 
 export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { notify } = useToast();
   const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchInterval: 20_000 });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
@@ -140,6 +149,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const reassign = useMutation({ mutationFn: (uid: string) => intakeApi.triage(id, { action: "reassigned", assignee_user_id: uid }), onSuccess: (u) => { setReassignTo(""); done("Owner reassigned")(u); }, onError: fail });
   const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
+  const continueAsTrademark = useMutation({
+    mutationFn: () => trademarksApi.continueFromIntake(id, {}),
+    onSuccess: (tm) => { notify("Continued as a trademark", "success"); router.push(`/trademarks/${tm.id}`); },
+    onError: fail,
+  });
   // Engine actions — start the workflow, complete a human step, or poll an approval/signature.
   const startFlow = useMutation({ mutationFn: () => workflowsApi.startFlow(id), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
   const completeStep = useMutation({ mutationFn: () => workflowsApi.completeStep(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Step completed", "success"); }, onError: fail });
@@ -156,7 +170,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     onSuccess: (res) => setChat((c) => [...c, { role: "ai", text: res.answer, cites: res.citations?.length ?? 0 }]),
     onError: (e) => setChat((c) => [...c, { role: "ai", text: e instanceof Error ? e.message : "Couldn't answer that." }]),
   });
-  const busy = reassign.isPending || draft.isPending || ingest.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending;
+  const busy = reassign.isPending || draft.isPending || ingest.isPending || continueAsTrademark.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending;
   function sendChat() {
     const text = q.trim();
     if (!text || ask.isPending) return;
@@ -576,6 +590,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                   ) : (
                     <button className="btn pri wide" disabled={busy} onClick={() => draft.mutate()}>Approve &amp; draft the {docType} →</button>
                   )}
+                </div>
+              ) : null}
+              {/* Continue a trademark-flavored request into the Trademark Suite. */}
+              {isTrademarkRequest(r) ? (
+                <div className="act">
+                  <div className="lbl">Trademark</div>
+                  <button className="btn pri wide" disabled={busy} onClick={() => continueAsTrademark.mutate()}>Continue as Trademark →</button>
                 </div>
               ) : null}
               {/* Reassign the owner. */}

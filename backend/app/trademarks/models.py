@@ -1,4 +1,4 @@
-from sqlalchemy import JSON, Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import JSON, Column, Date, DateTime, ForeignKey, Integer, String, Text
 
 try:
     from pgvector.sqlalchemy import Vector
@@ -48,8 +48,29 @@ class Trademark(
     workflow_state = Column(String(80), nullable=False, default=TrademarkWorkflowState.INTAKE)
     source = Column(String(40), nullable=False, default=TrademarkSource.INTAKE)
     source_document_extract_id = Column(String(36), ForeignKey("document_extract.id"), nullable=True)
+    # The Legal Intake request this trademark was continued from, if any —
+    # same deliberate choice as Notice.escalated_intake_request_id. Nullable:
+    # a trademark can also be created directly (the standalone wizard path,
+    # or bulk document ingestion) with no intake ticket behind it at all.
+    source_intake_request_id = Column(
+        String(36), ForeignKey("intake_request.id", ondelete="SET NULL"), nullable=True
+    )
     embedding_text = Column(Text, nullable=True)
     embedding = Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
+
+
+class PortfolioDigest(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
+    """One row per org per calendar day — the one LLM-generated summary of
+    what changed in that org's trademark portfolio that day. Generating
+    "today's" digest is a get-or-create on (org_id, digest_date), so it
+    never costs more than one LLM call per org per day regardless of how
+    many times it's requested (e.g. a cron plus a user clicking Refresh).
+    See app/trademarks/service.py.
+    """
+
+    digest_date = Column(Date, index=True, nullable=False)
+    summary = Column(Text, nullable=False)
+    stats = Column(JSON, nullable=False)
 
 
 class DocumentExtract(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

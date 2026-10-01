@@ -51,6 +51,7 @@ from app.roles.routes import router as roles_router
 from app.search.routes import router as search_router
 from app.signatures.routes import router as signatures_router
 from app.tabular_review.routes import router as tabular_review_router
+from app.trademarks.comments_routes import router as trademark_comments_router
 from app.trademarks.routes import router as trademarks_router
 from app.walls.routes import router as walls_router
 from app.word_addin.routes import router as word_addin_router
@@ -174,6 +175,7 @@ def create_app() -> FastAPI:
     app.include_router(notices_router, prefix=prefix)
     app.include_router(renewals_router, prefix=prefix)
     app.include_router(trademarks_router, prefix=prefix)
+    app.include_router(trademark_comments_router, prefix=prefix)
     app.include_router(tabular_review_router, prefix=prefix)
     app.include_router(search_router, prefix=prefix)
     app.include_router(observability_router, prefix=prefix)

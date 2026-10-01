@@ -11,6 +11,7 @@ from app.integrations.claude import ClaudeProvider
 from app.integrations.dependencies import get_claude_client, get_reducto_client, get_storage_service
 from app.integrations.reducto import ReductoClient
 from app.integrations.storage import StorageBackend
+from app.trademarks.comments_service import TrademarkCommentService
 from app.trademarks.service import TrademarksService
 
 
@@ -21,3 +22,7 @@ def get_trademarks_service(
     claude_client: ClaudeProvider = Depends(get_claude_client),
 ) -> TrademarksService:
     return TrademarksService(db, storage=storage, reducto=reducto, claude_client=claude_client)
+
+
+def get_trademark_comment_service(db: Session = Depends(get_db)) -> TrademarkCommentService:
+    return TrademarkCommentService(db)
