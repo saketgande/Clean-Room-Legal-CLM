@@ -154,7 +154,7 @@ def _clean_date(value) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        # Naive datetime is discarded immediately via .date(); no tz semantics involved.
+        # Naive is fine: only the calendar date survives .date().
         return datetime.strptime(value.strip()[:10], "%Y-%m-%d").date().isoformat()  # noqa: DTZ007
     except ValueError:
         return None
@@ -179,7 +179,6 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=
         return _heuristic(text)
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import run_coro_blocking
     from app.integrations.dependencies import get_claude_client
 
@@ -187,8 +186,8 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=
     bundle = get_agent_prompt(db, agent_id="notice_extraction_agent", org_id=org_id)
     user_prompt = _prompt(text)
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(lambda: claude_client.complete_structured(
+            org_id=org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="extract_notice_fields", input_schema=_SCHEMA,

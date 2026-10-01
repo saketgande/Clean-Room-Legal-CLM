@@ -8,7 +8,6 @@ import { notificationsApi } from "@/lib/endpoints";
 import {
   Scale,
   FileText,
-  FolderKanban,
   Search,
   Bot,
   Brain,
@@ -49,7 +48,6 @@ const NAV: {
       { href: "/intake", label: "Legal Intake", icon: Gauge },
       { href: "/contracts", label: "Contracts", icon: FileText },
       { href: "/", label: "Ask Aegis", icon: Bot },
-      { href: "/matters", label: "Matters", icon: FolderKanban },
       { href: "/search", label: "Search", icon: Search },
     ],
   },

@@ -1,4 +1,9 @@
-"""Intake team pools + the race-safe assignment balancer.
+"""Teams — the one list of groups of people who do the work — plus the
+race-safe assignment balancer.
+
+A team owns new requests (the default intake team, or the AI's expertise
+match), does workflow review steps, and approves at workflow approval steps.
+There are no separate pools or approver groups (merged 2026-09-28).
 
 The balancer (Part 0.15): reject overflow *cycles* at save time, and acquire
 member-row locks in deterministic global order (resolve the whole overflow
@@ -22,7 +27,6 @@ from app.core.database import utcnow
 from app.intake.constants import OPEN_STATUSES
 from app.intake.models import (
     IntakeRequest,
-    IntakeRoutingRule,
     IntakeTeam,
     IntakeTeamMember,
 )
@@ -40,8 +44,18 @@ class PoolPick:
     overflow: bool
 
 
+DEFAULT_TEAMS: tuple[tuple[str, str, str], ...] = (
+    ("legal_counsel", "Legal Counsel", "Contract review, negotiation and legal sign-off."),
+    ("paralegals", "Paralegals", "Simple NDAs, first drafts and filing."),
+    ("finance", "Finance", "Pricing, payment terms, budget and revenue impact."),
+    ("procurement", "Procurement", "Supplier terms and sourcing policy."),
+    ("compliance", "Compliance", "Regulatory, privacy and security requirements."),
+    ("executive", "Executive", "Final sign-off for high-value or strategic agreements."),
+)
+
+
 class TeamService:
-    """Intake team pools and the race-safe assignment balancer.
+    """Intake teams and the race-safe assignment balancer.
 
     Part of the DI migration (see backend/DI_MIGRATION.md). Constructed with
     a ``db`` session; every function that took ``db`` first is now a method
@@ -52,10 +66,66 @@ class TeamService:
         self.db = db
 
     def _label(self, uid: str | None) -> str | None:
+        db = self.db
         if not uid:
             return None
-        u = self.db.get(User, uid)
+        u = db.get(User, uid)
         return (u.full_name or u.email) if u else uid
+
+    def ensure_default_teams(self, *, org_id: str, actor_user_id: str | None = None) -> list[IntakeTeam]:
+        """Create any default team the org lacks (by key or name) — empty, for an
+        admin to fill — and make Legal Counsel the default intake team when none
+        is set. Idempotent; the caller commits."""
+        db = self.db
+        have = db.scalars(select(IntakeTeam).where(IntakeTeam.org_id == org_id)).all()
+        keys = {t.key for t in have}
+        names = {t.name.lower() for t in have}
+        created = []
+        for key, name, description in DEFAULT_TEAMS:
+            if key in keys or name.lower() in names:
+                continue
+            t = IntakeTeam(org_id=org_id, key=key, name=name, description=description,
+                           created_by_user_id=actor_user_id, updated_by_user_id=actor_user_id)
+            db.add(t)
+            created.append(t)
+        db.flush()
+        if not any(t.is_default_intake for t in have):
+            counsel = db.scalar(select(IntakeTeam).where(IntakeTeam.org_id == org_id,
+                                                         IntakeTeam.key == "legal_counsel"))
+            if counsel is not None:
+                counsel.is_default_intake = True
+        return created
+
+    def default_intake_team(self, *, org_id: str) -> IntakeTeam | None:
+        db = self.db
+        return db.scalar(select(IntakeTeam).where(IntakeTeam.org_id == org_id, IntakeTeam.active.is_(True),
+                                                  IntakeTeam.is_default_intake.is_(True)))
+
+    def member_users(self, *, team_id: str | None, org_id: str) -> list[User]:
+        """The team's active members as users — who is emailed for, and may
+        decide, an approval addressed to the team."""
+        db = self.db
+        if not team_id:
+            return []
+        return list(db.scalars(
+            select(User).join(IntakeTeamMember, IntakeTeamMember.user_id == User.id)
+            .where(IntakeTeamMember.team_id == team_id, IntakeTeamMember.active.is_(True),
+                   User.org_id == org_id)
+            .order_by(User.id)
+        ).all())
+
+    def _uses(self, t: IntakeTeam) -> list[dict]:
+        """Where the team is used: default intake, and each workflow step naming it."""
+        from app.workflows.models import Workflow
+
+        db = self.db
+        out = [{"where": "Owner of new requests", "kind": "intake"}] if t.is_default_intake else []
+        for wf in db.scalars(select(Workflow).where(Workflow.org_id == t.org_id)).all():
+            for st in wf.steps or []:
+                if ((st or {}).get("config") or {}).get("team_id") == t.id:
+                    out.append({"where": f"{wf.name} · {st.get('name') or 'step'}", "kind": st.get("type"),
+                                "stage": st.get("stage")})
+        return out
 
     # --- balancer --------------------------------------------------------------
 
@@ -74,7 +144,9 @@ class TeamService:
             cur = t.overflow_team_id
         return chain
 
-    def pick_from_pool(self, *, team_id: str) -> PoolPick | None:
+    def pick_from_pool(self, *, team_id: str, exclude_user_id: str | None = None) -> PoolPick | None:
+        """The member who takes the next item. ``exclude_user_id`` keeps a person
+        from being handed their own request to own."""
         db = self.db
         chain = self._resolve_chain(team_id)
         if not chain:
@@ -108,7 +180,8 @@ class TeamService:
         for i, t in enumerate(chain):
             elig = [
                 m for m in by_team.get(t.id, [])
-                if m.capacity <= 0 or counts.get(m.user_id, 0) < m.capacity
+                if (m.capacity <= 0 or counts.get(m.user_id, 0) < m.capacity)
+                and m.user_id != exclude_user_id
             ]
             if not elig:
                 continue
@@ -145,30 +218,38 @@ class TeamService:
                 .group_by(IntakeRequest.assigned_to_user_id)
             ).all()
         ) if ids else {}
+        from app.authority.service import authority_limits
+
+        limits = authority_limits(db, org_id=t.org_id, user_ids=ids) or {}
         return {
             "id": t.id, "key": t.key, "name": t.name, "description": t.description,
             "active": t.active, "strategy": t.strategy,
             "overflow_team_id": t.overflow_team_id,
             "overflow_team_name": overflow.name if overflow else None,
             "sort_order": t.sort_order,
+            "is_default_intake": bool(t.is_default_intake),
+            "used_in": self._uses(t),
             "expertise": t.expertise or [],
             "departments": t.departments or [],
             "members": [
                 {"id": m.id, "user_id": m.user_id, "name": self._label(m.user_id) or m.user_id,
-                 "capacity": m.capacity, "active": m.active, "open_count": counts.get(m.user_id, 0)}
+                 "capacity": m.capacity, "active": m.active, "open_count": counts.get(m.user_id, 0),
+                 "approve_limit": limits.get(m.user_id)}
                 for m in sorted(t.members, key=lambda m: m.id)
             ],
         }
 
     def list_teams(self, *, org_id: str) -> list[dict]:
-        rows = self.db.scalars(
+        db = self.db
+        rows = db.scalars(
             select(IntakeTeam).where(IntakeTeam.org_id == org_id)
             .order_by(IntakeTeam.sort_order, IntakeTeam.name)
         ).all()
         return [self.serialize_team(t) for t in rows]
 
     def _get_team(self, org_id: str, team_id: str) -> IntakeTeam:
-        t = self.db.get(IntakeTeam, team_id)
+        db = self.db
+        t = db.get(IntakeTeam, team_id)
         if t is None or t.org_id != org_id:
             raise HTTPException(404, "Team not found")
         return t
@@ -179,7 +260,7 @@ class TeamService:
         if not overflow_id:
             return
         if overflow_id == team_id:
-            raise HTTPException(422, "A pool cannot overflow to itself")
+            raise HTTPException(422, "A team cannot overflow to itself")
         seen: set[str] = set()
         cur = overflow_id
         while cur:
@@ -198,19 +279,17 @@ class TeamService:
         INSERT the new (team_id, user_id) rows before DELETEing the orphaned ones,
         tripping `uq_intake_team_member_team_user` when a save re-submits a member
         already on the team (e.g. editing only the team's departments)."""
+        db = self.db
         existing_by_user = {m.user_id: m for m in t.members}
         keep: list[IntakeTeamMember] = []
         seen: set[str] = set()
-
         for m in members:
             if m.user_id in seen:
                 continue
             seen.add(m.user_id)
-
-            u = self.db.get(User, m.user_id)
+            u = db.get(User, m.user_id)
             if u is None or u.org_id != org_id:
                 raise HTTPException(404, "Team member not found in org")
-
             capacity = max(0, m.capacity)
             row = existing_by_user.get(m.user_id)
             if row is not None:
@@ -220,7 +299,6 @@ class TeamService:
                 row = IntakeTeamMember(org_id=org_id, user_id=m.user_id,
                                        capacity=capacity, active=m.active)
             keep.append(row)
-
         t.members = keep
 
     def create_team(self, *, actor: User, payload) -> dict:
@@ -229,7 +307,7 @@ class TeamService:
         if not _KEY_RE.match(key):
             raise HTTPException(422, "Team key must be lowercase alphanumeric / dash / underscore")
         if db.scalar(select(IntakeTeam.id).where(IntakeTeam.org_id == actor.org_id, IntakeTeam.key == key)):
-            raise HTTPException(409, f'A pool "{key}" already exists')
+            raise HTTPException(409, f'A team "{key}" already exists')
         if payload.overflow_team_id:
             self._get_team(actor.org_id, payload.overflow_team_id)
             self._check_no_cycle(org_id=actor.org_id, team_id=None, overflow_id=payload.overflow_team_id)
@@ -243,6 +321,8 @@ class TeamService:
         self._apply_members(t, actor.org_id, payload.members)
         db.add(t)
         db.flush()
+        if payload.is_default_intake:
+            self._make_default_intake(t)
         write_audit_log(db, action="intake.team.created", resource_type="intake_team",
                         resource_id=t.id, org_id=actor.org_id, actor_user_id=actor.id,
                         after={"key": t.key, "name": t.name})
@@ -263,6 +343,8 @@ class TeamService:
                 setattr(t, attr, val)
         if payload.members is not None:
             self._apply_members(t, actor.org_id, payload.members)
+        if payload.is_default_intake:
+            self._make_default_intake(t)
         t.updated_by_user_id = actor.id
         db.flush()
         write_audit_log(db, action="intake.team.updated", resource_type="intake_team",
@@ -271,13 +353,24 @@ class TeamService:
         db.refresh(t)
         return self.serialize_team(t)
 
+    def _make_default_intake(self, t: IntakeTeam) -> None:
+        """Exactly one default intake team per org."""
+        db = self.db
+        for other in db.scalars(select(IntakeTeam).where(IntakeTeam.org_id == t.org_id,
+                                                         IntakeTeam.is_default_intake.is_(True))).all():
+            other.is_default_intake = False
+        t.is_default_intake = True
+
     def delete_team(self, *, actor: User, team_id: str) -> None:
         db = self.db
         t = self._get_team(actor.org_id, team_id)
-        # NULL routing-rule and other pools' pointers first (models use SET NULL, but
+        uses = self._uses(t)
+        if uses:
+            # A workflow step naming a deleted team would ask nobody.
+            raise HTTPException(409, "This team is still used — " + "; ".join(u["where"] for u in uses[:5])
+                                + ". Move those steps to another team first.")
+        # NULL other pools' overflow pointers first (the model uses SET NULL, but
         # be explicit so the app state is clean immediately).
-        for r in db.scalars(select(IntakeRoutingRule).where(IntakeRoutingRule.set_team_id == t.id)).all():
-            r.set_team_id = None
         for other in db.scalars(select(IntakeTeam).where(IntakeTeam.overflow_team_id == t.id)).all():
             other.overflow_team_id = None
         write_audit_log(db, action="intake.team.deleted", resource_type="intake_team",
@@ -287,17 +380,28 @@ class TeamService:
 
 
 # --- DI-MIGRATION: temporary wrappers ---------------------------------------
-# pick_from_pool and _label are imported directly by app.workflows.service and
-# app.intake.routing (the latter also converted this pass, but composes a
-# TeamService directly rather than going through these wrappers — see
-# routing.py). Kept for any other caller. Tracked in backend/DI_MIGRATION.md.
+# Module-level names are still imported directly by app.workflows.service,
+# app.intake.service, app.approvals, app.intake.seed and tests. Tracked in
+# backend/DI_MIGRATION.md.
 
 def _label(db: Session, uid: str | None) -> str | None:
     return TeamService(db)._label(uid)
 
 
-def pick_from_pool(db: Session, *, team_id: str) -> PoolPick | None:
-    return TeamService(db).pick_from_pool(team_id=team_id)
+def ensure_default_teams(db: Session, *, org_id: str, actor_user_id: str | None = None) -> list[IntakeTeam]:
+    return TeamService(db).ensure_default_teams(org_id=org_id, actor_user_id=actor_user_id)
+
+
+def default_intake_team(db: Session, *, org_id: str) -> IntakeTeam | None:
+    return TeamService(db).default_intake_team(org_id=org_id)
+
+
+def member_users(db: Session, *, team_id: str | None, org_id: str) -> list[User]:
+    return TeamService(db).member_users(team_id=team_id, org_id=org_id)
+
+
+def pick_from_pool(db: Session, *, team_id: str, exclude_user_id: str | None = None) -> PoolPick | None:
+    return TeamService(db).pick_from_pool(team_id=team_id, exclude_user_id=exclude_user_id)
 
 
 def serialize_team(db: Session, t: IntakeTeam) -> dict:
@@ -306,6 +410,10 @@ def serialize_team(db: Session, t: IntakeTeam) -> dict:
 
 def list_teams(db: Session, *, org_id: str) -> list[dict]:
     return TeamService(db).list_teams(org_id=org_id)
+
+
+def _apply_members(db: Session, t: IntakeTeam, org_id: str, members: Sequence[TeamMemberSpec]) -> None:
+    return TeamService(db)._apply_members(t, org_id, members)
 
 
 def create_team(db: Session, *, actor: User, payload) -> dict:

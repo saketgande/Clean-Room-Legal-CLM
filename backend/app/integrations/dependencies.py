@@ -9,7 +9,6 @@ is identical until a caller starts passing an override.
 """
 
 from app.integrations.claude import ClaudeProvider, claude_client
-from app.integrations.databricks import DatabricksDocumentClient, databricks_client
 from app.integrations.docusign import SignatureProvider, docusign_client
 from app.integrations.reducto import ReductoClient, reducto_client
 from app.integrations.resend import EmailSender, resend_client
@@ -26,10 +25,6 @@ def get_claude_client() -> ClaudeProvider:
 
 def get_reducto_client() -> ReductoClient:
     return reducto_client
-
-
-def get_databricks_client() -> DatabricksDocumentClient:
-    return databricks_client
 
 
 def get_resend_client() -> EmailSender:

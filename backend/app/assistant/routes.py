@@ -18,7 +18,6 @@ from app.core.deps import get_db, require_permission
 from app.core.enums import AssistantRunStatus, AssistantSessionType
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
-from app.matters.access import get_project_for_user
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
@@ -26,15 +25,14 @@ router = APIRouter(prefix="/assistant", tags=["assistant"])
 class AssistantSessionCreate(BaseModel):
     session_type: AssistantSessionType = AssistantSessionType.GENERAL
     title: str | None = None
-    matter_id: str | None = None
     contract_id: str | None = None
     tabular_review_id: str | None = None
 
 
 class AssistantStreamRequest(BaseModel):
-    message: str = Field(min_length=1)
+    # Same reason as BrainAskRequest.question: this is prompt input.
+    message: str = Field(min_length=1, max_length=8000)
     contract_ids: list[str] = Field(default_factory=list)
-    matter_id: str | None = None
     resume_run_id: str | None = None
     client_event_id: str | None = None
 
@@ -76,7 +74,6 @@ def list_tools(current_user=Depends(require_permission("assistant:use"))):
 
 @router.get("/sessions")
 def list_sessions(
-    matter_id: str | None = None,
     contract_id: str | None = None,
     status_filter: str = "active",
     q: str | None = None,
@@ -85,7 +82,7 @@ def list_sessions(
     service: AssistantService = Depends(get_assistant_service),
 ):
     return service.list_sessions(
-        current_user=current_user, matter_id=matter_id, contract_id=contract_id,
+        current_user=current_user, contract_id=contract_id,
         status_filter=status_filter, q=q, limit=limit,
     )
 
@@ -169,8 +166,6 @@ async def stream_session(
 ):
     _require_ai_tools(current_user)
     session = service.get_session_for_user(session_id=session_id, current_user=current_user)
-    if payload.matter_id:
-        get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
     for contract_id in payload.contract_ids:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
 
@@ -193,7 +188,7 @@ async def stream_session(
         status=AssistantRunStatus.RUNNING,
         user_message_id=user_message.id,
         provider_state={"schema_version": 1, "resume_run_id": payload.resume_run_id},
-        context_manifest={"contract_ids": payload.contract_ids, "matter_id": payload.matter_id},
+        context_manifest={"contract_ids": payload.contract_ids},
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
     )
@@ -219,7 +214,6 @@ async def stream_session(
                 assistant_run_id=assistant_run.id,
                 message=payload.message,
                 request_id=getattr(request.state, "request_id", None),
-                matter_id=payload.matter_id or session.matter_id,
                 contract_id=session.contract_id or (payload.contract_ids[0] if payload.contract_ids else None),
                 contract_ids=payload.contract_ids,
             ):

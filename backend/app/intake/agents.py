@@ -1,8 +1,8 @@
 """Intake classifier — deterministic category + risk + complexity.
 
 A regex over the request type + description picks a category, a risk flag and a
-complexity, fast and testable. This still feeds routing rules, the workflow
-ai_task steps, and the Tier-0 gate matrix. (The AI recommendation drafting was
+complexity, fast and testable. This still feeds the workflow
+ai_task steps and owner assignment. (The AI recommendation drafting was
 removed with triage — a request flows straight to its workflow.)
 """
 
@@ -11,10 +11,9 @@ from __future__ import annotations
 import re
 
 # The fixed "extra" categories on the New Request form
-# (frontend/src/app/(app)/intake/page.tsx BUILTIN_EXTRAS) for request types
-# that don't map to a configured IntakeRequestType. Every request filed
-# anywhere — form, email, Teams, M365 — must carry a type_label that is
-# either a real, active IntakeRequestType.name for the org, or one of these
+# (frontend/src/app/(app)/intake/page.tsx BUILTIN_EXTRAS) for requests that
+# don't come through an agreement form. Every request filed anywhere — email,
+# Teams, M365 — must carry a type_label that is a form's name or one of these
 # exact strings; never arbitrary free text (e.g. a raw email subject line).
 BUILTIN_EXTRA_TYPES = (
     "IP Question",
@@ -26,7 +25,7 @@ BUILTIN_EXTRA_TYPES = (
 DEFAULT_BUILTIN_EXTRA = "Other"
 
 # category (from classify() below) -> the closest BUILTIN_EXTRA_TYPES bucket,
-# used when no configured IntakeRequestType matches the category by name.
+# the type label an email or chat request gets for its category.
 CATEGORY_TO_BUILTIN_EXTRA = {
     "NDA": "Contract Question",
     "Litigation": "Legal Question — General",
@@ -61,13 +60,13 @@ AGENT_META = {
     },
     "faq_agent": {
         "name": "Policy / FAQ Agent", "short_name": "FAQ", "icon": "◈", "production_ready": True,
-        "description": "Answers common legal & policy questions directly from the knowledge "
-                       "base — high-deflection, high-confidence lookups.",
+        "description": "Classifies policy and FAQ questions and hands them to the right "
+                       "lawyer.",
     },
     "vendor_agent": {
         "name": "Vendor Intake Agent", "short_name": "Vendor", "icon": "⬡", "production_ready": True,
-        "description": "Runs a sanctions screen, DPA review and anti-bribery check on new "
-                       "vendors, and produces an onboarding recommendation with a full check trail.",
+        "description": "Classifies vendor onboarding requests and routes them to compliance, "
+                       "who run sanctions and debarment checks in their screening tool.",
     },
     "contract_review_agent": {
         "name": "Contract Review Agent", "short_name": "Contract", "icon": "◐", "production_ready": True,
@@ -114,8 +113,8 @@ _CATEGORY_METADATA = {cat: (agent, cx, risk) for _, cat, agent, _conf, cx, risk 
 def result_for_category(category: str, confidence: float, *, source: str) -> dict:
     """The standard ai_triage shape for an already-decided category — shared by
     classify() (regex) and any other classifier that determines the category by
-    a different method, so gates/routing (which read agent_id/complexity/
-    risk_flag) behave identically regardless of how the category was picked."""
+    a different method, so owner assignment and workflow steps (which read
+    agent_id/complexity/risk_flag) behave identically regardless of how the category was picked."""
     if category not in _CATEGORY_METADATA:
         return {"category": "General", "agent_id": None, "confidence": confidence,
                 "complexity": "standard", "risk_flag": "low", "source": source}

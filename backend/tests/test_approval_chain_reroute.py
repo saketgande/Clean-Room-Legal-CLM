@@ -49,9 +49,7 @@ from app.authority.models import AuthorityGrant
 from app.contracts.models import Contract
 from app.core.database import engine, new_uuid, utcnow
 from app.core.enums import ApprovalStatus, ContractLifecycleStage
-from app.core.models import AuditLog
 from app.intake import service as intake_service
-from app.intake.approval_bridge import submit_request_for_approval
 from app.intake.models import IntakeRequest
 from app.org_structure.models import OrgUnit
 from app.organizations.models import Organization
@@ -392,112 +390,6 @@ def _decide(db: Session, *, actor: User, instance: ApprovalChainInstance, role_i
 
 
 # --------------------------------------------------------------------------
-# AC-21 — contract reroute
-# --------------------------------------------------------------------------
-
-
-async def test_ac21_new_contract_submission_reroutes_to_a_materialized_chain(db: Session):
-    s = Scenario(db, name="AC21")
-    _build_definition(
-        db, admin=s.admin, module="contract", base_role=s.reviewer_role,
-        condition=("contract_value", "gt", 1_000_000, s.finance_role),
-    )
-    contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=1_200_000)
-
-    result = await submit_contract_for_approval(
-        db, user=s.admin, contract=contract, contract_version_id=None,
-        approver_user_id=None, approver_role=None,
-    )
-
-    assert result == []
-    legacy_count = db.scalar(
-        select(ApprovalRequest.id).where(ApprovalRequest.contract_id == contract.id)
-    )
-    assert legacy_count is None
-
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(
-            ApprovalChainInstance.module == "contract",
-            ApprovalChainInstance.module_record_id == contract.id,
-        )
-    )
-    assert instance is not None
-    requirements = db.scalars(
-        select(ApprovalChainRequirement).where(ApprovalChainRequirement.instance_id == instance.id)
-    ).all()
-    assert len(requirements) == 2
-    finance_req = next(r for r in requirements if r.required_role_id == s.finance_role.id)
-    assert finance_req.is_base_requirement is False
-    assert finance_req.triggered_by_rule_ids
-    assert finance_req.condition_explanations
-    reviewer_req = next(r for r in requirements if r.required_role_id == s.reviewer_role.id)
-    assert reviewer_req.is_base_requirement is True
-
-    db.refresh(contract)
-    assert contract.lifecycle_stage == ContractLifecycleStage.APPROVAL
-
-
-async def test_ac21_contract_below_threshold_only_materializes_the_base_requirement(db: Session):
-    s = Scenario(db, name="AC21Low")
-    _build_definition(
-        db, admin=s.admin, module="contract", base_role=s.reviewer_role,
-        condition=("contract_value", "gt", 1_000_000, s.finance_role),
-    )
-    contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=500_000)
-
-    result = await submit_contract_for_approval(
-        db, user=s.admin, contract=contract, contract_version_id=None,
-        approver_user_id=None, approver_role=None,
-    )
-    assert result == []
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == contract.id)
-    )
-    requirements = db.scalars(
-        select(ApprovalChainRequirement).where(ApprovalChainRequirement.instance_id == instance.id)
-    ).all()
-    assert len(requirements) == 1
-    assert requirements[0].required_role_id == s.reviewer_role.id
-
-
-# --------------------------------------------------------------------------
-# AC-22 — intake-request reroute (not contracts-only)
-# --------------------------------------------------------------------------
-
-
-async def test_ac22_new_intake_submission_reroutes_to_a_materialized_chain(db: Session):
-    s = Scenario(db, name="AC22")
-    _build_definition(
-        db, admin=s.admin, module="intake_request", base_role=s.reviewer_role,
-        condition=("request_value", "gt", 50_000, s.finance_role),
-    )
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id, amount=60_000)
-
-    result = await submit_request_for_approval(db, actor=s.admin, request=request)
-
-    assert result == []
-    legacy_count = db.scalar(
-        select(ApprovalRequest.id).where(ApprovalRequest.intake_request_id == request.id)
-    )
-    assert legacy_count is None
-
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(
-            ApprovalChainInstance.module == "intake_request",
-            ApprovalChainInstance.module_record_id == request.id,
-        )
-    )
-    assert instance is not None
-    requirements = db.scalars(
-        select(ApprovalChainRequirement).where(ApprovalChainRequirement.instance_id == instance.id)
-    ).all()
-    assert len(requirements) == 2
-    finance_req = next(r for r in requirements if r.required_role_id == s.finance_role.id)
-    assert finance_req.is_base_requirement is False
-    assert finance_req.triggered_by_rule_ids
-
-
-# --------------------------------------------------------------------------
 # AC-20 / FR-21 — in-flight legacy work is untouched, three ways
 # --------------------------------------------------------------------------
 
@@ -559,9 +451,9 @@ async def test_ac20b_a_legacy_chain_decisions_to_completion_exactly_as_today(db:
     assert instance_count is None
 
 
-async def test_ac20c_no_active_definition_falls_back_to_legacy_and_audits_the_skip(db: Session):
+async def test_ac20c_no_active_definition_uses_the_named_approver(db: Session):
+    """With no chain definition at all, the named approver gets the ladder."""
     s = Scenario(db, name="AC20c")
-    # Deliberately NO chain definition for this org/module.
     contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=10_000)
 
     result = await submit_contract_for_approval(
@@ -571,15 +463,6 @@ async def test_ac20c_no_active_definition_falls_back_to_legacy_and_audits_the_sk
 
     assert len(result) >= 1
     assert all(r.contract_id == contract.id for r in result)
-    skip_row = db.scalar(
-        select(AuditLog).where(
-            AuditLog.action == "approval_chain.reroute_skipped",
-            AuditLog.resource_type == "contract",
-            AuditLog.resource_id == contract.id,
-        )
-    )
-    assert skip_row is not None
-    assert skip_row.metadata_json == {"reason": "no_active_chain_definition"}
     instance_count = db.scalar(
         select(ApprovalChainInstance.id).where(ApprovalChainInstance.module_record_id == contract.id)
     )
@@ -587,117 +470,54 @@ async def test_ac20c_no_active_definition_falls_back_to_legacy_and_audits_the_sk
 
 
 # --------------------------------------------------------------------------
-# Lifecycle parity
+# The workflow decides — an active chain never takes a submission over
 # --------------------------------------------------------------------------
 
 
-async def test_rerouted_contract_chain_rejected_returns_contract_to_review(db: Session):
-    s = Scenario(db, name="LifecycleRejectContract")
-    _build_definition(db, admin=s.admin, module="contract", base_role=s.reviewer_role)
-    contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=10_000)
-    await submit_contract_for_approval(
-        db, user=s.admin, contract=contract, contract_version_id=None,
-        approver_user_id=None, approver_role=None,
+async def test_an_active_chain_never_replaces_the_approver_the_workflow_named(db: Session):
+    """The workflow's Approval step decides who approves. An active definition
+    (0044 seeds one per org, aimed at the "approver" role) must not quietly
+    swap the step's approver for whoever holds that role."""
+    s = Scenario(db, name="NamedWins")
+    _build_definition(
+        db, admin=s.admin, module="contract", base_role=s.reviewer_role,
+        condition=("contract_value", "gt", 1_000_000, s.finance_role),
     )
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == contract.id)
-    )
-    _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id,
-            decision="reject", comment="not ready")
-    db.refresh(instance)
-    db.refresh(contract)
-    assert instance.status == "rejected"
-    assert contract.lifecycle_stage == ContractLifecycleStage.REVIEW
-
-
-async def test_rerouted_contract_chain_fully_approved_moves_to_signature(db: Session):
-    s = Scenario(db, name="LifecycleApproveContract")
-    _build_definition(db, admin=s.admin, module="contract", base_role=s.reviewer_role)
-    contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=10_000)
-    await submit_contract_for_approval(
-        db, user=s.admin, contract=contract, contract_version_id=None,
-        approver_user_id=None, approver_role=None,
-    )
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == contract.id)
-    )
-    _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id, decision="approve")
-    db.refresh(instance)
-    db.refresh(contract)
-    assert instance.status == "approved"
-    assert contract.lifecycle_stage == ContractLifecycleStage.SIGNATURE
-
-
-async def test_rerouted_intake_chain_rejected_reopens_the_request(db: Session):
-    s = Scenario(db, name="LifecycleRejectIntake")
-    _build_definition(db, admin=s.admin, module="intake_request", base_role=s.reviewer_role)
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id)
-    request.status = "assigned"
-    db.flush()
-    await submit_request_for_approval(db, actor=s.admin, request=request)
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == request.id)
-    )
-    _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id,
-            decision="reject", comment="missing info")
-    db.refresh(request)
-    assert request.status == "open"
-
-
-async def test_rerouted_intake_chain_fully_approved_with_no_workflow_completes(db: Session):
-    s = Scenario(db, name="LifecycleApproveIntake")
-    _build_definition(db, admin=s.admin, module="intake_request", base_role=s.reviewer_role)
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id)
-    await submit_request_for_approval(db, actor=s.admin, request=request)
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == request.id)
-    )
-    _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id, decision="approve")
-    db.refresh(request)
-    assert request.status == "approved"
-    assert request.stage == "complete"
-
-
-# --------------------------------------------------------------------------
-# Authority parity — AuthorityGrant still gates approve on a rerouted chain
-# --------------------------------------------------------------------------
-
-
-async def test_authority_grant_still_gates_approve_on_a_rerouted_chain(db_real_commit: Session):
-    # Uses ``db_real_commit`` (not the standard ``db``) -- see that fixture's
-    # docstring: this is the one test in the file whose 403 assertion
-    # exercises the isolated-session denial-audit path, which needs a
-    # genuinely committing session to avoid an advisory-lock deadlock.
-    db = db_real_commit
-    s = Scenario(db, name="AuthorityParity")
-    _build_definition(db, admin=s.admin, module="contract", base_role=s.reviewer_role)
     contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=1_200_000)
-    await submit_contract_for_approval(
+
+    result = await submit_contract_for_approval(
         db, user=s.admin, contract=contract, contract_version_id=None,
-        approver_user_id=None, approver_role=None,
+        approver_user_id=s.reviewer_user.id, approver_role=None,
     )
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == contract.id)
+
+    assert [r.approver_user_id for r in result] == [s.reviewer_user.id]
+    assert db.scalar(
+        select(ApprovalChainInstance.id).where(ApprovalChainInstance.module_record_id == contract.id)
+    ) is None
+
+
+async def test_a_step_naming_nobody_is_refused_not_handed_to_a_chain(db: Session):
+    """A step with no approver is a misconfigured workflow. Handing it to an
+    active chain would let a seeded default decide who approves, so it is
+    refused — and no chain instance is started behind the caller's back."""
+    s = Scenario(db, name="NobodyNamed")
+    _build_definition(
+        db, admin=s.admin, module="contract", base_role=s.reviewer_role,
+        condition=("contract_value", "gt", 1_000_000, s.finance_role),
     )
-    db.add(
-        AuthorityGrant(
-            org_id=s.org.id, principal_type="user", principal_id=s.reviewer_user.id,
-            action="contract:approve", max_value=100_000.0,
-            created_by_user_id=s.admin.id, updated_by_user_id=s.admin.id,
+    contract = _make_contract(db, org_id=s.org.id, owner=s.admin, value_amount=1_200_000)
+
+    with pytest.raises(HTTPException) as exc:
+        await submit_contract_for_approval(
+            db, user=s.admin, contract=contract, contract_version_id=None,
+            approver_user_id=None, approver_role=None,
         )
-    )
-    db.flush()
 
-    with pytest.raises(HTTPException) as exc_info:
-        _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id, decision="approve")
-    assert exc_info.value.status_code == 403
-
-    # A reject is never gated by delegated authority.
-    decided = _decide(
-        db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id,
-        decision="reject", comment="over my authority anyway",
-    )
-    assert decided.status == "rejected"
+    assert exc.value.status_code == 422
+    assert "no approver configured" in str(exc.value.detail)
+    assert db.scalar(
+        select(ApprovalChainInstance.id).where(ApprovalChainInstance.module_record_id == contract.id)
+    ) is None
 
 
 # --------------------------------------------------------------------------
@@ -714,43 +534,6 @@ def _make_workflow(db: Session, *, org_id: str, actor_id: str) -> Workflow:
     db.add(flow)
     db.flush()
     return flow
-
-
-async def test_workflow_approval_step_does_not_auto_advance_while_chain_is_pending(db: Session):
-    """The M2 guard, proven against real code: a no-contract workflow whose
-    approval step reroutes to a chain must NOT let the run auto-complete
-    while the chain instance is still pending — only once it is decided."""
-    s = Scenario(db, name="WorkflowM2")
-    _build_definition(db, admin=s.admin, module="intake_request", base_role=s.reviewer_role)
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id)
-    flow = _make_workflow(db, org_id=s.org.id, actor_id=s.admin.id)
-
-    run = await wf_service.start_flow(db, actor=s.admin, request=request, flow=flow)
-
-    # The bug this guard fixes: an unguarded "no reqs -> advance" would let
-    # this assertion fail (run.status == "complete" with zero sign-off).
-    assert run.status == "waiting"
-    assert run.status != "complete"
-
-    sr = db.scalar(
-        select(WorkflowStepRun).where(WorkflowStepRun.flow_run_id == run.id, WorkflowStepRun.idx == 0)
-    )
-    assert sr.status == "waiting_job"
-    chain_instance_id = (sr.result or {}).get("chain_instance_id")
-    assert chain_instance_id
-
-    instance = db.get(ApprovalChainInstance, chain_instance_id)
-    assert instance.status == "pending"
-
-    # Decide the chain to approved, then resume the run.
-    _decide(db, actor=s.reviewer_user, instance=instance, role_id=s.reviewer_role.id, decision="approve")
-    db.refresh(instance)
-    assert instance.status == "approved"
-
-    run = await wf_service.WorkflowService(db).refresh_run(run=run, actor=s.admin)
-    assert run.status == "complete"
-    db.refresh(request)
-    assert request.status == "approved"
 
 
 async def test_workflow_approval_step_with_zero_rungs_still_advances(db: Session, monkeypatch):
@@ -806,79 +589,21 @@ async def test_fast_lane_nda_still_skips_approval_and_creates_no_chain(db: Sessi
 # --------------------------------------------------------------------------
 
 
-async def test_intake_strip_shows_chain_derived_rungs_matching_the_chains_tab(db: Session):
-    s = Scenario(db, name="IntakeStripParity")
-    _build_definition(
-        db, admin=s.admin, module="intake_request", base_role=s.reviewer_role,
-        condition=("request_value", "gt", 50_000, s.finance_role),
-    )
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id, amount=60_000)
-
-    submit_response = await intake_service.start_approval_ladder(
-        db, actor=s.admin, request_id=request.id,
-    )
-    chain = submit_response["chain"]
-    assert chain  # non-empty — this is the strip that used to go blank
-    for rung in chain:
-        assert rung["requirement_id"]
-        assert rung["chain_instance_id"]
-        assert rung["approval_request_id"] is None
-        assert rung["approver_label"]
-        assert rung["status"]
-
-    finance_rung = next(
-        r for r in chain if r["approver_label"] == s.finance_role.name
-    )
-    assert finance_rung["explanation"]
-    assert finance_rung["explanation"].startswith("required because")
-
-    # A subsequent read (GET /intake/requests/{id}/chain) returns the SAME rungs.
-    chain_again = intake_service.get_approval_chain(db, actor=s.admin, request_id=request.id)
-    assert chain_again == chain
-
-    # The Chains-tab detail view must never disagree with the strip's
-    # explanation for the same requirement.
-    instance = db.scalar(
-        select(ApprovalChainInstance).where(ApprovalChainInstance.module_record_id == request.id)
-    )
-    detail = chain_service.get_instance_detail(db, actor=s.admin, instance_id=instance.id)
-    detail_req = next(
-        r for step in detail["steps"] for r in step["requirements"]
-        if r["required_role_id"] == s.finance_role.id
-    )
-    assert detail_req["explanation"] == finance_rung["explanation"]
-
-
-async def test_intake_strip_preview_before_submission_uses_base_requirements_only(db: Session):
-    s = Scenario(db, name="IntakePlannedPreview")
-    _build_definition(
-        db, admin=s.admin, module="intake_request", base_role=s.reviewer_role,
-        condition=("request_value", "gt", 50_000, s.finance_role),
-    )
-    request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id, amount=10_000)
-
-    first = intake_service.get_approval_chain(db, actor=s.admin, request_id=request.id)
-    assert len(first) == 1
-    assert first[0]["status"] == "planned"
-    assert first[0]["approver_label"] == s.reviewer_role.name
-
-    # Mutating the request's value between reads must NOT change the planned
-    # preview — FR-5 confines condition evaluation to chain entry, never a
-    # read path.
-    request.field_values = {"amount": 999_999}
-    db.flush()
-    second = intake_service.get_approval_chain(db, actor=s.admin, request_id=request.id)
-    assert second == first
-
-
 def test_intake_strip_preview_with_no_definition_falls_back_to_legacy_plan_chain(db: Session):
+    """No active chain definition: the preview is the workflow step's own
+    named approver (the legacy rung), never a chain requirement."""
     s = Scenario(db, name="IntakeLegacyPreview")
     # Deliberately no active chain definition for this org/module.
     request = _make_intake_request(db, org_id=s.org.id, requester_id=s.admin.id)
+    flow = _make_workflow(db, org_id=s.org.id, actor_id=s.admin.id)
+    flow.steps = [{"id": "s1", "type": "approval", "name": "Approve",
+                   "config": {"assign_by": "Specific person", "assignee_user_id": s.reviewer_user.id}}]
+    db.flush()
 
     preview = intake_service.get_approval_chain(db, actor=s.admin, request_id=request.id)
     assert len(preview) == 1
     assert preview[0]["status"] == "planned"
+    assert preview[0]["approver_label"] == s.reviewer_user.full_name
     assert "requirement_id" not in preview[0]
 
 
@@ -914,9 +639,13 @@ _APP_DIR = Path(__file__).resolve().parent.parent / "app"
 # The ONLY functions in these three existing-domain files that may reference
 # the approval_chains domain (plan.md's path-mapping row for this feature).
 _ALLOWED_TOUCHPOINTS: dict[str, set[str]] = {
-    "approvals/service.py": {"submit_subject_for_approval"},
+    # The workflow's Approval step alone decides who approves, so submit no
+    # longer consults approval_chains at all.
+    "approvals/service.py": set(),
     "workflows/service.py": {"_execute_step", "refresh_run"},
-    "intake/service.py": {"start_approval_ladder", "get_approval_chain"},
+    # start_approval_ladder (manual intake submit) was deleted: approvals start
+    # only from a workflow Approval step.
+    "intake/service.py": set(),
 }
 
 
@@ -935,7 +664,9 @@ def _functions_referencing_approval_chains(path: Path) -> set[str]:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         segment = ast.get_source_segment(source, node) or ""
-        if "approval_chain" in segment:
+        # The module name, not any "approval_chain" substring — a comment
+        # naming the legacy approval_chain route isn't a reference to the domain.
+        if "approval_chains" in segment:
             touched.add(node.name)
     return touched
 

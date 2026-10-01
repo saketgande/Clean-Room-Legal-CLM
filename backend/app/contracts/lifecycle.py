@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.contract_files.models import ContractEdit, ContractVersion
 from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
-from app.core.enums import ContractLifecycleStage, ContractVersionSource
+from app.core.enums import ApprovalStatus, ContractLifecycleStage, ContractVersionSource
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,13 @@ _PRE_APPROVAL_STAGES = {
 }
 
 _DISPATCH_DELAY_SECONDS = 4
+# Entering these stages means approvals were requested or decided, or signing
+# finished; leaving them back to Review means a rejection or pull-back.
+_GRAPH_REFRESH_STAGES = {
+    ContractLifecycleStage.APPROVAL,
+    ContractLifecycleStage.SIGNATURE,
+    ContractLifecycleStage.ACTIVE,
+}
 
 # Lean 7-stage flow. Most forward hops are auto-advanced by events (approval
 # completing → SIGNATURE, signing completing → ACTIVE), so users rarely drive
@@ -69,6 +76,20 @@ def parse_stage_slas(raw: str) -> dict[str, int]:
         except ValueError:
             continue
     return out
+
+
+def _current_version_approved(db: Session, contract: Contract) -> bool:
+    """True when the current version has an approval chain and every live rung is approved."""
+    from app.approvals.models import ApprovalRequest
+
+    statuses = db.scalars(
+        select(ApprovalRequest.status).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.contract_version_id == contract.current_authoritative_version_id,
+            ApprovalRequest.status != ApprovalStatus.CANCELLED,
+        )
+    ).all()
+    return bool(statuses) and all(s == ApprovalStatus.APPROVED for s in statuses)
 
 
 def allowed_transitions_for(stage: str) -> list[str]:
@@ -122,6 +143,22 @@ class ContractLifecycleService:
                     "Lifecycle override requires the contract:lifecycle_override permission",
                 )
         authorized_override = override and override_authorized
+
+        # "Approved before signature". The approval engine moves Approval → Signature
+        # with an authorized override once the chain completes; every other caller
+        # (workflow steps, the assistant, manual moves) is held to the chain here
+        # instead of being able to walk around it.
+        if (
+            from_stage == ContractLifecycleStage.APPROVAL
+            and to_stage == ContractLifecycleStage.SIGNATURE
+            and not authorized_override
+            and not _current_version_approved(db, contract)
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This contract can't move to Signature until the approval chain for its "
+                "current version is approved.",
+            )
 
         # The ONE real gate on leaving Review: every proposed redline must be
         # accepted or rejected first. The workspace already tells the user this
@@ -259,6 +296,12 @@ class ContractLifecycleService:
                 self._on_enter_signature(contract=contract, actor_user_id=actor_user_id)
             elif to_stage == ContractLifecycleStage.ACTIVE:
                 self._on_enter_active(contract=contract, actor_user_id=actor_user_id)
+            if to_stage in _GRAPH_REFRESH_STAGES or (
+                to_stage == ContractLifecycleStage.REVIEW and from_stage in _GRAPH_REFRESH_STAGES
+            ):
+                self._schedule_graph_refresh(
+                    contract=contract, actor_user_id=actor_user_id, to_stage=to_stage
+                )
             # Auto-resume any workflow run waiting on this contract's stage.
             from app.workflows.service import advance_flow_for_contract
             advance_flow_for_contract(db, contract=contract, actor_user_id=actor_user_id)
@@ -320,9 +363,44 @@ class ContractLifecycleService:
                 # (which also queues these jobs with the same idempotency key). The
                 # celery_task_id guard prevents a second dispatch of the same job.
                 continue
-            run_ai_job.apply_async(args=[job.id], countdown=_DISPATCH_DELAY_SECONDS)
+            job.celery_task_id = run_ai_job.apply_async(
+                args=[job.id], countdown=_DISPATCH_DELAY_SECONDS
+            ).id
             scheduled.append(job_type)
         return scheduled
+
+    def _schedule_graph_refresh(
+        self, *, contract: Contract, actor_user_id: str | None, to_stage: str
+    ) -> None:
+        """Rebuild the knowledge graph after approvals, rejections and signatures, not
+        only after extraction jobs, so it never keeps asserting an outdated outcome."""
+        from app.core.database import utcnow
+        from app.jobs.service import create_job
+        from app.jobs.tasks import run_ai_job
+
+        version, snapshot = self._authoritative_artifacts(contract)
+        if version is None:
+            return
+        job = create_job(
+            self.db,
+            org_id=contract.org_id,
+            job_type="contract_brain_ingestion",
+            resource_type="contract",
+            resource_id=contract.id,
+            created_by_user_id=actor_user_id,
+            idempotency_key=(
+                f"contract_brain_ingestion:{version.id}:stage:{to_stage}:{utcnow().timestamp()}"
+            ),
+            metadata={
+                "contract_version_id": version.id,
+                "text_snapshot_id": snapshot.id if snapshot else None,
+                "trigger_reason": f"entered_{to_stage}",
+            },
+        )
+        self.db.flush()
+        job.celery_task_id = run_ai_job.apply_async(
+            args=[job.id], countdown=_DISPATCH_DELAY_SECONDS
+        ).id
 
     def _notify_owner(
         self,

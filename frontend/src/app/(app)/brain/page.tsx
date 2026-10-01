@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { brainApi, contractsApi, mattersApi } from "@/lib/endpoints";
+import { brainApi, contractsApi } from "@/lib/endpoints";
 import { fmtRelative, titleCase } from "@/lib/utils";
 import { Markdown } from "@/components/markdown";
 import { useToast } from "@/components/toast";
@@ -28,14 +28,12 @@ export default function BrainPage() {
   const { notify } = useToast();
   const [question, setQuestion] = useState("");
   const [scope, setScope] = useState<BrainScope>("portfolio");
-  const [matterId, setProjectId] = useState("");
   const [contractId, setContractId] = useState("");
   const [busy, setBusy] = useState(false);
   const [findBusy, setFindBusy] = useState(false);
   const [result, setResult] = useState<BrainQuery | null>(null);
   const [sources, setSources] = useState<BrainSearchResponse | null>(null);
 
-  const { data: projects } = useQuery({ queryKey: ["projects"], queryFn: mattersApi.list });
   const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: contractsApi.list });
   const { data: recent, isLoading: recentLoading, error: recentError } = useQuery({ queryKey: ["brain-queries"], queryFn: () => brainApi.queries({ limit: 25 }) });
 
@@ -48,11 +46,10 @@ export default function BrainPage() {
     const text = (q ?? question).trim();
     if (text.length < 3) return;
     if (q) setQuestion(q);
-    if (scope === "project" && !matterId) return notify("Select a matter for a matter-scoped question", "error");
     if (scope === "contract" && !contractId) return notify("Select a contract for contract scope", "error");
     setBusy(true); setSources(null); setResult(null);
     try {
-      const res = await brainApi.ask({ question: text, query_scope: scope, matter_id: scope === "project" ? matterId : undefined, contract_id: scope === "contract" ? contractId : undefined });
+      const res = await brainApi.ask({ question: text, query_scope: scope, contract_id: scope === "contract" ? contractId : undefined });
       setResult(res);
     } catch (e) { notify(e instanceof Error ? e.message : "Query failed", "error"); }
     finally { setBusy(false); }
@@ -98,7 +95,6 @@ export default function BrainPage() {
             <div className="cbar">
               <select className="scopesel" value={scope} onChange={(e) => setScope(e.target.value as BrainScope)} aria-label="Scope">
                 <option value="portfolio">Portfolio</option>
-                <option value="project">Matter</option>
                 <option value="contract">Contract</option>
               </select>
               <div className="cdiv" />
@@ -106,12 +102,6 @@ export default function BrainPage() {
               <button className="btn pri" disabled={findBusy} onClick={() => ask()}>{busy ? "Asking…" : <>{svg('<path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/>')}Ask</>}</button>
             </div>
 
-            {scope === "project" && (
-              <select className="targetsel" value={matterId} onChange={(e) => setProjectId(e.target.value)}>
-                <option value="">Select a matter…</option>
-                {(projects ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            )}
             {scope === "contract" && (
               <select className="targetsel" value={contractId} onChange={(e) => setContractId(e.target.value)}>
                 <option value="">Select a contract…</option>
@@ -178,7 +168,7 @@ export default function BrainPage() {
                         <button onClick={() => loadRecent(q)}>
                           <span className="rq">{q.question}</span>
                           <span className="rmeta">
-                            <span className="tag blue">{q.query_scope === "project" ? "Matter" : titleCase(q.query_scope)}</span>
+                            <span className="tag blue">{titleCase(q.query_scope)}</span>
                             <span className="rt">{fmtRelative(q.created_at)}</span>
                           </span>
                         </button>
@@ -226,7 +216,7 @@ function AnswerCard({ query }: { query: BrainQuery }) {
         <p className="qecho"><b>Q</b> · {query.question} <span className="dim">· {titleCase(query.query_scope)} scope</span></p>
         <div className="atext"><Markdown>{query.answer}</Markdown></div>
         {m.limitations ? <div className="alimit">{m.limitations}</div> : null}
-        {retrievalBits.length > 0 ? <p className="agrounded">{svg('<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/>')}Grounded in {retrievalBits.join(" · ")}{typeof m.verified_citations === "number" && m.verified_citations > 0 ? <> · <span className="v">{m.verified_citations}/{m.total_citations} verified</span></> : null}</p> : null}
+        {retrievalBits.length > 0 ? <p className="agrounded">{svg('<rect x="3" y="4" width="18" height="6" rx="1"/><rect x="3" y="14" width="18" height="6" rx="1"/>')}{(m.verified_citations ?? 0) > 0 ? <>Grounded in {retrievalBits.join(" · ")} · <span className="v">{m.verified_citations}/{m.total_citations} verified</span></> : <>Searched {retrievalBits.join(" · ")} · no quote in this answer was verified</>}</p> : null}
       </div>
       {hasSources ? (
         <div className="sec"><div className="seclbl">{svg('<path d="M3 21c0-4 3-7 7-7"/><path d="M14 3a4 4 0 0 0-4 4v3h4"/>')}Sources · the answer is built from these</div><SourcesPanel res={sources} bare /></div>

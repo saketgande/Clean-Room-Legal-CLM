@@ -22,6 +22,7 @@ import argparse
 import asyncio
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 
 from sqlalchemy import select
@@ -58,12 +59,12 @@ def _count_sources(sources: dict) -> int:
 
 def run_retrieval(db, user) -> dict:
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope="portfolio", contract_id=None, project_id=None
+        db, user=user, scope="portfolio", contract_id=None
     )
     hits, kw_hits, rows = 0, 0, []
     for q in GOLDEN["brain_queries"]:
         sources = hybrid_sources(
-            db, org_id=user.org_id, contract_ids=contract_ids, question=q["question"]
+            db, org_id=user.org_id, contract_ids=contract_ids, question=q["question"], user=user
         )
         n = _count_sources(sources)
         blob = _sources_blob(sources)
@@ -97,11 +98,26 @@ def run_taxonomy(db, user) -> dict:
     expected = GOLDEN["extraction_taxonomy"]["expected_canonical"]
     covered = [e for e in expected if e in present]
     inconsistent = {c: sorted(v) for c, v in canon_to_raw.items() if len(v) > 1}
+    # Coverage above only asks whether each expected type appears *somewhere*, so
+    # it reads 100% while a third of the corpus sits on labels outside the
+    # vocabulary entirely. Those fall back to their own slug, so they become
+    # their own clause type: they miss clause_type filters and are scored at
+    # DEFAULT_CLAUSE_WEIGHT instead of their real business weight. Track the
+    # share so adding an alias is driven by data rather than noticed by accident.
+    from app.contract_brain.clause_taxonomy import _ALIASES
+
+    known = set(_ALIASES.values())
+    unmapped_rows = [ct for ct in raw if ct and _canonicalize(ct) not in known]
+    unmapped_counts = Counter(unmapped_rows)
     return {
         "expected": expected,
         "covered": covered,
         "coverage": len(covered) / len(expected) if expected else 0,
         "inconsistent": inconsistent,
+        "unmapped_share": len(unmapped_rows) / len(raw) if raw else 0,
+        "unmapped_total": len(unmapped_rows),
+        "row_total": len(raw),
+        "unmapped_top": unmapped_counts.most_common(10),
     }
 
 
@@ -111,12 +127,12 @@ async def run_faithfulness(db, user) -> dict:
     from app.ai.schemas import BrainAnswerOutput
 
     contract_ids = resolve_scope_contract_ids(
-        db, user=user, scope="portfolio", contract_id=None, project_id=None
+        db, user=user, scope="portfolio", contract_id=None
     )
     total_cites, valid_cites, rows = 0, 0, []
     for q in GOLDEN["brain_queries"]:
         sources = hybrid_sources(
-            db, org_id=user.org_id, contract_ids=contract_ids, question=q["question"]
+            db, org_id=user.org_id, contract_ids=contract_ids, question=q["question"], user=user
         )
         source_text = sources_to_context(sources)
         try:
@@ -180,6 +196,12 @@ def main() -> None:
         missing = [e for e in t["expected"] if e not in t["covered"]]
         if missing:
             print(f"    missing: {', '.join(missing)}")
+        print(
+            f"  unmapped        {t['unmapped_share']*100:5.1f}%   "
+            f"({t['unmapped_total']}/{t['row_total']} rows on labels outside the canonical vocabulary)"
+        )
+        for label, n in t["unmapped_top"]:
+            print(f"    {n:4}  {label}")
         if t["inconsistent"]:
             print(f"  inconsistency   {len(t['inconsistent'])} canonical types have >1 raw label:")
             for c, variants in t["inconsistent"].items():

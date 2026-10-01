@@ -9,8 +9,8 @@ than a missing one, so no fuzzy matching.
 from app.contract_brain.entities import clause_for_quote
 
 CLAUSES = [
-    ("confidentiality", ("The Receiving Party shall hold the Confidential Information in strict confidence "
-                         "and use it solely for the Purpose.")),
+    ("confidentiality", ("The Receiving Party shall hold the Confidential Information in strict "
+                         "confidence and use it solely for the Purpose.")),
     ("return", ("Upon termination of this Agreement or upon the disclosing Party's written request, "
                 "the receiving Party shall return or destroy all Confidential Information.")),
     ("liability", "Aggregate liability shall not exceed twelve months of fees paid under this Agreement."),
@@ -48,4 +48,13 @@ def test_first_containing_clause_wins():
     rather than an arbitrary one."""
     dupes = [("a", "shared boilerplate sentence appears here"),
              ("b", "shared boilerplate sentence appears here too")]
+    assert clause_for_quote("shared boilerplate sentence appears here", dupes) == "a"
+
+
+def test_offsets_break_a_tie_between_clauses_with_the_same_text():
+    """RAG-07: boilerplate repeated in two clauses is attributed to the clause whose
+    span holds the quote's position, not simply the first one."""
+    dupes = [("a", "shared boilerplate sentence appears here", 0, 40),
+             ("b", "shared boilerplate sentence appears here", 500, 540)]
+    assert clause_for_quote("shared boilerplate sentence appears here", dupes, start_char=505) == "b"
     assert clause_for_quote("shared boilerplate sentence appears here", dupes) == "a"

@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.auth.models import User
 from app.contract_files.models import (
     ContractDocumentElement,
     ContractTextSnapshot,
@@ -113,15 +114,27 @@ class ContractAIContext:
 def build_contract_context(
     db: Session,
     *,
+    user: User | None,
     org_id: str,
     contract_id: str,
     contract_version_id: str | None = None,
     text_snapshot_id: str | None = None,
     focus_query: str | None = None,
 ) -> ContractAIContext:
+    """Assemble what an AI skill may read about a contract.
+
+    ``user`` is who the text is for: their ethical walls and clearance decide what
+    comes back, not the tenant alone. Pass None only for work with no person behind
+    it (a background job, authorized when it was queued).
+    """
     contract = db.get(Contract, contract_id)
     if contract is None or contract.org_id != org_id or contract.deleted_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
+    if user is not None:
+        from app.contracts.access import user_can_access_contract
+
+        if not user_can_access_contract(db, contract=contract, user=user):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
 
     version = None
     if contract_version_id:
@@ -179,7 +192,8 @@ def build_contract_context(
             "contract_type": contract.contract_type,
             "counterparty_name": contract.counterparty_name,
             "jurisdiction": contract.jurisdiction,
-            "value_amount": contract.value_amount,
+            # float, not Decimal: this manifest is JSON-dumped into the prompt and stored.
+            "value_amount": float(contract.value_amount) if contract.value_amount is not None else None,
             "currency": contract.currency,
             "risk_band": contract.risk_band,
             "risk_summary": (contract.risk_summary or {}).get("summary"),

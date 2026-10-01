@@ -9,7 +9,7 @@ COMPOSE      ?= docker compose
 # Production = base file only (ignores docker-compose.override.yml).
 COMPOSE_PROD ?= docker compose -f docker-compose.yml
 
-.PHONY: help dev dev-build up up-build prod prod-build down stop restart logs ps \
+.PHONY: help phase1 dev dev-build up up-build prod prod-build down stop restart logs ps \
         migrate seed shell rebuild nuke local local-backend local-frontend
 
 help:
@@ -31,6 +31,13 @@ help:
 	@echo "  make seed         seed the default admin user"
 	@echo "  make shell        open a shell in the backend container"
 	@echo "  make nuke         stop & DELETE data volumes (full reset)"
+	@echo ""
+	@echo "Docstudio:"
+	@echo '  make phase1 FILE="$$HOME/Downloads/contract.pdf"           cut, place by the rules, AI for the rest, report'
+	@echo '  make phase1 FILE="$$HOME/Downloads/contract.pdf" NOAI=1    rules only, no AI call'
+	@echo '  make phase1 FILE="$$HOME/Downloads/contract-v2.pdf" VERSION_OF=<document id>'
+	@echo '                   a new version of that document: its notes are found again'
+	@echo "                   output: backend/docstudio_out/"
 	@echo ""
 	@echo "WITHOUT Docker (needs local Postgres+Redis running):"
 	@echo "  make local            api + worker + beat + frontend"
@@ -82,6 +89,14 @@ seed:
 
 shell:
 	$(COMPOSE) exec backend bash
+
+# Streams the file in on stdin, so it can live anywhere on the host and its name
+# can contain spaces — make's own path functions split on them, the shell's
+# basename does not. Output lands in backend/docstudio_out/ (bind-mounted).
+phase1:
+	@test -n "$(FILE)" || { echo 'usage: make phase1 FILE="path/to/contract.pdf" [NOAI=1] [VERSION_OF=<document id>]'; exit 1; }
+	@test -f "$(FILE)" || { echo "no such file: $(FILE)"; exit 1; }
+	$(COMPOSE) exec -T backend python -m app.docstudio - --name "$$(basename "$(FILE)")" $(if $(NOAI),--no-ai,) $(if $(VERSION_OF),--version-of "$(VERSION_OF)",) < "$(FILE)"
 
 rebuild: backend/.env
 	$(COMPOSE) build --no-cache

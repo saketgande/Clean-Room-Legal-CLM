@@ -110,6 +110,20 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def used_for_suggestion(db: Session, request: IntakeRequest) -> dict | None:
+    """The workflow an admin set up ("Used for") for this request's type. It is
+    a decision, not a guess, so neither the word match nor the model overrides it."""
+    from app.workflows.service import flow_used_for
+
+    flow = flow_used_for(db, request=request)
+    if flow is None:
+        return None
+    met = " and its conditions are met" if (flow.criteria or {}).get("conditions") else ""
+    return {"flow_id": flow.id, "flow_name": flow.name, "confidence": 1.0,
+            "reasoning": f"“{flow.name}” is set up for {request.type_label} requests{met}.",
+            "alternatives": [], "needs_human": False, "source": "used_for"}
+
+
 def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     """Best-fit flow for a request. Always returns a dict (never raises)."""
     from app.core.config import settings
@@ -120,13 +134,15 @@ def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> 
                 "reasoning": "No workflows are configured yet.", "alternatives": [],
                 "needs_human": True, "source": "deterministic", "steps": []}
 
+    set_up = used_for_suggestion(db, request)
+    if set_up:
+        return set_up
     baseline = _baseline(db, request, catalog)
 
     if settings.mock_claude:
         return baseline
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import run_coro_blocking
     from app.integrations.dependencies import get_claude_client
 
@@ -137,8 +153,8 @@ def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> 
     bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
     user_prompt = _prompt_for(request, catalog)
     try:
-        enforce_daily_token_cap(request.org_id)
         resp = run_coro_blocking(lambda: claude_client.complete_structured(
+            org_id=request.org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="suggest_flow", input_schema=_SCHEMA,

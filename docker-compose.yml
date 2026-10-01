@@ -1,19 +1,18 @@
 # AEGIS Legal CLM — full local stack in Docker.
 #
-# This is the "with Docker" path. The "without Docker" path (host processes)
-# is still ./start.sh — the two are independent, switch whenever you like.
+# Everything (Postgres, Redis, API, Celery worker + beat, web) runs in containers.
 #
 # Quick start:
 #   cp backend/.env.example backend/.env   # then edit backend/.env
 #   docker compose up -d --build
 #   open http://localhost:3000     (API: http://localhost:8000)
 #
-# All backend app config comes from backend/.env. The three networking/storage
-# vars below are pinned here (they point at the compose service names + the
-# contracts volume) so they're always correct regardless of the env file.
+# All backend app config comes from backend/.env. The networking/storage vars
+# below are pinned here (they point at the compose service names + the contracts
+# volume) so they're always correct regardless of the env file.
 #
-#   make dev  (docker compose up, this file + docker-compose.override.yml)  -> DEVELOPMENT
-#   make prod (docker compose -f docker-compose.yml up, this file ALONE)    -> PRODUCTION
+#   docker compose up -d                        (this file + docker-compose.override.yml) -> DEVELOPMENT
+#   docker compose -f docker-compose.yml up -d  (this file ALONE)                          -> PRODUCTION
 #
 # ENVIRONMENT is pinned to "production" below so that running this file
 # without the dev override ALWAYS gets validate_runtime_settings()'s
@@ -25,21 +24,28 @@
 name: aegis
 
 x-backend: &backend
-  build: ./backend
+  build:
+    context: ./backend
+    # Pinned so the dev stage at the end of the Dockerfile is never the
+    # implicit default target for a production build.
+    target: runtime
   image: aegis/backend:local
   # Single source of truth for app config (keys, secrets, model, integration
-  # mocks) — the SAME file the no-Docker start.sh uses. Compose reads it from
-  # the host, so it works in both dev and prod modes.
+  # mocks). Compose reads it from the host, so it works in dev and prod modes.
   env_file:
     - ./backend/.env
   # Container-only overrides: point at the in-stack services + volume, and
   # force production mode by default (see header comment). These take
-  # precedence over whatever backend/.env itself says for these four keys.
+  # precedence over whatever backend/.env itself says for these keys.
   environment:
     DATABASE_URL: postgresql+psycopg://legal_clm:legal_clm@postgres:5432/legal_clm
     REDIS_URL: redis://redis:6379/0
     STORAGE_ROOT: /data/contracts
     ENVIRONMENT: production
+    # This file runs one backend and one worker on one host, sharing the
+    # `contracts` volume, so local-disk storage is safe here. Running more than
+    # one backend host? Set STORAGE_BACKEND=s3 and remove this line.
+    ALLOW_LOCAL_STORAGE_IN_PRODUCTION: "true"
   restart: unless-stopped
 
 services:
@@ -54,6 +60,7 @@ services:
     # local Postgres or another project's container). To inspect from the host,
     # uncomment and use an unused host port, e.g.:
     #   ports: ["5434:5432"]
+    ports: ["5432:5432"]
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -69,6 +76,7 @@ services:
     # published to the host. To inspect from the host, uncomment with an unused
     # host port, e.g.:
     #   ports: ["6380:6379"]
+    ports: ["6379:6379"]
     volumes:
       - redisdata:/data
     healthcheck:

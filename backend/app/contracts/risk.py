@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
-from app.ai.schemas import ContractRiskOutput
+from app.ai.schemas import ClauseRiskOutput, ContractRiskOutput
 from app.contract_brain.clause_taxonomy import (
     canonical_clause_type,
     clause_weight,
@@ -28,10 +28,35 @@ logger = logging.getLogger(__name__)
 
 # How adverse each risk level is, 0-1. Multiplied by the clause weight.
 _SEVERITY = {"low": 0.15, "medium": 0.55, "high": 0.95}
+# Below this share of clauses judged, the answer is partial and no score is given.
+_MIN_COVERAGE = 0.8
 
 
 def _band(score: int) -> str:
     return "high" if score >= 65 else "medium" if score >= 35 else "low"
+
+
+def _save_unknown(
+    db: Session, *, contract: Contract, user, note: str, clause_count: int, **extra
+) -> dict:
+    """Persist "unknown": missing or partial coverage is never a clean bill of health."""
+    summary = {
+        "score": None,
+        "band": "unknown",
+        "drivers": [],
+        "counts": {"high": 0, "medium": 0, "low": 0},
+        "clause_count": clause_count,
+        "note": note,
+        **extra,
+        "computed_at": utcnow().isoformat(),
+    }
+    contract.risk_score = None
+    contract.risk_band = None
+    contract.risk_level = None  # no stale badge while the score is unknown
+    contract.risk_summary = summary
+    contract.updated_by_user_id = user.id
+    db.commit()
+    return summary
 
 
 class ContractRiskService:
@@ -97,25 +122,19 @@ class ContractRiskService:
                     note = "Clause analysis started — the risk score will populate once it completes."
                 except Exception:  # pragma: no cover - dispatch is best-effort
                     logger.warning("could not dispatch clause extraction for %s", contract.id, exc_info=True)
-            summary = {
-                "score": None,
-                "band": "unknown",
-                "drivers": [],
-                "counts": {"high": 0, "medium": 0, "low": 0},
-                "clause_count": 0,
-                "note": note,
-                "analysis_started": "started" in note,
-                "computed_at": utcnow().isoformat(),
-            }
-            contract.risk_score = None
-            contract.risk_band = None
-            contract.risk_summary = summary
-            contract.updated_by_user_id = user.id
-            db.commit()
-            return summary
+            return _save_unknown(
+                db,
+                contract=contract,
+                user=user,
+                note=note,
+                clause_count=0,
+                analysis_started="started" in note,
+            )
 
+        refs = {f"C{n}": clause for n, clause in enumerate(clauses, 1)}
         clause_block = "\n\n".join(
-            f"[{canonical_clause_type(c.clause_type)}] {(c.text or '')[:800]}" for c in clauses
+            f"[{ref}] [{canonical_clause_type(c.clause_type)}] {(c.text or '')[:800]}"
+            for ref, c in refs.items()
         )
         out = await self.ai.run_structured_skill(
             db,
@@ -129,14 +148,49 @@ class ContractRiskService:
         )
         out = out if isinstance(out, ContractRiskOutput) else ContractRiskOutput.model_validate(out)
 
+        # Key every judgment to a clause that was actually sent; unknown or repeated refs don't count.
+        judged: dict[str, ClauseRiskOutput] = {}
+        for cr in out.clause_risks:
+            ref = (cr.clause_ref or "").strip().strip("[]").upper()
+            if ref in refs:
+                judged.setdefault(ref, cr)
+        counted = {
+            "clause_count": len(clauses),
+            "assessed_count": len(judged),
+            "coverage": round(len(judged) / len(clauses), 2),
+            "summary": out.summary,
+        }
+        if len(judged) < _MIN_COVERAGE * len(clauses):
+            # 6 judgments for a 40-clause contract would otherwise read as the whole
+            # contract, and the score would change with whichever clauses came back.
+            return _save_unknown(
+                db,
+                contract=contract,
+                user=user,
+                note=(
+                    f"The risk assessment covered {len(judged)} of {len(clauses)} clauses, "
+                    "too few to score."
+                ),
+                **counted,
+            )
+
+        # One judgment per clause type (its worst), in clause order, so repeated
+        # clauses of one type don't outweigh the rest of the contract.
+        worst: dict[str, ClauseRiskOutput] = {}
+        for ref, clause in refs.items():
+            cr = judged.get(ref)
+            canon = canonical_clause_type(clause.clause_type)
+            if cr is not None and (
+                canon not in worst or _SEVERITY[cr.risk] > _SEVERITY[worst[canon].risk]
+            ):
+                worst[canon] = cr
+
         drivers: list[dict] = []
         numerator = 0.0
         denominator = 0.0
-        for cr in out.clause_risks:
-            canon = canonical_clause_type(cr.clause_type)
+        for canon, cr in worst.items():
             weight = clause_weight(canon)
-            severity = _SEVERITY.get(cr.risk, 0.15)
-            contribution = weight * severity
+            contribution = weight * _SEVERITY[cr.risk]
             numerator += contribution
             denominator += weight
             drivers.append(
@@ -150,7 +204,15 @@ class ContractRiskService:
                     "contribution": round(contribution, 2),
                 }
             )
-        score = round(100 * numerator / denominator) if denominator else 0
+        if not denominator:
+            return _save_unknown(
+                db,
+                contract=contract,
+                user=user,
+                note="The risk assessment returned no weighted clause findings, so no score was computed.",
+                **counted,
+            )
+        score = round(100 * numerator / denominator)
         drivers.sort(key=lambda d: d["contribution"], reverse=True)
         counts = {
             level: sum(1 for d in drivers if d["risk"] == level)
@@ -161,8 +223,7 @@ class ContractRiskService:
             "band": _band(score),
             "drivers": drivers[:8],
             "counts": counts,
-            "clause_count": len(out.clause_risks),
-            "summary": out.summary,
+            **counted,
             "computed_at": utcnow().isoformat(),
         }
         contract.risk_score = score
@@ -174,3 +235,16 @@ class ContractRiskService:
         db.refresh(contract)
         return summary
 
+
+# DI-MIGRATION: temporary wrapper — remove once all callers use
+# get_contract_risk_service(). Tracked in backend/DI_MIGRATION.md
+async def compute_contract_risk(
+    db: Session,
+    *,
+    contract: Contract,
+    user,
+    request_id: str | None = None,
+) -> dict:
+    return await ContractRiskService(db).compute_contract_risk(
+        contract=contract, user=user, request_id=request_id
+    )

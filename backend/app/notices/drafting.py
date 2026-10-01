@@ -83,15 +83,14 @@ def draft_notice_response(db: Session, *, org_id: str, notice, document_text: st
         return {"draft": _skeleton(notice), "generated": False}
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import run_coro_blocking
     from app.integrations.dependencies import get_claude_client
 
     claude_client = claude_client or get_claude_client()
     bundle = get_agent_prompt(db, agent_id="notice_response_agent", org_id=org_id)
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(lambda: claude_client.complete_text(
+            org_id=org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=_prompt(notice, document_text),
             max_tokens=1200, temperature=0.2, model=bundle.model_name,

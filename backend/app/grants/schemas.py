@@ -4,9 +4,9 @@ from pydantic import BaseModel
 
 
 class GrantCreate(BaseModel):
-    principal_type: str  # 'user' | 'role' | 'group'
+    principal_type: str  # 'user' | 'role' | 'team'
     principal_id: str
-    resource_type: str  # 'contract' | 'project' | 'playbook'
+    resource_type: str  # 'contract' | 'playbook'
     resource_id: str
     access_level: str = "read"
     valid_until: datetime | None = None

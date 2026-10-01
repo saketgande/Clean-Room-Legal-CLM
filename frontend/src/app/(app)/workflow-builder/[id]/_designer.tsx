@@ -1,25 +1,46 @@
 "use client";
 
 // Workflow Designer (Screen 6) — a full-screen visual flow builder. A vertical
-// node canvas (each step: icon + assigned role + SLA + outcome chips, with
+// node canvas (each step: icon + assigned team + SLA + outcome chips, with
 // per-step conditions) and a right inspector to edit the selected step or the
 // flow's settings. Wired to workflowsApi (list / get / create / update) + rolesApi.
 // Scoped under `.wf`. The engine is sequential, so steps render linearly.
 
-import { Fragment, useState } from "react";
-import Link from "next/link";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { workflowsApi, rolesApi, usersApi, intakeApi } from "@/lib/endpoints";
+import { intakeApi, workflowsApi, rolesApi, usersApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { initials } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import type { Workflow, WorkflowStepType } from "@/lib/types";
+import type { LifecycleStage, Workflow, WorkflowCondition, WorkflowStepType } from "@/lib/types";
+import { useRequestForms } from "../../intake/_agreement-forms";
+import { AMOUNT_OPS, CHOICE_OPS, DATE_OPS, OP_LABEL as COND_OP_LABEL, overlaps, questionsFor, typeKey, typeOptions, whenText } from "@/lib/workflow-types";
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 
 type Cond = { field: string; op: string; value: string };
-type Step = { id?: string; type: WorkflowStepType; name: string; config: Record<string, unknown>; parallel?: boolean; cond?: Cond | null };
+type Step = { id?: string; type: WorkflowStepType; name: string; config: Record<string, unknown>; parallel?: boolean; cond?: Cond | null; stage?: LifecycleStage };
+
+// The contract lifecycle every workflow's steps sit under (mirrors backend
+// app/workflows/stages.py, which has the final say when a workflow is saved).
+const STAGES: { key: LifecycleStage; label: string }[] = [
+  { key: "intake", label: "Intake" }, { key: "drafting", label: "Drafting" }, { key: "review", label: "Review" },
+  { key: "approval", label: "Approval" }, { key: "signature", label: "Signature" }, { key: "active", label: "Active" },
+  { key: "closed", label: "Closed" },
+];
+const STAGE_RANK = Object.fromEntries(STAGES.map((s, i) => [s.key, i])) as Record<LifecycleStage, number>;
+const FIXED_STAGE: Partial<Record<WorkflowStepType, LifecycleStage>> = { clm_draft: "drafting", approval: "approval", signature: "signature" };
+const allowedStages = (t: WorkflowStepType): LifecycleStage[] =>
+  FIXED_STAGE[t] ? [FIXED_STAGE[t]!] : t === "counterparty" ? ["drafting", "review"] : STAGES.map((s) => s.key);
+const stageLabel = (k?: LifecycleStage) => STAGES.find((s) => s.key === k)?.label ?? "—";
+/** Keep steps in lifecycle order (stable), and break a parallel pair that now
+ * spans two stages — parallel steps must share one. */
+const inStageOrder = (ss: Step[]): Step[] =>
+  ss.map((s, i) => ({ s, i }))
+    .sort((a, b) => (STAGE_RANK[a.s.stage ?? "review"] - STAGE_RANK[b.s.stage ?? "review"]) || a.i - b.i)
+    .map(({ s }) => s)
+    .map((s, i, arr) => (s.parallel && (i === 0 || arr[i - 1].stage !== s.stage) ? { ...s, parallel: false } : s));
 const OP_LABEL: Record<string, string> = { eq: "is", ne: "is not" };
 
 const TYPE_META: Record<WorkflowStepType, { label: string; tone: string; icon: string; outcomes: string[] }> = {
@@ -61,17 +82,21 @@ const OUTCOME_GROUPS: { label: string; keys: string[] }[] = [
   { label: "Send it back", keys: ["request_changes", "need_info"] },
   { label: "Stop or escalate", keys: ["reject", "decline", "escalate"] },
 ];
-// Assignment model (mirrors the reference designer): a team/department + how the
-// person is picked, with a plain-English preview. The team list itself is NOT
-// hardcoded — it comes from whatever teams are configured on the Roles & Teams
-// (Teams & Routing) admin page, via `intakeApi.teams()`.
+// Assignment model: a team from Admin → Teams (config.team_id) + how the person
+// is picked, with a plain-English preview. The engine reads exactly these —
+// there is no department list or name lookup behind them.
 const ASSIGN_BY = ["Auto — least-loaded in team", "Auto — team head", "Specific person", "The requester"];
+// An approval is decided by the team, not handed to one member.
+const APPROVE_BY = ["Any one member", "All members must approve", "Specific person", "The requester"];
 const ASSIGN_DESC: Record<string, string> = {
-  "Auto — least-loaded in team": "Picks whoever has the fewest open items in the team.",
-  "Auto — team head": "Always goes to the head of the team.",
-  "Specific person": "You’ll name one person to always handle it.",
+  "Auto — least-loaded in team": "Shared by the team’s own rule (fewest open items, or taking turns) in",
+  "Auto — team head": "Always goes to the head of",
+  "Any one member": "Any one member can approve —",
+  "All members must approve": "Every member must approve —",
+  "Specific person": "Always handled by the person you name.",
   "The requester": "Returns to whoever raised the request.",
 };
+const assignOptions = (t: WorkflowStepType) => (t === "approval" ? APPROVE_BY : ASSIGN_BY);
 const OUTCOME_DEFAULTS: Record<WorkflowStepType, string[]> = {
   human_task: ["approve", "request_changes", "need_info", "escalate"],
   approval: ["approve", "reject", "escalate"],
@@ -89,7 +114,6 @@ const outcomesOf = (s: Step): string[] => {
 const hasBack = (s: Step) => outcomesOf(s).some((k) => k === "request_changes" || k === "need_info");
 
 const cfgStr = (c: Record<string, unknown>, k: string) => (typeof c[k] === "string" || typeof c[k] === "number" ? String(c[k]) : "");
-const roleOf = (s: Step) => cfgStr(s.config, "approver_role") || cfgStr(s.config, "assignee_role");
 const condLabel = (s: Step): string | null => {
   const c = s.cond;
   if (!c || !c.field) return null;
@@ -116,23 +140,62 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
   const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
   const roleNames = (roles ?? []).map((r) => r.name);
   const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => usersApi.list() });
-  const { data: intakeTeams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
-  const depts = (intakeTeams ?? []).filter((t) => t.active).map((t) => t.name);
+  const { data: teams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
+  const teamName = (id: string) => (teams ?? []).find((t) => t.id === id)?.name ?? "";
 
   const [name, setName] = useState(flow?.name ?? "");
   const [enabled, setEnabled] = useState(flow?.enabled ?? false);
   const [matchType, setMatchType] = useState(flow?.criteria.match_type ?? "");
   const [matchKeyword, setMatchKeyword] = useState(flow?.criteria.match_keyword ?? "");
   const [aiCondition, setAiCondition] = useState(flow?.criteria.ai_condition ?? "");
+  // The agreement type this workflow is for, and when a request of that type gets it.
+  const { data: requestForms } = useRequestForms();
+  const types = typeOptions(requestForms);
+  const [typeSel, setTypeSel] = useState<string>(flow ? typeKey(flow) ?? "" : "");
+  useEffect(() => {
+    // "+ New NDA workflow" on the list page opens the builder with its type set.
+    if (!flow) { const t = new URLSearchParams(window.location.search).get("type"); if (t) setTypeSel(t); }
+  }, [flow]);
+  const [conds, setConds] = useState<WorkflowCondition[]>(flow?.criteria.conditions ?? []);
+  const typeOpt = types.find((t) => t.key === typeSel) ?? null;
+  const questions = typeOpt ? questionsFor(requestForms, typeOpt.form, typeOpt.agreement_type) : [];
+  const qLabels = Object.fromEntries(questions.map((q) => [q.field, q.label]));
+  const siblings = (allFlows ?? []).filter((f) => f.id !== flow?.id && f.enabled && typeKey(f) === typeSel && typeSel);
+  const clash = siblings.find((f) => overlaps(conds, f.criteria.conditions));
+  const freshCond = (field: string): WorkflowCondition => {
+    const q = questions.find((x) => x.field === field)!;
+    if (q.date) return { field, op: "within_days", value: 7 };
+    return q.amount ? { field, op: "under", value: 1000000, currency: "INR" } : { field, op: "is", value: q.options[0] };
+  };
+  const patchCond = (i: number, p: Partial<WorkflowCondition>) => setConds((cs) => cs.map((c, j) => (j === i ? { ...c, ...p } : c)));
   const [evalOrder, setEvalOrder] = useState(String(flow?.eval_order ?? 100));
-  const [steps, setSteps] = useState<Step[]>((flow?.steps ?? []).map((s) => ({ id: s.id, type: s.type, name: s.name, config: { ...s.config }, parallel: s.parallel ?? false, cond: s.cond ?? null })));
+  const [steps, setSteps] = useState<Step[]>((flow?.steps ?? []).map((s) => ({ id: s.id, type: s.type, name: s.name, config: { ...s.config }, parallel: s.parallel ?? false, cond: s.cond ?? null, stage: s.stage })));
   const [sel, setSel] = useState<number | null>(null);
   const [tab, setTab] = useState<"setup" | "assign" | "outcomes" | "rules">("setup");
   const [busy, setBusy] = useState(false);
 
   const patchStep = (i: number, p: Partial<Step>) => setSteps((ss) => ss.map((x, idx) => (idx === i ? { ...x, ...p } : x)));
   const patchCfg = (i: number, k: string, v: unknown) => setSteps((ss) => ss.map((x, idx) => (idx === i ? { ...x, config: { ...x.config, [k]: v } } : x)));
-  const addAt = (i: number) => { setSteps((ss) => { const n = [...ss]; n.splice(i, 0, { type: "human_task", name: "New step", config: {} }); return n; }); setSel(i); };
+  // A new step joins the stage of the step above it (Review at the very start).
+  const addAt = (i: number, stage: LifecycleStage) => { setSteps((ss) => { const n = [...ss]; n.splice(i, 0, { type: "human_task", name: "New step", config: {}, stage }); return n; }); setSel(i); };
+  // Parallel steps share a stage: running beside the step above puts it in that
+  // step's stage, if its type may sit there.
+  const toggleParallel = (i: number) => {
+    const s = steps[i], prev = steps[i - 1];
+    if (s.parallel || !prev) { patchStep(i, { parallel: false }); return; }
+    if (!allowedStages(s.type).includes(prev.stage ?? "review")) {
+      notify(`${TYPE_META[s.type].label} steps can't run in ${stageLabel(prev.stage)} beside “${prev.name}”.`, "error");
+      return;
+    }
+    patchStep(i, { parallel: true, stage: prev.stage });
+  };
+  // Changing a step's stage (or a type that fixes it) moves it into that stage's section.
+  const moveToStage = (i: number, p: Partial<Step>) => setSteps((ss) => {
+    const moved = { ...ss[i], ...p };
+    const next = inStageOrder(ss.map((x, idx) => (idx === i ? moved : x)));
+    setSel(next.indexOf(moved));
+    return next;
+  });
   const del = (i: number) => { setSteps((ss) => ss.filter((_, idx) => idx !== i)); setSel(null); };
 
   function body(pub?: boolean) {
@@ -141,18 +204,16 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
       description: flow?.description ?? null,
       enabled: pub ?? enabled,
       eval_order: Number(evalOrder) || 100,
-      // Spread the flow's existing criteria first — this panel only edits
-      // match_type/match_keyword/ai_condition, so any other key already on
-      // the flow (match_priority, match_department, a field condition — all
-      // read by the backend matcher but not surfaced in this UI) survives a
-      // save here instead of being silently dropped.
       criteria: {
-        ...(flow?.criteria ?? {}),
-        match_type: matchType.trim() || null,
-        match_keyword: matchKeyword.trim() || null,
-        ai_condition: aiCondition.trim() || null,
+        ...flow?.criteria,
+        // A typed workflow is picked by its type and conditions only; words and the
+        // AI condition are for untyped (email/chat) ones, so neither can override a type pick.
+        match_type: typeOpt ? null : matchType.trim() || null, match_keyword: typeOpt ? null : matchKeyword.trim() || null,
+        ai_condition: typeOpt ? null : aiCondition.trim() || null,
+        used_for: typeOpt ? [{ form: typeOpt.form, agreement_type: typeOpt.agreement_type }] : [],
+        conditions: typeOpt ? conds : [],
       },
-      steps: steps.filter((s) => s.name.trim()).map((s, i) => ({ ...(s.id ? { id: s.id } : {}), type: s.type, name: s.name.trim(), config: s.config ?? {}, ...(s.parallel && i > 0 ? { parallel: true } : {}), ...(s.cond && s.cond.field.trim() ? { cond: { field: s.cond.field.trim(), op: s.cond.op || "eq", value: s.cond.value } } : {}) })),
+      steps: steps.filter((s) => s.name.trim()).map((s, i) => ({ ...(s.id ? { id: s.id } : {}), type: s.type, name: s.name.trim(), config: s.config ?? {}, ...(s.parallel && i > 0 ? { parallel: true } : {}), ...(s.stage ? { stage: s.stage } : {}), ...(s.cond && s.cond.field.trim() ? { cond: { field: s.cond.field.trim(), op: s.cond.op || "eq", value: s.cond.value } } : {}) })),
     };
   }
   async function save(pub?: boolean) {
@@ -192,13 +253,13 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
   const cardJsx = (i: number) => {
     const s = steps[i];
     const m = TYPE_META[s.type];
-    const role = cfgStr(s.config, "dept") || roleOf(s);
+    const role = teamName(cfgStr(s.config, "team_id"));
     const sla = cfgStr(s.config, "sla_hours");
     const cl = condLabel(s);
     return (
       <div className={`stepcard ${sel === i ? "sel" : ""}`} onClick={() => setSel(i)}>
         <div className="ctrls">
-          {i > 0 && <button className={s.parallel ? "on" : ""} title={s.parallel ? "Make sequential" : "Run in parallel with the step above"} onClick={(e) => { e.stopPropagation(); patchStep(i, { parallel: !s.parallel }); }}>{svg('<path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>')}</button>}
+          {i > 0 && <button className={s.parallel ? "on" : ""} title={s.parallel ? "Make sequential" : "Run in parallel with the step above"} onClick={(e) => { e.stopPropagation(); toggleParallel(i); }}>{svg('<path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>')}</button>}
           <button title="Delete" onClick={(e) => { e.stopPropagation(); del(i); }}>{svg('<path d="M18 6 6 18M6 6l12 12"/>')}</button>
         </div>
         {cl ? <div className="cond">{svg('<path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3"/>')}{cl}</div> : null}
@@ -242,21 +303,34 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
             <div className="canvas">
               <div className="flowcol">
                 <div className="node start">{svg('<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>')}Request confirmed</div>
-                {groups.map((g) => (
-                  <Fragment key={`g${steps[g[0]].id ?? g[0]}`}>
-                    <div className="conn" />
-                    <button className="addbtn" title="Add a step here" onClick={() => addAt(g[0])}>{svg('<path d="M12 5v14M5 12h14"/>')}</button>
-                    <div className="conn" />
-                    {g.length === 1 ? cardJsx(g[0]) : (
-                      <div className="pgroup">
-                        <div className="pghd">{svg('<path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>')}Parallel · all must respond</div>
-                        <div className="pgsteps">{g.map((i) => <Fragment key={steps[i].id ?? i}>{cardJsx(i)}</Fragment>)}</div>
+                {/* Every stage shows, empty or not, so a step can be added to any of them. */}
+                {STAGES.map((st, si) => {
+                  const gs = groups.filter((g) => (steps[g[0]].stage ?? "review") === st.key);
+                  const endOfStage = steps.filter((x) => STAGE_RANK[x.stage ?? "review"] <= si).length;
+                  return (
+                    <Fragment key={st.key}>
+                      <div className={`stagehd${gs.length ? "" : " empty"}`}>
+                        <span className="num">Stage {si + 1}</span>{st.label}
+                        {gs.length ? null : <span className="none">no steps</span>}
                       </div>
-                    )}
-                  </Fragment>
-                ))}
-                <div className="conn" />
-                <button className="addbtn" title="Add a step" onClick={() => addAt(steps.length)}>{svg('<path d="M12 5v14M5 12h14"/>')}</button>
+                      {gs.map((g) => (
+                        <Fragment key={`g${steps[g[0]].id ?? g[0]}`}>
+                          <div className="conn" />
+                          <button className="addbtn" title={`Add a step here (${st.label})`} onClick={() => addAt(g[0], st.key)}>{svg('<path d="M12 5v14M5 12h14"/>')}</button>
+                          <div className="conn" />
+                          {g.length === 1 ? cardJsx(g[0]) : (
+                            <div className="pgroup">
+                              <div className="pghd">{svg('<path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3"/>')}Parallel · all must respond</div>
+                              <div className="pgsteps">{g.map((i) => <Fragment key={steps[i].id ?? i}>{cardJsx(i)}</Fragment>)}</div>
+                            </div>
+                          )}
+                        </Fragment>
+                      ))}
+                      <div className="conn" />
+                      <button className="addbtn" title={`Add a step in ${st.label}`} onClick={() => addAt(endOfStage, st.key)}>{svg('<path d="M12 5v14M5 12h14"/>')}</button>
+                    </Fragment>
+                  );
+                })}
                 <div className="conn" />
                 <div className="node end">{svg('<path d="M20 6 9 17l-5-5"/>')}Complete</div>
               </div>
@@ -283,10 +357,23 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                     {tab === "setup" && (
                       <>
                         <div className="fld"><label className="lab">What kind of step is this?</label>
-                          <select className="inp" value={cur.type} onChange={(e) => patchStep(sel!, { type: e.target.value as WorkflowStepType })}>
+                          <select className="inp" value={cur.type} onChange={(e) => {
+                            const t = e.target.value as WorkflowStepType;
+                            const ok = allowedStages(t);
+                            moveToStage(sel!, { type: t, stage: cur.stage && ok.includes(cur.stage) ? cur.stage : ok[ok.length === 1 ? 0 : ok.indexOf("review") >= 0 ? ok.indexOf("review") : 0] });
+                          }}>
                             {TYPES.map((t) => <option key={t} value={t}>{TYPE_META[t].label}</option>)}
                           </select>
                           <div className="typedesc">{TYPE_DESC[cur.type]}</div>
+                        </div>
+                        <div className="fld"><label className="lab" htmlFor="wf-stage">Lifecycle stage</label>
+                          <select id="wf-stage" className="inp" value={cur.stage ?? "review"} disabled={allowedStages(cur.type).length === 1}
+                            onChange={(e) => moveToStage(sel!, { stage: e.target.value as LifecycleStage })}>
+                            {allowedStages(cur.type).map((k) => <option key={k} value={k}>{stageLabel(k)}</option>)}
+                          </select>
+                          <div className="hint">{allowedStages(cur.type).length === 1
+                            ? `${/^[aeiou]/i.test(TYPE_META[cur.type].label) ? "An" : "A"} ${TYPE_META[cur.type].label.toLowerCase()} step always sits in ${stageLabel(allowedStages(cur.type)[0])}.`
+                            : "Where this step shows on the contract's lifecycle. Steps stay in lifecycle order."}</div>
                         </div>
                         <div className="fld"><label className="lab">Time allowed (SLA, in hours)</label>
                           <input className="inp" type="number" value={cfgStr(cur.config, "sla_hours")} onChange={(e) => patchCfg(sel!, "sla_hours", e.target.value ? Number(e.target.value) : undefined)} placeholder="e.g. 48" />
@@ -307,47 +394,18 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                     {tab === "assign" && (
                       <>
                         <div className="ihelp">Who lands this step when a request reaches it.</div>
-                        {cur.type === "approval" && (
-                          <div
-                            className="ihelp"
-                            style={{
-                              margin: "0 0 14px",
-                              padding: "8px 10px",
-                              borderRadius: 6,
-                              background: "var(--warning-subtle, #fff7e6)",
-                              color: "var(--warning, #92600a)",
-                            }}
-                          >
-                            This approver role only applies when no condition-driven approval
-                            chain is active for this module — see Approvals → Condition rules.
-                          </div>
-                        )}
                         <div className="fld"><label className="lab">Team</label>
-                          {depts.length > 0 ? (
-                            <select
-                              className="inp"
-                              value={cfgStr(cur.config, "dept")}
-                              onChange={(e) => {
-                                const v = e.target.value || undefined;
-                                patchCfg(sel!, "dept", v);
-                                patchCfg(sel!, "approver_role", v);
-                              }}
-                            >
-                              <option value="">— No team —</option>
-                              {depts.map((d) => <option key={d} value={d}>{d}</option>)}
-                            </select>
-                          ) : (
-                            <div className="ihelp">
-                              No teams configured yet — add one under <Link href="/admin?tab=teams">Roles &amp; teams → Teams &amp; Routing</Link>.
-                            </div>
-                          )}
-                        </div>
-                        <div className="fld"><label className="lab">Pick the person by…</label>
-                          <select className="inp" value={cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]} onChange={(e) => patchCfg(sel!, "assign_by", e.target.value)}>
-                            {ASSIGN_BY.map((a) => <option key={a} value={a}>{a}</option>)}
+                          <select className="inp" value={cfgStr(cur.config, "team_id")} onChange={(e) => patchCfg(sel!, "team_id", e.target.value || undefined)}>
+                            <option value="">{cur.type === "approval" ? "Choose a team…" : "No team — the request owner"}</option>
+                            {(teams ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}{t.members.length ? "" : " (no members)"}</option>)}
                           </select>
                         </div>
-                        {(cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]) === "Specific person" && (
+                        <div className="fld"><label className="lab">{cur.type === "approval" ? "Who approves" : "Pick the person by…"}</label>
+                          <select className="inp" value={assignOptions(cur.type).includes(cfgStr(cur.config, "assign_by")) ? cfgStr(cur.config, "assign_by") : assignOptions(cur.type)[0]} onChange={(e) => patchCfg(sel!, "assign_by", e.target.value)}>
+                            {assignOptions(cur.type).map((a) => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                        </div>
+                        {cfgStr(cur.config, "assign_by") === "Specific person" && (
                           <div className="fld"><label className="lab">Person</label>
                             <select className="inp" value={cfgStr(cur.config, "assignee_user_id")} onChange={(e) => patchCfg(sel!, "assignee_user_id", e.target.value || undefined)}>
                               <option value="">Choose a person…</option>
@@ -355,7 +413,25 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                             </select>
                           </div>
                         )}
-                        <div className="assignprev">{svg('<circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/>')}<div>{ASSIGN_DESC[cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]]} <b>{cfgStr(cur.config, "dept") || "No team"}</b></div></div>
+                        {cur.type === "approval" && (() => {
+                          // Authority (Admin → Authority) is checked when someone decides; show it here so
+                          // a team whose members can't approve the contract's value is caught while building.
+                          const team = (teams ?? []).find((t) => t.id === cfgStr(cur.config, "team_id"));
+                          const people = (team?.members ?? []).filter((m) => m.active);
+                          if (!people.length) return null;
+                          if (!people.some((m) => m.approve_limit)) {
+                            return <div className="hint">No approval authority limits are set (Admin → Authority), so any member can approve any value.</div>;
+                          }
+                          return (
+                            <div className="fld"><label className="lab">Approval authority</label>
+                              <div className="authlist">{people.map((m) => (
+                                <div key={m.user_id} className={m.approve_limit === "no authority" ? "none" : ""}><span>{m.name ?? m.user_id}</span><b>{m.approve_limit ?? "—"}</b></div>
+                              ))}</div>
+                              <div className="hint">An approver can only decide contracts within their limit. Set limits in Admin → Authority.</div>
+                            </div>
+                          );
+                        })()}
+                        <div className="assignprev">{svg('<circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/>')}<div>{ASSIGN_DESC[assignOptions(cur.type).includes(cfgStr(cur.config, "assign_by")) ? cfgStr(cur.config, "assign_by") : assignOptions(cur.type)[0]]} <b>{teamName(cfgStr(cur.config, "team_id")) || (cur.type === "approval" ? "no team chosen — this approval would stall" : "the request owner")}</b></div></div>
                       </>
                     )}
                     {tab === "outcomes" && (
@@ -393,7 +469,7 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                         <div className="ihelp">Optional — most steps just run in order. Use these for parallel review or steps that only apply sometimes.</div>
                         {sel! > 0 ? (
                           <>
-                            <button type="button" className={`toggle${cur.parallel ? " on" : ""}`} onClick={() => patchStep(sel!, { parallel: !cur.parallel })}><span className="sw" />Run in parallel with the step above</button>
+                            <button type="button" className={`toggle${cur.parallel ? " on" : ""}`} onClick={() => toggleParallel(sel!)}><span className="sw" />Run in parallel with the step above</button>
                             <div className="ihelp" style={{ margin: "6px 0 14px" }}>Both open at once (a &ldquo;Parallel · all must respond&rdquo; group); the workflow waits for all of them.</div>
                           </>
                         ) : (
@@ -407,6 +483,10 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                             <select className="inp op" value={cur.cond.op} onChange={(e) => patchStep(sel!, { cond: { field: cur.cond?.field ?? "", op: e.target.value, value: cur.cond?.value ?? "" } })}>
                               <option value="eq">is</option>
                               <option value="ne">is not</option>
+                              <option value="lt">is less than</option>
+                              <option value="lte">is at most</option>
+                              <option value="gt">is more than</option>
+                              <option value="gte">is at least</option>
                             </select>
                             <input className="inp" value={cur.cond.value} onChange={(e) => patchStep(sel!, { cond: { field: cur.cond?.field ?? "", op: cur.cond?.op || "eq", value: e.target.value } })} placeholder="value (e.g. true)" />
                           </div>
@@ -420,21 +500,83 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                   <div className="ih"><div className="tic t-accent">{svg('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>')}</div><b>Workflow settings</b></div>
                   <div className="ibody">
                     <div className="emptyhint">Select a step on the canvas to edit it, or use a <b>+</b> to add one. These settings decide when this workflow is picked.</div>
-                    <div className="fld"><label className="lab">Applies to type</label><input className="inp" value={matchType} onChange={(e) => setMatchType(e.target.value)} placeholder="e.g. msa, nda, dpa (blank = any)" /></div>
-                    <div className="fld"><label className="lab">Keyword match</label><input className="inp" value={matchKeyword} onChange={(e) => setMatchKeyword(e.target.value)} placeholder="optional keyword in the request" /></div>
-                    <div className="fld">
-                      <label className="lab">When should AI choose this workflow?</label>
-                      <textarea
-                        className="inp"
-                        rows={3}
-                        value={aiCondition}
-                        onChange={(e) => setAiCondition(e.target.value)}
-                        placeholder="e.g. Use this for any NDA where the counterparty is based outside the US, or the deal value exceeds $500k."
-                        style={{ resize: "vertical", fontFamily: "inherit" }}
-                      />
-                      <div className="hint">Free text read by the AI that picks a workflow automatically at intake — in addition to the structured match rules above, not instead of them.</div>
+                    <div className="fld"><label className="lab">Agreement type</label>
+                      <select className="inp" value={typeSel} onChange={(e) => { setTypeSel(e.target.value); setConds([]); }}>
+                        <option value="">None: email and chat requests only</option>
+                        {types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                      </select>
+                      <div className="hint">{typeOpt ? `Only ${typeOpt.label} requests can get this workflow.` : "Form requests never get an untyped workflow; the AI may suggest it for email and chat requests."}</div>
                     </div>
-                    <div className="fld"><label className="lab">Priority order</label><input className="inp" type="number" value={evalOrder} onChange={(e) => setEvalOrder(e.target.value)} /><div className="hint">Lower wins when several workflows match.</div></div>
+                    {typeOpt ? (
+                      <div className="fld"><label className="lab">Chosen when</label>
+                        {conds.map((c, i) => {
+                          const q = questions.find((x) => x.field === c.field);
+                          const amount = AMOUNT_OPS.includes(c.op);
+                          return (
+                            <div key={i} className="condbox">
+                              <div className="condrow">
+                                <select className="inp" aria-label="Question" value={c.field} onChange={(e) => patchCond(i, freshCond(e.target.value))}>
+                                  {questions.map((x) => <option key={x.field} value={x.field}>{x.label}</option>)}
+                                </select>
+                                <button className="tbtn" title="Remove condition" onClick={() => setConds(conds.filter((_, j) => j !== i))}>{svg('<path d="M18 6 6 18M6 6l12 12"/>')}</button>
+                              </div>
+                              <select className="inp" aria-label="Operator" value={c.op}
+                                onChange={(e) => patchCond(i, { op: e.target.value as WorkflowCondition["op"], ...(e.target.value === "between" && !c.value2 ? { value2: Number(c.value || 0) * 5 || 5000000 } : {}) })}>
+                                {(q?.date ? DATE_OPS : q?.amount ? AMOUNT_OPS : CHOICE_OPS).map((o) => <option key={o} value={o}>{COND_OP_LABEL[o]}</option>)}
+                              </select>
+                              {q?.date ? (
+                                <div className="condrow">
+                                  <input className="inp" inputMode="numeric" aria-label="Days" value={String(c.value ?? "")} onChange={(e) => patchCond(i, { value: e.target.value.replace(/[^0-9]/g, "") })} />
+                                  <span className="hint">days of the request</span>
+                                </div>
+                              ) : amount ? (
+                                <div className="condrow">
+                                  <select className="inp cur" aria-label="Currency" value={c.currency ?? "INR"} onChange={(e) => patchCond(i, { currency: e.target.value })}>
+                                    {["INR", "USD", "EUR", "GBP"].map((x) => <option key={x}>{x}</option>)}
+                                  </select>
+                                  <input className="inp" inputMode="numeric" aria-label="Amount" value={String(c.value ?? "")} onChange={(e) => patchCond(i, { value: e.target.value.replace(/[^0-9]/g, "") })} />
+                                  {c.op === "between" && <><span className="hint">and</span>
+                                    <input className="inp" inputMode="numeric" aria-label="Upper amount" value={String(c.value2 ?? "")} onChange={(e) => patchCond(i, { value2: Number(e.target.value.replace(/[^0-9]/g, "")) })} /></>}
+                                </div>
+                              ) : (
+                                <select className="inp" aria-label="Answer" value={String(c.value)} onChange={(e) => patchCond(i, { value: e.target.value })}>
+                                  {(q?.options ?? []).map((o) => <option key={o}>{o}</option>)}
+                                </select>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {questions.length ? (
+                          <button className="tbtn" onClick={() => setConds([...conds, freshCond((questions.find((x) => !conds.some((c) => c.field === x.field)) ?? questions[0]).field)])}>+ Add a condition</button>
+                        ) : <div className="hint">This type&apos;s form asks nothing a condition can use.</div>}
+                        <div className="sentence">Used for {typeOpt.label} requests {conds.length ? `when ${whenText(conds, qLabels)}.` : `when no other ${typeOpt.short} workflow fits.`}</div>
+                        <div className="hint">A request with a question left blank, or a value in another currency, doesn&apos;t meet a condition on it.</div>
+                      </div>
+                    ) : (
+                      <div className="fld"><label className="lab">Match words (email and chat requests)</label>
+                        <input className="inp" value={matchType} onChange={(e) => setMatchType(e.target.value)} placeholder="type word, e.g. litigation, notice" />
+                        <input className="inp" value={matchKeyword} onChange={(e) => setMatchKeyword(e.target.value)} placeholder="keyword in the request" />
+                        <label className="lab">When should AI choose this workflow?</label>
+                        <textarea
+                          className="inp"
+                          rows={3}
+                          value={aiCondition}
+                          onChange={(e) => setAiCondition(e.target.value)}
+                          placeholder="e.g. Use this for any litigation hold notice from outside counsel."
+                          style={{ resize: "vertical", fontFamily: "inherit" }}
+                        />
+                        <div className="hint">Free text read by the AI that picks a workflow for email and chat requests, in addition to the match words.</div>
+                      </div>
+                    )}
+                    {typeOpt ? (
+                      <div className="fld"><label className="lab">Other {typeOpt.short} workflows</label>
+                        {siblings.length ? siblings.map((f) => (
+                          <div key={f.id} className="sib"><b>{f.name}</b><span>Chosen when {whenText(f.criteria.conditions)}</span></div>
+                        )) : <div className="hint">None: this is the only one.</div>}
+                        {clash && <div className="clash">A request could fit both this and “{clash.name}”. Change a condition so they don&apos;t overlap — otherwise the one with more conditions wins.</div>}
+                      </div>
+                    ) : null}
+                    <div className="fld"><label className="lab">Priority order</label><input className="inp" type="number" value={evalOrder} onChange={(e) => setEvalOrder(e.target.value)} /><div className="hint">Only breaks a tie when two workflows both fit a request: lower wins.</div></div>
                     <label className="chk"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />Enabled (available to pick)</label>
                   </div>
                 </>
@@ -481,6 +623,11 @@ const WF_CSS = `
 .wf .stepcard .meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .wf .cond{margin-bottom:8px;display:inline-flex;align-items:center;gap:6px;font:600 10.5px var(--sans);color:var(--warn);background:var(--warn-soft);padding:3px 9px;border-radius:8px} .wf .cond .ic{width:12px;height:12px}
 .wf .pgroup{align-self:stretch;max-width:520px;border:1.5px dashed var(--border-strong);border-radius:14px;background:color-mix(in srgb,var(--accent) 5%,var(--surface));padding:10px 11px 12px}
+.wf .authlist{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.wf .authlist>div{display:flex;justify-content:space-between;gap:10px;padding:6px 10px;font-size:12px;border-top:1px solid var(--border)} .wf .authlist>div:first-child{border-top:0}
+.wf .authlist b{font-weight:600} .wf .authlist .none b{color:var(--warn)}
+.wf .stagehd.empty{color:var(--ink-3)} .wf .stagehd .none{margin-left:auto;font:500 11px var(--sans);color:var(--ink-3)}
+.wf .stagehd{align-self:stretch;display:flex;align-items:baseline;gap:10px;margin:18px 0 2px;padding-bottom:6px;border-bottom:1px solid var(--border);font:600 13px var(--sans);color:var(--ink)} .wf .stagehd .num{font:600 10px var(--mono,var(--sans));letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 .wf .pghd{display:inline-flex;align-items:center;gap:6px;margin:0 0 9px;font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:3px 9px;border-radius:99px} .wf .pghd .ic{width:12px;height:12px}
 .wf .pgsteps{display:flex;flex-direction:column;gap:9px}
 .wf .condrow{display:grid;grid-template-columns:1fr auto 1fr;gap:6px} .wf .condrow .op{min-width:72px}
@@ -505,6 +652,14 @@ const WF_CSS = `
 .wf .fld{display:flex;flex-direction:column;gap:6px} .wf .fld .lab{font-weight:600;font-size:12px;color:var(--ink)}
 .wf .inp{width:100%;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)} .wf .inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 .wf .hint{font-size:11px;color:var(--ink-3);line-height:1.4}
+.wf .condbox{display:flex;flex-direction:column;gap:6px;padding:9px;border:1px solid var(--border);border-radius:10px;background:var(--surface-2)}
+.wf .condrow{display:flex;gap:6px;align-items:center} .wf .condrow .inp.cur{width:84px;flex:none}
+.wf .sentence{padding:9px 11px;border-radius:9px;background:var(--accent-soft);color:var(--accent);font-size:12px;line-height:1.5}
+.wf .sib{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid var(--border);border-radius:9px;font-size:12px} .wf .sib span{color:var(--ink-2)}
+.wf .clash{padding:9px 11px;border-radius:9px;border:1px solid var(--crit);color:var(--crit);font-size:12px;line-height:1.5}
+.wf .uflist{display:flex;flex-wrap:wrap;gap:6px}
+.wf .ufchip{display:inline-flex;align-items:center;gap:4px;padding:4px 6px 4px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:12px;font-weight:500}
+.wf .ufchip b{font-weight:600} .wf .ufchip button{display:inline-flex;padding:2px;border-radius:999px} .wf .ufchip button:hover{background:var(--surface)} .wf .ufchip .ic{width:12px;height:12px}
 .wf .outrow{display:flex;gap:6px;flex-wrap:wrap}
 .wf .backedge{margin-top:9px;display:inline-flex;align-items:center;gap:5px;font:600 10px var(--sans);color:var(--crit);background:var(--crit-soft);padding:3px 9px;border-radius:8px} .wf .backedge .ic{width:12px;height:12px}
 .wf .ogrp{margin-top:15px} .wf .ogrp:first-of-type{margin-top:0} .wf .ogrplbl{font:600 10px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}

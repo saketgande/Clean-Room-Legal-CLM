@@ -1,6 +1,6 @@
 "use client";
 
-// Global search — contracts / full text / clauses / projects (new mockup style, scoped `.srch`).
+// Global search — contracts / full text / clauses (new mockup style, scoped `.srch`).
 // Pure visual reskin: every query fn, param, and result field below is unchanged from the old version.
 
 import { useState } from "react";
@@ -11,7 +11,6 @@ import {
   FileText,
   AlignLeft,
   Quote,
-  FolderKanban,
   Loader2,
 } from "lucide-react";
 import { searchApi } from "@/lib/endpoints";
@@ -20,16 +19,14 @@ import type {
   ClauseSearchResult,
   ContractResponse,
   ContractTextSearchResult,
-  MatterResponse,
 } from "@/lib/types";
 
-type TabId = "contracts" | "text" | "clauses" | "projects";
+type TabId = "contracts" | "text" | "clauses";
 
 const TABS: { id: TabId; label: string; icon: typeof FileText }[] = [
   { id: "contracts", label: "Contracts", icon: FileText },
   { id: "text", label: "Full text", icon: AlignLeft },
   { id: "clauses", label: "Clauses", icon: Quote },
-  { id: "projects", label: "Matters", icon: FolderKanban },
 ];
 
 export default function SearchPage() {
@@ -41,7 +38,7 @@ export default function SearchPage() {
       <div className="hd">
         <div>
           <h1>Search</h1>
-          <p className="sub">Look up contracts and matters by name, metadata and dates.</p>
+          <p className="sub">Look up contracts by name, metadata and dates.</p>
         </div>
       </div>
 
@@ -64,7 +61,6 @@ export default function SearchPage() {
       {tab === "contracts" && <ContractsTab />}
       {tab === "text" && <TextTab />}
       {tab === "clauses" && <ClausesTab />}
-      {tab === "projects" && <MattersTab />}
 
       <p className="foot">
         Looking for something <em>inside</em> your contracts — clauses, wording,
@@ -340,60 +336,6 @@ function ClausesTab() {
   );
 }
 
-// ---- Matters ------------------------------------------------------------
-function MattersTab() {
-  const [q, setQ] = useState("");
-  const { results, loading, error, run } = useSearch<MatterResponse>();
-
-  function search() {
-    run(() => searchApi.projects({ q: q || undefined }));
-  }
-
-  return (
-    <div className="pane">
-      <div className="bar">
-        <div className="fld grow">
-          <label>Query</label>
-          <div className="inputbar">
-            <SearchIcon className="ic" />
-            <input
-              placeholder="Matter name or description…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </div>
-        </div>
-        <button className="btn pri" onClick={search} disabled={loading}>
-          {loading ? <Loader2 className="ic spin" /> : <SearchIcon className="ic" />}
-          Search
-        </button>
-      </div>
-
-      {loading ? (
-        <CenterLoading />
-      ) : error ? (
-        <ErrorPanel error={error} />
-      ) : results === null ? null : results.length === 0 ? (
-        <NoResults />
-      ) : (
-        <div className="grid">
-          {results.map((p) => (
-            <Link key={p.id} href={`/matters/${p.id}`} className="pcard">
-              <div className="pch">
-                <h3>{p.name}</h3>
-                <ArrowRight className="rarr" />
-              </div>
-              <span className="pill slate">{titleCase(p.matter_type)}</span>
-              {p.description && <p className="pdesc">{p.description}</p>}
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---- Shared states -------------------------------------------------------
 function CenterLoading() {
   return (
@@ -470,12 +412,6 @@ const SRCH_CSS = `
 .srch .snips{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
 .srch .snips li{border:1px solid var(--border);border-radius:8px;background:var(--inset);padding:8px 11px;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
 
-.srch .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.srch .pcard{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);padding:14px 15px;text-decoration:none;color:inherit;transition:.12s}
-.srch .pcard:hover{border-color:var(--accent);transform:translateY(-1px)}
-.srch .pch{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.srch .pch h3{margin:0;font-size:13.5px;font-weight:650;color:var(--ink)}
-.srch .pdesc{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 .srch .state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:52px 20px;text-align:center;color:var(--ink-3);border:1px dashed var(--border-strong);border-radius:12px;background:var(--inset)}
 .srch .state .statei{width:22px;height:22px;color:var(--ink-3);margin-bottom:4px}

@@ -72,7 +72,7 @@ def counterparty_directory(
 @router.post(
     "/upload",
     response_model=ContractUploadResponse,
-    status_code=status.HTTP_201_CREATED,
+    status_code=status.HTTP_202_ACCEPTED,
 )
 @limiter.limit(settings.rate_limit_contract_upload)
 async def upload_contract(
@@ -81,7 +81,6 @@ async def upload_contract(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     counterparty_name: str | None = Form(default=None),
-    matter_id: str | None = Form(default=None),
     files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:create")),
     _screen=Depends(_CONTRACTS_ADD),
@@ -89,10 +88,10 @@ async def upload_contract(
     return await files_service.create_contract_from_upload(
         upload=file,
         user=current_user,
-        matter_id=matter_id,
         title=title,
         counterparty_name=counterparty_name,
         request_id=getattr(request.state, "request_id", None),
+        defer_processing=True,  # text extraction, OCR and metadata run in a background job
     )
 
 
@@ -165,7 +164,6 @@ async def contract_plain_summary(
     from sqlalchemy import select as _select
 
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.core.config import settings
     from app.playbooks.models import PlaybookDeviation
 
@@ -205,8 +203,8 @@ async def contract_plain_summary(
         )
         user_prompt = f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}"
         bundle = get_agent_prompt(db, agent_id="plain_language_summary", org_id=current_user.org_id)
-        enforce_daily_token_cap(current_user.org_id)
         resp = await claude_client.complete_text(
+            org_id=current_user.org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             max_tokens=500, temperature=0.3, model=bundle.model_name,

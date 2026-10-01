@@ -1,43 +1,38 @@
 from fastapi import APIRouter, Depends, Request, Response, status
-from pydantic import BaseModel
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.deps import get_db, require_permission, require_screen_level
+from app.core.rate_limit import limiter
 from app.intake import copilot as copilot_mod
+from app.intake import drafts as drafts_mod
 from app.intake.dependencies import (
     get_drafting_service,
     get_gmail_sync_service,
     get_ingest_service,
     get_intake_service,
-    get_routing_service,
     get_screening_service,
     get_team_service,
 )
 from app.intake.drafting import DraftingService
 from app.intake.gmail_sync import GmailSyncService
 from app.intake.ingest import IngestService
-from app.intake.routing import RoutingService
 from app.intake.schemas import (
     AssigneeResponse,
     CopilotFileRequest,
     CopilotTurnRequest,
     CopilotTurnResponse,
+    DraftResponse,
+    DraftSave,
     HandoffCreate,
     HandoffResponse,
-    KbCreate,
-    KbResponse,
-    KbUpdate,
     PartiesUpdate,
     PromoteRequest,
     RequestCreate,
     RequestResponse,
-    RequestTypeCreate,
-    RequestTypeResponse,
-    RequestTypeUpdate,
     RequestUpdate,
-    RuleCreate,
-    RuleResponse,
-    RuleUpdate,
     TaskCreateReq,
     TaskResponse,
     TaskUpdateReq,
@@ -57,7 +52,7 @@ router = APIRouter(prefix="/intake", tags=["intake"])
 _CREATE = require_permission("intake:create")   # all employees — file + own tickets
 _READ = require_permission("intake:read")        # the staff gate — queue + manage actions
 _UPDATE = require_permission("intake:update")     # stage / handoff / tasks
-_MANAGE = require_permission("admin_panel:access")  # admin config (types, teams, rules)
+_MANAGE = require_permission("admin_panel:access")  # admin config (teams)
 
 # FR-10/FR-11/FR-17 tranche-1 screen-level gates — additive to the permission
 # checks above, declared next to the router per plan.md's frozen shape.
@@ -71,46 +66,39 @@ def _req_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
 
 
-# ---- request types --------------------------------------------------------
-# Reading types is needed to render the New Request form, so any filer may list.
+# ---- request forms ----------------------------------------------------------
+# The nine forms' questions, labels, options and show-when rules. The wizard
+# renders from these so the browser and filing validation can't disagree.
 
-@router.get("/request-types", response_model=list[RequestTypeResponse])
-def list_request_types(
-    include_inactive: bool = False,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_CREATE),
-):
-    return intake_service.list_types(
-        org_id=current_user.org_id, include_inactive=include_inactive
-    )
+@router.get("/forms")
+def list_forms(current_user=Depends(_CREATE)):
+    from app.intake.agreement_forms import form_defs
+
+    return list(form_defs())
 
 
-@router.post("/request-types", response_model=RequestTypeResponse, status_code=status.HTTP_201_CREATED)
-def create_request_type(
-    payload: RequestTypeCreate,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_MANAGE),
-):
-    return intake_service.create_type(actor=current_user, payload=payload)
+# ---- drafts (agreement wizard "Save as Draft") ------------------------------
+# Private to whoever saved them; anyone who may file a request may keep drafts.
+
+@router.get("/drafts", response_model=list[DraftResponse])
+def list_drafts(db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    return drafts_mod.list_mine(db, actor=current_user)
 
 
-@router.patch("/request-types/{type_id}", response_model=RequestTypeResponse)
-def update_request_type(
-    type_id: str,
-    payload: RequestTypeUpdate,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_MANAGE),
-):
-    return intake_service.update_type(actor=current_user, type_id=type_id, payload=payload)
+@router.post("/drafts", response_model=DraftResponse, status_code=status.HTTP_201_CREATED)
+def create_draft(payload: DraftSave, db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    return drafts_mod.save(db, actor=current_user, payload=payload)
 
 
-@router.delete("/request-types/{type_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_request_type(
-    type_id: str,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_MANAGE),
-):
-    intake_service.delete_type(actor=current_user, type_id=type_id)
+@router.put("/drafts/{draft_id}", response_model=DraftResponse)
+def update_draft(draft_id: str, payload: DraftSave, db: Session = Depends(get_db),
+                 current_user=Depends(_CREATE)):
+    return drafts_mod.save(db, actor=current_user, payload=payload, draft_id=draft_id)
+
+
+@router.delete("/drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_draft(draft_id: str, db: Session = Depends(get_db), current_user=Depends(_CREATE)):
+    drafts_mod.delete(db, actor=current_user, draft_id=draft_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -125,7 +113,8 @@ def create_request(
     _screen=Depends(_INTAKE_ADD),
 ):
     return intake_service.create_request(
-        actor=current_user, payload=payload, request_id=_req_id(request)
+        actor=current_user, payload=payload, request_id=_req_id(request),
+        defer_triage=True,  # AI triage, screening and workflow autostart run in a background job
     )
 
 
@@ -222,27 +211,22 @@ def suggest_flow(
 
 # ---- approval ladder ------------------------------------------------------
 
-class _ApprovalLadderSubmit(BaseModel):
-    # Optional manual fallback approver, used only when no routing rule matches.
-    approver_user_id: str | None = None
-    approver_role: str | None = None
+class _ApprovalPreview(BaseModel):
+    type_label: str = Field(min_length=1, max_length=120)
+    description: str = Field(default="", max_length=20000)
+    priority: str = "Medium"
+    department: str | None = None
+    field_values: dict = Field(default_factory=dict)
 
 
-@router.post("/requests/{request_id}/submit-for-approval")
-async def submit_for_approval(
-    request_id: str,
-    request: Request,
-    payload: _ApprovalLadderSubmit | None = None,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_READ),
-    _screen=Depends(_INTAKE_EDIT),
-):
-    p = payload or _ApprovalLadderSubmit()
-    return await intake_service.start_approval_ladder(
-        actor=current_user, request_id=request_id,
-        approver_user_id=p.approver_user_id, approver_role=p.approver_role,
-        http_request_id=_req_id(request),
-    )
+# Approvals start only from a workflow's Approval step; there is no manual
+# submit route (deleted 2026-09-29).
+@router.post("/approval-preview")
+def approval_preview(payload: _ApprovalPreview,
+                     intake_service: IntakeService = Depends(get_intake_service),
+                     current_user=Depends(_CREATE)):
+    """Who will approve a request before it is filed. Saves nothing."""
+    return intake_service.preview_approvals(actor=current_user, payload=payload)
 
 
 @router.get("/requests/{request_id}/approval-chain")
@@ -252,27 +236,6 @@ def approval_chain(
     current_user=Depends(_READ),
 ):
     return intake_service.get_approval_chain(actor=current_user, request_id=request_id)
-
-
-class _GateOverride(BaseModel):
-    gate_key: str
-    action: str  # 'add' | 'remove'
-    reason: str | None = None
-
-
-@router.post("/requests/{request_id}/gates", response_model=RequestResponse)
-def override_gate(
-    request_id: str,
-    payload: _GateOverride,
-    request: Request,
-    intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_READ),
-    _screen=Depends(_INTAKE_EDIT),
-):
-    return intake_service.override_gate(
-        actor=current_user, request_id=request_id, gate_key=payload.gate_key,
-        action=payload.action, reason=payload.reason, http_request_id=_req_id(request),
-    )
 
 
 # ---- handoff / custody ----------------------------------------------------
@@ -463,7 +426,7 @@ def sla_scan(
     return intake_service.run_sla_sweep(org_id=current_user.org_id)
 
 
-# ---- teams / pools (admin) ------------------------------------------------
+# ---- teams (admin) ------------------------------------------------
 
 @router.get("/teams", response_model=list[TeamResponse])
 def list_teams(team_service: TeamService = Depends(get_team_service), current_user=Depends(_READ)):
@@ -484,70 +447,6 @@ def update_team(team_id: str, payload: TeamUpdate, team_service: TeamService = D
 def delete_team(team_id: str, team_service: TeamService = Depends(get_team_service), current_user=Depends(_MANAGE)):
     team_service.delete_team(actor=current_user, team_id=team_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- routing rules (read=triage, write=admin per Part 0.14) ---------------
-
-@router.get("/routing-rules", response_model=list[RuleResponse])
-def list_rules(routing_service: RoutingService = Depends(get_routing_service), current_user=Depends(_READ)):
-    return routing_service.list_rules(org_id=current_user.org_id)
-
-
-@router.post("/routing-rules", response_model=RuleResponse, status_code=status.HTTP_201_CREATED)
-def create_rule(payload: RuleCreate, routing_service: RoutingService = Depends(get_routing_service), current_user=Depends(_MANAGE)):
-    return routing_service.create_rule(actor=current_user, payload=payload)
-
-
-@router.patch("/routing-rules/{rule_id}", response_model=RuleResponse)
-def update_rule(rule_id: str, payload: RuleUpdate, routing_service: RoutingService = Depends(get_routing_service), current_user=Depends(_MANAGE)):
-    return routing_service.update_rule(actor=current_user, rule_id=rule_id, payload=payload)
-
-
-@router.delete("/routing-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_rule(rule_id: str, routing_service: RoutingService = Depends(get_routing_service), current_user=Depends(_MANAGE)):
-    routing_service.delete_rule(actor=current_user, rule_id=rule_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- knowledge base (read = any filer; write = admin) ---------------------
-
-@router.get("/kb", response_model=list[KbResponse])
-def list_kb(include_inactive: bool = False, intake_service: IntakeService = Depends(get_intake_service),
-            current_user=Depends(_CREATE)):
-    return intake_service.list_kb(org_id=current_user.org_id,
-                           include_inactive=include_inactive and False)  # non-admins never see inactive
-
-
-@router.get("/kb/all", response_model=list[KbResponse])
-def list_kb_admin(intake_service: IntakeService = Depends(get_intake_service), current_user=Depends(_MANAGE)):
-    return intake_service.list_kb(org_id=current_user.org_id, include_inactive=True)
-
-
-@router.post("/kb", response_model=KbResponse, status_code=status.HTTP_201_CREATED)
-def create_kb(payload: KbCreate, intake_service: IntakeService = Depends(get_intake_service),
-              current_user=Depends(_MANAGE)):
-    return intake_service.create_kb(actor=current_user, payload=payload)
-
-
-@router.patch("/kb/{kb_id}", response_model=KbResponse)
-def update_kb(kb_id: str, payload: KbUpdate, intake_service: IntakeService = Depends(get_intake_service),
-              current_user=Depends(_MANAGE)):
-    return intake_service.update_kb(actor=current_user, kb_id=kb_id, payload=payload)
-
-
-@router.delete("/kb/{kb_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_kb(kb_id: str, intake_service: IntakeService = Depends(get_intake_service),
-              current_user=Depends(_MANAGE)):
-    intake_service.delete_kb(actor=current_user, kb_id=kb_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- pool ops -------------------------------------------------------------
-
-@router.get("/pool-ops")
-def pool_ops(days: int = 30, intake_service: IntakeService = Depends(get_intake_service),
-             current_user=Depends(_READ)):
-    return intake_service.pool_ops_summary(org_id=current_user.org_id, days=days)
 
 
 # ---- copilot (conversational filing) --------------------------------------
@@ -573,10 +472,11 @@ import base64 as _b64
 
 from fastapi import Body, Header
 
-from app.intake import ingest as ingest_mod  # pure webhook-auth/rate-limit helpers only
+from app.intake import ingest as ingest_mod  # pure webhook-auth helpers only
 
 
 @router.post("/email-webhook", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(settings.rate_limit_intake_webhook)
 def email_webhook(
     request: Request,
     payload: dict = Body(...),
@@ -584,8 +484,14 @@ def email_webhook(
     ingest_service: IngestService = Depends(get_ingest_service),
 ):
     """Inbound email → intake request. curl-demoable:
-    {from_email, subject, body, external_message_id}."""
-    ingest_mod.rate_limit(f"email:{request.client.host if request.client else 'x'}")
+    {from_email, subject, body, external_message_id}.
+
+    The shared secret authenticates the *relay*, not the sender: `from_email`
+    is still whatever the message claimed. A relay that wants the request
+    attributed to that address must forward the receiving server's
+    `authentication_results` header with it; without one the sender is treated
+    as unverified and the request files under the fallback owner.
+    """
     ingest_mod.check_webhook_secret(x_intake_secret)
     ext = str(payload.get("external_message_id") or "").strip()
     if not ext:
@@ -597,18 +503,20 @@ def email_webhook(
         subject=str(payload.get("subject") or ""),
         body=str(payload.get("body") or ""),
         external_message_id=ext,
+        auth_results=(payload.get("authentication_results") or None),
     )
 
 
 @router.post("/teams-webhook")
+@limiter.limit(settings.rate_limit_intake_webhook)
 async def teams_webhook(request: Request, ingest_service: IngestService = Depends(get_ingest_service)):
     """Microsoft Teams outgoing-webhook bot (HMAC-verified)."""
     raw = await request.body()
-    ingest_mod.rate_limit(f"teams:{request.client.host if request.client else 'x'}")
     ingest_mod.verify_teams_hmac(raw, request.headers.get("authorization"))
     import json as _json
     activity = _json.loads(raw or b"{}")
-    return ingest_service.handle_teams_activity(activity)
+    # Handling the activity files a request (AI triage): blocking work, so off the event loop.
+    return await run_in_threadpool(ingest_service.handle_teams_activity, activity)
 
 
 @router.post("/mailbox/poll")
@@ -633,12 +541,6 @@ def rescreen_request(request_id: str,
     result = screening_service.run_screening(r, actor_user_id=current_user.id)
     db.commit()
     return result
-
-
-@router.post("/sanctions/refresh")
-def sanctions_refresh(screening_service: ScreeningService = Depends(get_screening_service), current_user=Depends(_MANAGE)):
-    """Pull the live OFAC SDN list (Treasury CSV) into the screening table."""
-    return screening_service.refresh_ofac(current_user.org_id)
 
 
 @router.post("/requests/{request_id}/documents", status_code=status.HTTP_201_CREATED)
@@ -670,5 +572,5 @@ def list_request_documents(request_id: str, intake_service: IntakeService = Depe
 def set_request_parties(request_id: str, payload: PartiesUpdate,
                         intake_service: IntakeService = Depends(get_intake_service),
                         current_user=Depends(_READ),_screen=Depends(_INTAKE_EDIT)):
-    """Replace the request's parties (counterparty + adverse/related) and re-screen."""
+    """Replace the request's parties (counterparty + adverse/related) and refresh the relationship note."""
     return intake_service.set_parties(actor=current_user, request_id=request_id, parties=payload.parties)

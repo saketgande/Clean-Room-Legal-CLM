@@ -75,6 +75,12 @@ engine = create_engine(
     max_overflow=settings.db_max_overflow,
     pool_recycle=settings.db_pool_recycle_seconds,
     pool_timeout=settings.db_pool_timeout_seconds,
+    # A transaction left open (a hung request, a process stuck mid-reload)
+    # keeps its locks — including the app-wide audit-chain lock — and froze
+    # every writer for 25 minutes on 2026-09-28. Postgres ends such a session
+    # after this long, releasing its locks. Longer than the slowest legitimate
+    # open transaction: an AI call made inside one (bounded at 300s).
+    connect_args={"options": f"-c idle_in_transaction_session_timeout={settings.db_idle_transaction_timeout_ms}"},
 )
 # expire_on_commit=False: keep ORM instances usable after commit for the rest
 # of the request (response serialization, request-context logging middleware).

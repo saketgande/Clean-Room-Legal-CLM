@@ -16,7 +16,7 @@ class WallPrincipalOut(BaseModel):
 class WallCreate(BaseModel):
     name: str
     reason: str | None = None
-    scope_type: str = Field(pattern="^(contract|project)$")
+    scope_type: str = Field(pattern="^contract$")
     scope_id: str
     principals: list[WallPrincipalIn] = Field(default_factory=list)
 

@@ -14,11 +14,9 @@ matching every other standalone intake agent in this codebase (see
 litigation_agent.py, flow_agent.py): never raises, always returns a usable
 decision.
 
-The proposed type is always either a real, active IntakeRequestType configured
-for the org (so the request gets that type's dynamic fields/stage ladder, same
-as filing it manually), or one of agents.BUILTIN_EXTRA_TYPES — never a raw
-string derived from the email itself, so the Inbox TYPE column always matches
-one of the choices on the New Request form.
+The proposed type label is always one of agents.BUILTIN_EXTRA_TYPES — never a
+raw string derived from the email itself, so the Inbox TYPE column always
+matches one of the choices on the New Request form.
 """
 
 from __future__ import annotations
@@ -29,7 +27,6 @@ import re
 from sqlalchemy.orm import Session
 
 from app.intake import agents
-from app.intake.service import list_types
 
 logger = logging.getLogger(__name__)
 
@@ -74,20 +71,6 @@ _CONTRACT_FILENAME_HINTS = (
     "redline", "terms",
 )
 _SHORT_HINTS = {"nda", "msa", "sow"}
-
-# category -> substrings to look for in a configured IntakeRequestType.name
-# (case-insensitive) — e.g. category "NDA" matches a type named "NDA" or
-# "Mutual NDA". No entry means always use the builtin extra fallback
-# (agents.CATEGORY_TO_BUILTIN_EXTRA) for that category.
-_CATEGORY_TYPE_NAME_HINTS = {
-    "NDA": ("nda",),
-    "Litigation": ("litigation",),
-    "Privacy": ("privacy", "dpia", "data protection"),
-    "Trademark": ("trademark",),
-    "Vendor": ("vendor",),
-    "Contract Review": ("contract review", "contract"),
-    "Policy/FAQ": ("policy", "faq"),
-}
 
 _CATEGORIES = ("NDA", "Litigation", "Privacy", "Trademark", "Vendor",
                "Contract Review", "Policy/FAQ", "General")
@@ -142,7 +125,6 @@ def _llm_classify(db: Session, org_id: str, subject: str, text: str, *, claude_c
     raises) if the call fails or returns unusable data — callers fall back to
     the deterministic heuristic above."""
     from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
     from app.integrations.claude import run_coro_blocking
     from app.integrations.dependencies import get_claude_client
 
@@ -150,8 +132,8 @@ def _llm_classify(db: Session, org_id: str, subject: str, text: str, *, claude_c
     bundle = get_agent_prompt(db, agent_id="email_triage_agent", org_id=org_id)
     user_prompt = _prompt(subject, text)
     try:
-        enforce_daily_token_cap(org_id)
         resp = run_coro_blocking(lambda: claude_client.complete_structured(
+            org_id=org_id,
             system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
             user_prompt=user_prompt,
             tool_name="classify_email", input_schema=_SCHEMA,
@@ -197,10 +179,10 @@ def is_clm_related(db: Session, org_id: str, subject: str, body: str, attachment
 
 def classify_email(db: Session, org_id: str, subject: str, text: str) -> dict:
     """Runs the LLM classifier against subject + body (+ attachment excerpts
-    once available) and proposes a `type_label` + `request_type_id` for the
-    Inbox TYPE column. Both are None when the classifier decides "General" —
-    callers should leave the request's existing (already-canonical) type
-    alone in that case rather than overwrite it with something generic."""
+    once available) and proposes a `type_label` for the Inbox TYPE column.
+    None when the classifier decides "General" — callers should leave the
+    request's existing (already-canonical) type alone in that case rather than
+    overwrite it with something generic."""
     from app.core.config import settings
 
     if not settings.mock_claude:
@@ -215,29 +197,7 @@ def classify_email(db: Session, org_id: str, subject: str, text: str) -> dict:
 
     category = result.get("category")
     result["type_label"] = None
-    result["request_type_id"] = None
     if category == "General":
         return result
-
-    matched = _match_configured_type(db, org_id, category)
-    if matched:
-        result["type_label"] = matched["name"] + " Request"
-        result["request_type_id"] = matched["id"]
-    else:
-        result["type_label"] = agents.CATEGORY_TO_BUILTIN_EXTRA.get(category, agents.DEFAULT_BUILTIN_EXTRA)
+    result["type_label"] = agents.CATEGORY_TO_BUILTIN_EXTRA.get(category, agents.DEFAULT_BUILTIN_EXTRA)
     return result
-
-
-def _match_configured_type(db: Session, org_id: str, category: str) -> dict | None:
-    """Find an active, org-configured IntakeRequestType whose name plausibly
-    corresponds to a classifier category, so an emailed NDA request gets the
-    exact same request_type_id (and thus dynamic fields/stage ladder) a
-    manually filed one would — instead of just a free-text label."""
-    hints = _CATEGORY_TYPE_NAME_HINTS.get(category)
-    if not hints:
-        return None
-    for t in list_types(db, org_id=org_id):
-        name_lower = t["name"].lower()
-        if any(hint in name_lower for hint in hints):
-            return t
-    return None

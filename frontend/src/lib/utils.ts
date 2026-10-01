@@ -180,3 +180,49 @@ export function truncate(s: string | null | undefined, n = 120): string {
   if (!s) return "";
   return s.length > n ? s.slice(0, n).trimEnd() + "…" : s;
 }
+
+// ---- Contract naming ------------------------------------------------------
+// Titles are seeded from the uploaded filename, so a register listed things
+// like "b87f2c89ed253d4d0b7492a6f8b6f4de.jpg" and "leecounty-scan-6pg.pdf" as
+// contract names. Anything that still looks like a filename gets replaced by
+// what a lawyer would actually call the agreement.
+
+const FILENAME_RE = /\.(docx?|pdf|jpe?g|png|txt|xlsx?|rtf|eml|msg)$/i;
+const HEX_BLOB_RE = /^[0-9a-f]{16,}$/i;
+const WORD_SEPARATORS_RE = /[_-]+/g;
+
+/** Does this string read as a filename or an opaque blob rather than a name? */
+export function looksLikeFilename(title?: string | null): boolean {
+  const t = (title ?? "").trim();
+  if (!t) return true;
+  if (FILENAME_RE.test(t)) return true;
+  if (HEX_BLOB_RE.test(t.replace(FILENAME_RE, ""))) return true;
+  // "Acme_MSA_Counterparty_Draft" — no spaces but separator-joined words.
+  return !t.includes(" ") && WORD_SEPARATORS_RE.test(t);
+}
+
+/** The filename tidied into words, for the secondary line. */
+export function prettyFilename(title?: string | null): string {
+  const t = (title ?? "").trim();
+  if (!t) return "";
+  return t.replace(FILENAME_RE, "").replace(WORD_SEPARATORS_RE, " ").trim();
+}
+
+/**
+ * What a row should lead with: "Master Services Agreement — Acme Analytics LLC".
+ *
+ * A real title is always preferred; this only steps in when the title is still
+ * the uploaded filename. Falls back through type, then counterparty, then the
+ * tidied filename, so a row never renders as "Untitled".
+ */
+export function contractDisplayName(c: {
+  title?: string | null;
+  contract_type?: string | null;
+  counterparty_name?: string | null;
+}): string {
+  if (!looksLikeFilename(c.title)) return (c.title ?? "").trim();
+  const type = (c.contract_type ?? "").trim();
+  const party = (c.counterparty_name ?? "").trim();
+  if (type && party) return `${type} — ${party}`;
+  return type || party || prettyFilename(c.title) || "Untitled contract";
+}

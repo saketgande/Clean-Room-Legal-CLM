@@ -1,0 +1,242 @@
+<div class="app">
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true">&#10035;</span>Docstudio<span class="tag">dev</span></div>
+
+    <div class="switcher">
+      <button type="button" id="doc-switch" class="switch" aria-haspopup="true" aria-expanded="false">
+        <span id="doc-title" class="title">No document open</span>
+        <span id="doc-meta" class="meta"></span>
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6.5 8 10.5l4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+      </button>
+      <nav id="doc-list" class="docs" aria-label="Documents" hidden></nav>
+    </div>
+
+    <div id="vbar" class="vbar" hidden>
+      <button type="button" id="v-edit" class="btn edit-doc" hidden>Edit document</button>
+      <button type="button" id="v-done" class="btn edit-doc" hidden>Done editing</button>
+      <label class="check"><input type="checkbox" id="v-reveal"><span>Hidden text in red</span></label>
+      <label class="check" id="v-compare-box" hidden><input type="checkbox" id="v-compare"><span>Beside the PDF</span></label>
+      <button type="button" id="v-out" class="icon" aria-label="Zoom out">&minus;</button>
+      <span id="v-zoom" class="zoom">100%</span>
+      <button type="button" id="v-in" class="icon" aria-label="Zoom in">+</button>
+      <a id="orig-download" class="link" download hidden>Download</a>
+    </div>
+
+    <span class="spacer"></span>
+    <button type="button" id="new-doc" class="new">
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" fill="none"/></svg>
+      New document
+    </button>
+  </header>
+
+  <!-- The document itself, and nothing else: the editor when it can hold the
+       file, this page's own viewer when it cannot — a scan with no reading yet,
+       a kind of file the editor does not open, or a version from History, which
+       is shown as it was and not edited. -->
+  <main class="doc">
+    <p id="conv-note" class="note" hidden></p>
+    <p id="hist-note" class="note hist" hidden><span id="hist-text"></span> <button type="button" id="hist-back" class="link">Back to the latest</button></p>
+    <p id="orig-note" class="note" hidden></p>
+    <div id="cite-box" class="cite-box" hidden>
+      <div class="cite-h"><span id="cite-where"></span><button type="button" id="cite-close" class="icon" aria-label="Close the citation">&times;</button></div>
+      <p id="cite-quote" class="cite-q"></p>
+    </div>
+    <div id="viewer"></div>
+
+    <!-- The front door: a file dropped here is read, turned into a Word
+         document and opened in the editor, in one go. -->
+    <div id="start" class="start">
+      <label id="drop" class="drop">
+        <input type="file" id="file" accept=".pdf,.docx,.txt" hidden>
+        <strong id="drop-title">Drop a contract here</strong>
+        <span id="drop-sub" class="muted">a .pdf, .docx or .txt &mdash; or click to choose one. It opens ready to edit.</span>
+      </label>
+      <div class="start-opts">
+        <label class="check"><input type="checkbox" id="ai" checked><span>Arrange the clauses with AI <span class="muted">&mdash; one call, a few cents</span></span></label>
+        <label class="field"><span>Add as</span><select id="target"><option value="">a new document</option></select></label>
+      </div>
+      <p id="status" class="muted center"></p>
+      <p id="error" class="error center" hidden></p>
+      <button type="button" id="run" class="btn pri" hidden>Read it</button>
+      <button type="button" id="cancel-upload" class="link" hidden>Cancel</button>
+    </div>
+  </main>
+
+  <div id="grip" class="grip" title="Drag to resize"></div>
+
+  <!-- Everything you do to the document: ask about it, redline it, read what
+       was found in it, note things on it, go back through its versions, take a
+       copy away. -->
+  <aside class="sidebar" aria-label="What you can do with this document">
+    <div class="dtabs" role="tablist">
+      <button type="button" id="tab-ask" class="dtab on" role="tab" aria-selected="true">Ask</button>
+      <button type="button" id="tab-changes" class="dtab" role="tab" aria-selected="false">Changes <span id="changes-count" class="count" hidden></span></button>
+      <button type="button" id="tab-report" class="dtab" role="tab" aria-selected="false">Report</button>
+      <button type="button" id="tab-notes" class="dtab" role="tab" aria-selected="false">Notes</button>
+      <button type="button" id="tab-history" class="dtab" role="tab" aria-selected="false">History</button>
+      <button type="button" id="tab-files" class="dtab" role="tab" aria-selected="false">Files</button>
+    </div>
+
+    <div id="ask" class="pane">
+      <div id="thread" class="thread">
+        <div class="thread-in">
+          <div id="welcome" class="welcome">
+            <h1 id="welcome-h">Add a document to begin</h1>
+            <p id="welcome-p">Drop one on the left and it opens here, ready to edit.</p>
+            <div id="suggest" class="suggest" hidden>
+              <button type="button">Summarise the key terms</button>
+              <button type="button">What is the limitation of liability?</button>
+              <button type="button">Which law governs this agreement?</button>
+              <button type="button">How can this agreement be terminated?</button>
+            </div>
+          </div>
+          <div id="answers"></div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="box">
+          <textarea id="q" rows="1" placeholder="Add a document to ask about it" disabled></textarea>
+          <div class="box-foot">
+            <span id="ask-status" class="hint">Enter to ask &middot; Shift+Enter for a new line</span>
+            <button type="button" id="ask" class="send" aria-label="Ask" disabled>
+              <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 13V3.5M3.8 7.5 8 3.3l4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+            </button>
+          </div>
+        </div>
+        <p id="ask-error" class="error center" hidden></p>
+        <p class="fine">Answers come only from this document, and every citation is checked against it. One AI call per question.</p>
+      </div>
+    </div>
+
+    <div id="changes" class="pane" hidden>
+      <div class="scroll pad">
+        <p id="rl-editing-note" class="note" hidden>This list is the document as it was last saved. Accepting and
+          rejecting happen in the editor itself, where you can watch them; asking the AI saves the editor first.</p>
+        <div id="rl-convert" class="rl-convert" hidden>
+          <p><b>This file cannot hold tracked changes</b> &mdash; only a Word file can. Make an editable Word
+            version of it. The original stays, as the version before it.</p>
+          <button type="button" id="rl-make-word" class="btn pri">Make an editable Word version</button>
+        </div>
+        <div id="mk-note" class="rl-convert" hidden></div>
+        <div id="rl-ai" class="rl-ai">
+          <textarea id="rl-instruction" rows="2" placeholder="Ask the AI to redline &mdash; e.g. &ldquo;Cap liability at 24 months of fees&rdquo;"></textarea>
+          <div class="row end"><span id="rl-status" class="muted"></span><button type="button" id="rl-draft" class="btn pri">Suggest edits</button></div>
+          <div id="rl-drafted" class="rl-drafted" hidden></div>
+        </div>
+        <div id="mk-tools" hidden>
+          <div class="rl-head">
+            <b id="mk-count">No suggested changes</b>
+            <span class="spacer"></span>
+            <button type="button" id="mk-agree-all" class="btn">Agree to all open</button>
+          </div>
+          <p class="muted rl-hint">Select words on the page and choose <b>Suggest edit</b> or <b>Edit clause</b>. A PDF
+            is not changed by a suggestion: agree to the ones you accept, then take one of the copies under <b>Files</b>.</p>
+          <div id="mk-list"></div>
+        </div>
+        <div id="rl-tools">
+          <div class="rl-head">
+            <b id="rl-count">No tracked changes</b>
+            <span class="spacer"></span>
+            <button type="button" id="rl-accept-all" class="btn">Accept all</button>
+            <button type="button" id="rl-reject-all" class="btn">Reject all</button>
+          </div>
+          <p class="muted rl-hint">Type in the document to redline it &mdash; every edit is a tracked change by You.
+            Each change, accepted or rejected, makes a new version; the one before it stays in <b>History</b>.</p>
+          <div id="rl-list"></div>
+        </div>
+        <p id="rl-error" class="error" hidden></p>
+      </div>
+    </div>
+
+    <div id="report-pane" class="pane" hidden>
+      <div class="vbar flat"><span class="muted">What was read, and what to check</span><span class="spacer"></span><button type="button" id="download" class="link">Download .md</button></div>
+      <article id="doc" class="md scroll"><p class="empty">No document open.</p></article>
+    </div>
+
+    <div id="notes" class="pane" hidden>
+      <div class="scroll pad">
+        <h2>Notes</h2>
+        <p class="muted">Select words in the document and click <b>Comment</b>, or attach a note here by pasting its
+          exact words. Upload a new version and every note looks for its words again.</p>
+        <textarea id="n-quote" rows="3" placeholder="The exact words to attach to"></textarea>
+        <input type="text" id="n-body" placeholder="Your note">
+        <div class="row">
+          <select id="n-kind"><option>comment</option><option>risk</option><option>citation</option></select>
+          <button type="button" id="n-add" class="btn pri">Add note</button>
+        </div>
+        <p id="n-error" class="error" hidden></p>
+        <div id="lost"></div>
+      </div>
+    </div>
+
+    <div id="history" class="pane" hidden>
+      <div class="scroll pad">
+        <h2>History</h2>
+        <p class="muted">Every version is kept and never changed: version 1 is the file as it arrived. Compare any
+          version with the latest to see exactly which words changed.</p>
+        <div id="hs-list"></div>
+        <div id="hs-compare" class="compare-view" hidden></div>
+        <p id="hs-error" class="error" hidden></p>
+      </div>
+    </div>
+
+    <div id="files-pane" class="pane" hidden>
+      <div class="scroll pad">
+        <h2>Files</h2>
+        <p class="muted">Copies to take away. The document in the editor is always the latest version; these are made
+          from it.</p>
+        <div class="outputs">
+          <div class="out"><a id="out-current" class="btn" download>Download the document</a>
+            <span class="muted">The Word file as it stands, with any tracked changes still in it.</span></div>
+          <div class="out" id="out-reading-row" hidden><button type="button" id="out-reading" class="btn">What was read (markdown)</button>
+            <span class="muted">A scan&rsquo;s reading, block by block, with the page, place and size of each &mdash; the file the Word version is rebuilt from. Correct a word in it and build again.</span></div>
+          <div class="out" id="out-look-row"><button type="button" id="out-look" class="btn">A look-alike Word copy</button>
+            <span class="muted">Looks like the PDF page for page, because every line sits in its own box &mdash; good to send, awkward to edit.</span></div>
+          <div class="out"><button type="button" id="out-marked" class="btn">The marked-up PDF</button>
+            <span class="muted">Every mark as a PDF annotation any reader shows. The original bytes are kept, so a signature still verifies.</span></div>
+          <div class="out" id="out-word-row"><button type="button" id="out-word" class="btn">A Word version with the agreed marks</button>
+            <span class="muted">Real paragraphs in the PDF&rsquo;s own fonts and sizes, the agreed changes as tracked changes.</span></div>
+          <div class="out" id="out-patch-row"><button type="button" id="out-patch" class="btn">Write the marks into the PDF</button>
+            <span class="muted">Only where the new words fit their line in the file&rsquo;s own font; the page is then read back and compared, or nothing is written.</span></div>
+          <div class="out"><button type="button" id="out-amend" class="btn">An amendment</button>
+            <span class="muted">A separate document listing each change clause by clause &mdash; how a signed contract is changed.</span></div>
+          <div id="out-result" class="out-result" hidden></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div id="select-tools" class="float-bar" hidden>
+  <button type="button" id="comment-button">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3 3.5h10v7H7.5L4.5 13v-2.5H3z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/></svg>
+    Comment
+  </button>
+  <button type="button" id="edit-button">
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M10.5 3.5l2 2L6 12H4v-2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none"/></svg>
+    Suggest edit
+  </button>
+  <button type="button" id="clause-button" title="Edit the whole clause as text; the words you change become tracked changes">Edit clause</button>
+  <button type="button" id="mark-button" title="Highlight these words">
+    <span class="swatch" aria-hidden="true"></span>Highlight
+  </button>
+  <span id="fmt-bar" class="fmt">
+    <button type="button" id="fmt-bold" title="Bold, as a tracked change"><b>B</b></button>
+    <button type="button" id="fmt-italic" title="Italic, as a tracked change"><i>I</i></button>
+    <button type="button" id="fmt-underline" title="Underline, as a tracked change"><u>U</u></button>
+  </span>
+</div>
+
+<div id="clause-editor" class="overlay" hidden>
+  <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="ce-h">
+    <h2 id="ce-h">Edit clause <span id="ce-label" class="muted"></span></h2>
+    <p id="ce-note" class="muted"></p>
+    <textarea id="ce-text" rows="10" spellcheck="true"></textarea>
+    <div class="row end">
+      <span id="ce-status" class="muted"></span>
+      <button type="button" id="ce-cancel" class="btn">Cancel</button>
+      <button type="button" id="ce-save" class="btn pri">Save the changed words</button>
+    </div>
+    <p id="ce-error" class="error" hidden></p>
+  </div>
+</div>

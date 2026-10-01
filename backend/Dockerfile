@@ -49,6 +49,21 @@ COPY --from=builder /wheels /wheels
 COPY requirements.lock ./
 RUN pip install --no-deps /wheels/* && rm -rf /wheels
 
+# Bake the local ONNX models into the image. Without this, fastembed downloads
+# ~150 MB from the HuggingFace Hub on the first embed/rerank of every fresh
+# container, into the system temp dir that no volume preserves. That makes a
+# cold start depend on hf.co being reachable and un-rate-limited (the requests
+# are unauthenticated) — and because ALLOW_MOCK_EMBEDDINGS is off in production,
+# a failed download does not degrade, it raises and the embedding job fails.
+# Pinned here so the image is self-contained and start-up does no network I/O.
+ENV FASTEMBED_CACHE_PATH=/opt/models
+RUN mkdir -p /opt/models \
+ && python -c "\
+from fastembed import TextEmbedding; \
+from fastembed.rerank.cross_encoder import TextCrossEncoder; \
+TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); \
+TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
+
 # App source. The package is importable via PYTHONPATH=/app (no editable
 # install needed); alembic/celery/uvicorn run from this working directory.
 COPY . .
@@ -58,10 +73,22 @@ COPY . .
 # on first mount, so the non-root process can write contract files.
 RUN useradd --system --create-home --uid 10001 aegis \
  && mkdir -p /data/contracts \
- && chown -R aegis:aegis /app /data
+ && chown -R aegis:aegis /app /data /opt/models
 USER aegis
 
 EXPOSE 8000
 
 # Default role is the API; compose overrides `command` for worker/beat/migrate.
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# --- Dev stage: runtime + test/lint tooling -------------------------------
+# Selected by docker-compose.override.yml (target: dev) so the documented
+# `docker compose exec backend python -m pytest` works out of the box. Kept
+# LAST but never the default: the base compose file pins `target: runtime`,
+# so a plain production build never picks this up.
+FROM runtime AS dev
+USER root
+# -c requirements.lock so pulling in the dev extras can't quietly upgrade a
+# runtime dep past the version the production image ships.
+RUN pip install --no-cache-dir -c requirements.lock ".[dev]"
+USER aegis

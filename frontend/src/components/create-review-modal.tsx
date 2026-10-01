@@ -5,7 +5,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, FileText, Wand2, Upload } from "lucide-react";
 import {
   contractsApi,
-  mattersApi,
   tabularApi,
   promptsApi,
 } from "@/lib/endpoints";
@@ -16,49 +15,33 @@ import { ImportContractModal } from "@/components/import-contract-modal";
 type Column = { name: string; prompt: string };
 
 /**
- * Shared review-creation modal. Used standalone from /tabular-reviews and from
- * a project's Reviews tab (with the project pre-selected & locked) so a review
- * is always linked to its project + optionally seeded from a workflow template.
+ * Shared review-creation modal, used from /tabular-reviews and the Prompt
+ * Library; optionally seeded from a workflow template.
  */
 export function CreateReviewModal({
   open,
   onClose,
   onCreated,
-  defaultProjectId,
   defaultWorkflowId,
-  lockProject = false,
 }: {
   open: boolean;
   onClose: () => void;
   onCreated: (id: string) => void;
-  defaultProjectId?: string;
   defaultWorkflowId?: string;
-  lockProject?: boolean;
 }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [name, setName] = useState("");
-  const [matterId, setProjectId] = useState(defaultProjectId ?? "");
   const [workflowId, setWorkflowId] = useState("");
   const [contractIds, setContractIds] = useState<string[]>([]);
   const [importOpen, setImportOpen] = useState(false);
   const [columns, setColumns] = useState<Column[]>([{ name: "", prompt: "" }]);
   const [busy, setBusy] = useState(false);
 
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-    enabled: open,
-  });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
     enabled: open,
-  });
-  const { data: projectContracts } = useQuery({
-    queryKey: ["project", matterId, "contracts"],
-    queryFn: () => mattersApi.contracts(matterId),
-    enabled: open && !!matterId,
   });
   const { data: workflows } = useQuery({
     queryKey: ["workflows"],
@@ -70,10 +53,6 @@ export function CreateReviewModal({
     (w) => w.workflow_type === "tabular_review",
   );
 
-  useEffect(() => {
-    if (open) setProjectId(defaultProjectId ?? "");
-  }, [open, defaultProjectId]);
-
   // Pre-select & seed columns from a prompt template when launched
   // from the Prompt Library "Use prompt" action.
   useEffect(() => {
@@ -83,16 +62,8 @@ export function CreateReviewModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, defaultWorkflowId, workflows]);
 
-  // When a project is chosen, pre-select that project's contracts.
-  useEffect(() => {
-    if (matterId && projectContracts) {
-      setContractIds(projectContracts.map((pc) => pc.contract_id));
-    }
-  }, [matterId, projectContracts]);
-
   function reset() {
     setName("");
-    setProjectId(defaultProjectId ?? "");
     setWorkflowId("");
     setContractIds([]);
     setColumns([{ name: "", prompt: "" }]);
@@ -133,7 +104,6 @@ export function CreateReviewModal({
     try {
       const review = await tabularApi.create({
         name: name.trim(),
-        matter_id: matterId || undefined,
         contract_ids: contractIds,
         columns: validColumns.map((c) => ({
           name: c.name.trim(),
@@ -213,28 +183,9 @@ export function CreateReviewModal({
           )}
         </Field>
 
-        <Field label="Matter" hint={lockProject ? undefined : "Optional"}>
-          <Select
-            value={matterId}
-            onChange={(e) => setProjectId(e.target.value)}
-            disabled={lockProject}
-          >
-            <option value="">No matter</option>
-            {(projects ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
         <Field
           label={`Contracts (${contractIds.length} selected)`}
-          hint={
-            matterId
-              ? "Pre-filled from the matter — adjust if needed"
-              : "Pick the contracts to run every column against"
-          }
+          hint="Pick the contracts to run every column against"
         >
           <button
             type="button"
@@ -331,7 +282,6 @@ export function CreateReviewModal({
     <ImportContractModal
       open={importOpen}
       onClose={() => setImportOpen(false)}
-      defaultProjectId={matterId || undefined}
       onUploaded={(c) => {
         qc.invalidateQueries({ queryKey: ["contracts"] });
         setContractIds((prev) =>

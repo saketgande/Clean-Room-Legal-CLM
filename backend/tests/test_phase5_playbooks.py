@@ -4,7 +4,7 @@ from zipfile import ZipFile
 
 from app.ai.registry import skill_registry
 from app.ai.tool_registry import tool_registry
-from app.ai.tool_runtime import tool_runtime
+from app.ai.tool_runtime import _build_redline_docx, tool_runtime
 from app.playbooks.models import PlaybookRule
 from app.playbooks.routes import (
     decide_deviation,
@@ -13,7 +13,6 @@ from app.playbooks.routes import (
     run_playbook,
 )
 from app.playbooks.service import (
-    _build_playbook_redline_docx,
     evaluate_rules_against_text,
     execute_playbook_run,
     generated_default_rules,
@@ -62,11 +61,16 @@ def test_playbook_rule_engine_detects_required_and_prohibited_deviations():
 
 
 def test_playbook_redline_docx_contains_native_word_revision_markup():
-    content = _build_playbook_redline_docx(
-        contract_title="Vendor Agreement",
+    source = "Supplier accepts unlimited liability."
+    start = source.index("unlimited liability")
+    content = _build_redline_docx(
+        title="Vendor Agreement - Playbook Redline Proposal",
         base_version_number=1,
-        source_text="Supplier accepts unlimited liability.",
-        instructions="Replace unlimited liability with a reasonable cap.",
+        source_text=source,
+        anchored=[{"start": start, "end": start + len("unlimited liability"), "applied": True,
+                   "original_text": "unlimited liability", "replacement_text": "liability capped at fees paid"}],
+        author="Legal AI Playbook",
+        notes="Replace unlimited liability with a reasonable cap.",
     )
 
     with ZipFile(BytesIO(content)) as archive:

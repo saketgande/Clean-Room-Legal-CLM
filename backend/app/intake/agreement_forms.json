@@ -1,0 +1,1230 @@
+[
+ {
+  "key": "new_agreement",
+  "name": "New agreement",
+  "fields": [
+   {
+    "key": "agreement_type",
+    "label": "What kind of agreement?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "NDA",
+     "Services (MSA)",
+     "Buying from a vendor",
+     "Software or SaaS",
+     "Consultancy",
+     "Selling to a customer",
+     "Something else"
+    ]
+   },
+   {
+    "key": "entity",
+    "label": "Our legal entity",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "entity_id",
+    "label": "Our legal entity (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty",
+    "label": "Counterparty",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty_id",
+    "label": "Counterparty (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "paper",
+    "label": "Whose paper?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Our template",
+     "Their paper"
+    ]
+   },
+   {
+    "key": "purpose",
+    "label": "What is this agreement for?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "department",
+    "label": "Requesting department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "nda_kind",
+    "label": "Mutual or one-way?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Mutual",
+     "One-way"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nda_direction",
+    "label": "Who shares information?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "We share",
+     "They share"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     },
+     {
+      "field": "nda_kind",
+      "in": [
+       "One-way"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nda_term",
+    "label": "How long should it last?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "1 year",
+     "2 years",
+     "3 years",
+     "5 years"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "governing_law",
+    "label": "Governing law",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "England and Wales",
+     "Singapore",
+     "New York",
+     "Delaware"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "NDA"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "value",
+    "label": "Total contract value",
+    "kind": "number",
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "start_date",
+    "label": "Start date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "term",
+    "label": "Term",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed end date",
+     "Renews automatically",
+     "No end date (evergreen)"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "end_date",
+    "label": "End date",
+    "kind": "date",
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Fixed end date",
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "renewal_term",
+    "label": "Each renewal lasts",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "1 year",
+     "2 years",
+     "3 years"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "notice_days",
+    "label": "Notice needed to stop it renewing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     },
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "scope",
+    "label": "Scope of services",
+    "kind": "textarea",
+    "required": true,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Consultancy",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "buying",
+    "label": "What are we buying?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Goods",
+     "Services",
+     "Goods and services"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Buying from a vendor"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "hosting",
+    "label": "Where will our data be hosted?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "India",
+     "European Union",
+     "United States",
+     "Several regions"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Software or SaaS"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "payment_terms",
+    "label": "Payment terms",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "45 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "nonstandard",
+    "label": "Non-standard terms the customer asked for",
+    "kind": "textarea",
+    "required": false,
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "personal_data",
+    "label": "Will personal data be shared or processed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "gxp",
+    "label": "Is this GxP or other regulated quality work?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ],
+    "show": [
+     {
+      "field": "agreement_type",
+      "in": [
+       "Services (MSA)",
+       "Buying from a vendor",
+       "Software or SaaS",
+       "Consultancy",
+       "Selling to a customer",
+       "Something else"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "sow",
+  "name": "Statement of Work",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which master agreement is this under?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "department",
+    "label": "Requesting department",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Enterprise Systems",
+     "Procurement",
+     "Commercial",
+     "R&D",
+     "Human Resources",
+     "Finance",
+     "Quality"
+    ]
+   },
+   {
+    "key": "sow_title",
+    "label": "SoW title",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "services_start",
+    "label": "Services start",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "services_end",
+    "label": "Services end",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "value",
+    "label": "Total value of this SoW",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ]
+   },
+   {
+    "key": "pricing",
+    "label": "Pricing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed fee",
+     "Time and materials",
+     "Milestones"
+    ]
+   },
+   {
+    "key": "scope",
+    "label": "Scope of services",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "deliverables",
+    "label": "Deliverables and who accepts them",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "personal_data",
+    "label": "Will personal data be shared or processed?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "gxp",
+    "label": "Is this GxP or other regulated quality work?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "dpa",
+  "name": "Data Processing Agreement",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which agreement?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_name",
+    "label": "Their signer: name",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cp_signer_email",
+    "label": "Their signer: email",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "paper",
+    "label": "Whose paper?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Our template",
+     "Their paper"
+    ]
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "our_role",
+    "label": "Our role",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Controller: we decide how the data is used",
+     "Processor: we act on their instructions"
+    ]
+   },
+   {
+    "key": "processing_purpose",
+    "label": "Why is the data processed?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "data_types",
+    "label": "What kind of personal data?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Contact and identity",
+     "Employee / HR",
+     "Health or other special category",
+     "Financial",
+     "Several of these"
+    ]
+   },
+   {
+    "key": "data_subjects",
+    "label": "Whose data?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Employees",
+     "Customers",
+     "Patients or trial subjects",
+     "Suppliers",
+     "Several"
+    ]
+   },
+   {
+    "key": "transfer",
+    "label": "Will data leave India?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "subprocessors",
+    "label": "Will they use sub-processors?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "amendment",
+  "name": "Amendment",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which agreement?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "what_changes",
+    "label": "What is changing?",
+    "kind": "multiselect",
+    "required": true,
+    "options": [
+     "Value",
+     "Dates",
+     "Scope",
+     "Parties",
+     "Other"
+    ]
+   },
+   {
+    "key": "new_value",
+    "label": "New total value",
+    "kind": "number",
+    "required": true,
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Value"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Value"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "new_end_date",
+    "label": "New end date",
+    "kind": "date",
+    "required": true,
+    "show": [
+     {
+      "field": "what_changes",
+      "in": [
+       "Dates"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "change_effective",
+    "label": "Change takes effect on",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "reason",
+    "label": "Why?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "renewal",
+  "name": "Renewal",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which agreement?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "renew_terms",
+    "label": "Renew on",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Same terms",
+     "Changed terms"
+    ]
+   },
+   {
+    "key": "renew_end",
+    "label": "New end date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "renew_value",
+    "label": "New total value",
+    "kind": "number",
+    "required": true,
+    "show": [
+     {
+      "field": "renew_terms",
+      "in": [
+       "Changed terms"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ],
+    "show": [
+     {
+      "field": "renew_terms",
+      "in": [
+       "Changed terms"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "reason",
+    "label": "Why?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "termination",
+  "name": "Termination",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which agreement?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "grounds",
+    "label": "Why is it ending?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "For convenience",
+     "Breach by the other side",
+     "Mutual agreement",
+     "Not renewing at expiry"
+    ]
+   },
+   {
+    "key": "termination_date",
+    "label": "Termination date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "clause_breached",
+    "label": "Which clause was breached?",
+    "kind": "text",
+    "required": true,
+    "show": [
+     {
+      "field": "grounds",
+      "in": [
+       "Breach by the other side"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "cure_served",
+    "label": "Has the cure period run out?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ],
+    "show": [
+     {
+      "field": "grounds",
+      "in": [
+       "Breach by the other side"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "reason",
+    "label": "Why?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "novation",
+  "name": "Novation",
+  "fields": [
+   {
+    "key": "parent_contract_id",
+    "label": "Which agreement?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "needed_by",
+    "label": "Needed by",
+    "kind": "date",
+    "required": false
+   },
+   {
+    "key": "transferring",
+    "label": "Who is transferring out?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "They are",
+     "We are"
+    ]
+   },
+   {
+    "key": "incoming_party",
+    "label": "Who takes over?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "effective_date",
+    "label": "Takes effect on",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "consent",
+    "label": "Has the outgoing party agreed in writing?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "Not yet"
+    ]
+   },
+   {
+    "key": "reason",
+    "label": "Why?",
+    "kind": "textarea",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "regularize",
+  "name": "Signed outside the system",
+  "fields": [
+   {
+    "key": "entity",
+    "label": "Our legal entity",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "entity_id",
+    "label": "Our legal entity (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty",
+    "label": "Counterparty",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "counterparty_id",
+    "label": "Counterparty (from the register)",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "date_signed",
+    "label": "Date signed",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "value",
+    "label": "Total contract value",
+    "kind": "number",
+    "required": true
+   },
+   {
+    "key": "currency",
+    "label": "Currency",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "INR",
+     "USD",
+     "EUR",
+     "GBP"
+    ]
+   },
+   {
+    "key": "start_date",
+    "label": "Start date",
+    "kind": "date",
+    "required": true
+   },
+   {
+    "key": "term",
+    "label": "Term",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Fixed end date",
+     "Renews automatically",
+     "No end date (evergreen)"
+    ]
+   },
+   {
+    "key": "end_date",
+    "label": "End date",
+    "kind": "date",
+    "required": true,
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Fixed end date",
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "renewal_term",
+    "label": "Each renewal lasts",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "1 year",
+     "2 years",
+     "3 years"
+    ],
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "notice_days",
+    "label": "Notice needed to stop it renewing",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "30 days",
+     "60 days",
+     "90 days"
+    ],
+    "show": [
+     {
+      "field": "term",
+      "in": [
+       "Renews automatically"
+      ]
+     }
+    ]
+   },
+   {
+    "key": "why_outside",
+    "label": "Why was it signed outside the system?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Urgency",
+     "Counterparty insisted",
+     "Signed before we used this system",
+     "Did not know it was needed"
+    ]
+   },
+   {
+    "key": "prior_approval",
+    "label": "Was it approved at the time?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes, in full",
+     "Informally, by email",
+     "No"
+    ]
+   },
+   {
+    "key": "signed_by_us",
+    "label": "Who signed for us?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ },
+ {
+  "key": "cancellation",
+  "name": "Cancel a request",
+  "fields": [
+   {
+    "key": "cancel_request_ref",
+    "label": "Which request?",
+    "kind": "text",
+    "required": true
+   },
+   {
+    "key": "cancel_reason",
+    "label": "Why cancel it?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "No longer needed",
+     "Duplicate",
+     "Replaced by another request",
+     "Raised in error",
+     "Counterparty withdrew"
+    ]
+   },
+   {
+    "key": "tell_cp",
+    "label": "Does the counterparty already have a draft?",
+    "kind": "select",
+    "required": true,
+    "options": [
+     "Yes",
+     "No"
+    ]
+   },
+   {
+    "key": "note_approvers",
+    "label": "Note to approvers",
+    "kind": "textarea",
+    "required": false
+   }
+  ]
+ }
+]

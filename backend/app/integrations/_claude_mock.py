@@ -44,6 +44,7 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "confidence": "low",
             "citations": [],
         },
+        "return_tabular_row_extraction": {"answers": []},
         "return_tabular_review_chat": {
             "answer": "Mock Claude mode is enabled, so no live tabular-review answer was generated.",
             "citations": [],
@@ -131,8 +132,6 @@ def select_mock_tool(
         return "get_contract_status", {"contract_handle": "contract-0"}
     if ("workflow" in text or "workflows" in text) and "list_workflows" in tool_names:
         return "list_workflows", {}
-    if ("project" in text or "contracts" in text) and "list_project_contracts" in tool_names:
-        return "list_project_contracts", {"matter_id": "mock-project-id"}
     if (
         ("contract" in text or "summar" in text or "read" in text)
         and "read_contract" in tool_names

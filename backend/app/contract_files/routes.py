@@ -8,8 +8,8 @@ from fastapi import (
     Depends,
     File,
     Form,
+    Header,
     HTTPException,
-    Query,
     Request,
     Response,
     UploadFile,
@@ -18,10 +18,11 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from slowapi.util import get_remote_address
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
+from app.contract_files import revisions
 from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.models import (
     ContractDocumentElement,
@@ -30,6 +31,8 @@ from app.contract_files.models import (
     ContractShare,
     ContractTextSnapshot,
     ContractVersion,
+    RevisionChange,
+    RevisionRound,
     StorageObject,
 )
 from app.contract_files.schemas import (
@@ -45,7 +48,13 @@ from app.contract_files.schemas import (
     ExternalCommentResponse,
     ExternalShareResponse,
 )
-from app.contract_files.service import ContractFilesService
+from app.contract_files.service import (
+    ContractFilesService,
+    _persist_document_elements,
+    next_version_number,
+    promote_version,
+    requeue_contract_ai_jobs,
+)
 from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -55,6 +64,7 @@ from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractVersionSource, ShareAccessMode, StorageBackend
 from app.core.rate_limit import limiter
+from app.core.security import hash_password, verify_password
 from app.integrations.dependencies import get_storage_service
 
 logger = logging.getLogger(__name__)
@@ -175,6 +185,8 @@ async def log_counterparty_revision(
 
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
     req_id = getattr(request.state, "request_id", None)
+    # The version we sent: what their file is compared against.
+    sent_version_id = contract.current_authoritative_version_id
     version = await files_service.add_version_from_upload(
         contract=contract,
         upload=file,
@@ -201,6 +213,13 @@ async def log_counterparty_revision(
     meta = dict(contract.metadata_json or {})
     meta["auto_review_pending"] = True
     contract.metadata_json = meta
+    round_id = None
+    if sent_version_id:
+        storage = db.get(StorageObject, version.storage_object_id) if version.storage_object_id else None
+        file_bytes = files_service.storage.read_bytes(storage.storage_key) if storage else None
+        rnd = revisions.start_round(db, contract=contract, base_version_id=sent_version_id,
+                                    revision_version=version, user=current_user, file_bytes=file_bytes)
+        round_id = rnd.id
     write_timeline_event(
         db,
         org_id=contract.org_id,
@@ -210,11 +229,208 @@ async def log_counterparty_revision(
         title="Counterparty revision received",
         actor_user_id=current_user.id,
         request_id=req_id,
-        details={"contract_version_id": version.id},
+        details={"contract_version_id": version.id, "revision_round_id": round_id},
     )
     db.commit()
     db.refresh(version)
     return version
+
+
+def _round_for(db: Session, *, contract_id: str, round_id: str, user) -> RevisionRound:
+    rnd = db.get(RevisionRound, round_id)
+    if rnd is None or rnd.contract_id != contract_id or rnd.org_id != user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Revision round not found")
+    return rnd
+
+
+@router.get("/clauses")
+def contract_clause_tree(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """The current version's clauses in document order, each with its parent —
+    the clause tree the Documents reader built for uploads since it took over
+    (older contracts: a flat list, nested only by their numbering)."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    version = (db.get(ContractVersion, contract.current_authoritative_version_id)
+               if contract.current_authoritative_version_id else None)
+    if version is None or not version.text_snapshot_id:
+        return {"version_number": None, "tree": False, "clauses": []}
+    rows = db.scalars(
+        select(ContractDocumentElement)
+        .where(ContractDocumentElement.text_snapshot_id == version.text_snapshot_id,
+               ContractDocumentElement.org_id == current_user.org_id,
+               ContractDocumentElement.element_type != "page_artifact")
+        .order_by(ContractDocumentElement.seq)
+    ).all()
+    if not rows:
+        # A version made before its clauses were stored: split its text now
+        # (the same split every upload used to get), without writing anything.
+        from types import SimpleNamespace
+
+        from app.contract_files.structure import elements_from_flat_text
+
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id)
+        flat, _ = elements_from_flat_text(snapshot.text if snapshot else "")
+        rows = [SimpleNamespace(id=f"{version.id}:{e['seq']}", parent_id=None, page_number=None, **{
+            k: e[k] for k in ("seq", "element_type", "level", "number_label", "text")}) for e in flat]
+    clauses = []
+    for r in rows:
+        label = (r.number_label or "").strip()
+        words = " ".join(r.text.split())
+        body = words[len(label):].strip() if label and words.startswith(label) else words
+        clauses.append({
+            "id": r.id, "parent_id": r.parent_id, "seq": r.seq, "type": r.element_type,
+            "level": r.level, "number": label or None, "page": r.page_number,
+            # A heading is its own title; a clause is named by its opening words.
+            "title": body[:90] + ("…" if len(body) > 90 else ""),
+            "text": r.text,
+        })
+    return {"version_number": version.version_number,
+            "tree": any(c["parent_id"] for c in clauses), "clauses": clauses}
+
+
+@router.get("/editor/config")
+def word_editor_config(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """What the page needs to open the current version in the Word editor
+    ({"enabled": false} when no editor is configured). Read-only for people
+    who can't add versions."""
+    from app.contract_files import editor
+    from app.core.rbac import has_permission
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    return editor.build_config(db, contract=contract, user=current_user,
+                               can_edit=has_permission(current_user.permission_values, "contract_file:update"))
+
+
+@router.get("/revisions/current")
+def current_revision_round(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:read")),
+):
+    """The open round of changes the counterparty sent back, else the latest
+    one (so a finished round still shows how it ended); null when none."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = db.scalar(
+        select(RevisionRound)
+        .where(RevisionRound.contract_id == contract.id, RevisionRound.org_id == current_user.org_id,
+               or_(RevisionRound.outcome.is_(None), RevisionRound.outcome != "superseded"))
+        .order_by((RevisionRound.status == "open").desc(), RevisionRound.created_at.desc())
+        .limit(1)
+    )
+    return revisions.serialize_round(db, rnd) if rnd else None
+
+
+class RevisionDecision(BaseModel):
+    decision: str = Field(pattern="^(open|accepted|kept|countered)$")
+    counter_text: str | None = Field(default=None, max_length=20000)
+
+
+@router.post("/revisions/{round_id}/changes/{change_id}")
+def decide_revision_change(
+    contract_id: str,
+    round_id: str,
+    change_id: str,
+    payload: RevisionDecision,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = _round_for(db, contract_id=contract.id, round_id=round_id, user=current_user)
+    if rnd.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This round is finished.")
+    change = db.get(RevisionChange, change_id)
+    if change is None or change.round_id != rnd.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Change not found")
+    revisions.decide(change, decision=payload.decision, counter=payload.counter_text, user=current_user)
+    write_audit_log(
+        db, action="contract.revision_change_decided", resource_type="revision_change",
+        resource_id=change.id, org_id=current_user.org_id, actor_user_id=current_user.id,
+        metadata={"contract_id": contract.id, "round_id": rnd.id, "label": change.label,
+                  "decision": change.decision},
+    )
+    db.commit()
+    return revisions.serialize_round(db, rnd)
+
+
+@router.post("/revisions/{round_id}/finish")
+async def finish_revision_round(
+    contract_id: str,
+    round_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """Close the round. Every change accepted: the text is agreed, and the
+    workflow's waiting counterparty step is completed so it moves on. Anything
+    kept or countered: our next version is made — their text with our wording
+    back in those places — ready to send to them."""
+    from app.workflows import service as workflow_service
+    from app.workflows.models import WorkflowRun
+
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    rnd = _round_for(db, contract_id=contract.id, round_id=round_id, user=current_user)
+    if rnd.status != "open":
+        raise HTTPException(status.HTTP_409_CONFLICT, "This round is finished.")
+    if rnd.revision_version_id != contract.current_authoritative_version_id:
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            "The contract has a newer version than their revision; log their latest file.")
+    changes = revisions.changes_of(db, rnd.id)
+    left = [c.label for c in changes if c.decision == "open"]
+    if left:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Decide every change first ({len(left)} left).")
+    pushed = [c for c in changes if c.decision in ("kept", "countered")]
+    note = None
+    if pushed:
+        theirs = db.get(ContractVersion, rnd.revision_version_id)
+        snapshot = db.get(ContractTextSnapshot, theirs.text_snapshot_id) if theirs.text_snapshot_id else None
+        contract_file = db.get(ContractFile, theirs.contract_file_id)
+        version = _text_version(
+            db, contract=contract, base_snapshot=snapshot, contract_file=contract_file,
+            text=revisions.counter_text(snapshot.text if snapshot else "", changes),
+            summary=f"Our reply to their revision: {len(pushed)} change(s) pushed back",
+            user=current_user, source=ContractVersionSource.MANUAL_EDIT,
+            extraction_method="revision_counter_text", audit_action="contract.revision_countered",
+            title="Our reply to their revision prepared", file_tag="our-reply",
+        )
+        rnd.outcome, rnd.outcome_version_id = "counter", version.id
+    else:
+        rnd.outcome = "agreed"
+        write_timeline_event(
+            db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+            event_type="contract.revision_agreed", title="Counterparty revision agreed",
+            actor_user_id=current_user.id, details={"round_id": rnd.id},
+        )
+    rnd.status = "closed"
+    rnd.updated_by_user_id = current_user.id
+    write_audit_log(
+        db, action="contract.revision_round_finished", resource_type="revision_round",
+        resource_id=rnd.id, org_id=current_user.org_id, actor_user_id=current_user.id,
+        metadata={"contract_id": contract.id, "outcome": rnd.outcome, "pushed_back": len(pushed)},
+    )
+    db.commit()
+    if rnd.outcome == "agreed":
+        # The text is settled: the negotiation step is done and the workflow moves on.
+        run = db.scalar(select(WorkflowRun).where(
+            WorkflowRun.contract_id == contract.id, WorkflowRun.status.in_(("running", "waiting")))
+            .order_by(WorkflowRun.created_at.desc()).limit(1))
+        steps = list(run.steps or []) if run else []
+        if run and run.current_index < len(steps) and steps[run.current_index].get("type") == "counterparty":
+            try:
+                workflow_service.complete_human_step(db, run=run, actor=current_user,
+                                                     note="Counterparty revision agreed")
+                await workflow_service.advance_run(db, run=run, actor=current_user)
+            except HTTPException as exc:
+                db.rollback()
+                note = f"The Negotiate step is left for its owner to complete ({exc.detail})."
+    out = revisions.serialize_round(db, rnd)
+    out["note"] = note
+    return out
 
 
 @router.post(
@@ -442,7 +658,8 @@ def _build_plain_docx(*, title: str, subtitle: str, text: str) -> bytes:
     from docx import Document
 
     document = Document()
-    document.add_heading(title, level=1)
+    if title:  # the Word editor opens the text without one: it would become part of the contract
+        document.add_heading(title, level=1)
     if subtitle:
         document.add_paragraph(subtitle)
     for para in _split_paragraphs(text):
@@ -505,7 +722,8 @@ def _build_structured_docx(db: Session, snapshot: ContractTextSnapshot, *, title
     ).all()
 
     document = Document()
-    document.add_heading(title, level=1)
+    if title:  # the Word editor opens the text without one: it would become part of the contract
+        document.add_heading(title, level=1)
     if subtitle:
         document.add_paragraph(subtitle)
     for e in els:
@@ -588,8 +806,9 @@ def propose_contract_edit(
         )
     text = snapshot.text
 
-    # Locate the selection: trust the viewer's offset when it matches, else
-    # fall back to the first occurrence of the quoted passage.
+    # Locate the selection: trust the viewer's offset when it matches. Otherwise use
+    # the passage only if it appears once: a repeated passage ("Intentionally
+    # omitted", a notice address) is refused rather than guessed.
     start = -1
     hint = payload.start_hint
     if (
@@ -599,6 +818,13 @@ def propose_contract_edit(
     ):
         start = hint
     else:
+        occurrences = text.count(payload.original_text)
+        if occurrences > 1:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"That passage appears {occurrences} times in the document. "
+                "Select it again so the right one is changed.",
+            )
         start = text.find(payload.original_text)
     if start < 0:
         raise HTTPException(
@@ -752,12 +978,100 @@ class ManualTextUpdate(BaseModel):
     change_summary: str | None = None
 
 
+def _text_version(
+    db: Session,
+    *,
+    contract,
+    base_snapshot: ContractTextSnapshot | None,
+    contract_file: ContractFile,
+    text: str,
+    summary: str,
+    user,
+    source: str = ContractVersionSource.MANUAL_EDIT,
+    extraction_method: str = "manual_edit_text",
+    audit_action: str = "contract.text_manually_edited",
+    title: str = "Document edited manually",
+    file_tag: str = "manual-edit",
+) -> ContractVersion:
+    """A new authoritative version from plain text, with a generated .docx.
+    Versions stay immutable: the text lives in a fresh snapshot. The caller commits."""
+    docx_bytes = _build_plain_docx(
+        title=contract.title,
+        subtitle=summary,
+        text=text,
+    )
+    storage_object = _store_generated_docx(
+        db,
+        org_id=user.org_id,
+        user_id=user.id,
+        filename=f"{contract.title[:60]}-{file_tag}.docx",
+        content=docx_bytes,
+    )
+    new_version = ContractVersion(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=storage_object.id,
+        source=source,
+        change_summary=summary,
+        is_authoritative=False,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(new_version)
+    db.flush()
+    snapshot = ContractTextSnapshot(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_version_id=new_version.id,
+        extraction_method=extraction_method,
+        extraction_quality_score=1.0,
+        text=text,
+        page_map=base_snapshot.page_map if base_snapshot else None,
+        ocr_provider=base_snapshot.ocr_provider if base_snapshot else None,
+        validation_status="complete",
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(snapshot)
+    db.flush()
+    new_version.text_snapshot_id = snapshot.id
+    # Its clauses, split from the text, so it has a clause tree like an upload.
+    _persist_document_elements(db, snapshot, elements=[])
+
+    promote_version(db, contract=contract, version=new_version, actor_user_id=user.id)
+    contract.current_contract_file_id = contract_file.id
+    contract_file.current_version_id = new_version.id
+    contract_file.updated_by_user_id = user.id
+
+    write_audit_log(
+        db,
+        action=audit_action,
+        resource_type="contract_version",
+        resource_id=new_version.id,
+        org_id=user.org_id,
+        actor_user_id=user.id,
+        metadata={"contract_id": contract.id, "summary": summary},
+    )
+    write_timeline_event(
+        db,
+        org_id=user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type=audit_action,
+        title=title,
+        actor_user_id=user.id,
+        details={"contract_version_id": new_version.id, "summary": summary},
+    )
+    return new_version
+
+
 @router.put("/text", response_model=ContractVersionResponse)
 def update_contract_text(
     contract_id: str,
     payload: ManualTextUpdate,
     db: Session = Depends(get_db),
-    files_service: ContractFilesService = Depends(get_contract_files_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     """Direct in-document editing (Word-style): replace the contract's current
@@ -785,85 +1099,9 @@ def update_contract_text(
 
     author_name = current_user.full_name or "Reviewer"
     summary = (payload.change_summary or f"Manual edit by {author_name}")[:240]
-    docx_bytes = _build_plain_docx(
-        title=contract.title,
-        subtitle=summary,
-        text=payload.text,
-    )
-    storage_object = _store_generated_docx(
-        db,
-        org_id=current_user.org_id,
-        user_id=current_user.id,
-        filename=f"{contract.title[:60]}-manual-edit.docx",
-        content=docx_bytes,
-        storage=files_service.storage,
-    )
-    new_version = ContractVersion(
-        org_id=current_user.org_id,
-        contract_id=contract.id,
-        contract_file_id=contract_file.id,
-        version_number=files_service.next_version_number(contract_file.id),
-        storage_object_id=storage_object.id,
-        source=ContractVersionSource.MANUAL_EDIT,
-        change_summary=summary,
-        is_authoritative=False,
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(new_version)
-    db.flush()
-    snapshot = ContractTextSnapshot(
-        org_id=current_user.org_id,
-        contract_id=contract.id,
-        contract_version_id=new_version.id,
-        extraction_method="manual_edit_text",
-        extraction_quality_score=1.0,
-        text=payload.text,
-        page_map=base_snapshot.page_map if base_snapshot else None,
-        ocr_provider=base_snapshot.ocr_provider if base_snapshot else None,
-        validation_status="complete",
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(snapshot)
-    db.flush()
-    new_version.text_snapshot_id = snapshot.id
-
-    # Exclusive authoritative flip — same pattern as accepting a redline.
-    versions = db.scalars(
-        select(ContractVersion).where(
-            ContractVersion.org_id == current_user.org_id,
-            ContractVersion.contract_id == contract_id,
-            ContractVersion.deleted_at.is_(None),
-        )
-    ).all()
-    for version in versions:
-        version.is_authoritative = version.id == new_version.id
-        version.updated_by_user_id = current_user.id
-    contract.current_authoritative_version_id = new_version.id
-    contract.current_contract_file_id = contract_file.id
-    contract_file.current_version_id = new_version.id
-    contract.updated_by_user_id = current_user.id
-    contract_file.updated_by_user_id = current_user.id
-
-    write_audit_log(
-        db,
-        action="contract.text_manually_edited",
-        resource_type="contract_version",
-        resource_id=new_version.id,
-        org_id=current_user.org_id,
-        actor_user_id=current_user.id,
-        metadata={"contract_id": contract.id, "summary": summary},
-    )
-    write_timeline_event(
-        db,
-        org_id=current_user.org_id,
-        resource_type="contract",
-        resource_id=contract.id,
-        event_type="contract.text_manually_edited",
-        title="Document edited manually",
-        actor_user_id=current_user.id,
-        details={"contract_version_id": new_version.id, "summary": summary},
+    new_version = _text_version(
+        db, contract=contract, base_snapshot=base_snapshot,
+        contract_file=contract_file, text=payload.text, summary=summary, user=current_user,
     )
     db.commit()
     db.refresh(new_version)
@@ -920,16 +1158,17 @@ def accept_contract_edit(
     current_user=Depends(require_permission("contract:redline")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    # Serialize decisions on this contract: _apply_decided_redline reads every
+    # edit's status, so two concurrent last decisions must not miss each other.
+    db.refresh(contract, with_for_update=True)
     edit = _get_contract_edit(db, contract_id=contract_id, edit_id=edit_id, org_id=current_user.org_id)
     if edit.status != "proposed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be accepted")
-    # Optimistic-lock guard. A redline is a whole-document proposal built FROM a
-    # specific base version (edit.contract_version_id). Accepting swaps the
-    # authoritative pointer to that proposal — which throws away anything the base
-    # didn't contain. So if the base is no longer current (another redline was
-    # accepted, or a new version was uploaded in the meantime), accepting this one
-    # would silently revert that newer state. Refuse instead, and tell the caller
-    # to regenerate against the current version.
+    # Optimistic-lock guard. Each edit is anchored to character positions in its
+    # base version (edit.contract_version_id). If that base is no longer current
+    # (another redline was applied, or a new version was uploaded in the
+    # meantime), the positions no longer describe the document and applying would
+    # revert newer changes. Refuse, and tell the caller to regenerate.
     if edit.contract_version_id != contract.current_authoritative_version_id:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -938,31 +1177,17 @@ def accept_contract_edit(
             "version, then accept it.",
         )
     proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
-    contract_file = db.get(ContractFile, proposal_version.contract_file_id)
-    if contract_file is None or contract_file.org_id != current_user.org_id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract file not found")
-    versions = db.scalars(
-        select(ContractVersion).where(
-            ContractVersion.org_id == current_user.org_id,
-            ContractVersion.contract_id == contract_id,
-            ContractVersion.deleted_at.is_(None),
-        )
-    ).all()
-    for version in versions:
-        version.is_authoritative = version.id == proposal_version.id
-        version.updated_by_user_id = current_user.id
+    batch = _redline_batch(db, edit=edit, proposal_version=proposal_version)
+    blocker = _accept_blocker(edit, batch)
+    if blocker:
+        raise HTTPException(status.HTTP_409_CONFLICT, blocker)
     proposal_version.change_summary = _decision_summary(
         proposal_version.change_summary,
         decision="accepted",
         comment=payload.comment,
     )
-    contract.current_authoritative_version_id = proposal_version.id
-    contract.current_contract_file_id = contract_file.id
-    contract_file.current_version_id = proposal_version.id
     edit.status = "accepted"
     edit.updated_by_user_id = current_user.id
-    contract.updated_by_user_id = current_user.id
-    contract_file.updated_by_user_id = current_user.id
     write_audit_log(
         db,
         action="contract.edit_accepted",
@@ -986,8 +1211,13 @@ def accept_contract_edit(
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
     )
-    files_service.requeue_contract_ai_jobs(
-        user=current_user, contract=contract, version=proposal_version
+    _apply_decided_redline(
+        db,
+        contract=contract,
+        batch=batch,
+        base_version_id=edit.contract_version_id,
+        proposal_version=proposal_version,
+        user=current_user,
     )
     db.commit()
     db.refresh(edit)
@@ -1003,10 +1233,12 @@ def reject_contract_edit(
     current_user=Depends(require_permission("contract:redline")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    db.refresh(contract, with_for_update=True)  # see accept_contract_edit
     edit = _get_contract_edit(db, contract_id=contract_id, edit_id=edit_id, org_id=current_user.org_id)
     if edit.status != "proposed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be rejected")
     proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
+    batch = _redline_batch(db, edit=edit, proposal_version=proposal_version)
     proposal_version.change_summary = _decision_summary(
         proposal_version.change_summary,
         decision="rejected",
@@ -1038,6 +1270,14 @@ def reject_contract_edit(
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
     )
+    _apply_decided_redline(
+        db,
+        contract=contract,
+        batch=batch,
+        base_version_id=edit.contract_version_id,
+        proposal_version=proposal_version,
+        user=current_user,
+    )
     db.commit()
     db.refresh(edit)
     return edit
@@ -1066,7 +1306,7 @@ def restore_contract_version(
         storage_object_id=version.storage_object_id,
         source=ContractVersionSource.RESTORED,
         change_summary=f"Restored from version {version.version_number}",
-        is_authoritative=True,
+        is_authoritative=False,  # promoted below, once the current one is demoted
         created_by_user_id=current_user.id,
         updated_by_user_id=current_user.id,
     )
@@ -1094,21 +1334,10 @@ def restore_contract_version(
         db.flush()
         restored_version.text_snapshot_id = restored_snapshot.id
 
-    existing_versions = db.scalars(
-        select(ContractVersion).where(
-            ContractVersion.org_id == current_user.org_id,
-            ContractVersion.contract_id == contract_id,
-            ContractVersion.deleted_at.is_(None),
-        )
-    ).all()
-    for row in existing_versions:
-        row.is_authoritative = row.id == restored_version.id
-        row.updated_by_user_id = current_user.id
+    promote_version(db, contract=contract, version=restored_version, actor_user_id=current_user.id)
     contract_file.current_version_id = restored_version.id
     contract_file.updated_by_user_id = current_user.id
     contract.current_contract_file_id = contract_file.id
-    contract.current_authoritative_version_id = restored_version.id
-    contract.updated_by_user_id = current_user.id
     write_audit_log(
         db,
         action="contract.version_restored",
@@ -1194,7 +1423,7 @@ def create_contract_share(
         contract_id=contract_id,
         contract_version_id=version.id if version else None,
         token_hash=_hash_secret(token),
-        passcode_hash=_hash_secret(payload.passcode) if payload.passcode else None,
+        passcode_hash=hash_password(payload.passcode) if payload.passcode else None,
         access_mode=payload.access_mode,
         expires_at=payload.expires_at,
         download_allowed=payload.download_allowed or payload.access_mode == ShareAccessMode.DOWNLOAD_ALLOWED,
@@ -1270,7 +1499,7 @@ def view_external_share(
     request: Request,
     response: Response,
     token: str,
-    passcode: str | None = Query(default=None),
+    passcode: str | None = Header(default=None, alias="X-Share-Passcode"),
     db: Session = Depends(get_db),
 ):
     share = _get_active_share(db, token=token, passcode=passcode, request=request)
@@ -1310,7 +1539,7 @@ def submit_external_share(
     request: Request,
     response: Response,
     token: str,
-    passcode: str | None = Query(default=None),
+    passcode: str | None = Header(default=None, alias="X-Share-Passcode"),
     db: Session = Depends(get_db),
 ):
     """The counterparty is done: expire the link and tell the reviewer."""
@@ -1333,7 +1562,7 @@ def list_external_share_comments(
     request: Request,
     response: Response,
     token: str,
-    passcode: str | None = Query(default=None),
+    passcode: str | None = Header(default=None, alias="X-Share-Passcode"),
     db: Session = Depends(get_db),
 ):
     """Shared (counterparty-visible) comments on the shared contract. Internal
@@ -1354,7 +1583,7 @@ def add_external_share_comment(
     response: Response,
     token: str,
     payload: ExternalCommentCreate,
-    passcode: str | None = Query(default=None),
+    passcode: str | None = Header(default=None, alias="X-Share-Passcode"),
     db: Session = Depends(get_db),
 ):
     """Let the counterparty leave a (shared) comment via the share link."""
@@ -1374,7 +1603,7 @@ def add_external_share_comment(
 def download_external_share(
     request: Request,
     token: str,
-    passcode: str | None = Query(default=None),
+    passcode: str | None = Header(default=None, alias="X-Share-Passcode"),
     db: Session = Depends(get_db),
     files_service: ContractFilesService = Depends(get_contract_files_service),
 ):
@@ -1522,7 +1751,7 @@ def _get_active_share(
     if share.passcode_hash:
         # Reject early while a lockout window is active, before doing the compare.
         _check_share_lockout(token, ip)
-        if not secrets.compare_digest(_hash_secret(passcode or ""), share.passcode_hash):
+        if not _passcode_matches(db, share, passcode or ""):
             _register_share_passcode_failure(token, ip)
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Passcode required")
         _clear_share_passcode_failures(token, ip)
@@ -1575,33 +1804,12 @@ def _proposal_version_for_edit(db: Session, *, edit: ContractEdit, org_id: str) 
             proposal_version_id = citation.get("contract_version_id")
             break
     if not proposal_version_id:
-        # Resilience for edits whose citation lost the version link: fall back
-        # to the most recent non-authoritative assistant-edit/redline version
-        # for this contract (the proposal version a redline batch produced).
-        fallback = db.scalar(
-            select(ContractVersion)
-            .where(
-                ContractVersion.org_id == org_id,
-                ContractVersion.contract_id == edit.contract_id,
-                ContractVersion.is_authoritative.is_(False),
-                ContractVersion.deleted_at.is_(None),
-                ContractVersion.source.in_(
-                    [
-                        ContractVersionSource.ASSISTANT_EDIT,
-                        ContractVersionSource.PLAYBOOK_REDLINE,
-                        ContractVersionSource.ASSISTANT_GENERATED,
-                        ContractVersionSource.USER_REDLINE,
-                    ]
-                ),
-            )
-            .order_by(ContractVersion.created_at.desc())
+        # Never guess which proposal an edit belongs to: falling back to "the
+        # newest proposal" made a different document authoritative.
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "This edit isn't linked to its proposal version, so it can't be applied. Re-run the redline.",
         )
-        if fallback is None:
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                "Edit has no assistant version to apply",
-            )
-        return fallback
     version = db.get(ContractVersion, proposal_version_id)
     if version is None or version.org_id != org_id or version.contract_id != edit.contract_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Assistant edit version not found")
@@ -1617,5 +1825,228 @@ def _decision_summary(summary: str | None, *, decision: str, comment: str | None
     return f"{summary}\n{suffix}"
 
 
+def _edit_anchor(edit: ContractEdit) -> dict:
+    for citation in edit.citation or []:
+        if isinstance(citation, dict) and citation.get("type") == "anchor":
+            return citation
+    return {}
+
+
+def _anchor_span(edit: ContractEdit) -> tuple[int, int] | None:
+    """The edit's [start, end) in its base version's text, or None if it was never located."""
+    anchor = _edit_anchor(edit)
+    start, end = anchor.get("start", -1), anchor.get("end", -1)
+    if not anchor.get("matched") or not isinstance(start, int) or not isinstance(end, int):
+        return None
+    if start < 0 or end < start:
+        return None
+    return start, end
+
+
+def _is_appended_insertion(edit: ContractEdit) -> bool:
+    # Playbook redlines append new clauses they couldn't place to the end of the document.
+    return edit.edit_type == "playbook_redline" and _anchor_span(edit) is None and bool(edit.replacement_text)
+
+
+def _redline_batch(db: Session, *, edit: ContractEdit, proposal_version: ContractVersion) -> list[ContractEdit]:
+    """Every edit produced by the same redline run: same base version, same proposal version."""
+    rows = db.scalars(
+        select(ContractEdit).where(
+            ContractEdit.org_id == edit.org_id,
+            ContractEdit.contract_id == edit.contract_id,
+            ContractEdit.contract_version_id == edit.contract_version_id,
+        )
+    ).all()
+    batch = [
+        row
+        for row in rows
+        if any(
+            isinstance(c, dict)
+            and c.get("type") == "assistant_edit_version"
+            and c.get("contract_version_id") == proposal_version.id
+            for c in row.citation or []
+        )
+    ]
+    if edit not in batch:
+        batch.append(edit)
+    return batch
+
+
+def _accept_blocker(edit: ContractEdit, batch: list[ContractEdit]) -> str | None:
+    """Why this edit can't be accepted on its own, or None if it can."""
+    span = _anchor_span(edit)
+    if span is None:
+        if _is_appended_insertion(edit):
+            return None
+        return (
+            "This change couldn't be located in the document text, so it can't be "
+            "applied. Reject it, or re-run the redline."
+        )
+    for other in batch:
+        if other is edit or other.status != "accepted":
+            continue
+        other_span = _anchor_span(other)
+        if other_span and span[0] < other_span[1] and other_span[0] < span[1]:
+            return (
+                "This change overlaps a change that was already accepted, so both "
+                "can't be applied. Reject this one."
+            )
+    return None
+
+
+def _text_with_accepted_edits(base_text: str, edits: list[ContractEdit]) -> str:
+    """The base text with exactly the accepted edits applied. Located edits replace
+    their span (_accept_blocker keeps accepted spans from overlapping); appended
+    insertions go at the end, the same way the playbook proposal places them."""
+    accepted = [e for e in edits if e.status == "accepted"]
+    located = sorted(
+        ((span, e) for e in accepted if (span := _anchor_span(e)) is not None),
+        key=lambda item: item[0],
+    )
+    parts: list[str] = []
+    cursor = 0
+    for (start, end), e in located:
+        parts.append(base_text[cursor:start])
+        parts.append(e.replacement_text or "")
+        cursor = end
+    parts.append(base_text[cursor:])
+    text = "".join(parts)
+    insertions = [e.replacement_text for e in accepted if _is_appended_insertion(e)]
+    if insertions:
+        text = text.rstrip() + "\n\n" + "\n\n".join(insertions)
+    return text
+
+
+def _apply_decided_redline(
+    db: Session,
+    *,
+    contract: Contract,
+    batch: list[ContractEdit],
+    base_version_id: str,
+    proposal_version: ContractVersion,
+    user,
+) -> ContractVersion | None:
+    """Once every edit in a redline is decided, make a new authoritative version
+    from the base text plus exactly the accepted edits. The proposal version (all
+    edits applied) stays in history as the tracked-change preview."""
+    if any(e.status == "proposed" for e in batch):
+        return None
+    accepted = [e for e in batch if e.status == "accepted"]
+    if not accepted:
+        return None
+    if base_version_id != contract.current_authoritative_version_id:
+        # The contract moved on during review; the anchors no longer fit it.
+        write_timeline_event(
+            db,
+            org_id=user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.redline_not_applied",
+            title="Redline closed without changes: the contract changed during review",
+            actor_user_id=user.id,
+            details={
+                "contract_version_id": proposal_version.id,
+                "accepted_edit_ids": [e.id for e in accepted],
+            },
+        )
+        return None
+    base_version = db.get(ContractVersion, base_version_id)
+    base_snapshot = (
+        db.get(ContractTextSnapshot, base_version.text_snapshot_id)
+        if base_version and base_version.text_snapshot_id
+        else None
+    )
+    contract_file = db.get(ContractFile, base_version.contract_file_id) if base_version else None
+    if base_snapshot is None or contract_file is None or contract_file.org_id != user.org_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "The redline's base version is missing its text or file")
+
+    text = _text_with_accepted_edits(base_snapshot.text, batch)
+    summary = f"Redline applied: {len(accepted)} of {len(batch)} change(s) accepted"
+    storage_object = _store_generated_docx(
+        db,
+        org_id=user.org_id,
+        user_id=user.id,
+        filename=f"{contract.title[:60]}-redline-accepted.docx",
+        content=_build_plain_docx(title=contract.title, subtitle=summary, text=text),
+    )
+    new_version = ContractVersion(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_file_id=contract_file.id,
+        version_number=next_version_number(db, contract_file.id),
+        storage_object_id=storage_object.id,
+        source=proposal_version.source,
+        change_summary=summary,
+        is_authoritative=False,
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(new_version)
+    db.flush()
+    snapshot = ContractTextSnapshot(
+        org_id=user.org_id,
+        contract_id=contract.id,
+        contract_version_id=new_version.id,
+        extraction_method="accepted_redline_text",
+        extraction_quality_score=1.0,
+        text=text,
+        page_map=base_snapshot.page_map,
+        ocr_provider=base_snapshot.ocr_provider,
+        validation_status="complete",
+        created_by_user_id=user.id,
+        updated_by_user_id=user.id,
+    )
+    db.add(snapshot)
+    db.flush()
+    new_version.text_snapshot_id = snapshot.id
+    # Its clauses, split from the text, so it has a clause tree like an upload.
+    _persist_document_elements(db, snapshot, elements=[])
+
+    promote_version(db, contract=contract, version=new_version, actor_user_id=user.id)
+    contract.current_contract_file_id = contract_file.id
+    contract_file.current_version_id = new_version.id
+    contract_file.updated_by_user_id = user.id
+    write_audit_log(
+        db,
+        action="contract.redline_applied",
+        resource_type="contract_version",
+        resource_id=new_version.id,
+        org_id=user.org_id,
+        actor_user_id=user.id,
+        metadata={
+            "contract_id": contract.id,
+            "base_version_id": base_version_id,
+            "proposal_version_id": proposal_version.id,
+            "accepted_edit_ids": [e.id for e in accepted],
+            "rejected_edit_ids": [e.id for e in batch if e.status == "rejected"],
+        },
+    )
+    write_timeline_event(
+        db,
+        org_id=user.org_id,
+        resource_type="contract",
+        resource_id=contract.id,
+        event_type="contract.redline_applied",
+        title=summary,
+        actor_user_id=user.id,
+        details={"contract_version_id": new_version.id, "accepted_edits": len(accepted)},
+    )
+    requeue_contract_ai_jobs(db, user=user, contract=contract, version=new_version)
+    return new_version
+
+
 def _hash_secret(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _passcode_matches(db: Session, share: ContractShare, passcode: str) -> bool:
+    """Passcodes are chosen by people, so they're stored with bcrypt. Shares made
+    before that carry a plain SHA-256 hash: accepted, then upgraded to bcrypt."""
+    stored = share.passcode_hash or ""
+    if stored.startswith("$2"):
+        return verify_password(passcode, stored)
+    if not secrets.compare_digest(_hash_secret(passcode), stored):
+        return False
+    share.passcode_hash = hash_password(passcode)
+    db.commit()
+    return True

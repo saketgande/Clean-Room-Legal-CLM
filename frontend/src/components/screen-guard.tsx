@@ -41,8 +41,6 @@ const ALL_SCREEN_ROUTE_PATHS: readonly string[] = [
   "/playbooks/build",
   "/contracts",
   "/contracts/[id]",
-  "/matters",
-  "/matters/[id]",
   "/intake",
   "/delegations",
   "/approvals",

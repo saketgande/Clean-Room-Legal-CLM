@@ -26,7 +26,7 @@ def test_contract_context_manifest_carries_the_real_deal_facts():
         def get(self, model, obj_id):
             return contract if model is Contract else None
 
-    ctx = build_contract_context(_FakeDB(), org_id="org1", contract_id="c1")
+    ctx = build_contract_context(_FakeDB(), user=None, org_id="org1", contract_id="c1")
 
     assert ctx.manifest["counterparty_name"] == "Acme Corp"
     assert ctx.manifest["jurisdiction"] == "Delaware"

@@ -162,3 +162,81 @@ def elements_from_flat_text(text: str) -> tuple[list[dict[str, Any]], bool]:
     pages, or tables — but every document gets an addressable clause index."""
     raw = [{"type": "text", "content": b.text} for b in split_blocks(text)]
     return place_elements(raw, text, source="from_flat_text")
+
+
+# --- the Documents reader, for new uploads ---------------------------------------------------
+
+def read_with_documents_reader(content: bytes, *, mime_type: str, filename: str) -> dict | None:
+    """Read an upload with the Documents reader (app/docstudio): Word numbering
+    and tracked insertions, PDF page furniture (running headers, page numbers,
+    e-signature stamps) removed, wrapped lines rejoined, and a clause tree.
+
+    Returns {text, method, page_map, elements} with elements already placed —
+    offsets into `text`, tree depth as `level`, and `parent_seq` — or None when
+    the reader can't do better than the old path: unsupported or damaged file,
+    a scan that needs OCR, offsets that don't check out, text past the size
+    cap. None keeps today's path (and its OCR decision) exactly as it was.
+
+    Only new snapshots are read this way. An existing snapshot's text is what
+    its stored offsets and citations point into, so it is never re-read."""
+    import logging
+
+    from app.contract_files.text_extraction import score_extraction_quality
+    from app.core.config import settings
+    from app.docstudio import structure as docs
+    from app.docstudio.parsing.base import UnsupportedFormat
+    from app.docstudio.parsing.registry import parser_for
+
+    try:
+        parser = parser_for(mime_type)
+        parsed = parser.parse(content, filename=filename)
+    except UnsupportedFormat:
+        return None
+    except Exception:
+        logging.getLogger(__name__).warning("documents reader failed on %s", filename, exc_info=True)
+        return None
+    if parsed.needs_ocr or not parsed.blocks:
+        return None
+    built = docs.build(parsed)
+    text = built.flat_text
+    if (not built.clauses or docs.verify_offsets(built)
+            or len(text.encode("utf-8")) > settings.pdf_max_extracted_text_bytes
+            or score_extraction_quality(text) < 0.55):
+        return None
+
+    seq_of = {c.clause_id: c.seq for c in built.clauses}
+    seen: dict[str, int] = {}
+    elements = []
+    page_map: dict[str, dict[str, int]] = {}
+    for c in built.clauses:
+        etype = {"heading": "heading", "table": "table", "list_item": "list_item"}.get(c.clause_type, "paragraph")
+        if etype in ("paragraph", "list_item") and c.number_label:
+            etype = "clause"
+        base = block_id_for(c.text)
+        n = seen.get(base, 0)
+        seen[base] = n + 1
+        elements.append({
+            "seq": c.seq,
+            "element_type": etype,
+            "level": c.level,
+            "number_label": c.number_label,
+            "block_id": base if n == 0 else f"{base}-{n}",
+            "text": c.text,
+            "html": None,
+            "page_number": c.page_number,
+            "char_start": c.char_start,
+            "char_end": c.char_end,
+            "confidence": None,
+            "source": "documents_reader",
+            "parent_seq": seq_of.get(c.parent_clause_id) if c.parent_clause_id else None,
+        })
+        if c.page_number:
+            span = page_map.setdefault(str(c.page_number), {"start": c.char_start, "end": c.char_end})
+            span["start"], span["end"] = min(span["start"], c.char_start), max(span["end"], c.char_end)
+    return {
+        "text": text,
+        "method": f"documents_reader:{parser.name}@{parser.version}",
+        "page_map": page_map or None,
+        "elements": elements,
+        "quality": score_extraction_quality(text),
+    }

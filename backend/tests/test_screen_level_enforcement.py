@@ -22,10 +22,9 @@ is what lets a real request reach the handler (a 2xx path); a raised
 client would receive.
 
 Representative route chosen per tranche-1 domain (all PATCH/EDIT, matching
-AC-6's own example of "EDIT on Matters"):
+AC-6's own example of "EDIT on Matters"; Matters has since been removed):
 
     contracts   -> PATCH /contracts/{id}            (require_permission("contract:update"),  _CONTRACTS_EDIT)
-    matters     -> PATCH /matters/{id}               (require_permission("project:update"),   _MATTERS_EDIT)
     trademarks  -> PATCH /trademarks/{id}            (require_permission("trademark:update"), _TRADEMARKS_EDIT)
     notices     -> PATCH /notices/{id}               (require_permission("notice:update"),    _NOTICES_EDIT)
     intake      -> PATCH /intake/requests/{id}       (require_permission("intake:update"),    _INTAKE_EDIT)
@@ -44,7 +43,6 @@ from sqlalchemy.orm import Session
 
 import app.contracts.routes as contracts_routes
 import app.intake.routes as intake_routes
-import app.matters.routes as matters_routes
 import app.notices.routes as notices_routes
 import app.trademarks.routes as trademarks_routes
 from app.auth.models import Permission, Role, User, UserRoleGrant
@@ -167,7 +165,7 @@ def org(db: Session) -> Org:
 
 
 # ---------------------------------------------------------------------------
-# The five tranche-1 domains under test — (screen_code, permission, module,
+# The tranche-1 domains under test (matters was removed) — (screen_code, permission, module,
 # screen-dependency-attr-name-on-that-module).
 # ---------------------------------------------------------------------------
 
@@ -178,7 +176,6 @@ def org(db: Session) -> Org:
 # /screen-access/me + API-enforcement two-way agreement is still checked.
 DOMAINS = [
     ("contracts", "contract:update", contracts_routes, "_CONTRACTS_EDIT", True),
-    ("matters", "project:update", matters_routes, "_MATTERS_EDIT", True),
     ("trademarks", "trademark:update", trademarks_routes, "_TRADEMARKS_EDIT", False),
     ("notices", "notice:update", notices_routes, "_NOTICES_EDIT", True),
     ("intake", "intake:update", intake_routes, "_INTAKE_EDIT", True),
@@ -333,14 +330,27 @@ def test_screen_level_held_but_permission_missing_is_rejected(db: Session, org: 
 # ---------------------------------------------------------------------------
 
 
-def test_denied_screen_level_check_writes_an_access_denied_audit_row(db: Session, org: Org):
+def test_denied_screen_level_check_writes_an_access_denied_audit_row(db: Session, org: Org, monkeypatch):
+    from app.core import authz
+
     role = _make_role(db, org_id=org.org.id, name="denied-audit", permission_values=["contract:update"])
     user = _make_user(db, org_id=org.org.id, label="denied-audit")
     _make_role_grant(db, user=user, role=role, org_unit=org.root)
     _grant_screen_level(db, org_id=org.org.id, role=role, screen_code="contracts", level_code="VIEW")
 
+    # record_decision writes off-thread (it must not wait on the request's own
+    # audit advisory lock). Keep that, but wait for this denial's write to land.
+    writes = []
+    real_writer = authz._WRITER
+    monkeypatch.setattr(authz, "_WRITER", type("W", (), {
+        "submit": staticmethod(lambda *a, **kw: writes.append(real_writer.submit(*a, **kw))),
+    })())
+
     with pytest.raises(HTTPException):
         contracts_routes._CONTRACTS_EDIT(current_user=user, db=db)
+    assert writes, "the denial never queued an audit write"
+    for write in writes:
+        write.result(timeout=10)
 
     # record_decision writes on its OWN isolated session (SessionLocal), so it
     # survives this test's transaction rollback — read it back on a fresh one.

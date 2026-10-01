@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CitationInput(BaseModel):
@@ -25,7 +25,7 @@ class ContractMetadataOutput(BaseModel):
     contract_type: str | None = None
     counterparty_name: str | None = None
     jurisdiction: str | None = None
-    risk_level: str | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
     value_amount: float | None = None
     currency: str | None = Field(default=None, max_length=3)
     effective_date: date | None = None
@@ -33,6 +33,13 @@ class ContractMetadataOutput(BaseModel):
     confidence: Literal["high", "medium", "low"] = "low"
     citations: list[CitationInput] = Field(default_factory=list)
     notes: str | None = None
+
+    @field_validator("risk_level", mode="before")
+    @classmethod
+    def _known_risk_level(cls, value: Any) -> str | None:
+        # A free-text level such as "Moderate to High" matches no rule, so drop it.
+        text = str(value).strip().lower() if value is not None else ""
+        return text if text in {"low", "medium", "high"} else None
 
 
 class ClauseOutput(BaseModel):
@@ -51,8 +58,10 @@ class ClauseExtractionOutput(BaseModel):
 
 
 class ClauseRiskOutput(BaseModel):
+    # The [C<n>] label of the clause judged, so coverage is counted per clause.
+    clause_ref: str | None = None
     clause_type: str
-    risk: Literal["low", "medium", "high"] = "low"
+    risk: Literal["low", "medium", "high"]  # required: an omitted call is not "low"
     rationale: str = Field(min_length=1)
     # Required, not optional: an eval scorecard's LLM judge found "low" risk
     # calls shipping with no quote at all, so a lawyer had no way to verify
@@ -184,7 +193,7 @@ class RenewalExtractionOutput(BaseModel):
 
 
 class BrainQueryParseOutput(BaseModel):
-    query_scope: Literal["contract", "project", "portfolio"] = "portfolio"
+    query_scope: Literal["contract", "portfolio"] = "portfolio"
     target_clause_types: list[str] = Field(default_factory=list)
     party_filters: list[str] = Field(default_factory=list)
     needs_vector_search: bool = True
@@ -206,6 +215,14 @@ class TabularCellOutput(BaseModel):
     not_found: bool = False
     confidence: Literal["high", "medium", "low"] = "low"
     citations: list[CitationInput] = Field(default_factory=list)
+
+
+class TabularRowAnswer(TabularCellOutput):
+    column_id: str
+
+
+class TabularRowOutput(BaseModel):
+    answers: list[TabularRowAnswer] = Field(default_factory=list)
 
 
 class TabularChatOutput(BaseModel):
@@ -277,3 +294,26 @@ class SkillInfo(BaseModel):
     enabled_by_default: bool
     requires_citations: bool
     allows_mutation: bool
+
+
+_CONFIDENCE_LEVELS = {"high": 0.9, "medium": 0.6, "low": 0.3}
+
+
+def confidence_score(value: Any) -> float | None:
+    """The one place model confidence becomes a number. Most skills answer
+    high/medium/low, a few agents give a 0-1 float, and workflow gates compare
+    against a 0-1 threshold. Missing stays None; anything unreadable (such as
+    "Moderate to High") counts as 0, so it can never clear a threshold."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in _CONFIDENCE_LEVELS:
+            return _CONFIDENCE_LEVELS[text]
+        try:
+            value = float(text)
+        except ValueError:
+            return 0.0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return min(max(float(value), 0.0), 1.0)

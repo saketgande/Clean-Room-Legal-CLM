@@ -35,49 +35,14 @@ from app.core.database import (
 )
 
 
-class IntakeRequestType(
-    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
-):
-    """A no-code request type: typed capture fields + an ordered stage workflow.
-    Mirrors the Matter/type-config pattern; surfaces on the New Request form the
-    instant it's saved."""
-
-    key = Column(String(60), nullable=False)  # ^[a-z0-9][a-z0-9_-]*$
-    name = Column(String(120), nullable=False)
-    workstream = Column(String(120), nullable=True)
-    description = Column(Text, nullable=True)
-    active = Column(Boolean, nullable=False, default=True)
-    stages = Column(JSON, nullable=True)  # ordered custom mid-stage names; NULL = default spine
-    sort_order = Column(Integer, nullable=False, default=100)
-
-    fields = relationship(
-        "IntakeRequestField",
-        back_populates="request_type",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-        order_by="IntakeRequestField.sort_order",
-    )
-
-
-class IntakeRequestField(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
-    request_type_id = Column(
-        String(36), ForeignKey("intake_request_type.id", ondelete="CASCADE"), nullable=False
-    )
-    key = Column(String(60), nullable=False)
-    label = Column(String(120), nullable=False)
-    kind = Column(String(20), nullable=False, default="text")  # text|textarea|select|date|number|boolean
-    required = Column(Boolean, nullable=False, default=False)
-    sort_order = Column(Integer, nullable=False, default=100)
-    options = Column(JSON, nullable=True)  # [{value,label}] for select
-
-    request_type = relationship("IntakeRequestType", back_populates="fields")
-
-
 class IntakeTeam(
     TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
 ):
-    """A claimable pool / tier. Routing rules point at these; the balancer
-    (least_loaded | round_robin) picks a member, chaining to overflow when full."""
+    """A team: the one kind of group of people who do the work (see
+    intake/teams.py). Owns new requests (the default intake team, or triage's
+    expertise match), does workflow steps, approves at approval steps. The
+    balancer (least_loaded | round_robin) picks a member, chaining to overflow
+    when everyone is full."""
 
     key = Column(String(60), nullable=False)
     name = Column(String(120), nullable=False)
@@ -87,6 +52,8 @@ class IntakeTeam(
     overflow_team_id = Column(
         String(36), ForeignKey("intake_team.id", ondelete="SET NULL"), nullable=True
     )
+    # Takes new requests no expertise match claims. Exactly one per org.
+    is_default_intake = Column(Boolean, nullable=False, default=False, server_default="false")
     sort_order = Column(Integer, nullable=False, default=100)
     # Context-aware routing: the matter categories this team owns (expertise /
     # skills) and the business-unit departments it serves. The triage assigns a
@@ -115,35 +82,6 @@ class IntakeTeamMember(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, 
     team = relationship("IntakeTeam", back_populates="members")
 
 
-class IntakeRoutingRule(
-    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
-):
-    """No-code when->then. Conditions AND together; actions are cumulative.
-    Evaluated in eval_order inside the save chokepoint. Never overrides a human."""
-
-    name = Column(String(120), nullable=False)
-    description = Column(Text, nullable=True)
-    enabled = Column(Boolean, nullable=False, default=True)
-    eval_order = Column(Integer, nullable=False, default=100)
-    # conditions (all non-null AND)
-    match_type = Column(String(120), nullable=True)
-    match_priority = Column(String(20), nullable=True)
-    match_department = Column(String(60), nullable=True)
-    match_keyword = Column(String(200), nullable=True)  # ci substring of description
-    match_complexity = Column(String(20), nullable=True)  # simple|standard|complex
-    # actions (cumulative)
-    set_assignee_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    set_priority = Column(String(20), nullable=True)
-    set_sla_hours = Column(Integer, nullable=True)
-    set_team_id = Column(
-        String(36), ForeignKey("intake_team.id", ondelete="SET NULL"), nullable=True
-    )
-    escalate_to_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    require_approval_from_user_id = Column(String(36), ForeignKey("user.id"), nullable=True)
-    times_fired = Column(Integer, nullable=False, default=0)
-    last_fired_at = Column(DateTime(timezone=True), nullable=True)
-
-
 class IntakeRequest(
     TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
 ):
@@ -156,9 +94,6 @@ class IntakeRequest(
     requester_user_id = Column(String(36), ForeignKey("user.id"), nullable=False)
     requester_name = Column(String(200), nullable=True)
     department = Column(String(60), nullable=True)
-    request_type_id = Column(
-        String(36), ForeignKey("intake_request_type.id", ondelete="SET NULL"), nullable=True
-    )
     type_label = Column(String(120), nullable=False)
     subject = Column(String(200), nullable=True)  # short human title; falls back to description line 1
     description = Column(Text, nullable=False, default="")
@@ -182,20 +117,26 @@ class IntakeRequest(
     triaged_at = Column(DateTime(timezone=True), nullable=True)
     triage_action = Column(String(30), nullable=True)  # reassigned|manual_close|snoozed|escalate
     snoozed_until = Column(DateTime(timezone=True), nullable=True)
-    # ai_triage holds the Tier-0 gate matrix + flow suggestion (feeds the approval
-    # ladder + workflow routing). Not the removed recommendation.
+    # ai_triage holds the triage read + flow suggestion (feeds owner assignment
+    # and workflow selection). Not the removed recommendation.
     ai_triage = Column(JSON, nullable=True)
-    fired_rules = Column(JSON, nullable=True)
     stage_timestamps = Column(JSON, nullable=True)  # [{stage, at}]
     conversation = Column(JSON, nullable=True)  # copilot transcript
     handoff_holder = Column(String(10), nullable=True)  # human|queue
     handoff_user_id = Column(String(36), nullable=True)
     external_message_id = Column(String(200), nullable=True)
-    screening = Column(JSON, nullable=True)  # {counterparty, sanctions, conflicts, relationship}
+    screening = Column(JSON, nullable=True)  # {counterparty, parties, relationship} — see intake/screening.py
     parties = Column(JSON, nullable=True)  # [{name, role, is_person}] — counterparty + adverse/related
-    matter_id = Column(String(36), nullable=True)  # selective promotion (matter); no FK
     contract_id = Column(
         String(36), ForeignKey("contract.id", ondelete="SET NULL"), nullable=True
+    )
+    # The records picked in the wizard's lookups (the names are also kept in
+    # field_values for display). Checked to exist in this org when filed.
+    counterparty_id = Column(
+        String(36), ForeignKey("counterparty.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    legal_entity_id = Column(
+        String(36), ForeignKey("legal_entity.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
 
@@ -226,18 +167,6 @@ class IntakeTask(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, Tim
     effort_minutes = Column(Integer, nullable=False, default=0)
 
 
-class SanctionsListEntry(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
-    """A denied-party list row (e.g. OFAC SDN). Screening treats an empty or
-    stale (>30d) list as 'unavailable' — never 'clear'."""
-
-    source = Column(String(40), nullable=False)  # OFAC_SDN|DEMO
-    source_ref = Column(String(60), nullable=False)
-    name = Column(String(400), nullable=False)
-    name_normalized = Column(String(400), nullable=False)
-    programs = Column(String(400), nullable=True)
-    refreshed_at = Column(DateTime(timezone=True), nullable=False)
-
-
 class IntakeDocument(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     """An attachment on a request. Text is extracted on upload and folded into
     the ticket so the triage agents read what the requester attached."""
@@ -252,14 +181,18 @@ class IntakeDocument(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin,
     extraction_quality = Column(Float, nullable=True)
 
 
-class IntakeKbArticle(
-    TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base
-):
-    """Admin-editable, citable knowledge for the FAQ/Policy-QA agents and the
-    Self-Service portal — one source of truth for both."""
+class IntakeDraft(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base):
+    """A half-filled agreement-wizard form, saved by "Save as Draft".
 
-    source_ref = Column(String(120), nullable=False)  # citation label
-    title = Column(String(200), nullable=False)
-    body = Column(Text, nullable=False)
-    tags = Column(JSON, nullable=True)  # string[] retrieval keywords
-    active = Column(Boolean, nullable=False, default=True)
+    Deliberately not an IntakeRequest: a filed request starts triage, the SLA
+    clock, board counts and approvals, and a draft must do none of that until
+    it is submitted. Private to the person who saved it.
+    """
+
+    user_id = Column(String(36), ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True)
+    form_key = Column(String(60), nullable=False)  # agreement_forms.json key
+    title = Column(String(200), nullable=True)  # shown in the drafts list
+    values = Column(JSON, nullable=False, default=dict)  # the wizard's answers
+    parent_contract_id = Column(String(36), nullable=True)  # picker selection, resolved on resume
+    page_index = Column(Integer, nullable=False, default=0)  # step to reopen on
+    visited = Column(Integer, nullable=False, default=1)  # furthest step reached

@@ -36,20 +36,35 @@ export type IntakeSlaPosture = "on_track" | "at_risk" | "overdue";
 export interface IntakeWorkflowStep {
   label: string; stage: string; done: boolean; active: boolean;
 }
-export interface IntakeFieldSpec {
-  key: string; label: string;
-  kind: "text" | "textarea" | "select" | "date" | "number" | "boolean";
-  required: boolean; sort_order: number; options?: { value: string; label: string }[] | null;
+/** One of our own companies — the contracting entity on an agreement. */
+export interface LegalEntity {
+  id: ID; name: string; jurisdiction: string | null; registered_address: string | null;
+  authorised_signatory: string | null; active: boolean; source: string; external_ref: string | null;
+  created_at: string; updated_at: string;
 }
-export interface IntakeRequestType {
-  id: ID; key: string; name: string; workstream: string | null;
-  description: string | null; active: boolean; stages: string[] | null;
-  sort_order: number; fields: IntakeFieldSpec[];
+/** The other side of an agreement. */
+export interface Counterparty {
+  id: ID; name: string; jurisdiction: string | null; address: string | null; contact_email: string | null;
+  active: boolean; source: string; external_ref: string | null; created_at: string; updated_at: string;
+}
+/** A request form's questions as the server validates them (agreement_forms.json). */
+export interface RequestFormRule { field: string; in: string[] }
+export interface RequestFormField {
+  key: string; label: string; kind: "text" | "textarea" | "select" | "multiselect" | "date" | "number";
+  required: boolean; options?: string[]; show?: RequestFormRule[];
+}
+export interface RequestFormDef { key: string; name: string; fields: RequestFormField[] }
+/** A half-filled agreement-wizard form saved with "Save as Draft". */
+export interface IntakeDraft {
+  id: ID; form_key: string; title: string | null; values: Record<string, string | string[]>;
+  parent_contract_id: ID | null; page_index: number; visited: number;
+  created_at: string; updated_at: string;
 }
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
   requester_user_id: ID; requester_name: string | null; department: string | null;
-  request_type_id: ID | null; type_label: string; subject: string | null; description: string;
+  type_label: string; subject: string | null; description: string;
+  counterparty_id?: ID | null; legal_entity_id?: ID | null;
   field_values: Record<string, unknown> | null;
   priority: "Critical" | "High" | "Medium" | "Low";
   status: IntakeStatus; stage: string; work_status: string | null;
@@ -59,12 +74,10 @@ export interface IntakeRequest {
   submitted_at: string | null; closed_at: string | null;
   triaged_by_user_id: ID | null; triage_action: string | null;
   ai_triage: Record<string, unknown> | null;
-  gates?: IntakeGates | null;
   screening?: Record<string, unknown> | null;
   parties?: IntakeParty[];
-  fired_rules: Record<string, unknown> | null;
   handoff_holder: string | null; handoff_user_id: ID | null;
-  matter_id: ID | null; contract_id: ID | null; contract_title?: string | null;
+  contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
 }
 // Workflow Router agent output — lives on ai_triage.flow_suggestion.
@@ -88,17 +101,10 @@ export interface LitigationAssessment {
   key_parties: string[];
   summary: string;
 }
-export interface IntakeGateDetected {
-  key: string; label: string; confidence: number; matched_text?: string; source: string;
-}
-export interface IntakeGateOverride {
-  action: "add" | "remove"; gate_key: string; by_user_id: ID; by_name: string;
-  reason: string | null; at: string;
-}
-export interface IntakeGateEffective { key: string; label: string; approver_group: string; }
-export interface IntakeGates {
-  detected: IntakeGateDetected[]; overrides: IntakeGateOverride[];
-  effective: IntakeGateEffective[]; effective_keys: string[];
+export interface IntakeApprovalPreview {
+  workflow: { id: ID; name: string } | null;
+  approvers: { step_name: string; approver: string; kind: "person" | "team" | "role"; mode: "any" | "all"; members: number | null }[];
+  our_signatory: string | null; our_entity: string | null; counterparty_contact: string | null;
 }
 export interface IntakeApprovalRung {
   approval_request_id: ID | null; step_order: number; status: string;
@@ -140,46 +146,21 @@ export interface IntakeSlaOps {
   by_holder: { agent: number; human: number; queue: number };
   oldest_open: string | null;
   workload: { user_id: ID; name: string | null; open: number; overdue: number }[];
-  rule_effectiveness: { id: ID; name: string; times_fired: number; last_fired_at: string | null }[];
 }
 export interface IntakeTeamMember {
   id?: ID; user_id: ID; name?: string; capacity: number; active: boolean; open_count?: number;
+  /** Approval authority in plain words (Admin → Authority); absent when no policy exists. */
+  approve_limit?: string | null;
 }
 export interface IntakeTeam {
   id: ID; key: string; name: string; description: string | null; active: boolean;
   strategy: "least_loaded" | "round_robin"; overflow_team_id: ID | null;
   overflow_team_name: string | null; sort_order: number;
+  is_default_intake: boolean; used_in: { where: string; kind: string | null; stage?: LifecycleStage | null }[];
   expertise: string[]; departments: string[]; members: IntakeTeamMember[];
-}
-export interface IntakeKbArticle {
-  id: ID; source_ref: string; title: string; body: string; tags: string[]; active: boolean;
-}
-export interface IntakePoolMember {
-  user_id: ID; name: string | null; capacity: number; utilization: number | null;
-  open: number; overdue: number; at_risk: number; closed_7d: number; closed_30d: number; effort: number;
-}
-export interface IntakePoolTier {
-  id: ID; name: string; strategy: string; overflow_team_name: string | null;
-  members: IntakePoolMember[]; open: number; overdue: number; closed_30d: number; effort: number;
-}
-export interface IntakePoolOps {
-  generated_at: string; days: number; tiers: IntakePoolTier[];
-  totals: { open: number; overdue: number; closed_30d: number; effort_minutes: number; overflow_events: number };
-  complexity_mix: { simple: number; standard: number; complex: number };
 }
 export interface CopilotTurn {
   reply: string; extracted: Record<string, string>; ready: boolean; suggested_type_label: string | null;
-}
-export interface IntakeRule {
-  id: ID; name: string; description: string | null; enabled: boolean; eval_order: number;
-  match_type: string | null; match_priority: string | null; match_department: string | null;
-  match_keyword: string | null; match_complexity: string | null;
-  set_assignee_user_id: ID | null; set_assignee_name: string | null;
-  set_priority: string | null; set_sla_hours: number | null;
-  set_team_id: ID | null; set_team_name: string | null;
-  escalate_to_user_id: ID | null; escalate_to_name: string | null;
-  require_approval_from_user_id: ID | null; require_approval_from_name: string | null;
-  times_fired: number; last_fired_at: string | null;
 }
 
 export interface RoleResponse {
@@ -224,7 +205,7 @@ export interface WallResponse {
   id: ID;
   name: string;
   reason: string | null;
-  scope_type: "contract" | "project";
+  scope_type: "contract";
   scope_id: string;
   scope_label: string | null;
   active: boolean;
@@ -286,113 +267,6 @@ export interface UserInvitationResponse {
   revoked_at: ISODateTime | null;
   token: string | null;
   email_sent?: boolean | null;
-}
-
-// ---------------------------------------------------------------------------
-// Matters
-// ---------------------------------------------------------------------------
-
-export type MatterType =
-  | "general"
-  | "contract_review"
-  | "due_diligence"
-  | "regulatory"
-  | "transactional"
-  | "litigation"
-  | "m_and_a"
-  | "employment"
-  | "privacy"
-  | "procurement"
-  | "advisory";
-
-export type MatterStatus = "intake" | "active" | "on_hold" | "closed";
-
-export interface MatterResponse {
-  id: ID;
-  org_id: ID;
-  name: string;
-  description: string | null;
-  matter_type: MatterType;
-  owner_user_id: ID;
-  matter_number: string | null;
-  client_name: string | null;
-  status: MatterStatus;
-  opened_at: ISODateTime | null;
-  closed_at: ISODateTime | null;
-  metadata_json: Record<string, unknown>;
-}
-
-export interface MatterRollupItem {
-  id: ID;
-  title: string;
-  status: string | null;
-  meta: string | null;
-}
-
-export interface MatterOverviewCounts {
-  contracts: number;
-  contracts_active: number;
-  obligations_open: number;
-  obligations_overdue: number;
-  approvals_pending: number;
-  notices_open: number;
-  intake_open: number;
-}
-
-export interface MatterOverview {
-  matter: MatterResponse;
-  counts: MatterOverviewCounts;
-  contracts: MatterRollupItem[];
-  obligations: MatterRollupItem[];
-  notices: MatterRollupItem[];
-  approvals: MatterRollupItem[];
-  intake: MatterRollupItem[];
-}
-
-export interface UnfiledItem {
-  id: ID;
-  kind: "contract" | "intake";
-  title: string;
-  subtitle: string | null;
-  suggested_matter_id: string | null;
-  suggested_matter_label: string | null;
-}
-
-export interface MatterActivityItem {
-  id: ID;
-  activity_type: string;
-  title: string;
-  occurred_at: ISODateTime | null;
-}
-
-export interface MatterFolderResponse {
-  id: ID;
-  matter_id: ID;
-  parent_folder_id: ID | null;
-  name: string;
-}
-
-export interface MatterMemberResponse {
-  id: ID;
-  matter_id: ID;
-  user_id: ID;
-  role: string;
-}
-
-export interface MatterShareResponse {
-  id: ID;
-  matter_id: ID;
-  shared_with_user_id: ID;
-  access_level: "read" | "update" | "share";
-  expires_at: ISODateTime | null;
-  revoked_at: ISODateTime | null;
-}
-
-export interface MatterContractResponse {
-  id: ID;
-  matter_id: ID;
-  contract_id: ID;
-  folder_id: ID | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -569,6 +443,9 @@ export interface ExtractedDoc {
   filename: string;
   content: string;
   chars: number;
+  /** "unreadable" when no text could be read (a scanned PDF, say); see reason. */
+  status?: "ok" | "unreadable";
+  reason?: string | null;
 }
 
 export interface BuildChatResponse {
@@ -607,6 +484,7 @@ export interface ContractRiskSummary {
   drivers: RiskDriver[];
   counts: { high: number; medium: number; low: number };
   clause_count: number;
+  assessed_count?: number;
   summary?: string | null;
   computed_at?: string | null;
   note?: string | null;
@@ -760,7 +638,6 @@ export interface LifecycleOptionsResponse {
 
 export type AssistantSessionType =
   | "general"
-  | "project"
   | "contract"
   | "tabular_review";
 
@@ -769,7 +646,6 @@ export interface AssistantSession {
   org_id: ID;
   session_type: string;
   title: string | null;
-  matter_id: ID | null;
   contract_id: ID | null;
   tabular_review_id: ID | null;
   status: "active" | "archived";
@@ -903,6 +779,16 @@ export interface WorkflowStepDef {
   config: Record<string, unknown>;
   parallel?: boolean; // runs concurrently with the step(s) above it
   cond?: WorkflowStepCond | null; // "only when" — run this step only if it matches
+  stage?: LifecycleStage; // which contract lifecycle stage the step sits under
+}
+
+export type LifecycleStage = "intake" | "drafting" | "review" | "approval" | "signature" | "active" | "closed";
+
+/** A lifecycle row that isn't a workflow step: request events, signers,
+ * obligations, renewal, expiry (backend app/workflows/lifecycle_rows.py). */
+export interface LifecycleRow {
+  name: string; kind: string; detail: string; who: string;
+  status: "done" | "waiting" | "planned" | "skipped"; when: string | null;
 }
 
 export interface Workflow {
@@ -920,8 +806,21 @@ export interface Workflow {
     match_keyword?: string | null;
     /** Free text an AI reads when auto-picking a workflow at intake. */
     ai_condition?: string | null;
+    /** The agreement type this workflow is for: a form, and for New agreement a
+     * kind of agreement. Form requests only ever get a workflow of their type. */
+    used_for?: { form: string; agreement_type: string | null }[];
+    /** "Chosen when": all must hold for a request of that type to get it. */
+    conditions?: WorkflowCondition[];
   };
   steps: WorkflowStepDef[];
+}
+
+export interface WorkflowCondition {
+  field: string;
+  op: "is" | "is_not" | "under" | "at_least" | "between" | "within_days";
+  value: string | number;
+  value2?: number;
+  currency?: string;
 }
 
 export interface WorkflowRunStep {
@@ -933,12 +832,17 @@ export interface WorkflowRunStep {
   assignee_label: string | null;
   team_id: ID | null;
   team_label: string | null;
-  role: string | null;
+  /** The team the workflow names for this step, known before it starts. */
+  planned_team_label?: string | null;
+  /** Approval steps: the authority needed and how many approvers hold it. */
+  authority_note?: string | null;
+  sla_hours?: number | string | null;
   note: string | null;
   result: Record<string, unknown> | null;
   updated_at: string | null;
   parallel?: boolean;
   cond?: WorkflowStepCond | null;
+  stage?: LifecycleStage | null;
 }
 
 export interface WorkflowRunComment {
@@ -1058,14 +962,16 @@ export interface ApprovalRequest {
   id: ID;
   org_id: ID;
   contract_id: ID;
+  contract_title?: string | null;
+  contract_type?: string | null;
+  contract_archived?: boolean;
   contract_version_id: ID | null;
   status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
   requested_by_user_id: ID;
   approver_user_id: ID | null;
   approver_role: string | null;
-  approver_group_id?: ID | null;
-  approver_group_name?: string | null;
-  routing_rule_id?: ID | null;
+  approver_team_id?: ID | null;
+  approver_team_name?: string | null;
   step_order?: number;
   mode?: "any" | "all";
   approvals?: number;
@@ -1113,42 +1019,9 @@ export interface ApproverBrief {
 }
 
 // A named pool of approvers for a function (Legal Counsel, Finance, …).
-export interface ApproverGroup {
-  id: ID;
-  org_id: ID;
-  name: string;
-  description: string | null;
-  is_active: boolean;
-  members: ApproverBrief[];
-  created_at: ISODateTime;
-  updated_at: ISODateTime;
-}
 
 // One ordered step of a routing rule's chain.
-export interface ApprovalRoutingStep {
-  id?: ID;
-  step_order: number;
-  approver_group_id: ID | null;
-  approver_group_name?: string | null;
-  approver_user_id: ID | null;
-  approver_user_name?: string | null;
-  approver_role: string | null;
-  mode: string;
-}
 
-export interface ApprovalRoutingRule {
-  id: ID;
-  org_id: ID;
-  name: string;
-  priority: string;
-  criteria: Record<string, unknown>;
-  approver_role: string | null;
-  approver_user_id: ID | null;
-  is_active: boolean;
-  steps: ApprovalRoutingStep[];
-  created_at: ISODateTime;
-  updated_at: ISODateTime;
-}
 
 // ---------------------------------------------------------------------------
 // Signatures
@@ -1241,7 +1114,7 @@ export interface RenewalRecommendation {
 // Contract Brain
 // ---------------------------------------------------------------------------
 
-export type BrainScope = "contract" | "project" | "portfolio";
+export type BrainScope = "contract" | "portfolio";
 
 export interface BrainSearchSemanticHit {
   contract_id: ID;
@@ -1279,7 +1152,6 @@ export interface BrainQuery {
   query_scope: BrainScope;
   question: string;
   contract_id: ID | null;
-  matter_id: ID | null;
   answer: string;
   citations: Citation[];
   retrieval_metadata: {
@@ -1310,7 +1182,6 @@ export interface TabularReview {
   id: ID;
   org_id: ID;
   name: string;
-  matter_id: ID | null;
   source_contract_ids: ID[];
   status: "draft" | "running" | "complete";
   metadata_json: Record<string, unknown>;
@@ -2213,4 +2084,58 @@ export interface ChainInstanceDetailResponse {
 export interface ChainBlockedResponse {
   instance_id: ID;
   blocking: ChainBlockingEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Counterparty revisions — their returned version against the one we sent
+// ---------------------------------------------------------------------------
+
+export type RevisionKind = "changed" | "added" | "removed" | "reverted" | "countered" | "ours";
+export type RevisionDecision = "open" | "accepted" | "kept" | "countered" | "agreed";
+
+export interface RevisionChange {
+  id: ID;
+  seq: number;
+  label: string | null;
+  kind: RevisionKind;
+  /** A difference their Word file never marked as a tracked change. */
+  unmarked: boolean;
+  our_text: string | null;
+  their_text: string | null;
+  parts: ["=" | "-" | "+", string][];
+  decision: RevisionDecision;
+  counter_text: string | null;
+  decided_at: ISODateTime | null;
+  playbook: { id: ID; severity: string; issue: string; suggested_fix: string | null }[];
+  carried: { id: ID; body: string; still_there: boolean }[];
+}
+
+export interface RevisionRound {
+  id: ID;
+  contract_id: ID;
+  round_number: number;
+  base_version_id: ID;
+  revision_version_id: ID;
+  status: "open" | "closed";
+  outcome: "agreed" | "counter" | null;
+  outcome_version_id: ID | null;
+  tracked: boolean;
+  changes: RevisionChange[];
+  open: number;
+  pushed_back: number;
+  created_at: ISODateTime | null;
+  note?: string | null;
+}
+
+// A clause of the contract's current version (GET /contracts/{id}/clauses).
+export interface ContractClause {
+  id: ID;
+  parent_id: ID | null;
+  seq: number;
+  type: string;
+  level: number;
+  number: string | null;
+  page: number | null;
+  title: string;
+  text: string;
 }

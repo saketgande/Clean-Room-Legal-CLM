@@ -1,20 +1,19 @@
 "use client";
 
-// Approvals & routing — contract sign-off chains + approver groups, in the new
-// mockup style (scoped `.apprv`). "Approval routing" (rule builder) and
-// "Intake routing" tabs delegate to their own files unchanged.
+// Approvals — every sign-off chain in flight + the approver groups workflow
+// Approval steps draw from, in the mockup style (scoped `.apprv`). Who approves
+// is set on each workflow's Approval step (Admin → Workflows); there are no
+// routing rules.
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Plus, Send, Users, X } from "lucide-react";
+import { CheckCircle2, Send, X } from "lucide-react";
 import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
 import { can } from "@/lib/intake";
-import { RoutingTab as IntakeRoutingTab } from "../intake/_phase1";
-import { RulesTab } from "./_rules-builder";
 import { ChainsTab } from "./_chains-tab";
 import { ConditionRulesTab } from "./_condition-rules-tab";
-import { fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { contractDisplayName, fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
@@ -38,54 +37,57 @@ function toneCls(tone: string): string {
 }
 
 export default function ApprovalsPage() {
+  // Same query key as RequestsTab, so react-query serves both from one fetch.
+  const { data: allReqs } = useQuery({ queryKey: ["approvals"], queryFn: approvalsApi.list });
+  const pending = (allReqs ?? []).filter((r) => r.status === "pending").length;
+  const overdue = (allReqs ?? []).filter((r) => r.overdue).length;
+  const mine = (allReqs ?? []).filter((r) => r.can_decide).length;
+
+  // Condition-driven approval chains sit beside the request list. Chains are
+  // started by a workflow's Approval step, never from this page.
   const [tab, setTab] = useState("requests");
   const { user } = useAuth();
-  const isAdmin = can(user, "admin_panel:access");
-
   const canManageChains = can(user, "approval_chain:manage");
-
   const tabs = [
     { id: "requests", label: "Requests" },
-    { id: "rules", label: "Approval routing" },
-    { id: "groups", label: "Approver groups" },
     { id: "chains", label: "Chains" },
     ...(canManageChains ? [{ id: "conditions", label: "Condition rules" }] : []),
-    { id: "intake", label: "Intake routing" },
   ];
 
   return (
     <div className="apprv">
       <style dangerouslySetInnerHTML={{ __html: APPRV_CSS }} />
       <div className="hd">
-        <div>
-          <h1>Approvals &amp; routing</h1>
-          <p className="sub">
-            Route contracts through a multi-step sign-off chain, and route incoming legal requests to the right team.
-          </p>
+        <h1>Approvals</h1>
+        <span className="sub">every sign-off in flight, and where each one is waiting</span>
+        <div className="sp" />
+        <div className="stat">
+          <span>
+            <b>{pending}</b> pending
+          </span>
+          <span className="crit">
+            <b>{overdue}</b> overdue
+          </span>
+          <span>
+            <b>{mine}</b> yours to action
+          </span>
         </div>
       </div>
 
-      <div className="tabrow">
-        {tabs.map((t) => (
-          <button key={t.id} className={`tabp${tab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       <div className="body">
-        {tab === "requests" ? (
-          <RequestsTab />
-        ) : tab === "rules" ? (
-          <RulesTab />
-        ) : tab === "groups" ? (
-          <GroupsTab />
-        ) : tab === "chains" ? (
+        <div className="tabrow">
+          {tabs.map((t) => (
+            <button key={t.id} className={`tabp${tab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+        {tab === "chains" ? (
           <ChainsTab />
         ) : tab === "conditions" && canManageChains ? (
           <ConditionRulesTab />
         ) : (
-          <IntakeRoutingTab isAdmin={isAdmin} />
+          <RequestsTab />
         )}
       </div>
     </div>
@@ -97,7 +99,6 @@ function RequestsTab() {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
-  const [submitOpen, setSubmitOpen] = useState(false);
   const [rejectFor, setRejectFor] = useState<ApprovalRequest | null>(null);
   const [reassignFor, setReassignFor] = useState<
     { req: ApprovalRequest; kind: "delegate" | "escalate" } | null
@@ -123,7 +124,9 @@ function RequestsTab() {
 
   const titleMap = useMemo(() => {
     const m = new Map<string, string>();
-    for (const c of contracts ?? []) m.set(c.id, c.title);
+    // Name the agreement, not the upload it arrived as — the same rule the
+    // contract register uses, so a row reads identically in both places.
+    for (const c of contracts ?? []) m.set(c.id, contractDisplayName(c));
     return m;
   }, [contracts]);
   // Resolve approver ids to names (falls back to the eligible-approver pool).
@@ -181,13 +184,6 @@ function RequestsTab() {
 
   return (
     <div>
-      <div className="actrow">
-        <button className="btn pri" onClick={() => setSubmitOpen(true)}>
-          <Send className="ic" />
-          Submit for approval
-        </button>
-      </div>
-
       {isLoading ? (
         <div className="tablewrap">
           <div className="skelrows">
@@ -204,11 +200,7 @@ function RequestsTab() {
             <CheckCircle2 className="ic" />
           </div>
           <div className="et">No approval requests</div>
-          <div className="ed">Submit a contract for approval to start the sign-off process.</div>
-          <button className="btn pri" onClick={() => setSubmitOpen(true)}>
-            <Send className="ic" />
-            Submit for approval
-          </button>
+          <div className="ed">Approvals start when a contract's workflow reaches an Approval step.</div>
         </div>
       ) : (
         <div className="tablewrap">
@@ -229,11 +221,24 @@ function RequestsTab() {
                 .map((req) => (
                   <tr key={req.id}>
                     <td className="c-strong">
-                      <Link href={`/contracts/${req.contract_id}`} className="lnk">
-                        {titleMap.get(req.contract_id) ?? "Untitled contract"}
-                      </Link>
+                      {req.contract_id ? (
+                        <Link href={`/contracts/${req.contract_id}`} className="lnk">
+                          {/* The row carries its own title now, so an approval
+                              against an archived contract still shows the name
+                              instead of falling through to "Untitled". */}
+                          {req.contract_title
+                            ? contractDisplayName({
+                                title: req.contract_title,
+                                contract_type: req.contract_type,
+                              })
+                            : titleMap.get(req.contract_id) ?? "Contract unavailable"}
+                        </Link>
+                      ) : (
+                        <span className="dim">No contract linked</span>
+                      )}
+                      {req.contract_archived && <span className="pill neutral">archived</span>}
                     </td>
-                    <td>
+                    <td className="c-nw">
                       <span className="stepcell">
                         {req.step_order ? `Step ${req.step_order}` : "—"}
                         {(req.needed ?? 1) > 1 && (
@@ -249,17 +254,17 @@ function RequestsTab() {
                         {req.overdue && <span className="pill crit">Overdue</span>}
                       </span>
                     </td>
-                    <td>
+                    <td className="c-nw">
                       {req.approver_role
                         ? titleCase(req.approver_role)
-                        : req.approver_group_name ??
-                          (req.approver_group_id
-                            ? "Group"
+                        : req.approver_team_name ??
+                          (req.approver_team_id
+                            ? "Team"
                             : req.approver_user_id
                               ? nameMap.get(req.approver_user_id) ?? "Assigned approver"
                               : "—")}
                     </td>
-                    <td className={req.overdue ? "c-danger" : undefined}>{fmtDate(req.due_at)}</td>
+                    <td className={req.overdue ? "c-nw c-danger" : "c-nw"}>{fmtDate(req.due_at)}</td>
                     <td className="c-r">
                       {req.status === "pending" && canDecide(req) ? (
                         <div className="rowact">
@@ -304,18 +309,6 @@ function RequestsTab() {
           </table>
         </div>
       )}
-
-      <SubmitModal
-        open={submitOpen}
-        onClose={() => setSubmitOpen(false)}
-        contracts={contracts ?? []}
-        onSubmitted={() => {
-          qc.invalidateQueries({ queryKey: ["approvals"] });
-          qc.invalidateQueries({ queryKey: ["approval-chain-instances"] });
-          notify("Approval chain started — see the Chains tab", "success");
-          setSubmitOpen(false);
-        }}
-      />
 
       <RejectModal
         request={rejectFor}
@@ -428,70 +421,6 @@ function ReassignModal({
   );
 }
 
-function SubmitModal({
-  open,
-  onClose,
-  contracts,
-  onSubmitted,
-}: {
-  open: boolean;
-  onClose: () => void;
-  contracts: { id: string; title: string }[];
-  onSubmitted: () => void;
-}) {
-  const { notify } = useToast();
-  const [contractId, setContractId] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!contractId) return;
-    setBusy(true);
-    try {
-      await approvalsApi.submit({ contract_id: contractId });
-      setContractId("");
-      onSubmitted();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Submit failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Submit for approval"
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn pri" onClick={submit} disabled={!contractId || busy}>
-            {busy ? "…" : "Submit"}
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label>Contract</label>
-        <select className="sel" value={contractId} onChange={(e) => setContractId(e.target.value)}>
-          <option value="">Select a contract…</option>
-          {contracts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.title}
-            </option>
-          ))}
-        </select>
-      </div>
-      <p className="hint">
-        The matching routing rule decides the approval chain. The first step is notified now; later steps
-        activate automatically as each one approves.
-      </p>
-    </Modal>
-  );
-}
-
 function RejectModal({
   request,
   onClose,
@@ -545,263 +474,6 @@ function RejectModal({
   );
 }
 
-// ---- Approver groups -----------------------------------------------------
-function GroupsTab() {
-  const qc = useQueryClient();
-  const { notify } = useToast();
-  const [newOpen, setNewOpen] = useState(false);
-  const [membersFor, setMembersFor] = useState<string | null>(null);
-
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["approval-groups"],
-    queryFn: approvalsApi.groups,
-  });
-
-  const activeGroup = (data ?? []).find((g) => g.id === membersFor) ?? null;
-
-  function refresh() {
-    qc.invalidateQueries({ queryKey: ["approval-groups"] });
-  }
-
-  return (
-    <div>
-      <div className="actrow">
-        <p className="note">
-          Named sets of people who <strong>sign off</strong> approval steps (any-one or all-members). For
-          load-balanced <em>work assignment</em>, use Teams / pools under Legal Intake — those are a different
-          thing.
-        </p>
-        <button className="btn pri" onClick={() => setNewOpen(true)}>
-          <Plus className="ic" />
-          New group
-        </button>
-      </div>
-
-      {isLoading ? (
-        <div className="tablewrap">
-          <div className="skelrows">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="skelrow" />
-            ))}
-          </div>
-        </div>
-      ) : error ? (
-        <div className="empty err">{error instanceof Error ? error.message : "Couldn't load groups."}</div>
-      ) : (data ?? []).length === 0 ? (
-        <div className="empty">
-          <div className="eic">
-            <Users className="ic" />
-          </div>
-          <div className="et">No approver groups</div>
-          <div className="ed">Create a group (e.g. Legal Counsel) and add the people who can approve for it.</div>
-          <button className="btn pri" onClick={() => setNewOpen(true)}>
-            <Plus className="ic" />
-            New group
-          </button>
-        </div>
-      ) : (
-        <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Group</th>
-                <th>Members</th>
-                <th>Active</th>
-                <th className="c-r">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(data ?? []).map((g) => (
-                <tr key={g.id}>
-                  <td>
-                    <div className="c-strong">{g.name}</div>
-                    {g.description ? <div className="c-sub">{g.description}</div> : null}
-                  </td>
-                  <td>
-                    {g.members.length === 0 ? (
-                      <span className="pill warn">No members yet</span>
-                    ) : (
-                      g.members.map((m) => m.full_name).join(", ")
-                    )}
-                  </td>
-                  <td>
-                    <span className={`pill ${g.is_active ? "ok" : "neutral"}`}>
-                      {g.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td className="c-r">
-                    <button className="btn sm" onClick={() => setMembersFor(g.id)}>
-                      <Users className="ic" />
-                      Members
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <NewGroupModal
-        open={newOpen}
-        onClose={() => setNewOpen(false)}
-        onCreated={() => {
-          refresh();
-          notify("Group created", "success");
-          setNewOpen(false);
-        }}
-      />
-      <ManageMembersModal
-        group={activeGroup}
-        onClose={() => setMembersFor(null)}
-        onSaved={() => {
-          refresh();
-          notify("Members updated", "success");
-          setMembersFor(null);
-        }}
-      />
-    </div>
-  );
-}
-
-function NewGroupModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const { notify } = useToast();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  async function submit() {
-    if (!name.trim()) return;
-    setBusy(true);
-    try {
-      await approvalsApi.createGroup({
-        name: name.trim(),
-        description: description.trim() || undefined,
-      });
-      setName("");
-      setDescription("");
-      onCreated();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Create failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="New approver group"
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn pri" onClick={submit} disabled={!name.trim() || busy}>
-            {busy ? "…" : "Create group"}
-          </button>
-        </>
-      }
-    >
-      <div className="field">
-        <label>Name</label>
-        <input className="inp" placeholder="e.g. Legal Counsel" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      <div className="field">
-        <label>Description</label>
-        <input className="inp" value={description} onChange={(e) => setDescription(e.target.value)} />
-        <span className="hint">Optional.</span>
-      </div>
-    </Modal>
-  );
-}
-
-function ManageMembersModal({
-  group,
-  onClose,
-  onSaved,
-}: {
-  group: { id: string; name: string; members: { id: string }[] } | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const { notify } = useToast();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState(false);
-
-  const { data: people } = useQuery({
-    queryKey: ["eligible-approvers"],
-    queryFn: approvalsApi.eligibleApprovers,
-    enabled: !!group,
-  });
-
-  useEffect(() => {
-    setSelected(new Set((group?.members ?? []).map((m) => m.id)));
-  }, [group?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function toggle(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
-  }
-
-  async function save() {
-    if (!group) return;
-    setBusy(true);
-    try {
-      await approvalsApi.setGroupMembers(group.id, [...selected]);
-      onSaved();
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Save failed", "error");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal
-      open={!!group}
-      onClose={onClose}
-      title={group ? `Members — ${group.name}` : "Members"}
-      footer={
-        <>
-          <button className="btn" onClick={onClose}>
-            Cancel
-          </button>
-          <button className="btn pri" onClick={save} disabled={busy}>
-            {busy ? "…" : "Save members"}
-          </button>
-        </>
-      }
-    >
-      <div className="memlist">
-        {(people ?? []).length === 0 ? (
-          <p className="hint">No active users to add yet.</p>
-        ) : (
-          (people ?? []).map((u) => (
-            <label key={u.id} className="memrow">
-              <input type="checkbox" checked={selected.has(u.id)} onChange={() => toggle(u.id)} />
-              <span className="mn">{u.full_name}</span>
-              <span className="me">{u.email}</span>
-            </label>
-          ))
-        )}
-      </div>
-    </Modal>
-  );
-}
-
 const APPRV_CSS = `
 .apprv{
   --bg:#f4f6f9;
@@ -824,9 +496,16 @@ const APPRV_CSS = `
 .apprv .dim{color:var(--ink-3)}
 .apprv .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.9;fill:none;stroke-linecap:round;stroke-linejoin:round}
 
-.apprv .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:16px}
-.apprv .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em}
-.apprv .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
+/* Same top bar as Contracts and Legal Intake: title and subtitle on one line,
+   live counters pushed right. Was a stacked 19px title with the subtitle below,
+   which is why this page read as a different app from the rest of the shell. */
+.apprv .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.apprv .hd h1{margin:0;font-size:16px;font-weight:660;letter-spacing:-.015em}
+.apprv .hd .sub{margin:0;font-size:12.5px;font-weight:500;color:var(--ink-3)}
+.apprv .hd .sp{flex:1}
+.apprv .hd .stat{display:flex;gap:14px;align-items:center;font-size:12px;color:var(--ink-2)}
+.apprv .hd .stat b{color:var(--ink);font-weight:650}
+.apprv .hd .stat .warn{color:var(--warn)} .apprv .hd .stat .crit{color:var(--crit)}
 
 .apprv .tabrow{display:flex;gap:2px;flex-wrap:wrap;border-bottom:1px solid var(--border);margin-bottom:16px}
 .apprv .tabp{padding:8px 12px;border:none;border-bottom:2px solid transparent;margin-bottom:-1px;background:none;color:var(--ink-2);font-weight:600;font-size:12.5px;cursor:pointer}
@@ -854,6 +533,11 @@ const APPRV_CSS = `
 .apprv tbody tr:last-child td{border-bottom:0}
 .apprv tbody tr:hover td{background:var(--inset)}
 .apprv .c-r{text-align:right}
+/* Real agreement names are longer than the filenames this column used to show,
+   so give it the slack and keep the short cells on one line — otherwise every
+   row grows to two lines and the table loses half its rows per screen. */
+.apprv td:first-child{width:38%}
+.apprv .c-nw{white-space:nowrap}
 .apprv .c-strong{font-weight:600;color:var(--ink)}
 .apprv .c-sub{font-size:11.5px;color:var(--ink-3);margin-top:2px}
 .apprv .c-danger{font-weight:600;color:var(--crit)}

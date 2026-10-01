@@ -4,12 +4,16 @@ import traceback
 from datetime import timedelta
 
 import httpx
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, func, or_, select, update
 
+# Every mapper, before any task touches a model: the worker imports only what
+# tasks name, so a model referenced only by foreign key (IntakeRequest →
+# counterparty) failed to configure and broke jobs with NoReferencedTableError.
+import app.models  # noqa: F401
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AISkillRun
-from app.ai.schemas import TabularCellOutput
+from app.ai.schemas import TabularCellOutput, TabularRowOutput
 from app.contract_brain.ingestion import ingest_contract_brain
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.models import Contract
@@ -17,7 +21,7 @@ from app.core.database import SessionLocal, utcnow
 from app.core.enums import AISkillRunStatus, JobStatus, ObligationStatus, TabularCellStatus
 from app.jobs.celery_app import celery_app
 from app.jobs.models import JobRun
-from app.tabular_review.models import TabularReviewCell, TabularReviewColumn
+from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +68,29 @@ def _humanize_cell_error(exc: Exception) -> str:
 # rather than silently dropped. Introducing a real DEAD_LETTER enum value would
 # need an enum change + migration, which is out of scope for this task.
 DEAD_LETTER_META_KEY = "dead_letter"
+
+# A worker can't hold a job past Celery's hard time limit (the process is killed),
+# so a RUNNING row older than that plus a margin was abandoned by a dead worker.
+# Deriving the lease from the limit needs no heartbeat column.
+JOB_LEASE = timedelta(seconds=(celery_app.conf.task_time_limit or 900) + 300)
+MAX_JOB_ATTEMPTS = 3
+_UNDISPATCHED_GRACE = timedelta(minutes=2)  # let a request finish its own commit + dispatch
+_RECLAIM_BATCH = 200
+
+
+def _lease_expired(job: JobRun, now) -> bool:
+    return job.started_at is None or job.started_at < now - JOB_LEASE
+
+
+def _should_run(job: JobRun, now) -> bool:
+    """A delivered task proceeds only when nobody legitimately holds the job:
+    finished jobs never re-run, and a RUNNING job is taken over only once its
+    lease has expired (its worker must be dead)."""
+    if job.status in (JobStatus.CANCELLED, JobStatus.SUCCEEDED):
+        return False
+    if job.status == JobStatus.RUNNING:
+        return _lease_expired(job, now)
+    return True
 
 
 @celery_app.task(
@@ -137,7 +164,7 @@ async def _run_ai_job(job_id: str) -> dict:
         job = db.scalar(select(JobRun).where(JobRun.id == job_id).with_for_update())
         if job is None:
             raise RuntimeError(f"Job not found: {job_id}")
-        if job.status in (JobStatus.CANCELLED, JobStatus.RUNNING, JobStatus.SUCCEEDED):
+        if not _should_run(job, utcnow()):
             return {"job_id": job_id, "status": job.status}
         job.status = JobStatus.RUNNING
         job.started_at = utcnow()
@@ -226,50 +253,39 @@ async def _run_ai_job(job_id: str) -> dict:
             _mark_job_succeeded(job)
             job.metadata_json = {**(job.metadata_json or {}), "graph_node_counts": counts}
             db.commit()
-        elif job.job_type == "tabular_cell_extraction":
-            cell = db.get(TabularReviewCell, job.metadata_json.get("cell_id"))
-            if cell is None:
-                raise RuntimeError("Tabular review cell not found")
-            column = db.get(TabularReviewColumn, cell.column_id)
-            if column is None:
-                raise RuntimeError("Tabular review column not found")
-            cell.status = TabularCellStatus.RUNNING
+        elif job.job_type == "document_text_extraction":
+            from app.contract_files.service import process_uploaded_document
+
+            outcome = await process_uploaded_document(db, job=job)
+            job = db.get(JobRun, job_id)
+            _mark_job_succeeded(job)
+            job.metadata_json = {**(job.metadata_json or {}), **outcome}
             db.commit()
-            try:
-                output = await ai_controller.run_job_skill(
-                    db,
-                    job=job,
-                    skill_name="tabular_cell_extraction",
-                    input_payload={
-                        "question": column.prompt,
-                        "contract_id": cell.contract_id,
-                    },
-                )
-                out = (
-                    output
-                    if isinstance(output, TabularCellOutput)
-                    else TabularCellOutput.model_validate(output)
-                )
-                cell.answer = out.answer
-                cell.reasoning = out.reasoning
-                cell.confidence = out.confidence
-                cell.citations = [c.model_dump(mode="json") for c in out.citations]
-                cell.raw_ai_output = out.model_dump(mode="json")
-                cell.error_message = None
-                # A cell must be cited or explicitly not_found; otherwise flag it.
-                if out.not_found or out.citations:
-                    cell.status = TabularCellStatus.COMPLETE
-                else:
-                    cell.status = TabularCellStatus.NEEDS_REVIEW
-                cell.updated_by_user_id = job.created_by_user_id
-                _mark_job_succeeded(job)
-                db.commit()
-            except Exception as cell_exc:
-                cell.status = TabularCellStatus.FAILED
-                cell.error_message = _humanize_cell_error(cell_exc)
-                cell.updated_by_user_id = job.created_by_user_id
-                db.commit()
-                raise
+        elif job.job_type == "intake_triage":
+            from app.intake.service import run_intake_triage
+
+            # Sync code whose AI calls bridge through run_coro_blocking: run it in a
+            # thread so this worker's own event loop isn't the one blocked.
+            await asyncio.to_thread(
+                run_intake_triage, db, request_id=job.resource_id, actor_id=job.created_by_user_id
+            )
+            job = db.get(JobRun, job_id)
+            _mark_job_succeeded(job)
+            db.commit()
+        elif job.job_type == "intake_screening":
+            from app.intake.service import run_intake_screening
+
+            # The relationship note is database queries, not AI calls, but
+            # they still block: off the worker's event loop like the rest.
+            await asyncio.to_thread(
+                run_intake_screening, db, request_id=job.resource_id,
+                actor_id=job.created_by_user_id,
+            )
+            job = db.get(JobRun, job_id)
+            _mark_job_succeeded(job)
+            db.commit()
+        elif job.job_type in _TABULAR_JOB_TYPES:
+            await _run_tabular_job(db, job)
         else:
             job.status = JobStatus.FAILED
             job.error_message = f"Unsupported job type for AI architecture spine: {job.job_type}"
@@ -277,6 +293,10 @@ async def _run_ai_job(job_id: str) -> dict:
             db.commit()
         return {"job_id": job_id, "status": db.get(JobRun, job_id).status}
     except Exception as exc:
+        # A failed flush leaves the session unusable; without this rollback the
+        # FAILED write below raised PendingRollbackError, the job stayed RUNNING
+        # forever, and the RUNNING short-circuit blocked every retry.
+        db.rollback()
         job = db.get(JobRun, job_id)
         if job is not None:
             job.status = JobStatus.FAILED
@@ -321,6 +341,313 @@ def _mark_job_succeeded(job: JobRun) -> None:
     job.finished_at = utcnow()
     job.error_message = None
     job.error_stack = None
+
+
+@celery_app.task
+def reclaim_stale_jobs() -> dict:
+    """Every few minutes: recover jobs no worker will ever finish. job_run is the
+    durable outbox; this is its poller.
+      * RUNNING past the lease (worker died): re-queue, or dead-letter after
+        MAX_JOB_ATTEMPTS so a job that crashes its worker can't loop forever.
+      * QUEUED with no celery_task_id (the enqueue failed, e.g. a Redis blip):
+        dispatch again."""
+    db = SessionLocal()
+    try:
+        return _reclaim_stale_jobs(db, now=utcnow())
+    finally:
+        db.close()
+
+
+def _reclaim_stale_jobs(db, *, now) -> dict:
+    from app.jobs.service import dispatch_job
+
+    requeued = dead_lettered = redispatched = dispatch_failed = 0
+    stale = db.scalars(
+        select(JobRun)
+        .where(
+            JobRun.status == JobStatus.RUNNING,
+            or_(JobRun.started_at.is_(None), JobRun.started_at < now - JOB_LEASE),
+        )
+        .order_by(JobRun.started_at.asc())
+        .limit(_RECLAIM_BATCH)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for job in stale:
+        if job.attempt_count >= MAX_JOB_ATTEMPTS:
+            job.status = JobStatus.FAILED
+            job.finished_at = now
+            job.error_message = job.error_message or "The worker stopped before finishing this job."
+            job.metadata_json = {
+                **(job.metadata_json or {}),
+                DEAD_LETTER_META_KEY: {"reason": "lease_expired", "at": now.isoformat()},
+            }
+            _fail_stuck_cells(db, job)
+            dead_lettered += 1
+        else:
+            job.status = JobStatus.QUEUED
+            job.celery_task_id = None
+            requeued += 1
+    db.commit()
+
+    undispatched = db.scalars(
+        select(JobRun)
+        .where(
+            JobRun.status == JobStatus.QUEUED,
+            JobRun.celery_task_id.is_(None),
+            JobRun.created_at < now - _UNDISPATCHED_GRACE,
+        )
+        .order_by(JobRun.created_at.asc())
+        .limit(_RECLAIM_BATCH)
+        .with_for_update(skip_locked=True)
+    ).all()
+    for job in undispatched:
+        try:
+            dispatch_job(db, job=job)
+            db.commit()
+            redispatched += 1
+        except Exception:
+            db.rollback()
+            dispatch_failed += 1
+            logger.warning("reclaim: dispatch still failing for job %s", job.id, exc_info=True)
+    return {
+        "requeued": requeued,
+        "dead_lettered": dead_lettered,
+        "redispatched": redispatched,
+        "dispatch_failed": dispatch_failed,
+    }
+
+
+_TABULAR_JOB_TYPES = ("tabular_cell_extraction", "tabular_row_extraction")
+
+
+def _tabular_cell_ids(job: JobRun) -> list[str]:
+    meta = job.metadata_json or {}
+    return list(meta.get("cell_ids") or ([meta["cell_id"]] if meta.get("cell_id") else []))
+
+
+def _claim_tabular_cells(db, job: JobRun) -> list[TabularReviewCell]:
+    """Lock this job's cells, leaving out any that a newer job was dispatched for.
+
+    The newest job for a cell owns it (it acts as a fencing token), so a
+    superseded run, like the first run of a cell that was since re-run, can never
+    overwrite newer results. The caller's commit releases the locks.
+    """
+    cell_ids = _tabular_cell_ids(job)
+    if not cell_ids:
+        return []
+    cells = db.scalars(
+        select(TabularReviewCell)
+        .where(TabularReviewCell.id.in_(cell_ids))
+        .order_by(TabularReviewCell.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+    newer = db.scalars(
+        select(JobRun).where(
+            JobRun.org_id == job.org_id,
+            JobRun.job_type.in_(_TABULAR_JOB_TYPES),
+            JobRun.created_at > job.created_at,
+            or_(
+                and_(JobRun.resource_type == "tabular_cell", JobRun.resource_id.in_(cell_ids)),
+                and_(
+                    JobRun.resource_type == "tabular_review",
+                    JobRun.resource_id == (job.metadata_json or {}).get("tabular_review_id"),
+                ),
+            ),
+        )
+    ).all()
+    taken = {cell_id for other in newer for cell_id in _tabular_cell_ids(other)}
+    return [cell for cell in cells if cell.id not in taken]
+
+
+async def _run_tabular_job(db, job: JobRun) -> None:
+    cells = _claim_tabular_cells(db, job)
+    if not cells:
+        _mark_job_succeeded(job)  # newer jobs own every cell; nothing left to do
+        db.commit()
+        return
+    column_ids = {cell.column_id for cell in cells}
+    columns = {
+        column.id: column
+        for column in db.scalars(select(TabularReviewColumn).where(TabularReviewColumn.id.in_(column_ids))).all()
+    }
+    for cell in cells:
+        cell.status = TabularCellStatus.RUNNING
+    db.commit()
+    try:
+        if job.job_type == "tabular_cell_extraction":
+            cell = cells[0]
+            output = await ai_controller.run_job_skill(
+                db,
+                job=job,
+                skill_name="tabular_cell_extraction",
+                input_payload={"question": columns[cell.column_id].prompt, "contract_id": cell.contract_id},
+            )
+            answers = {
+                cell.column_id: output if isinstance(output, TabularCellOutput) else TabularCellOutput.model_validate(output)
+            }
+        else:
+            output = await ai_controller.run_job_skill(
+                db,
+                job=job,
+                skill_name="tabular_row_extraction",
+                input_payload={
+                    "contract_id": cells[0].contract_id,
+                    "questions": [
+                        {"column_id": cell.column_id, "question": columns[cell.column_id].prompt} for cell in cells
+                    ],
+                },
+            )
+            row = output if isinstance(output, TabularRowOutput) else TabularRowOutput.model_validate(output)
+            answers = {}
+            for answer in row.answers:
+                answers.setdefault(answer.column_id, answer)
+    except Exception as exc:
+        db.rollback()
+        for cell in _claim_tabular_cells(db, job):
+            cell.status = TabularCellStatus.FAILED
+            cell.error_message = _humanize_cell_error(exc)
+            cell.updated_by_user_id = job.created_by_user_id
+        db.commit()
+        _settle_review(db, job)
+        raise
+    for cell in _claim_tabular_cells(db, job):
+        out = answers.get(cell.column_id)
+        cell.updated_by_user_id = job.created_by_user_id
+        if out is None:
+            cell.status = TabularCellStatus.FAILED
+            cell.error_message = "The AI returned no answer for this question. Re-run this cell to retry."
+            continue
+        cell.answer = out.answer
+        cell.reasoning = out.reasoning
+        cell.confidence = out.confidence
+        cell.citations = [c.model_dump(mode="json") for c in out.citations]
+        cell.raw_ai_output = out.model_dump(mode="json")
+        cell.error_message = None
+        # A cell must be cited or explicitly not_found; otherwise flag it.
+        cell.status = TabularCellStatus.COMPLETE if out.not_found or out.citations else TabularCellStatus.NEEDS_REVIEW
+    _mark_job_succeeded(job)
+    db.commit()
+    _settle_review(db, job)
+
+
+
+def _settle_review(db, job: JobRun) -> None:
+    """Update the review's own status as soon as a job's cells finish, so the list
+    isn't left saying "Running" until the periodic sweep. Best-effort."""
+    from app.tabular_review.service import reconcile_review_status
+
+    review_id = (job.metadata_json or {}).get("tabular_review_id")
+    if not review_id:
+        return
+    try:
+        review = db.get(TabularReview, review_id)
+        if review is not None and reconcile_review_status(db, review=review):
+            db.commit()
+    except Exception:
+        db.rollback()
+        logger.warning("could not settle tabular review %s", review_id, exc_info=True)
+
+def _fail_stuck_cells(db, job: JobRun) -> None:
+    """A dead-lettered tabular job must not leave its cells showing "Running"."""
+    if job.job_type not in _TABULAR_JOB_TYPES:
+        return
+    for cell in _claim_tabular_cells(db, job):
+        if cell.status == TabularCellStatus.RUNNING:
+            cell.status = TabularCellStatus.FAILED
+            cell.error_message = "A temporary worker error interrupted this cell. Re-run to retry."
+
+
+_RECONCILE_BATCH = 200
+
+
+@celery_app.task
+def reconcile_tabular_reviews() -> dict:
+    """Every few minutes: settle tabular reviews whose cells have all finished and
+    fail cells stuck past the window, so no review depends on someone opening it."""
+    from app.tabular_review.service import ACTIVE_REVIEW_STATUSES, reconcile_review_status
+
+    db = SessionLocal()
+    try:
+        reviews = db.scalars(
+            select(TabularReview)
+            .where(TabularReview.status.in_(ACTIVE_REVIEW_STATUSES), TabularReview.deleted_at.is_(None))
+            .order_by(TabularReview.updated_at.asc())
+            .limit(_RECONCILE_BATCH)
+            .with_for_update(skip_locked=True)  # a job settling the same review wins
+        ).all()
+        settled = sum(1 for review in reviews if reconcile_review_status(db, review=review))
+        db.commit()
+        return {"settled": settled}
+    finally:
+        db.close()
+
+
+_RESUME_BATCH = 200
+
+
+@celery_app.task
+def resume_workflow_runs() -> dict:
+    """Every couple of minutes: progress workflow runs without anyone having the
+    ticket open. Settles approvals and signatures that finished (or were rejected)
+    and runs AI steps that are mid-run."""
+    return asyncio.run(_resume_workflow_runs())
+
+
+async def _resume_workflow_runs() -> dict:
+    from app.auth.models import User
+    from app.workflows.models import WorkflowRun
+    from app.workflows.service import refresh_run
+
+    db = SessionLocal()
+    resumed = errors = 0
+    try:
+        candidates = db.scalar(
+            select(func.count())
+            .select_from(WorkflowRun)
+            .where(WorkflowRun.status.in_(("running", "waiting")))
+        )
+        if candidates and candidates > _RESUME_BATCH:
+            # A run that polls to no-op never writes, so onupdate never bumps
+            # updated_at and the ASC order is frozen: the same _RESUME_BATCH
+            # oldest runs are rescanned forever and everything past them
+            # starves silently. Surface it rather than let runs quietly stall.
+            # ponytail: a warning, not a fix. The real fix is a last_polled_at
+            # column to order by (a migration) — do it when this actually fires.
+            logger.warning(
+                "workflow resume saturated: %s runs waiting, only the oldest %s are polled "
+                "each tick — runs past that will not progress",
+                candidates,
+                _RESUME_BATCH,
+            )
+        run_ids = db.scalars(
+            select(WorkflowRun.id)
+            .where(WorkflowRun.status.in_(("running", "waiting")))
+            .order_by(WorkflowRun.updated_at.asc())
+            .limit(_RESUME_BATCH)
+        ).all()
+        for run_id in run_ids:
+            try:
+                # skip_locked: a user action already holding this run wins.
+                run = db.scalar(
+                    select(WorkflowRun)
+                    .where(WorkflowRun.id == run_id, WorkflowRun.status.in_(("running", "waiting")))
+                    .with_for_update(skip_locked=True)
+                )
+                actor = db.get(User, run.created_by_user_id) if run is not None and run.created_by_user_id else None
+                if run is None or actor is None:
+                    db.rollback()
+                    continue
+                await refresh_run(db, run=run, actor=actor)
+                db.commit()
+                resumed += 1
+            except Exception:
+                db.rollback()
+                errors += 1
+                logger.warning("scheduled workflow resume failed for run %s", run_id, exc_info=True)
+        return {"resumed": resumed, "errors": errors}
+    finally:
+        db.close()
 
 
 def _mark_job_dead_letter(job_id: str, *, reason: str) -> None:
@@ -402,6 +729,8 @@ def _queue_contract_brain_ingestion(db, *, job: JobRun, reason: str) -> None:
 # Mirrors app.obligations.routes.DUE_SOON_DAYS so scheduled and manual runs
 # classify obligations identically.
 _OBLIGATION_DUE_SOON_DAYS = 7
+_REMINDER_BATCH = 500  # per run; the rest go out on the next run
+_RENEWAL_BATCH = 500
 
 # Retention windows (days) for the log sweepers. audit_log is deliberately
 # absent: it is immutable and retained forever for compliance.
@@ -429,32 +758,39 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
     db = SessionLocal()
     try:
         today = utcnow().date()
-        # Recompute overdue / due-soon across every org's active obligations.
-        open_obligations = db.scalars(
-            select(Obligation).where(
-                Obligation.deleted_at.is_(None),
-                Obligation.status.in_(
-                    [ObligationStatus.OPEN, ObligationStatus.DUE_SOON, ObligationStatus.OVERDUE]
-                ),
-                Obligation.due_date.is_not(None),
-            )
-        ).all()
-        overdue = due_soon = 0
-        for ob in open_obligations:
-            if ob.due_date < today:
-                ob.status = ObligationStatus.OVERDUE
-                overdue += 1
-            elif ob.due_date <= today + timedelta(days=_OBLIGATION_DUE_SOON_DAYS):
-                ob.status = ObligationStatus.DUE_SOON
-                due_soon += 1
-            else:
-                ob.status = ObligationStatus.OPEN
+        # Recompute overdue / due-soon across every org's active obligations as three
+        # set-based UPDATEs: memory stays flat however many obligations exist.
+        soon = today + timedelta(days=_OBLIGATION_DUE_SOON_DAYS)
+        live = (Obligation.deleted_at.is_(None), Obligation.due_date.is_not(None))
+
+        def _set_status(to_status, from_statuses, *window):
+            return db.execute(
+                update(Obligation)
+                .where(*live, Obligation.status.in_(from_statuses), *window)
+                .values(status=to_status)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+
+        overdue = _set_status(
+            ObligationStatus.OVERDUE, [ObligationStatus.OPEN, ObligationStatus.DUE_SOON], Obligation.due_date < today
+        )
+        due_soon = _set_status(
+            ObligationStatus.DUE_SOON, [ObligationStatus.OPEN, ObligationStatus.OVERDUE],
+            Obligation.due_date >= today, Obligation.due_date <= soon,
+        )
+        _set_status(ObligationStatus.OPEN, [ObligationStatus.DUE_SOON, ObligationStatus.OVERDUE], Obligation.due_date > soon)
+
+        # The status recompute is committed on its own so a slow email batch can't lose it.
+        db.commit()
 
         due_reminders = db.scalars(
-            select(ObligationReminder).where(
+            select(ObligationReminder)
+            .where(
                 ObligationReminder.sent_at.is_(None),
                 ObligationReminder.remind_at <= today,
             )
+            .order_by(ObligationReminder.remind_at.asc())
+            .limit(_REMINDER_BATCH)
         ).all()
         sent = 0
         failed = 0
@@ -466,6 +802,11 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
             }:
                 continue
             owner = db.get(User, ob.owner_user_id) if ob.owner_user_id else None
+            # Record the reminder as sent, and commit, BEFORE the email goes out. A
+            # crash or time limit after this point can at worst lose this one
+            # reminder; it can no longer re-send the whole batch on the next run.
+            reminder.sent_at = today
+            db.commit()
             if owner is not None:
                 obligation_label = ob.obligation_type or "contract obligation"
                 try:
@@ -482,11 +823,11 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
                         "obligation reminder email failed",
                         extra={"obligation_id": ob.id, "reminder_id": reminder.id},
                     )
+                    reminder.sent_at = None  # not delivered: the next run retries it
+                    db.commit()
                     failed += 1
                     continue
-            reminder.sent_at = today
             sent += 1
-        db.commit()
         return {
             "reminders_sent": sent,
             "reminders_failed": failed,
@@ -700,7 +1041,24 @@ async def _run_renewal_window_check(*, resend=None) -> dict:
     db = SessionLocal()
     try:
         today = utcnow().date()
-        events = db.scalars(select(RenewalEvent)).all()
+        window_opens = func.coalesce(RenewalEvent.renewal_window_starts_at, RenewalEvent.notice_date)
+        # Only actionable rows, in bounded batches: the window has opened, the term
+        # hasn't already ended, the contract is live and not yet flagged, and this
+        # event hasn't been notified before (so a reset flag can't re-send it).
+        events = db.scalars(
+            select(RenewalEvent)
+            .join(Contract, Contract.id == RenewalEvent.contract_id)
+            .where(
+                window_opens <= today,
+                or_(RenewalEvent.expiration_date.is_(None), RenewalEvent.expiration_date >= today),
+                RenewalEvent.metadata_json["notified_at"].as_string().is_(None),
+                Contract.lifecycle_stage == ContractLifecycleStage.ACTIVE,
+                Contract.renewal_due.is_(False),
+                Contract.deleted_at.is_(None),
+            )
+            .order_by(window_opens.asc())
+            .limit(_RENEWAL_BATCH)
+        ).all()
         moved = 0
         notify_failed = 0
         for event in events:
@@ -729,6 +1087,10 @@ async def _run_renewal_window_check(*, resend=None) -> dict:
             # Renewal-due is a flag on the (still ACTIVE) contract, not a stage.
             contract.renewal_due = True
             contract.updated_by_user_id = actor_user_id
+            event.metadata_json = {**(event.metadata_json or {}), "notified_at": today.isoformat()}
+            # Commit the flag before emailing, so a crash mid-batch can't leave it
+            # unset and re-send every notification on the next run.
+            db.commit()
             owner = db.get(User, event.owner_user_id or contract.owner_user_id)
             if owner is not None:
                 safe_title = html.escape(contract.title or "Untitled contract")
@@ -786,12 +1148,13 @@ def mark_overdue_approvals() -> dict:
     Idempotent per day via the ``reminded_day`` / ``escalated`` markers, so a
     daily beat never double-sends. Safe no-op when nothing is overdue.
     """
-    from app.approvals.models import ApprovalRequest, ApproverGroup
+    from app.approvals.models import ApprovalRequest
     from app.auth.models import Role, User
     from app.contracts.models import Contract
     from app.core.config import settings
     from app.core.enums import ApprovalStatus
     from app.intake.models import IntakeRequest
+    from app.intake.teams import member_users
     from app.notifications.models import Notification
 
     db = SessionLocal()
@@ -847,16 +1210,16 @@ def mark_overdue_approvals() -> dict:
             elif req.intake_request_id:
                 ir = db.get(IntakeRequest, req.intake_request_id)
                 if ir is not None:
-                    title = ir.title
+                    # IntakeRequest has no `title`; `ref` is never null.
+                    title = ir.subject or ir.ref
 
-            # Who must act: the assigned approver, or every group member.
+            # Who must act: the assigned approver, or every team member.
             approver_ids: set[str] = set()
             if req.approver_user_id:
                 approver_ids.add(req.approver_user_id)
-            elif req.approver_group_id:
-                group = db.get(ApproverGroup, req.approver_group_id)
-                if group is not None:
-                    approver_ids.update(m.id for m in group.members)
+            elif req.approver_team_id:
+                approver_ids.update(m.id for m in member_users(db, team_id=req.approver_team_id,
+                                                               org_id=req.org_id))
             due_label = req.due_at.date().isoformat()
             do_flag, do_remind, do_escalate = _overdue_decision(
                 od, days_over, escalate_after

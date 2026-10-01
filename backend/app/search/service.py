@@ -7,8 +7,6 @@ from app.contract_brain.models import ClauseExtraction
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
-from app.matters.access import get_project_for_user, project_scope_query
-from app.matters.models import Matter, MatterContract
 from app.search.fts import (
     clause_vector,
     fts_usable,
@@ -33,7 +31,6 @@ class SearchService:
         contract_type: str | None = None,
         counterparty: str | None = None,
         jurisdiction: str | None = None,
-        matter_id: str | None = None,
         effective_from: date | None = None,
         effective_to: date | None = None,
         expiration_from: date | None = None,
@@ -47,12 +44,6 @@ class SearchService:
             Contract.deleted_at.is_(None),
             accessible_contract_filter(current_user),
         )
-        if matter_id:
-            get_project_for_user(db, matter_id=matter_id, user=current_user)
-            query = query.join(MatterContract, MatterContract.contract_id == Contract.id).where(
-                MatterContract.org_id == current_user.org_id,
-                MatterContract.matter_id == matter_id,
-            )
         if q:
             q_like = like_contains(q)
             metadata_filter = or_(
@@ -101,7 +92,6 @@ class SearchService:
         current_user,
         q: str,
         contract_id: str | None = None,
-        matter_id: str | None = None,
         limit: int = 25,
     ) -> list[dict]:
         db = self.db
@@ -131,12 +121,6 @@ class SearchService:
             )
         if contract_id:
             query = query.where(ContractTextSnapshot.contract_id == contract_id)
-        if matter_id:
-            get_project_for_user(db, matter_id=matter_id, user=current_user)
-            query = query.join(MatterContract, MatterContract.contract_id == Contract.id).where(
-                MatterContract.org_id == current_user.org_id,
-                MatterContract.matter_id == matter_id,
-            )
         cap = min(limit, 100)
         # A contract has one text snapshot per version; the query returns a row per
         # snapshot, so collapse to the best-ranked snapshot per contract (rows are
@@ -178,7 +162,6 @@ class SearchService:
         q: str | None = None,
         clause_type: str | None = None,
         contract_id: str | None = None,
-        matter_id: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         db = self.db
@@ -217,12 +200,6 @@ class SearchService:
             query = query.where(ClauseExtraction.clause_type == clause_type)
         if contract_id:
             query = query.where(ClauseExtraction.contract_id == contract_id)
-        if matter_id:
-            get_project_for_user(db, matter_id=matter_id, user=current_user)
-            query = query.join(MatterContract, MatterContract.contract_id == Contract.id).where(
-                MatterContract.org_id == current_user.org_id,
-                MatterContract.matter_id == matter_id,
-            )
         rows = db.execute(query.limit(min(limit, 100))).all()
         return [
             {
@@ -238,28 +215,6 @@ class SearchService:
             }
             for clause, contract in rows
         ]
-
-    def search_projects(
-        self,
-        *,
-        current_user,
-        q: str | None = None,
-        matter_type: str | None = None,
-        limit: int = 50,
-    ) -> list[Matter]:
-        db = self.db
-        query = project_scope_query(db, user=current_user)
-        if q:
-            q_like = like_contains(q)
-            query = query.where(
-                or_(
-                    Matter.name.ilike(q_like, escape="\\"),
-                    Matter.description.ilike(q_like, escape="\\"),
-                )
-            )
-        if matter_type:
-            query = query.where(Matter.matter_type == matter_type)
-        return db.scalars(query.order_by(Matter.updated_at.desc()).limit(min(limit, 100))).all()
 
     def search_contract_versions(
         self,

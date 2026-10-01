@@ -19,7 +19,6 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.ai.cost_guard import record_token_usage
 from app.ai.prompt_versions import PromptBundle, get_active_prompt_bundle
 from app.core.enums import AICallStatus
 from app.core.models import AICallLog
@@ -46,10 +45,10 @@ STANDALONE_AGENTS: tuple[StandaloneAgent, ...] = (
                     "new intake ticket / re-suggest", "flow_router", 0.0),
     StandaloneAgent("intake_triage", "app.intake.triage_agent", "triage",
                     "new intake ticket / re-suggest", "intake_triage", 0.0),
+    StandaloneAgent("intake_form_read", "app.intake.triage_agent", "aegis_read",
+                    "agreement-form intake ticket", "intake_form_read", 0.0),
     StandaloneAgent("litigation_intake_agent", "app.intake.litigation_agent", "assess_litigation",
                     "litigation-category intake ticket", "litigation_intake_agent", 0.0),
-    StandaloneAgent("intake_gate_classifier", "app.intake.gates", "_classify_ai",
-                    "every new intake ticket", "intake_gate_classifier", 0.0),
     StandaloneAgent("email_triage_agent", "app.intake.email_triage_agent", "classify_email",
                     "inbound Gmail message", "email_triage_agent", 0.0),
     StandaloneAgent("plain_language_summary", "app.contracts.routes", "contract_plain_summary",
@@ -122,4 +121,3 @@ def log_agent_call(
         status=AICallStatus.SUCCEEDED,
     ))
     db.commit()
-    record_token_usage(org_id, response.token_usage.get("total_tokens"))

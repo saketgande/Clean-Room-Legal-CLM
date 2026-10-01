@@ -25,10 +25,6 @@ class FindInContractInput(ContractHandleInput):
     query: str = Field(min_length=1)
 
 
-class MatterContractsInput(BaseModel):
-    matter_id: str
-
-
 class PromptRunInput(BaseModel):
     workflow_id: str
     prompt: str | None = None
@@ -38,7 +34,6 @@ class PromptRunInput(BaseModel):
 class GenerateContractInput(BaseModel):
     title: str
     instructions: str
-    matter_id: str | None = None
 
 
 class EditContractInput(ContractHandleInput):
@@ -57,13 +52,7 @@ class PlaybookToolInput(ContractHandleInput):
 
 class BrainAskInput(ContractHandleInput):
     question: str = Field(min_length=3)
-    query_scope: str = Field(default="contract", pattern="^(contract|project|portfolio)$")
-    matter_id: str | None = None
-
-
-class ApprovalSubmitInput(ContractHandleInput):
-    approver_user_id: str | None = None
-    approver_role: str | None = None
+    query_scope: str = Field(default="contract", pattern="^(contract|portfolio)$")
 
 
 class SignatureRecipientInput(BaseModel):
@@ -88,7 +77,6 @@ class TabularColumnInput(BaseModel):
 
 class TabularReviewInput(BaseModel):
     name: str
-    matter_id: str | None = None
     contract_handles: list[str] = Field(default_factory=list)
     contract_ids: list[str] = Field(default_factory=list)
     columns: list[TabularColumnInput] = Field(min_length=1)
@@ -254,7 +242,7 @@ class CreateWorkflowInput(BaseModel):
 # other Admin-config changes (teams, roles, authority, ethical walls, users) stay
 # UI/admin-only — Ask Aegis operates the app, it does not reconfigure those.
 _register("create_workflow", "Create a new governance workflow (the engine kind) with ordered steps. Step types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify.", AssistantToolCategory.MUTATING, "admin_panel:access", CreateWorkflowInput)
-_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "contract:approve", DecideApprovalInput)
+_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "approval:decide", DecideApprovalInput)
 _register("reassign_request", "Reassign an intake request to a different owner, given their name or email.", AssistantToolCategory.MUTATING, "intake:update", ReassignRequestInput)
 
 
@@ -319,7 +307,6 @@ class SignatureStatusInput(BaseModel):
 
 
 _register("list_my_requests", "List the intake requests you raised, with their status and stage.", AssistantToolCategory.READ_ONLY, "intake:create", EmptyInput)
-_register("list_projects", "List the organisation's projects.", AssistantToolCategory.READ_ONLY, "project:read", EmptyInput)
 _register("complete_task", "Mark an intake task as done.", AssistantToolCategory.MUTATING, "intake:update", CompleteTaskInput)
 _register("get_signature_status", "Check the signature status of a request's contract and its signers.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureStatusInput)
 
@@ -330,20 +317,14 @@ class AdvanceContractStageInput(BaseModel):
     to_stage: str = Field(description="target lifecycle stage, e.g. review, approval, signature, executed")
 
 
-class MatterRef(BaseModel):
-    matter_id: str
-
-
 _register("advance_contract_stage", "Move a request's contract to a target lifecycle stage (respects the approval-before-signature gate).", AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput)
 _register("list_my_approvals", "List approvals pending your decision.", AssistantToolCategory.READ_ONLY, "contract:approve", EmptyInput)
-_register("read_project", "Read a project's details.", AssistantToolCategory.READ_ONLY, "project:read", MatterRef)
 _register("read_notice", "Read a legal notice's full details.", AssistantToolCategory.READ_ONLY, "contract:read", NoticeRef)
 _register("get_signature_link", "Get the link to sign a request's contract — the user clicks it to review and sign in the app.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureLinkInput)
 _register("add_contract_comment", "Add a comment to a contract (internal, or shared with the counterparty).", AssistantToolCategory.MUTATING, "contract:update", AddCommentInput)
 _register("send_for_negotiation", "Send a request's contract out for negotiation — create a counterparty share link, or notify an internal team.", AssistantToolCategory.EXTERNAL_ACTION, "contract_file:share", SendForNegotiationInput)
 _register("read_contract", "Read a contract's full text and metadata. Long contracts return in windows: if the result has_more is true, call again with next_offset to keep reading until you've seen the whole document before analysing it.", AssistantToolCategory.READ_ONLY, "contract:read", ReadContractInput)
 _register("find_in_contract", "Find text in a contract.", AssistantToolCategory.READ_ONLY, "contract:read", FindInContractInput)
-_register("list_project_contracts", "List contracts in a project.", AssistantToolCategory.READ_ONLY, "project:read", MatterContractsInput)
 _register("get_contract_status", "Read contract lifecycle and risk metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)
 _register("list_workflows", "List reusable workflows.", AssistantToolCategory.READ_ONLY, "workflow:read", EmptyInput)
 _register(
@@ -415,14 +396,6 @@ _register(
 )
 
 _register("ask_contract_brain", "Retrieve Contract Brain context for a legal question.", AssistantToolCategory.READ_ONLY, "assistant:use", BrainAskInput)
-_register(
-    "submit_for_approval",
-    "Submit a contract for approval.",
-    AssistantToolCategory.MUTATING,
-    "contract:approve",
-    ApprovalSubmitInput,
-    confirmation_policy="required",
-)
 _register(
     "send_for_signature",
     "Send a contract to DocuSign for signature.",

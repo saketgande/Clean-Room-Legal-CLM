@@ -14,7 +14,6 @@ from app.assistant.models import (
 )
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
-from app.matters.access import get_project_for_user
 
 
 class AssistantService:
@@ -245,7 +244,6 @@ class AssistantService:
         self,
         *,
         current_user,
-        matter_id: str | None = None,
         contract_id: str | None = None,
         status_filter: str = "active",
         q: str | None = None,
@@ -258,9 +256,6 @@ class AssistantService:
         )
         if status_filter:
             query = query.where(AssistantSession.status == status_filter)
-        if matter_id:
-            get_project_for_user(db, matter_id=matter_id, user=current_user)
-            query = query.where(AssistantSession.matter_id == matter_id)
         if contract_id:
             get_contract_for_user(db, contract_id=contract_id, user=current_user)
             query = query.where(AssistantSession.contract_id == contract_id)
@@ -281,15 +276,12 @@ class AssistantService:
 
     def create_session(self, *, payload, current_user) -> AssistantSession:
         db = self.db
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
         if payload.contract_id:
             get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
         session = AssistantSession(
             org_id=current_user.org_id,
             session_type=payload.session_type,
             title=payload.title,
-            matter_id=payload.matter_id,
             contract_id=payload.contract_id,
             tabular_review_id=payload.tabular_review_id,
             created_by_user_id=current_user.id,

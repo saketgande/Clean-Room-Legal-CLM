@@ -19,6 +19,7 @@ from app.auth.routes import router as auth_router
 from app.auth.routes import users_router
 from app.authority.routes import router as authority_router
 from app.contract_brain.routes import router as contract_brain_router
+from app.contract_files.editor import router as word_editor_router
 from app.contract_files.routes import external_share_router
 from app.contract_files.routes import router as contract_files_router
 from app.contracts.comments_routes import router as contract_comments_router
@@ -33,6 +34,7 @@ from app.core.request_log_queue import start_writer as start_request_log_writer
 from app.core.request_log_queue import stop_writer as stop_request_log_writer
 from app.debug.routes import check_readiness
 from app.debug.routes import router as debug_router
+from app.docstudio.routes import router as docstudio_router
 from app.grants.routes import router as grants_router
 from app.intake.routes import router as intake_router
 from app.integrations.claude import aclose_claude_client
@@ -40,7 +42,6 @@ from app.integrations.docusign import aclose_docusign_client
 from app.integrations.resend import aclose_resend_client
 from app.integrations.sendgrid import aclose_sendgrid_client
 from app.jobs.routes import router as jobs_router
-from app.matters.routes import router as projects_router
 from app.menu_security.routes import (
     action_levels_router,
     menu_router,
@@ -53,6 +54,7 @@ from app.obligations.routes import router as obligations_router
 from app.observability.routes import router as observability_router
 from app.org_structure.routes import delegations_router, org_units_router, role_grants_router
 from app.organizations.routes import router as organizations_router
+from app.parties.routes import router as parties_router
 from app.playbooks.routes import router as playbooks_router
 from app.prompt_library.routes import router as prompt_library_router
 from app.renewals.routes import router as renewals_router
@@ -115,8 +117,17 @@ def create_app() -> FastAPI:
         except ImportError:
             pass
 
+    # The full API schema is reconnaissance for an attacker; serve it only
+    # where the debug router is mounted (see below).
+    non_prod = settings.environment.lower() in {"local", "development", "test"}
     app = FastAPI(
-        title=settings.app_name, version="0.1.0", debug=settings.debug, lifespan=lifespan
+        title=settings.app_name,
+        version="0.1.0",
+        debug=settings.debug,
+        lifespan=lifespan,
+        docs_url="/docs" if non_prod else None,
+        redoc_url="/redoc" if non_prod else None,
+        openapi_url="/openapi.json" if non_prod else None,
     )
     register_exception_handlers(app)
 
@@ -172,13 +183,14 @@ def create_app() -> FastAPI:
     app.include_router(approval_chains_router, prefix=prefix)
     app.include_router(authority_router, prefix=prefix)
     app.include_router(intake_router, prefix=prefix)
+    app.include_router(parties_router, prefix=prefix)
     app.include_router(organizations_router, prefix=prefix)
-    app.include_router(projects_router, prefix=f"{prefix}/matters")
-    # Deprecated alias so the existing Projects UI keeps working until Matters ships.
-    app.include_router(projects_router, prefix=f"{prefix}/projects")
     app.include_router(contracts_router, prefix=prefix)
     app.include_router(contract_comments_router, prefix=prefix)
     app.include_router(contract_files_router, prefix=prefix)
+    # The Word editor's own calls (file fetch, save callback): signed links, no session.
+    app.include_router(word_editor_router, prefix=prefix)
+    app.include_router(docstudio_router, prefix=prefix)
     app.include_router(external_share_router, prefix=prefix)
     app.include_router(ai_router, prefix=prefix)
     app.include_router(assistant_router, prefix=prefix)
@@ -203,11 +215,16 @@ def create_app() -> FastAPI:
     app.include_router(word_addin_router, prefix=prefix)
     # Internal traces / config-disclosure router is only mounted outside
     # production. The LB-facing /healthz and /readyz below are always present.
-    if settings.environment.lower() in {"local", "development", "test"}:
+    if non_prod:
         app.include_router(debug_router, prefix=prefix)
         # The `ideal` redesign prototype — non-prod only, in-memory, no schema.
         from app.ideal.routes import router as ideal_router
         app.include_router(ideal_router, prefix=prefix)
+        # Temporary page for trying docstudio Phase 1 on a file. It spends real
+        # OCR and Claude credits and has NO sign-in (see devui.py), so the only
+        # thing keeping it private is that this block never runs in production.
+        from app.docstudio.devui import router as docstudio_dev_router
+        app.include_router(docstudio_dev_router, prefix=prefix)
 
     if settings.enable_metrics:
         # Prometheus /metrics. Guarded so a missing instrumentator package is a

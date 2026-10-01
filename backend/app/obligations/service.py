@@ -1,5 +1,9 @@
+"""Obligation actions shared by the API and the assistant."""
+
+import calendar
 import logging
-from datetime import timedelta
+import re
+from datetime import date, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
@@ -10,6 +14,7 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
+from app.core.enums import ObligationStatus
 from app.integrations.resend import EmailSender, resend_client
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
@@ -18,6 +23,59 @@ from app.obligations.models import Obligation, ObligationReminder
 logger = logging.getLogger(__name__)
 
 DUE_SOON_DAYS = 7
+
+# Leading cadence word -> months between occurrences. Free-text recurrences such
+# as "Ongoing during term" describe how long a duty lasts, not a schedule, so
+# they never create a next occurrence.
+_CADENCE_MONTHS = {
+    "monthly": 1, "quarterly": 3, "semi-annually": 6, "semiannually": 6, "half-yearly": 6,
+    "annually": 12, "annual": 12, "yearly": 12,
+}
+
+
+def next_due_date(recurrence: str | None, due: date | None) -> date | None:
+    """The next occurrence's due date for a fixed cadence ("Monthly", "Quarterly",
+    "Annually"...), or None when the obligation doesn't repeat on a schedule."""
+    words = re.findall(r"[a-z-]+", (recurrence or "").lower())
+    months = _CADENCE_MONTHS.get(words[0]) if words else None
+    if not months or due is None:
+        return None
+    index = due.month - 1 + months
+    year, month = due.year + index // 12, index % 12 + 1
+    return date(year, month, min(due.day, calendar.monthrange(year, month)[1]))
+
+
+def complete_and_schedule_next(db: Session, *, ob: Obligation, actor_user_id: str) -> Obligation | None:
+    """Mark an obligation completed and, when it repeats on a fixed schedule, open
+    its next occurrence (linked back to this one) with the due date moved forward.
+    Returns that next occurrence, or None."""
+    db.refresh(ob, with_for_update=True)  # two completions at once can't both add a successor
+    if ob.status == ObligationStatus.COMPLETED:
+        return None
+    ob.status = ObligationStatus.COMPLETED
+    ob.updated_by_user_id = actor_user_id
+    due = next_due_date(ob.recurrence, ob.due_date)
+    if due is None:
+        return None
+    successor = Obligation(
+        org_id=ob.org_id,
+        contract_id=ob.contract_id,
+        contract_version_id=ob.contract_version_id,
+        owner_user_id=ob.owner_user_id,
+        responsible_party=ob.responsible_party,
+        obligation_type=ob.obligation_type,
+        description=ob.description,
+        due_date=due,
+        recurrence=ob.recurrence,
+        status=ObligationStatus.OPEN,
+        source_citation=ob.source_citation,
+        metadata_json={"parent_obligation_id": ob.id},
+        created_by_user_id=actor_user_id,
+        updated_by_user_id=actor_user_id,
+    )
+    db.add(successor)
+    db.flush()
+    return successor
 
 
 def serialize_obligation(ob, *, contract_title=None, counterparty_name=None, owner_name=None) -> dict:
@@ -94,8 +152,7 @@ class ObligationsService:
 
     def complete_obligation(self, *, ob: Obligation, current_user: User) -> dict:
         db = self.db
-        ob.status = "completed"
-        ob.updated_by_user_id = current_user.id
+        successor = complete_and_schedule_next(db, ob=ob, actor_user_id=current_user.id)
         write_audit_log(
             db,
             action="obligation.completed",
@@ -103,7 +160,7 @@ class ObligationsService:
             resource_id=ob.id,
             org_id=current_user.org_id,
             actor_user_id=current_user.id,
-            after={"contract_id": ob.contract_id},
+            after={"contract_id": ob.contract_id, "next_obligation_id": successor.id if successor else None},
         )
         db.commit()
         db.refresh(ob)

@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +18,8 @@ class ContractResponse(BaseModel):
     archived: bool = False
     owner_user_id: str
     counterparty_name: str | None
+    counterparty_id: str | None = None
+    legal_entity_id: str | None = None
     jurisdiction: str | None
     confidentiality: str = "internal"
     risk_level: str | None
@@ -53,7 +56,7 @@ class ContractUpdate(BaseModel):
     confidentiality: str | None = Field(
         default=None, pattern="^(public|internal|confidential|restricted)$"
     )
-    risk_level: str | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
     value_amount: float | None = None
     currency: str | None = Field(default=None, max_length=3)
     effective_date: date | None = None

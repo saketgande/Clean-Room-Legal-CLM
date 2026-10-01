@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import timedelta
 from io import BytesIO
 
 from fastapi import HTTPException, status
@@ -9,11 +10,10 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.database import utcnow
 from app.core.enums import TabularCellStatus
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
-from app.matters.access import get_project_for_user
-from app.matters.models import MatterContract
 from app.tabular_review.models import (
     TabularReview,
     TabularReviewCell,
@@ -27,6 +27,22 @@ MAX_REVIEW_CONTRACTS = 100
 MAX_REVIEW_COLUMNS = 50
 MAX_REVIEW_CELLS = 1000
 
+# A review whose cells have not all finished within this window is treated
+# as stuck (e.g. a worker died) so it can resolve instead of showing
+# "Running" forever.
+STUCK_REVIEW_TTL = timedelta(minutes=20)
+_TERMINAL_CELL = {
+    TabularCellStatus.COMPLETE,
+    TabularCellStatus.NEEDS_REVIEW,
+    TabularCellStatus.FAILED,
+}
+ACTIVE_REVIEW_STATUSES = ("running", "pending", "draft")
+
+
+# The 8,000-token output ceiling fits about 20 cited answers, so a wider review
+# splits each row into a few calls.
+_COLUMNS_PER_ROW_JOB = 20
+
 
 def dispatch_cells(
     db: Session,
@@ -36,26 +52,52 @@ def dispatch_cells(
     cells: list[TabularReviewCell],
     suffix: str = "",
 ) -> None:
-    """One Celery job per cell — a failed cell never blocks the rest."""
-    jobs = []
+    """One job per contract row answers that row's columns in a single AI call, so
+    each contract is read once rather than once per column. A lone cell (such as a
+    re-run) keeps its own job. A failed job only fails its own cells."""
+    rows: dict[str, list[TabularReviewCell]] = {}
     for cell in cells:
-        jobs.append(
-            create_job(
-                db,
-                org_id=user.org_id,
-                job_type="tabular_cell_extraction",
-                resource_type="tabular_cell",
-                resource_id=cell.id,
-                created_by_user_id=user.id,
-                idempotency_key=f"tabular_cell_extraction:{cell.id}{suffix}",
-                metadata={
-                    "cell_id": cell.id,
-                    "tabular_review_id": review.id,
-                    "column_id": cell.column_id,
-                    "contract_id": cell.contract_id,
-                },
+        rows.setdefault(cell.contract_id, []).append(cell)
+    jobs = []
+    for contract_id, row in rows.items():
+        for start in range(0, len(row), _COLUMNS_PER_ROW_JOB):
+            chunk = row[start:start + _COLUMNS_PER_ROW_JOB]
+            if len(chunk) == 1:
+                cell = chunk[0]
+                jobs.append(
+                    create_job(
+                        db,
+                        org_id=user.org_id,
+                        job_type="tabular_cell_extraction",
+                        resource_type="tabular_cell",
+                        resource_id=cell.id,
+                        created_by_user_id=user.id,
+                        idempotency_key=f"tabular_cell_extraction:{cell.id}{suffix}",
+                        metadata={
+                            "cell_id": cell.id,
+                            "tabular_review_id": review.id,
+                            "column_id": cell.column_id,
+                            "contract_id": cell.contract_id,
+                        },
+                    )
+                )
+                continue
+            jobs.append(
+                create_job(
+                    db,
+                    org_id=user.org_id,
+                    job_type="tabular_row_extraction",
+                    resource_type="tabular_review",
+                    resource_id=review.id,
+                    created_by_user_id=user.id,
+                    idempotency_key=f"tabular_row_extraction:{chunk[0].id}{suffix}",
+                    metadata={
+                        "cell_ids": [c.id for c in chunk],
+                        "tabular_review_id": review.id,
+                        "contract_id": contract_id,
+                    },
+                )
             )
-        )
     db.flush()
     job_ids = [job.id for job in jobs]
     db.commit()
@@ -212,17 +254,6 @@ class TabularReviewService:
     def create_review(self, *, payload, current_user: User) -> TabularReview:
         db = self.db
         contract_ids = list(dict.fromkeys(payload.contract_ids))
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
-            if not contract_ids:
-                contract_ids = list(
-                    db.scalars(
-                        select(MatterContract.contract_id).where(
-                            MatterContract.org_id == current_user.org_id,
-                            MatterContract.matter_id == payload.matter_id,
-                        )
-                    ).all()
-                )
         if not contract_ids:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
         # Access-check every row contract.
@@ -233,7 +264,6 @@ class TabularReviewService:
         review = TabularReview(
             org_id=current_user.org_id,
             name=payload.name,
-            matter_id=payload.matter_id,
             source_contract_ids=contract_ids,
             status="running",
             created_by_user_id=current_user.id,
@@ -497,3 +527,47 @@ class TabularReviewService:
         db.commit()
         db.refresh(chat_message)
         return chat_message
+
+
+def reconcile_review_status(db: Session, *, review: TabularReview) -> bool:
+    """Derive a review's status from its cells, and fail cells stuck past the
+    window so a review whose worker died can resolve and its cells be re-run.
+
+    Runs when a cell job finishes and on a schedule, never from a read request.
+    Returns True if it changed anything (the caller commits).
+    """
+    if review.status not in ACTIVE_REVIEW_STATUSES:
+        return False
+    cells = db.scalars(
+        select(TabularReviewCell).where(
+            TabularReviewCell.org_id == review.org_id,
+            TabularReviewCell.tabular_review_id == review.id,
+        )
+    ).all()
+    if not cells:
+        return False
+    pending = [c for c in cells if c.status not in _TERMINAL_CELL]
+    changed = False
+    if pending:
+        last_active = review.updated_at or review.created_at
+        if utcnow() - last_active < STUCK_REVIEW_TTL:
+            if review.status != "running":
+                review.status = "running"
+                return True
+            return False
+        for cell in pending:
+            cell.status = TabularCellStatus.FAILED
+            cell.error_message = (
+                "Timed out — no result within the expected window "
+                "(the worker may have stopped). Re-run this cell to retry."
+            )
+        changed = True
+    answered = any(
+        c.status in {TabularCellStatus.COMPLETE, TabularCellStatus.NEEDS_REVIEW}
+        for c in cells
+    )
+    new_status = "completed" if answered else "failed"
+    if review.status != new_status:
+        review.status = new_status
+        changed = True
+    return changed

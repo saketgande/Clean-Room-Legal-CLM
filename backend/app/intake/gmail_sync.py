@@ -21,23 +21,20 @@ No mocking: when configured, this always talks to the real Gmail account.
 
 from __future__ import annotations
 
-import asyncio
 import email
 import email.utils
 import imaplib
-import io
 import logging
 import re
 from email.header import decode_header
 from email.message import Message
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from app.core.audit import write_audit_log
 from app.core.config import settings
 from app.intake import email_triage_agent
-from app.intake.ingest import IngestService
+from app.intake.ingest import IngestService, sender_verdict
 from app.intake.models import IntakeRequest
 from app.intake.service import IntakeService
 
@@ -45,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 _IMAP_HOST = "imap.gmail.com"
 _THRID_RE = re.compile(rb"X-GM-THRID\s+(\d+)")
-_DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 def _decode(value: str | None) -> str:
@@ -103,39 +99,6 @@ def _attachments(msg: Message) -> list[tuple[str, str, bytes]]:
     return found
 
 
-def _ocr_to_docx(filename: str, mime_type: str, content: bytes, *, reducto=None) -> tuple[str, bytes] | None:
-    """OCRs an attachment that needs it (an image, or a scanned/unreadable
-    PDF or DOCX) via the same Reducto OCR provider the main contract-upload
-    path uses, and copies the recognized text into a new .docx so it reads
-    like any other attached document. Returns None when native extraction was
-    already good enough (no OCR needed) or OCR produced nothing — e.g. Reducto
-    is mocked (MOCK_REDUCTO=true) in local/dev, so this is a no-op there."""
-    from app.contract_files.text_extraction import extract_text as native_extract_text
-    from app.integrations.dependencies import get_reducto_client
-
-    reducto = reducto or get_reducto_client()
-    native = native_extract_text(content, mime_type=mime_type, filename=filename)
-    if not native.needs_ocr:
-        return None
-    try:
-        ocr = asyncio.run(reducto.extract_text(filename=filename, mime_type=mime_type, content=content))
-    except Exception:
-        return None
-    if not ocr.text.strip():
-        return None
-
-    from docx import Document
-
-    out = Document()
-    out.add_heading(f"OCR: {filename}", level=2)
-    for line in ocr.text.splitlines() or [""]:
-        out.add_paragraph(line)
-    buf = io.BytesIO()
-    out.save(buf)
-    stem = Path(filename).stem or "attachment"
-    return f"{stem}_OCR.docx", buf.getvalue()
-
-
 class GmailSyncService:
     """Gmail inbox sync — reads over IMAP, classifies, and files matching
     messages through the shared intake pipeline.
@@ -156,24 +119,13 @@ class GmailSyncService:
     ):
         self.db = db
         self.intake = intake or IntakeService(db)
-        self.ingest = ingest or IngestService(db, intake=self.intake)
-        self.reducto = reducto
+        self.ingest = ingest or IngestService(db, intake=self.intake, reducto=reducto)
 
     def _ingest_attachment(self, *, requester, request_id: str,
-                            filename: str, mime_type: str, content: bytes) -> str:
-        """Attaches `content` to the request and, when it needed OCR, also
-        attaches a companion .docx holding the OCR'd text to the same request.
-        Returns the combined extracted text for downstream classification."""
-        doc = self.intake.add_document(actor=requester, request_id=request_id,
-                                    filename=filename, mime_type=mime_type, content=content)
-        text = doc.get("extracted_text") or ""
-        ocr_result = _ocr_to_docx(filename, mime_type, content, reducto=self.reducto)
-        if ocr_result:
-            ocr_filename, ocr_bytes = ocr_result
-            ocr_doc = self.intake.add_document(actor=requester, request_id=request_id,
-                                            filename=ocr_filename, mime_type=_DOCX_MIME, content=ocr_bytes)
-            text = "\n\n".join(t for t in (text, ocr_doc.get("extracted_text") or "") if t)
-        return text
+                           filename: str, mime_type: str, content: bytes) -> str:
+        # Lives on IngestService now: the M365 sweep attaches files too.
+        return self.ingest._ingest_attachment(requester=requester, request_id=request_id,
+                                              filename=filename, mime_type=mime_type, content=content)
 
     def sync_gmail_inbox(self) -> dict:
         db = self.db
@@ -239,7 +191,11 @@ class GmailSyncService:
                             .first()
                         )
 
-                    requester = self.ingest._resolve_requester("org", from_email)
+                    # Gmail writes Authentication-Results on inbound mail; without
+                    # a pass there the From: address is only what the sender typed.
+                    auth_results = "; ".join(msg.get_all("Authentication-Results") or []) or None
+                    verified = sender_verdict(auth_results)["verified"]
+                    requester = self.ingest._resolve_requester(from_email, verified=verified)
 
                     if thread_request:
                         # Same Gmail conversation as an already-filed request (e.g.
@@ -273,11 +229,10 @@ class GmailSyncService:
                             if triage.get("category") != "General":
                                 thread_request.ai_triage = {
                                     **(thread_request.ai_triage or {}),
-                                    **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")},
+                                    **{k: v for k, v in triage.items() if k != "type_label"},
                                 }
                             if triage.get("type_label"):
                                 thread_request.type_label = triage["type_label"]
-                                thread_request.request_type_id = triage.get("request_type_id")
                             write_audit_log(
                                 db, action="intake.ingest.gmail_email.thread_followup",
                                 resource_type="intake_request", resource_id=thread_request.id,
@@ -299,6 +254,7 @@ class GmailSyncService:
                     out = self.ingest.ingest_message(
                         source="gmail_email", from_email=from_email, subject=subject,
                         body=body, external_message_id=external_message_id,
+                        auth_results=auth_results,
                     )
 
                     if not out["deduped"]:
@@ -323,10 +279,9 @@ class GmailSyncService:
                         if r:
                             if triage.get("category") != "General":
                                 r.ai_triage = {**(r.ai_triage or {}),
-                                               **{k: v for k, v in triage.items() if k not in ("type_label", "request_type_id")}}
+                                               **{k: v for k, v in triage.items() if k != "type_label"}}
                             if triage.get("type_label"):
                                 r.type_label = triage["type_label"]
-                                r.request_type_id = triage.get("request_type_id")
                             if thread_id:
                                 r.field_values = {**(r.field_values or {}), "gmail_thread_id": thread_id}
                             db.commit()

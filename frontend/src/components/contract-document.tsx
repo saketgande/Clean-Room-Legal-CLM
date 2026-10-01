@@ -209,6 +209,12 @@ export function ContractDocument({
   const { data: versions } = useQuery({
     queryKey: ["contract", contractId, "versions"],
     queryFn: () => contractsApi.versions(contractId),
+    // A fresh upload's text is extracted in the background: check again until it lands.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const pending = !!data && data.length > 0 && !data.some((v) => v.text_snapshot_id);
+      return pending && query.state.dataUpdateCount < 100 ? 3000 : false;
+    },
   });
   const { data: comments } = useQuery({
     queryKey: ["contract-comments", contractId],
@@ -270,13 +276,16 @@ export function ContractDocument({
     (v) => v.id === resolved?.versionId,
   );
 
-  // Redlines anchor to the version they were created against. Render that base
-  // text so accepted edits still show as struck original + inserted
-  // replacement (rather than silently becoming the new authoritative text).
+
+  // Redlines anchor to the version they were created against, so while any is
+  // still undecided we render that base text with the changes on it. Once every
+  // change is decided the backend has made a new version from the accepted ones
+  // — show that plain, not the old base with struck-out words forever.
+  const pending = useMemo(() => (edits ?? []).filter((e) => e.status === "proposed"), [edits]);
   const baseVersionId = useMemo(() => {
-    if (!edits || edits.length === 0) return null;
+    if (pending.length === 0) return null;
     const counts = new Map<string, number>();
-    for (const e of edits)
+    for (const e of pending)
       counts.set(
         e.contract_version_id,
         (counts.get(e.contract_version_id) ?? 0) + 1,
@@ -284,7 +293,14 @@ export function ContractDocument({
     return (
       [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
     );
-  }, [edits]);
+  }, [pending]);
+  const batch = useMemo(
+    () => (edits ?? []).filter((e) => e.contract_version_id === baseVersionId),
+    [edits, baseVersionId],
+  );
+  // Missing clauses have no original text to sit on; the backend appends them to
+  // the end of the document, so that's where they show.
+  const appended = batch.filter((e) => !e.original_text && e.replacement_text && e.status !== "rejected");
 
   const { data: redlineBase } = useQuery({
     queryKey: ["contract", contractId, "redline-base", baseVersionId],
@@ -293,9 +309,7 @@ export function ContractDocument({
       contractsApi.versionText(contractId, baseVersionId as string),
   });
 
-  const redlineMode = Boolean(
-    edits && edits.length > 0 && redlineBase?.text,
-  );
+  const redlineMode = Boolean(baseVersionId && redlineBase?.text);
   const docText = redlineMode
     ? (redlineBase as ContractTextSnapshotResponse).text
     : resolved?.snap?.text;
@@ -305,8 +319,8 @@ export function ContractDocument({
   // actually changes, not on every render of this component (e.g. typing in
   // an unrelated comment box).
   const redlineSegments = useMemo(
-    () => (redlineMode && docText && edits ? buildSegments(docText, edits) : null),
-    [redlineMode, docText, edits],
+    () => (redlineMode && docText ? buildSegments(docText, batch) : null),
+    [redlineMode, docText, batch],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -319,6 +333,18 @@ export function ContractDocument({
     }, 120);
     return () => window.clearTimeout(id);
   }, [highlightQuote, docText]);
+
+  // "Show in document" picks a change: bring it into view, not just ring it —
+  // the change is usually further down than the reader is.
+  useEffect(() => {
+    if (!activeEditId) return;
+    const id = window.setTimeout(() => {
+      scrollRef.current
+        ?.querySelector(`#edit-${CSS.escape(activeEditId)}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [activeEditId, redlineSegments]);
 
   // ---- Word-style direct editing ------------------------------------------
   // Edit turns the page into a writable surface; Save creates a NEW
@@ -388,14 +414,14 @@ export function ContractDocument({
       setSelection(null);
       return;
     }
-    const start = docText.indexOf(quote);
+    const holder = scrollRef.current;
+    if (!holder) return;
+    const start = selectionOffset(docText, quote, holder, sel.getRangeAt(0));
     if (start < 0) {
       // Selection crossed redline markup or reflowed text — can't anchor it.
       setSelection(null);
       return;
     }
-    const holder = scrollRef.current;
-    if (!holder) return;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     const box = holder.getBoundingClientRect();
     const x = Math.min(
@@ -614,7 +640,7 @@ export function ContractDocument({
         ) : (
           <article className="w-full whitespace-pre-wrap px-12 py-10 font-sans text-[15px] leading-7 text-slate-800">
             {redlineSegments
-              ? redlineSegments.map((seg, i) => {
+              ? <>{redlineSegments.map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;
                   const e = seg.edit;
                   const active = activeEditId === e.id;
@@ -629,14 +655,14 @@ export function ContractDocument({
                         onClick={() => onSelectEdit?.(e.id)}
                         className={"cursor-pointer" + ring}
                       >
-                        <del className="bg-danger-subtle text-danger line-through decoration-danger/60">
-                          {seg.text}
-                        </del>
-                        {e.replacement_text && (
-                          <ins className="bg-success-subtle text-success no-underline">
-                            {e.replacement_text}
-                          </ins>
-                        )}
+                        {/* Accepted = this is now the wording; the rest of the
+                            redline is still being decided. */}
+                        <ins
+                          title="Accepted change"
+                          className="bg-success-subtle text-slate-800 no-underline"
+                        >
+                          {e.replacement_text ?? seg.text}
+                        </ins>
                       </span>
                     );
                   }
@@ -676,7 +702,27 @@ export function ContractDocument({
                       {seg.text}
                     </mark>
                   );
-                })
+                })}
+                {appended.map((e) => (
+                  <span
+                    key={e.id}
+                    id={`edit-${e.id}`}
+                    onClick={() => onSelectEdit?.(e.id)}
+                    title={e.rationale ?? "New clause — click to review"}
+                    className={"cursor-pointer" + (activeEditId === e.id ? " ring-2 ring-offset-1 ring-brand-600 rounded" : "")}
+                  >
+                    {"\n\n"}
+                    <ins
+                      className={
+                        e.status === "accepted"
+                          ? "bg-success-subtle text-slate-800 no-underline"
+                          : "bg-success-subtle text-success underline decoration-dotted decoration-success/60 underline-offset-2"
+                      }
+                    >
+                      {e.replacement_text}
+                    </ins>
+                  </span>
+                ))}</>
               : highlightQuote && docText
                 ? (() => {
                     const span = findSpan(docText, highlightQuote);
@@ -819,4 +865,27 @@ export function ContractDocument({
       </div>
     </div>
   );
+}
+
+/** Where the selected quote starts in the document text. A repeated passage
+ *  ("Intentionally omitted", a notice address) is told apart by counting the
+ *  quote in the rendered text before the selection; -1 when that can't settle it. */
+function selectionOffset(docText: string, quote: string, holder: HTMLElement, range: Range): number {
+  let seen = -1;
+  try {
+    const before = document.createRange();
+    before.selectNodeContents(holder);
+    before.setEnd(range.startContainer, range.startOffset);
+    seen = before.toString().split(quote).length - 1;
+  } catch {
+    seen = -1;
+  }
+  let at = -1;
+  for (let i = 0; seen >= 0 && i <= seen; i++) {
+    at = docText.indexOf(quote, at + 1);
+    if (at < 0) break;
+  }
+  if (at >= 0) return at;
+  const first = docText.indexOf(quote);
+  return first >= 0 && first === docText.lastIndexOf(quote) ? first : -1;
 }

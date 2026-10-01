@@ -1,810 +1,560 @@
 "use client";
 
 /**
- * The eight-step agreement intake forms, ported from the old CLM so migrating
- * users meet the same steps in the same order. One config-driven wizard covers
- * all nine request types; only steps 1 and 5 differ between them.
+ * The request forms. Nine forms, each a few short steps that ask only what that
+ * request needs; questions appear only once they apply.
  *
- * ponytail: field specs live in this file rather than the DB. They are stable
- * legal taxonomy, not tenant config — move them to IntakeRequestType.fields if
- * a second org ever needs different ones.
+ * The questions themselves (labels, options, required, show-when rules) come
+ * from the server's agreement_forms.json via /intake/forms, so the browser and
+ * filing validation can never disagree. This file only lays them out: which
+ * step each sits on, what control it is, and what each answer drives.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronLeft, FileText, Info, Paperclip, Search, TriangleAlert } from "lucide-react";
-import {
-  Badge, Button, Card, CardBody, CardHeader, CardTitle, Field, Input, Select, Textarea,
-} from "@/components/ui";
-import { contractsApi, intakeApi } from "@/lib/endpoints";
+import { Check, ChevronLeft, Info, Paperclip, Search, TriangleAlert, X } from "lucide-react";
+import { Button, Card, CardBody, Input } from "@/components/ui";
+import { contractsApi, intakeApi, partiesApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { cn } from "@/lib/utils";
-import type { ContractResponse, CounterpartyOption, IntakeRequest } from "@/lib/types";
+import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment } from "@/lib/intake";
+import type { Counterparty, IntakeDraft, LegalEntity, RequestFormDef, RequestFormRule } from "@/lib/types";
 
-// ---------------------------------------------------------------- types ----
+// ---------------------------------------------------------------- layout ----
 
-type FieldKind = "text" | "date" | "money" | "select" | "textarea";
-
-interface FieldSpec {
-  k: string;
-  label: string;
-  kind?: FieldKind;
-  options?: string[];
-  req?: boolean;
-  help?: string;
-  wide?: boolean;
-}
-
-type Values = Record<string, string>;
+export type FormGroup = "New paper" | "Change an agreement" | "Records";
 
 export interface AgreementFormDef {
   key: string;
+  /** Must equal the server form's name (a test checks). */
   name: string;
+  group: FormGroup;
   desc: string;
-  group: "New paper" | "Change an existing agreement" | "Records & corrections";
-  /** What step 1 does: pick a contract, pick an in-flight request, upload an executed document, or name our entity. */
-  parent: "contract" | "none" | "upload" | "request";
-  /** Fields shown under step 1 — the values read off an uploaded document. */
-  parentFields?: FieldSpec[];
-  /** Extra fields on step 2, where a type needs more than the inherited parties. */
-  partyFields?: FieldSpec[];
-  parentTitle: string;
-  parentSub: string;
-  detailTitle: string;
-  detailSub: string;
-  detail: FieldSpec[];
-  /** Extra approvers appended whatever the value tier. */
-  extraApprover?: string;
-  /** Nothing is signed by this request type. */
-  noSignature?: boolean;
-  guide: Record<number, [string, string][]>;
+  steps: { title: string; fields: string[] }[];
 }
 
-// ------------------------------------------------------------- catalogue ----
-
-/**
- * Step 4 as the old CLM asks it — the left column locates the requester, the
- * right column classifies the agreement, and the four driver fields (function,
- * business unit, agreement type, monetary value) decide the approval ladder.
- */
-const CLASSIFY: FieldSpec[] = [
-  { k: "region", label: "Region", kind: "select", options: ["India", "EMEA", "North America", "APAC"], req: true },
-  { k: "department", label: "Department", kind: "select", options: ["Enterprise Systems", "Procurement", "Commercial", "R&D", "Human Resources", "Finance", "Quality"], req: true },
-  { k: "country", label: "Country", kind: "select", options: ["Not applicable", "India", "United Kingdom", "United States", "Germany", "Singapore"] },
-  { k: "agreement_type", label: "Agreement type", kind: "select", req: true,
-    options: ["Confidentiality agreement — India", "Consultancy agreement — India", "Master Services Agreement", "Review / drafting by legal counsel",
-              "Service agreement — advertising, media, facilities", "Vendor / supplier agreement", "Customer / sales agreement", "SaaS or software licence", "Others — India"] },
-  { k: "area", label: "Area", kind: "select", options: ["Not applicable", "North", "South", "East", "West"] },
-  { k: "agreement_category", label: "Agreement category", kind: "select", req: true,
-    options: ["Master Service Agreement", "Services — inbound", "Services — outbound", "Technology", "Facilities", "Marketing"] },
-  { k: "business_unit", label: "Business unit", kind: "select", options: ["Corporate", "Global Generics", "Pharmaceutical Services", "Biologics"], req: true },
-  { k: "agreement_sub_category", label: "Agreement sub-category", kind: "select", options: ["Not applicable", "Professional services", "Managed services", "Licence", "Maintenance"] },
-  { k: "plant", label: "Plant", kind: "select", options: ["Not applicable", "Hyderabad — Unit 1", "Hyderabad — Unit 2", "Bengaluru — R&D", "Vizag — Unit 6"] },
-  { k: "value", label: "Total monetary value of agreement", kind: "money", req: true, help: "Over the full term — this sets the approval tier under the delegation of authority." },
-];
-
-/**
- * Requests that hang off an existing contract inherit most of the above from
- * the parent, so they ask the short set and re-state only the value.
- */
-const CLASSIFY_CHILD: FieldSpec[] = [
-  { k: "region", label: "Region", kind: "select", options: ["India", "EMEA", "North America", "APAC"], req: true },
-  { k: "department", label: "Department", kind: "select", options: ["Enterprise Systems", "Procurement", "Commercial", "R&D", "Human Resources", "Finance", "Quality"], req: true },
-  { k: "business_unit", label: "Business unit", kind: "select", options: ["Corporate", "Global Generics", "Pharmaceutical Services", "Biologics"], req: true },
-  { k: "agreement_category", label: "Agreement category", kind: "select", req: true,
-    options: ["Master Service Agreement", "Services — inbound", "Services — outbound", "Technology", "Facilities", "Marketing"] },
-  { k: "value", label: "Total monetary value of agreement", kind: "money", req: true, help: "Sets the approval tier under the delegation of authority." },
-];
-
-function classifyFor(def: AgreementFormDef): FieldSpec[] {
-  return def.parent === "contract" ? CLASSIFY_CHILD : CLASSIFY;
-}
-
-const COMMON_GUIDE: Record<number, [string, string][]> = {
-  2: [["Where this comes from", "Entity and counterparty details are read from the record you picked. Correct them at source rather than here."]],
-  3: [["Digital signature", "Sent through DocuSign to the counterparty email registered on their record, once approvals clear."],
-      ["Offline ink", "Download after approval, obtain a physical signature, then upload the executed copy back into the CLM."]],
-  4: [["How approvers are decided", "Approvers and signatories follow the delegation of authority approved by the board — function, business unit, agreement type and monetary value."]],
-  7: [["Write a good summary", "A clear summary helps approvers and signatories make quick, informed decisions. Two lines beat a paragraph."]],
-  8: [["What to attach", "Third-party papers, supporting documents, budget approvals — anything a reviewer would otherwise have to ask you for. Upload DOC/DOCX where collaborative review is needed."]],
-};
+const REVIEW = "Review and submit";
+const WHO = ["agreement_type", "entity", "counterparty", "cp_signer_name", "cp_signer_email", "paper", "their_draft",
+  "purpose", "needed_by", "department"];
+const TERM = ["start_date", "term", "end_date", "renewal_term", "notice_days"];
 
 export const AGREEMENT_FORMS: AgreementFormDef[] = [
-  {
-    key: "new_agreement",
-    name: "New agreement",
-    desc: "A contract that does not exist yet — NDA, MSA, vendor or customer paper.",
-    group: "New paper",
-    parent: "none",
-    parentTitle: "Select the legal entity that will be a party to this agreement",
-    parentSub: "The contracting entity decides the approval ladder and who is authorised to sign. If you are unsure which entity applies, check with Legal or Finance.",
-    detailTitle: "Agreement request detail",
-    detailSub: "Terms specific to this agreement. Anything left blank comes back as a question from your reviewer.",
-    detail: [
-      { k: "effective_date", label: "Agreement effective date", kind: "date", req: true },
-      { k: "end_date", label: "Agreement end date", kind: "date", req: true },
-      { k: "existing_contract", label: "Any existing contract", kind: "select", options: ["No", "Yes"], req: true },
-      { k: "vendor_code", label: "Vendor code", kind: "text" },
-      { k: "origin", label: "Origin of agreement", kind: "select", options: ["Our template", "Counterparty paper", "From a precedent"] },
-      { k: "auto_renewal", label: "Auto-renewal", kind: "select", options: ["No", "Annual", "Evergreen"] },
-      { k: "purpose", label: "Other information / comments", kind: "textarea", wide: true },
-    ],
-    guide: {
-      1: [["Why we ask", "If you are unaware of the correct legal entity, reach out to Legal or Finance — the entity decides both the approval ladder and who may sign."],
-          ["Multiple entities", "More than one of our entities can be party to the same agreement; each adds its own approvers."]],
-      5: [["Fill what you know", "Blanks come back as questions from your reviewer, which costs a round trip."]],
-    },
-  },
-  {
-    key: "sow",
-    name: "Statement of Work",
-    desc: "Scope, deliverables and fees under a master agreement that is already signed.",
-    group: "New paper",
-    parent: "contract",
-    parentTitle: "Select the master agreement this SoW sits under",
-    parentSub: "A Statement of Work draws liability, IP, confidentiality and payment terms from a signed master. Only scope, deliverables and fees are set here.",
-    detailTitle: "Statement of Work detail",
-    detailSub: "Scope, deliverables, timeline and fees — the only terms negotiated at SoW level.",
-    detail: [
-      { k: "sow_title", label: "SoW title", kind: "text", req: true, wide: true },
-      { k: "services_start", label: "Services start", kind: "date", req: true },
-      { k: "services_end", label: "Services end", kind: "date", req: true },
-      { k: "pricing_model", label: "Pricing model", kind: "select", req: true, options: ["Fixed fee", "Time and materials", "Milestone-based", "Retainer"] },
-      { k: "rates", label: "Rates", kind: "select", req: true, options: ["Master rate card", "Rates specific to this SoW"], help: "SoW-specific rates vary the master rate card and draw extra Finance review." },
-      { k: "scope", label: "Scope of services", kind: "textarea", req: true, wide: true },
-      { k: "deliverables", label: "Deliverables and acceptance", kind: "textarea", req: true, wide: true },
-      { k: "personnel", label: "Key personnel / resources", kind: "text", wide: true },
-    ],
-    guide: {
-      1: [["No master, no SoW", "A Statement of Work cannot stand alone. If there is no signed master with this counterparty, raise a New agreement request first."]],
-      5: [["Deliverables matter most", "Vague deliverables are the biggest cause of payment disputes. Name the thing, the date and who accepts it."]],
-    },
-  },
-  {
-    key: "dpa",
-    name: "Data Processing Agreement",
-    desc: "Personal data is shared with, or processed by, a third party.",
-    group: "New paper",
-    parent: "contract",
-    parentTitle: "What arrangement causes personal data to be processed?",
-    parentSub: "A DPA usually attaches to a services or licence agreement. Linking it keeps the two renewing and terminating together.",
-    detailTitle: "Processing detail",
-    detailSub: "What data, whose data, why, for how long, and where it goes. These answers decide whether a DPIA is required.",
-    detail: [
-      { k: "purpose_of_processing", label: "Purpose of processing", kind: "textarea", req: true, wide: true },
-      { k: "data_categories", label: "Categories of personal data", kind: "select", req: true, options: ["Contact and identity data", "Employment and HR data", "Financial data", "Customer and usage data", "Mixed — several categories"] },
-      { k: "data_subjects", label: "Data subjects", kind: "select", req: true, options: ["Employees", "Customers", "Suppliers and contractors", "Patients or trial subjects", "Mixed"] },
-      { k: "special_category", label: "Special category data involved?", kind: "select", req: true, options: ["No", "Yes"], help: "Health, biometric, genetic, religious, political or trade-union data." },
-      { k: "scale", label: "Scale of processing", kind: "select", req: true, options: ["Limited — under 10,000 data subjects", "Moderate — 10,000 to 100,000", "Large scale — over 100,000 data subjects"] },
-      { k: "monitoring", label: "Systematic monitoring or profiling?", kind: "select", req: true, options: ["No", "Yes"] },
-      { k: "location", label: "Where is data processed?", kind: "select", req: true, options: ["India only", "India and EEA", "United States", "Multiple regions"] },
-      { k: "retention", label: "Retention period", kind: "select", req: true, options: ["Duration of the contract only", "Contract plus 1 year", "Contract plus 3 years", "Contract plus 7 years — statutory"] },
-      { k: "sub_processors", label: "Sub-processors used?", kind: "select", req: true, options: ["None", "Named list attached", "To be approved case by case"] },
-      { k: "breach_window", label: "Breach notification window", kind: "select", req: true, options: ["24 hours", "48 hours", "72 hours — regulatory minimum"] },
-    ],
-    extraApprover: "Privacy officer",
-    partyFields: [
-      { k: "their_role", label: "Counterparty's role", kind: "select", req: true,
-        options: ["Processor — they process on our instructions", "Sub-processor", "Joint controller"],
-        help: "If they decide how and why the data is used, this is a data sharing agreement instead." },
-      { k: "our_role", label: "Our role", kind: "select", req: true, options: ["Controller", "Processor", "Joint controller"] },
-      { k: "privacy_contact", label: "Their data protection contact", kind: "text", wide: true },
-    ],
-    guide: {
-      1: [["Link it to the contract", "A linked DPA renews and terminates with its agreement. Standalone DPAs must be tracked separately."]],
-      5: [["Special category data", "Health, biometric, genetic, religious or trade-union data triggers a mandatory DPIA and privacy sign-off before signature."],
-          ["Transfers", "Processing outside India needs standard contractual clauses and a transfer impact assessment."]],
-    },
-  },
-  {
-    key: "amendment",
-    name: "Amendment",
-    desc: "Change the terms of a live agreement — scope, pricing, dates.",
-    group: "Change an existing agreement",
-    parent: "contract",
-    parentTitle: "Select the agreement you want to amend",
-    parentSub: "Parties, business unit and existing terms carry across from the contract, so you only enter what changes.",
-    detailTitle: "Amendment detail",
-    detailSub: "Anything left as no change carries forward from the original agreement untouched.",
-    detail: [
-      { k: "what_changes", label: "What is changing", kind: "select", req: true, options: ["Commercial terms", "Scope of services", "Term / dates", "Parties or entity details", "Other"] },
-      { k: "effective_date", label: "Amendment effective date", kind: "date", req: true },
-      { k: "revised_end_date", label: "Revised end date", kind: "date", help: "Leave blank if the term is unchanged." },
-      { k: "reason", label: "Reason for the amendment", kind: "textarea", req: true, wide: true },
-    ],
-    guide: {
-      1: [["Cannot find it?", "Agreements signed outside the CLM must be regularized first, then amended."]],
-      5: [["Value changes", "Enter the revised total for the agreement, not the delta — the approval tier is calculated on the new total."]],
-    },
-  },
-  {
-    key: "renewal",
-    name: "Renewal",
-    desc: "Extend an agreement approaching expiry.",
-    group: "Change an existing agreement",
-    parent: "contract",
-    parentTitle: "Select the agreement you want to renew",
-    parentSub: "Renewing keeps the contract history, the counterparty record and any unchanged terms.",
-    detailTitle: "Renewal detail",
-    detailSub: "Set the new term and any commercial changes. Dates only means a straight extension, which moves faster.",
-    detail: [
-      { k: "renewal_type", label: "Type of renewal", kind: "select", req: true, options: ["Straight extension — same terms", "Renew with commercial changes", "Renew with scope changes"] },
-      { k: "new_start", label: "New term starts", kind: "date", req: true },
-      { k: "new_end", label: "New term ends", kind: "date", req: true },
-      { k: "auto_renewal", label: "Auto-renewal after this term", kind: "select", options: ["No", "Annual", "Evergreen"] },
-      { k: "reason", label: "Reason for renewing", kind: "textarea", req: true, wide: true },
-    ],
-    guide: {
-      1: [["Raise it early", "Give legal at least 60 days before expiry. Renewals raised inside the notice window may miss the deadline."]],
-      5: [["Price changes", "A rise above 10% is flagged to Finance regardless of the value tier."]],
-    },
-  },
-  {
-    key: "termination",
-    name: "Termination",
-    desc: "End a live agreement — for convenience, at expiry, or for breach.",
-    group: "Change an existing agreement",
-    parent: "contract",
-    parentTitle: "Select the agreement you want to terminate",
-    parentSub: "Aegis reads the notice period from the agreement and checks your proposed date against it.",
-    detailTitle: "Termination detail",
-    detailSub: "The grounds decide the notice you must give and who has to approve.",
-    detail: [
-      { k: "grounds", label: "Grounds for termination", kind: "select", req: true, options: ["For convenience", "For breach", "By mutual agreement", "Non-renewal at expiry"] },
-      { k: "termination_date", label: "Proposed termination date", kind: "date", req: true },
-      { k: "clause_breached", label: "Clause breached", kind: "text", help: "Required where the grounds are breach — e.g. Clause 9.2, service credits." },
-      { k: "cure_period", label: "Cure period served", kind: "select", options: ["Not applicable", "Yes", "No"], help: "Breach usually requires a cure period to have run before notice is served." },
-      { k: "reason", label: "Reason", kind: "textarea", req: true, wide: true },
-    ],
-    extraApprover: "General Counsel",
-    guide: {
-      1: [["This is not cancellation", "Termination ends a signed agreement. To withdraw a request still in flight, use Cancel a request in the CLM."]],
-      5: [["Notice period", "The earliest lawful termination date is calculated from the notice period in the agreement. A shorter date needs the counterparty's written agreement."]],
-    },
-  },
-  {
-    key: "novation",
-    name: "Novation",
-    desc: "Transfer an agreement to a different legal entity.",
-    group: "Change an existing agreement",
-    parent: "contract",
-    parentTitle: "Select the agreement you want to novate",
-    parentSub: "Novation transfers a contract to a different legal entity. All three parties must sign the same deed.",
-    detailTitle: "Novation detail",
-    detailSub: "Who is leaving, who is taking over, and what moves with them.",
-    detail: [
-      { k: "reason", label: "Reason for the novation", kind: "select", req: true, options: ["Counterparty acquired or merged", "Internal group restructuring", "Supplier transferring the contract", "Business or asset sale"] },
-      { k: "effective_date", label: "Novation effective date", kind: "date", req: true },
-      { k: "liabilities", label: "Accrued liabilities", kind: "select", req: true, options: ["Transfer to the incoming party", "Stay with the outgoing party", "Split at the effective date"] },
-      { k: "consent", label: "Has the outgoing party agreed?", kind: "select", req: true, options: ["Yes — in writing", "Yes — verbally, written to follow", "Not yet"] },
-      { k: "background", label: "Background", kind: "textarea", req: true, wide: true },
-    ],
-    extraApprover: "General Counsel",
-    partyFields: [
-      { k: "transferring_side", label: "Which side is transferring?", kind: "select", req: true,
-        options: ["The counterparty is transferring out", "We are transferring out"], help: "Decides who signs as outgoing party and who stays." },
-      { k: "outgoing_party", label: "Outgoing party", kind: "text", req: true, wide: true },
-      { k: "incoming_party", label: "Incoming party — the entity taking over", kind: "text", req: true, wide: true,
-        help: "New to us? Sanctions and conflicts screening runs automatically and must clear before signature." },
-      { k: "remaining_party", label: "Remaining party", kind: "text", wide: true },
-    ],
-    guide: {
-      1: [["Novation, not assignment", "Novation replaces a party with their consent and transfers obligations as well as rights."]],
-      5: [["Liabilities", "Decide whether accrued liabilities stay with the outgoing party or transfer — the clause most often argued over."]],
-    },
-  },
-  {
-    key: "regularize",
-    name: "Regularize an agreement executed outside the CLM",
-    desc: "Already signed off-system — bring it onto the register.",
-    group: "Records & corrections",
-    parent: "upload",
-    parentTitle: "Upload the executed agreement",
-    parentSub: "This brings paper signed outside the CLM onto the register, so it is tracked, its obligations are managed and it appears in reporting.",
-    detailTitle: "How did this come to be signed outside the CLM?",
-    detailSub: "Legal needs the circumstances to decide what remediation is required and whether a policy exception must be logged.",
-    parentFields: [
-      { k: "counterparty", label: "Counterparty", kind: "text", req: true, wide: true, help: "Read from the signature block — confirm it matches the counterparty register." },
-      { k: "agreement_type", label: "Agreement type", kind: "select", req: true,
-        options: ["Service agreement", "Master Services Agreement", "Consultancy agreement", "NDA / confidentiality", "Vendor / supplier agreement", "Others — India"] },
-      { k: "date_signed", label: "Date signed", kind: "date", req: true },
-      { k: "effective_date", label: "Effective date", kind: "date", req: true },
-      { k: "end_date", label: "End date", kind: "date", req: true },
-      { k: "value", label: "Total value", kind: "money", req: true },
-    ],
-    partyFields: [
-      { k: "entity", label: "Our entity", kind: "text", req: true, wide: true },
-      { k: "signed_by_us", label: "Who signed for us?", kind: "text", req: true, wide: true, help: "Name and role — checked against the delegation of authority at step 5." },
-      { k: "signed_by_them", label: "Who signed for the counterparty?", kind: "text", wide: true },
-    ],
-    detail: [
-      { k: "why_outside", label: "Why was it signed outside the CLM?", kind: "select", req: true,
-        options: ["Urgency — no time to route it", "Counterparty insisted on their process", "The team was unaware of the CLM requirement", "Signed before the CLM was introduced", "Low value — assumed not required"] },
-      { k: "prior_approval", label: "Were the usual approvals obtained at the time?", kind: "select", req: true, options: ["No approvals were sought", "Approved informally by email", "Fully approved outside the system"] },
-      { k: "signer_authority", label: "Did the signer have authority under the delegation?", kind: "select", req: true, options: ["Yes", "No", "Not sure"] },
-      { k: "circumstances", label: "Circumstances", kind: "textarea", req: true, wide: true },
-    ],
-    extraApprover: "Compliance officer",
-    noSignature: true,
-    guide: {
-      1: [["Executed copy required", "Upload the fully signed version, not a draft — every signature page included."],
-          ["Why this matters", "Contracts outside the CLM are invisible to renewal alerts, obligation tracking and reporting."]],
-      5: [["Be straightforward", "The circumstances decide the remediation, not a penalty. Under-reporting simply produces the wrong remediation."]],
-    },
-  },
-  {
-    key: "cancellation",
-    name: "Cancel a request in the CLM",
-    desc: "Withdraw a request you raised that is still in flight.",
-    group: "Records & corrections",
-    parent: "request",
-    parentTitle: "Select the request you want to cancel",
-    parentSub: "Cancellation withdraws a request that has not completed. Anything already signed must be terminated instead.",
-    detailTitle: "Why is the request being cancelled?",
-    detailSub: "The reason is recorded against the request and decides who is told.",
-    detail: [
-      { k: "reason", label: "Reason for cancelling", kind: "select", req: true,
-        options: ["No longer needed", "Duplicate of another request", "Superseded by a different request", "Business change — project stopped", "Raised in error", "Counterparty withdrew"] },
-      { k: "superseded_by", label: "Superseded by", kind: "text" },
-      { k: "notify_counterparty", label: "Notify the counterparty?", kind: "select", req: true, options: ["No — they were never contacted", "Yes — they have the paper already"] },
-      { k: "note", label: "Anything the approvers should know", kind: "textarea", req: true, wide: true },
-    ],
-    noSignature: true,
-    guide: {
-      1: [["Cancellation, not termination", "This withdraws a request still in flight. To end a signed contract, raise a Termination request."]],
-      5: [["Nothing is deleted", "The request, its approvals and its correspondence stay on the audit record, marked cancelled."]],
-    },
-  },
+  { key: "new_agreement", name: "New agreement", group: "New paper",
+    desc: "NDA, services, buying, software, consultancy or selling. One form; the questions adapt to the kind of agreement.",
+    steps: [
+      { title: "Agreement and parties", fields: WHO },
+      { title: "Commercial terms", fields: ["nda_kind", "nda_direction", "nda_term", "governing_law", "value", ...TERM,
+        "scope", "buying", "hosting", "payment_terms", "nonstandard"] },
+      { title: "Risk checks and files", fields: ["personal_data", "gxp", "attachments"] },
+    ] },
+  { key: "sow", name: "Statement of Work", group: "New paper", desc: "New scope and fees under a signed master agreement.",
+    steps: [
+      { title: "The master agreement", fields: ["parent_contract_id", "cp_signer_name", "cp_signer_email", "needed_by", "department"] },
+      { title: "Scope and fees", fields: ["sow_title", "services_start", "services_end", "value", "pricing", "scope", "deliverables"] },
+      { title: "Risk checks and files", fields: ["personal_data", "gxp", "attachments"] },
+    ] },
+  { key: "dpa", name: "Data Processing Agreement", group: "New paper", desc: "Personal data moves between us and a partner.",
+    steps: [
+      { title: "The agreement", fields: ["parent_contract_id", "cp_signer_name", "cp_signer_email", "paper", "their_draft", "needed_by"] },
+      { title: "The data", fields: ["our_role", "processing_purpose", "data_types", "data_subjects", "transfer", "subprocessors"] },
+      { title: "Files", fields: ["attachments"] },
+    ] },
+  { key: "amendment", name: "Amendment", group: "Change an agreement", desc: "Change the value, dates, scope or parties.",
+    steps: [
+      { title: "The agreement", fields: ["parent_contract_id", "needed_by"] },
+      { title: "What changes", fields: ["what_changes", "new_value", "new_end_date", "change_effective", "reason"] },
+      { title: "Files", fields: ["attachments"] },
+    ] },
+  { key: "renewal", name: "Renewal", group: "Change an agreement", desc: "Extend an agreement that is ending.",
+    steps: [
+      { title: "The agreement", fields: ["parent_contract_id", "needed_by"] },
+      { title: "The new term", fields: ["renew_terms", "renew_end", "renew_value", "reason"] },
+      { title: "Files", fields: ["attachments"] },
+    ] },
+  { key: "termination", name: "Termination", group: "Change an agreement", desc: "End an agreement early or at expiry.",
+    steps: [
+      { title: "The agreement", fields: ["parent_contract_id", "needed_by"] },
+      { title: "Ending it", fields: ["grounds", "termination_date", "clause_breached", "cure_served", "reason"] },
+      { title: "Files", fields: ["attachments"] },
+    ] },
+  { key: "novation", name: "Novation", group: "Change an agreement", desc: "Move an agreement to a different company.",
+    steps: [
+      { title: "The agreement", fields: ["parent_contract_id", "needed_by"] },
+      { title: "The transfer", fields: ["transferring", "incoming_party", "effective_date", "consent", "reason"] },
+      { title: "Files", fields: ["attachments"] },
+    ] },
+  { key: "regularize", name: "Signed outside the system", group: "Records", desc: "Bring an already-signed agreement onto the register.",
+    steps: [
+      { title: "The signed document", fields: ["executed", "entity", "counterparty", "date_signed"] },
+      { title: "Its terms", fields: ["value", ...TERM] },
+      { title: "How it happened", fields: ["why_outside", "prior_approval", "signed_by_us"] },
+    ] },
+  { key: "cancellation", name: "Cancel a request", group: "Records", desc: "Withdraw a request that is still in progress.",
+    steps: [
+      { title: "The request", fields: ["cancel_request_ref"] },
+      { title: "Why", fields: ["cancel_reason", "tell_cp"] },
+    ] },
 ];
 
-/** ponytail: the entity register has no endpoint yet — swap for one when it exists. */
-const ENTITIES = [
-  { name: "Acme Laboratories Limited", address: "8-2-337, Road No. 3, Banjara Hills, Hyderabad 500034", signatory: "Erez Israeli", jurisdiction: "India" },
-  { name: "Acme Pharma UK Ltd", address: "5th Floor, 20 St Andrew Street, London EC4A 3AG", signatory: "Sarah Whitfield", jurisdiction: "England & Wales" },
-  { name: "Acme Life Sciences Inc", address: "107 College Road East, Princeton, NJ 08540", signatory: "Michael Reyes", jurisdiction: "Delaware, USA" },
-];
-const ENTITY_OPTIONS: CounterpartyOption[] = ENTITIES.map((e) => ({ name: e.name, contact_email: null }));
+type UiKind = "entity" | "counterparty" | "party" | "contract" | "request" | "money" | "email" | "file";
 
-// ------------------------------------------------------------- approvals ----
+/** How a question is shown and what its answer drives. Files live only here. */
+const UI: Record<string, { kind?: UiKind; label?: string; req?: boolean; show?: RequestFormRule[];
+  help?: string; placeholder?: string; uses: string }> = {
+  agreement_type: { uses: "Picks the template and the workflow (its Used for), and decides the questions on the next step." },
+  entity: { kind: "entity", uses: "Our party on the draft; decides who may sign for us." },
+  counterparty: { kind: "counterparty", help: "Picked from the counterparty register.", uses: "Their party on the draft and on the contract record." },
+  cp_signer_name: { placeholder: "e.g. Maya Chen", uses: "The counterparty signer on the signature envelope." },
+  cp_signer_email: { kind: "email", placeholder: "name@company.com", uses: "Allowed as a signer when the contract goes out for signature." },
+  paper: { uses: "Our template: Aegis drafts it. Their paper: their draft becomes the contract and the AI review runs on it." },
+  their_draft: { kind: "file", label: "Their draft", req: true, show: [{ field: "paper", in: ["Their paper"] }],
+    help: "An editable Word file where you can, not a scan.", uses: "Becomes version 1 of the contract." },
+  purpose: { placeholder: "One or two sentences a lawyer can act on.", uses: "The purpose wording in the draft; the Aegis read checks your attachments against it." },
+  needed_by: { help: "Leave blank if there is no real deadline.", uses: "Priority: within 7 days is High, otherwise Medium." },
+  department: { uses: "Available to workflow step conditions and reporting." },
+  nda_kind: { uses: "Mutual or one-way wording in the NDA template." },
+  nda_direction: { uses: "Which party is disclosing and which is receiving." },
+  nda_term: { uses: "The NDA's term clause." },
+  governing_law: { uses: "The governing-law clause." },
+  value: { kind: "money", uses: "Value and currency on the contract; Finance approval runs at 10,000 or more." },
+  start_date: { uses: "Effective date on the draft and the contract." },
+  term: { uses: "Expiry and renewal on the contract." },
+  end_date: { uses: "Expiry date; the renewal reminder counts back from it." },
+  renewal_term: { uses: "Renewal wording in the draft." },
+  notice_days: { uses: "Notice wording in the draft; the renewal reminder uses it." },
+  scope: { placeholder: "What they will do, where, and for whom.", uses: "Services clause in the draft." },
+  buying: { uses: "Which vendor clauses apply." },
+  hosting: { uses: "Outside India flags cross-border transfer for the Privacy review." },
+  payment_terms: { uses: "The payment clause in the draft." },
+  nonstandard: { placeholder: "Discounts, SLAs, liability, anything off our standard.", uses: "What Legal review focuses on." },
+  personal_data: { uses: "Yes adds the Privacy review step." },
+  gxp: { uses: "Yes adds the Quality review step." },
+  attachments: { kind: "file", label: "Supporting documents",
+    help: "Quotes, budget approval, anything a reviewer would otherwise ask for.", uses: "Filed with the request; the Aegis read flags where they contradict your answers." },
+  parent_contract_id: { kind: "contract", uses: "Parties, value and dates are read from it." },
+  sow_title: { placeholder: "e.g. Data platform migration, phase 2", uses: "Title of the Statement of Work." },
+  services_start: { uses: "Effective date of the SoW." },
+  services_end: { uses: "Expiry of the SoW." },
+  pricing: { uses: "Fees clause in the SoW." },
+  deliverables: { placeholder: "Name the thing, the date and who signs it off.", uses: "Deliverables and acceptance clause." },
+  our_role: { uses: "Which side carries which duties in the DPA." },
+  processing_purpose: { uses: "Processing description in the DPA annex." },
+  data_types: { uses: "Health or special category data flags a DPIA before signature." },
+  data_subjects: { uses: "DPA annex." },
+  transfer: { uses: "Yes adds transfer clauses and flags it for the Privacy review." },
+  subprocessors: { uses: "Sub-processor clause in the DPA." },
+  what_changes: { uses: "Decides which questions follow." },
+  new_value: { kind: "money", uses: "Written onto the contract when the workflow finishes." },
+  new_end_date: { uses: "New end date on the contract when the workflow finishes." },
+  change_effective: { uses: "Effective date of the amendment." },
+  reason: { uses: "Approvers see it; the Aegis read checks it against the documents." },
+  renew_terms: { uses: "Same terms is a straight extension." },
+  renew_end: { uses: "New end date on the contract when the workflow finishes." },
+  renew_value: { kind: "money", uses: "New value on the contract when the workflow finishes." },
+  grounds: { uses: "Which notice rules apply and who approves." },
+  termination_date: { help: "Check it against the notice period in the agreement.", uses: "The contract's end date when the workflow finishes." },
+  clause_breached: { placeholder: "e.g. Clause 9.2 service levels", uses: "Cited in the termination notice." },
+  cure_served: { uses: "No holds the notice until it has." },
+  transferring: { uses: "Who signs the deed as the outgoing party." },
+  incoming_party: { kind: "party", uses: "Becomes the counterparty on the contract when the workflow finishes." },
+  effective_date: { uses: "Effective date of the novation." },
+  consent: { uses: "Legal will not draft the deed without it." },
+  executed: { kind: "file", label: "The signed agreement", req: true, uses: "Becomes the contract record; obligations are read from it." },
+  date_signed: { uses: "Signature date on the record." },
+  why_outside: { uses: "Logged as a policy exception." },
+  prior_approval: { uses: "No runs the approvals retrospectively." },
+  signed_by_us: { placeholder: "Name and role", uses: "Checked against signing authority." },
+  cancel_request_ref: { kind: "request", uses: "That request is withdrawn; nothing is deleted." },
+  cancel_reason: { uses: "Recorded on the request." },
+  tell_cp: { uses: "Yes: Legal tells them it is withdrawn." },
+};
 
-const TIERS = [
-  { max: 1_000_000, name: "Tier 1", people: ["Legal approver", "Business approver"], eta: "1.8 days" },
-  { max: 5_000_000, name: "Tier 2", people: ["Legal approver", "Finance approver", "Business approver"], eta: "3.2 days" },
-  { max: 50_000_000, name: "Tier 3", people: ["Legal approver", "Finance approver", "Business approver", "CFO"], eta: "6.5 days" },
-  { max: Infinity, name: "Tier 4", people: ["Legal approver", "Finance approver", "Business approver", "CFO", "Board committee"], eta: "14 days" },
-];
-function tierFor(value: number) {
-  return TIERS.find((t) => value <= t.max) ?? TIERS[TIERS.length - 1];
-}
-function inr(n: number): string {
-  return Number.isFinite(n) ? `INR ${n.toLocaleString("en-IN")}` : "—";
-}
-function daysBetween(a: string, b: string): number {
-  return Math.round((new Date(b).getTime() - new Date(a).getTime()) / 86_400_000);
-}
+const FILE_KEYS = Object.keys(UI).filter((k) => UI[k].kind === "file");
+/** Server keys a lookup or the money control fills in beside the one shown. */
+const COMPANION: Record<string, string[]> = {
+  entity: ["entity_id"], counterparty: ["counterparty_id"], value: ["currency"], new_value: ["currency"],
+  renew_value: ["currency"],
+};
 
-/** Per-type warnings computed from what the requester has entered so far. */
-function checksFor(def: AgreementFormDef, v: Values, parent: ContractResponse | null): { tone: "warn" | "danger" | "info"; text: string }[] {
-  const out: { tone: "warn" | "danger" | "info"; text: string }[] = [];
-  const value = Number(v.value || 0);
+type Value = string | string[];
+type Values = Record<string, Value>;
 
-  if (def.key === "sow" && parent?.expiration_date && v.services_end && v.services_end > parent.expiration_date) {
-    out.push({ tone: "danger", text: `This SoW runs past its master agreement, which ends ${parent.expiration_date}. A SoW cannot outlive the master it depends on.` });
-  }
-  if (def.key === "sow" && v.rates === "Rates specific to this SoW") {
-    out.push({ tone: "warn", text: "SoW-specific rates vary the master rate card — Finance reviews the delta and legal checks the variation is permitted." });
-  }
-  if (def.key === "dpa") {
-    const dpia = v.special_category === "Yes" || v.monitoring === "Yes" || v.scale?.startsWith("Large scale");
-    if (dpia) out.push({ tone: "danger", text: "A DPIA is required before signature. It is opened as a linked task when this request is approved." });
-    if (v.location && v.location !== "India only") out.push({ tone: "warn", text: "Processing outside India needs standard contractual clauses and a transfer impact assessment." });
-    if (v.sub_processors === "To be approved case by case") out.push({ tone: "warn", text: "An open sub-processor clause means someone must action every request — name them up front where you can." });
-  }
-  if (def.key === "renewal" && parent?.value_amount && value) {
-    const pct = Math.round(((value - parent.value_amount) / parent.value_amount) * 100);
-    if (pct > 10) out.push({ tone: "warn", text: `Price increase of ${pct}% — anything above 10% is flagged to Finance regardless of the approval tier.` });
-  }
-  if (def.key === "termination" && v.termination_date) {
-    const notice = daysBetween(new Date().toISOString().slice(0, 10), v.termination_date);
-    if (notice < 90) out.push({ tone: "danger", text: `Your date gives ${notice} days' notice. Check the notice clause — short notice needs the counterparty's written agreement.` });
-    if (v.grounds === "For breach" && !v.clause_breached?.trim()) out.push({ tone: "warn", text: "Termination for breach needs the specific clause breached, and usually a cure period already served." });
-  }
-  if (def.key === "novation" && v.consent === "Not yet") {
-    out.push({ tone: "danger", text: "Without the outgoing party's written agreement there is no novation. Legal will not draft the deed until consent is confirmed." });
-  }
-  if (def.key === "regularize") {
-    if (v.date_signed) {
-      const age = daysBetween(v.date_signed, new Date().toISOString().slice(0, 10));
-      if (age > 90) out.push({ tone: "warn", text: `Signed ${age} days ago — anything over 90 days is reported to the compliance committee as an ageing exception.` });
-    }
-    if (v.prior_approval === "No approvals were sought") out.push({ tone: "danger", text: "No approvals were obtained. The approvers who would have reviewed this do so retrospectively." });
-    if (v.signer_authority === "No") out.push({ tone: "danger", text: "Signed without authority — escalated to the General Counsel; the contract may need ratification." });
-  }
-  if (def.key === "new_agreement" && v.auto_renewal && v.auto_renewal !== "No") {
-    out.push({ tone: "warn", text: `Auto-renewal set to ${v.auto_renewal} — an obligation and a notice reminder are created on signature.` });
-  }
-  return out;
-}
-
-// ------------------------------------------------------------------- UI ----
-
-function stepLabels(def: AgreementFormDef): string[] {
-  const first = def.parent === "contract" ? "Contract" : def.parent === "upload" ? "Document" : "Entity";
-  const second = def.parent === "contract" || def.parent === "upload" ? "Parties" : "Counterparty";
-  return [first, second, "Signature", "Business unit", "Request detail", "Summary", "Message", "Attachments"];
-}
-
-function Stepper({ labels, current, complete, onGo }: { labels: string[]; current: number; complete: boolean[]; onGo: (n: number) => void }) {
-  // `complete` is read inside the map for the connector to the left.
-  return (
-    <div className="flex items-start overflow-x-auto pb-3 pt-1">
-      {labels.map((label, i) => {
-        const n = i + 1;
-        const done = complete[i] && n !== current;
-        return (
-          <button
-            key={label}
-            type="button"
-            onClick={() => onGo(n)}
-            aria-current={n === current ? "step" : undefined}
-            className="relative flex min-w-[92px] flex-1 flex-col items-center gap-1.5"
-          >
-            {i > 0 && <span className={cn("absolute left-0 right-1/2 top-[13px] h-0.5", complete[i - 1] ? "bg-success" : "bg-slate-200")} />}
-            {i < labels.length - 1 && <span className={cn("absolute left-1/2 right-0 top-[13px] h-0.5", done ? "bg-success" : "bg-slate-200")} />}
-            <span
-              className={cn(
-                "relative z-10 grid h-[26px] w-[26px] place-items-center rounded-full border-[1.5px] text-[11px] font-semibold transition-colors",
-                n === current
-                  ? "border-brand-600 bg-brand-600 text-white ring-4 ring-brand-500/20"
-                  : done
-                    ? "border-transparent bg-success text-white"
-                    : "border-slate-300 bg-slate-100 text-slate-500",
-              )}
-            >
-              {done ? <Check className="h-3 w-3" /> : n}
-            </span>
-            <span className={cn("whitespace-nowrap px-1.5 text-center text-[11.5px]", n === current ? "font-semibold text-brand-600" : "text-slate-500")}>
-              {label}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
+export function shown(rules: RequestFormRule[] | undefined, values: Values): boolean {
+  return (rules ?? []).every((r) => {
+    const a = values[r.field];
+    return (Array.isArray(a) ? a : [a]).some((x) => typeof x === "string" && r.in.includes(x));
+  });
 }
 
-function Note({ tone = "info", children }: { tone?: "info" | "warn" | "danger"; children: React.ReactNode }) {
-  const Icon = tone === "info" ? Info : TriangleAlert;
-  return (
-    <div
-      className={cn(
-        "mt-4 flex gap-2.5 rounded-lg border p-3 text-[12px]",
-        tone === "info" && "border-slate-200 bg-slate-50 text-slate-600",
-        tone === "warn" && "border-warning/40 bg-warning-subtle text-warning",
-        tone === "danger" && "border-danger/40 bg-danger-subtle text-danger",
-      )}
-    >
-      <Icon className="mt-px h-4 w-4 shrink-0" />
-      <div>{children}</div>
-    </div>
-  );
+export function useRequestForms() {
+  return useQuery({ queryKey: ["intake-forms"], queryFn: intakeApi.forms, staleTime: Infinity });
 }
+
+/** The "What kind of agreement?" choices a form offers — what "Used for" can narrow to. */
+export function agreementTypeOptions(forms: RequestFormDef[] | undefined, formKey: string): string[] {
+  return forms?.find((f) => f.key === formKey)?.fields.find((f) => f.key === "agreement_type")?.options ?? [];
+}
+
+const blank = (v: Value | undefined) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
+
+const DRAFT_OF: Record<string, string> = {
+  NDA: "NDA template", "Services (MSA)": "MSA template", Consultancy: "MSA template",
+  "Buying from a vendor": "Vendor template", "Software or SaaS": "Vendor template",
+  "Selling to a customer": "Legal drafts it (no customer template yet)", "Something else": "Legal drafts it",
+};
+const FINISH: Record<string, string> = {
+  amendment: "The new value and end date are written onto the contract",
+  renewal: "The new end date (and value) are written onto the contract",
+  termination: "The termination date becomes the contract's end date",
+  novation: "The new party replaces the counterparty on the contract",
+};
+
+function draftFor(key: string, v: Values): string {
+  if (v.paper === "Their paper") return "Their draft becomes the contract; the AI review runs on it";
+  if (key === "new_agreement") return DRAFT_OF[String(v.agreement_type)] ?? "Chosen by the kind of agreement";
+  return ({ sow: "MSA template (SoW schedule)", dpa: "DPA template", regularize: "The signed document is the record",
+    cancellation: "Nothing is drafted" } as Record<string, string>)[key] ?? "Legal drafts the letter or deed";
+}
+
+function priorityOf(v: Values): "High" | "Medium" {
+  const due = typeof v.needed_by === "string" && v.needed_by ? Date.parse(v.needed_by) : NaN;
+  return Number.isFinite(due) && (due - Date.now()) / 86_400_000 <= 7 ? "High" : "Medium";
+}
+
+function money(cur: Value | undefined, n: Value | undefined): string {
+  const x = Number(String(n ?? "").replace(/,/g, ""));
+  return x ? `${cur || "INR"} ${x.toLocaleString(cur === "INR" || !cur ? "en-IN" : "en-US")}` : "";
+}
+
+// ------------------------------------------------------------ controls ----
+
+const CONTROL = "h-10 w-full rounded-lg border bg-slate-100 px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35";
 
 function FieldLabel({ label, req }: { label: string; req?: boolean }) {
   return (
     <span className="block text-[12.5px] font-medium text-slate-800">
-      {label} :{req && <span className="ml-0.5 text-danger">*</span>}
+      {label}{req && <span className="ml-0.5 text-danger">*</span>}
     </span>
   );
 }
 
-/** Text field with the Look-up control attached to its right edge. */
-function LookupInput({ value, onChange, placeholder = "Type something", bad, options, onPick }: {
-  value: string; onChange: (v: string) => void; placeholder?: string; bad?: boolean;
-  /** Existing values to suggest as the user types (e.g. counterparties already in the CLM). */
-  options?: CounterpartyOption[];
-  onPick?: (o: CounterpartyOption) => void;
+type RegisterRecord = LegalEntity | Counterparty;
+
+/**
+ * Search the party register as you type and pick a real record. Picking stores
+ * both the name (for display) and the record id (what the server checks); typing
+ * after a pick clears the id, so a hand-edited name is never filed as a record.
+ * Counterparties that don't exist yet can be created in place; legal entities
+ * are maintained by admins under Operations → Entities & counterparties.
+ */
+function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
+  kind: "entity" | "counterparty";
+  name: string;
+  recordId: string;
+  onPick: (record: RegisterRecord | null, typed?: string) => void;
+  bad?: boolean;
+  label: string;
 }) {
+  const { notify } = useToast();
+  const qc = useQueryClient();
+  const [text, setText] = useState(name);
   const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const [q, setQ] = useState(name);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ jurisdiction: "", contact_email: "" });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setQ(text.trim()), 200); return () => clearTimeout(t); }, [text]);
+  const { data: hits, isFetching } = useQuery({
+    queryKey: ["party-lookup", kind, q],
+    queryFn: () => (kind === "entity" ? partiesApi.entities(q) : partiesApi.counterparties(q)) as Promise<RegisterRecord[]>,
+    enabled: open,
+  });
+  const exact = (hits ?? []).find((h) => h.name.toLowerCase() === text.trim().toLowerCase());
 
-  useEffect(() => {
-    if (!open) return;
-    const h = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [open]);
-
-  const q = value.trim().toLowerCase();
-  const matches = (options ?? []).filter((o) => !q || o.name.toLowerCase().includes(q)).slice(0, 8);
+  function pick(r: RegisterRecord) {
+    setText(r.name); setOpen(false); setCreating(false); onPick(r);
+  }
+  async function create() {
+    setBusy(true);
+    try {
+      const made = await partiesApi.createCounterparty({
+        name: text.trim(), jurisdiction: form.jurisdiction || null, contact_email: form.contact_email || null,
+      });
+      qc.invalidateQueries({ queryKey: ["party-lookup"] });
+      notify(`Added ${made.name} to the counterparty register`, "success");
+      pick(made);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't create the counterparty", "error");
+    } finally { setBusy(false); }
+  }
 
   return (
-    <div className="relative" ref={wrapRef}>
+    <div className="relative">
       <div className={cn(
         "flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
         bad ? "border-danger bg-danger-subtle" : "border-slate-300",
       )}>
         <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
+          aria-label={label}
+          value={text}
           onFocus={() => setOpen(true)}
-          placeholder={placeholder}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onChange={(e) => { setText(e.target.value); setOpen(true); if (recordId) onPick(null, e.target.value); }}
+          placeholder={kind === "entity" ? "Search our legal entities" : "Search the counterparty register"}
           className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
         />
-        <span className="flex shrink-0 items-center gap-1.5 border-l border-slate-300 bg-slate-50 px-3 text-[12px] font-medium text-slate-600">
-          Look-up <Search className="h-3.5 w-3.5" />
+        <span className={cn("flex shrink-0 items-center gap-1.5 border-l border-slate-300 px-3 text-[12px] font-medium",
+          recordId ? "bg-success-subtle text-success" : "bg-slate-50 text-slate-600")}>
+          {recordId ? <><Check className="h-3.5 w-3.5" />In register</> : <>Look-up <Search className="h-3.5 w-3.5" /></>}
         </span>
       </div>
-      {open && options !== undefined && matches.length > 0 && (
-        <div className="absolute left-0 right-0 top-[calc(100%+4px)] z-20 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-          {matches.map((o) => (
-            <button
-              key={o.name}
-              type="button"
-              className="flex w-full flex-col items-start gap-0 px-3 py-1.5 text-left hover:bg-slate-50"
-              onClick={() => { onChange(o.name); onPick?.(o); setOpen(false); }}
-            >
-              <span className="text-[13px] font-medium text-slate-900">{o.name}</span>
-              {o.contact_email && <span className="text-[11px] text-slate-500">{o.contact_email}</span>}
+      {open && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50 shadow-pop">
+          {(hits ?? []).length === 0 && !isFetching && (
+            <div className="px-3 py-2.5 text-[12.5px] text-slate-500">
+              {kind === "entity"
+                ? (text.trim() ? `No legal entity matches "${text.trim()}". An admin adds entities under Operations → Entities & counterparties.` : "No legal entities set up yet. An admin adds them under Operations → Entities & counterparties.")
+                : text.trim() ? `No counterparty matches "${text.trim()}".` : "Type a name to search."}
+            </div>
+          )}
+          <ul className="max-h-60 overflow-auto">
+            {(hits ?? []).map((h) => (
+              <li key={h.id}>
+                <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(h)}
+                  className="flex w-full items-baseline justify-between gap-3 px-3 py-2 text-left text-[13px] hover:bg-brand-50">
+                  <span className="font-medium text-slate-900">{h.name}</span>
+                  <span className="shrink-0 text-[11.5px] text-slate-500">{h.jurisdiction ?? ""}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {kind === "counterparty" && text.trim() && !exact && (
+            <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setCreating(true); setOpen(false); }}
+              className="w-full border-t border-slate-200 px-3 py-2 text-left text-[12.5px] font-medium text-brand-700 hover:bg-brand-50">
+              + Create "{text.trim()}" as a new counterparty
             </button>
-          ))}
+          )}
+        </div>
+      )}
+      {creating && (
+        <div className="mt-2 space-y-2 rounded-lg border border-brand-200 bg-brand-50 p-3">
+          <div className="text-[12.5px] font-medium text-slate-800">New counterparty: {text.trim() || "—"}</div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <Input aria-label="Jurisdiction" placeholder="Jurisdiction (e.g. India)" value={form.jurisdiction}
+              onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))} />
+            <Input aria-label="Contact email" type="email" placeholder="Contact email (for signature)" value={form.contact_email}
+              onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" loading={busy} disabled={!text.trim()} onClick={create}>Create counterparty</Button>
+            <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
+          </div>
         </div>
       )}
     </div>
   );
 }
 
-function FieldGrid({ specs, values, errors, onChange }: {
-  specs: FieldSpec[]; values: Values; errors: Set<string>; onChange: (k: string, v: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-1 gap-x-8 gap-y-5 md:grid-cols-2">
-      {specs.map((f) => {
-        const bad = errors.has(f.k);
-        const v = values[f.k] ?? "";
-        const control = cn(
-          "h-10 w-full rounded-lg border bg-slate-100 px-3 text-[13px] text-slate-900 placeholder:text-slate-400",
-          "focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-500/35",
-          bad ? "border-danger bg-danger-subtle" : "border-slate-300",
-        );
-        return (
-          <div key={f.k} className={cn("min-w-0 space-y-1.5", f.wide && "md:col-span-2")}>
-            <FieldLabel label={f.label} req={f.req} />
-            {f.kind === "select" ? (
-              <select className={control} value={v} onChange={(e) => onChange(f.k, e.target.value)}>
-                <option value="">{`Select ${f.label.replace(/ \(.*\)/, "")}`}</option>
-                {(f.options ?? []).map((o) => <option key={o}>{o}</option>)}
-              </select>
-            ) : f.kind === "textarea" ? (
-              <textarea
-                rows={3}
-                className={cn(control, "h-auto py-2.5 leading-relaxed")}
-                value={v}
-                onChange={(e) => onChange(f.k, e.target.value)}
-                placeholder="Enter Value"
-              />
-            ) : f.kind === "money" ? (
-              <div className={cn("flex h-10 overflow-hidden rounded-lg border bg-slate-100 focus-within:border-brand-600 focus-within:ring-2 focus-within:ring-brand-500/35",
-                bad ? "border-danger bg-danger-subtle" : "border-slate-300")}>
-                <span className="grid shrink-0 place-items-center border-r border-slate-300 bg-slate-50 px-3 text-[12px] text-slate-500">INR</span>
-                <input
-                  inputMode="numeric"
-                  value={v}
-                  onChange={(e) => onChange(f.k, e.target.value)}
-                  placeholder="Enter Value"
-                  className="min-w-0 flex-1 bg-transparent px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:outline-none"
-                />
-              </div>
-            ) : (
-              <input
-                type={f.kind === "date" ? "date" : "text"}
-                className={control}
-                value={v}
-                onChange={(e) => onChange(f.k, e.target.value)}
-                placeholder={f.kind === "date" ? undefined : "Enter Value"}
-              />
-            )}
-            {(bad || f.help) && (
-              <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>
-                {bad ? "Required before you continue." : f.help}
-              </p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 // --------------------------------------------------------------- wizard ----
 
-export function AgreementWizard({ def, onFiled, onBack }: {
+export function AgreementWizard({ def, draft, onFiled, onBack }: {
   def: AgreementFormDef;
+  draft?: IntakeDraft | null;
   onFiled: (id: string) => void;
   onBack: () => void;
 }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
+  const { data: forms, isLoading: formsLoading } = useRequestForms();
+  const server = forms?.find((f) => f.key === def.key);
+  const q = useMemo(() => new Map((server?.fields ?? []).map((f) => [f.key, f])), [server]);
 
-  // One step per page — the requester answers one question at a time.
-  const PAGES: number[][] = [[1], [2], [3], [4], [5], [6], [7], [8]];
-  const [pageIndex, setPageIndex] = useState(0);
-  const [values, setValues] = useState<Values>({});
+  const steps = [...def.steps, { title: REVIEW, fields: [] as string[] }];
+  const [step, setStep] = useState(Math.min(draft?.page_index ?? 0, steps.length - 1));
+  const [visited, setVisited] = useState(draft?.visited ?? 0);
+  const [values, setValues] = useState<Values>(draft?.values ?? { currency: "INR" });
+  const [files, setFiles] = useState<Record<string, File | null>>({});
   const [errors, setErrors] = useState<Set<string>>(new Set());
-  const [parentId, setParentId] = useState<string>("");
-  const [file, setFile] = useState<File | null>(null);
-  const [ladderOpen, setLadderOpen] = useState(false);
+  const [errBar, setErrBar] = useState("");
   const [busy, setBusy] = useState(false);
-  const [errBar, setErrBar] = useState<string>("");
-  const [visited, setVisited] = useState(1);
-  // Editable override for the auto-generated subject line — blank means "use
-  // the auto-generated name" (subjectLine below), so requesters who don't
-  // care never have to type anything.
+  const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
+  const [savedAt, setSavedAt] = useState<string | null>(draft?.updated_at ?? null);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // Editable override for the generated subject line. Blank means "use the
+  // generated name" (subject() below), so requesters who don't care never type.
   const [nameOverride, setNameOverride] = useState("");
 
-  const LABELS = useMemo(() => stepLabels(def), [def]);
-  const needsContract = def.parent === "contract";
-  const { data: contracts } = useQuery({
-    queryKey: ["contracts"],
-    queryFn: () => contractsApi.list(),
-    enabled: needsContract,
-  });
-  const { data: myRequests } = useQuery({
-    queryKey: ["intake-mine"],
-    queryFn: () => intakeApi.mine(),
-    enabled: def.parent === "request",
-  });
-  const parent = useMemo(
-    () => (contracts ?? []).find((c) => c.id === parentId) ?? null,
-    [contracts, parentId],
-  );
+  const { data: contracts } = useQuery({ queryKey: ["contracts"], queryFn: () => contractsApi.list(),
+    enabled: def.steps.some((s) => s.fields.includes("parent_contract_id")) });
+  const { data: myRequests } = useQuery({ queryKey: ["intake-mine"], queryFn: () => intakeApi.mine(),
+    enabled: def.key === "cancellation" });
+  const parent = (contracts ?? []).find((c) => c.id === values.parent_contract_id) ?? null;
 
-  const set = (k: string, v: string) => {
-    setValues((prev) => ({ ...prev, [k]: v }));
+  const set = (patch: Values) => {
+    setDirty(true);
+    setValues((prev) => ({ ...prev, ...patch }));
     setErrors((prev) => {
-      if (!prev.has(k)) return prev;
       const next = new Set(prev);
-      next.delete(k);
-      return next;
+      Object.keys(patch).forEach((k) => next.delete(k));
+      return next.size === prev.size ? prev : next;
     });
   };
 
-  const value = Number(values.value || parent?.value_amount || 0);
-  const tier = tierFor(value);
-  const approvers = def.extraApprover ? [...tier.people, def.extraApprover] : tier.people;
-  const checks = checksFor(def, values, parent);
+  const labelOf = (k: string) => UI[k]?.label ?? q.get(k)?.label ?? k;
+  const isShown = (k: string) => shown(UI[k]?.show ?? q.get(k)?.show, values);
+  const required = (k: string) => (UI[k]?.kind === "file" ? !!UI[k].req : !!q.get(k)?.required);
+  const visible = (i: number) => (steps[i]?.fields ?? []).filter((k) => (q.has(k) || FILE_KEYS.includes(k)) && isShown(k));
 
-  /** Required keys for a given step, skipping steps that ask nothing. */
-  function requiredFor(n: number): FieldSpec[] {
-    if (n === 4) return classifyFor(def).filter((f) => f.req);
-    if (n === 5) return def.detail.filter((f) => f.req);
-    if (n === 1 && def.parentFields) return def.parentFields.filter((f) => f.req);
-    if (n === 2 && def.parent === "none") return [{ k: "counterparty", label: "Counterparty", req: true }, ...(def.partyFields ?? []).filter((f) => f.req)];
-    if (n === 2) return (def.partyFields ?? []).filter((f) => f.req);
-    if (n === 7) return [{ k: "note_approvers", label: "Note to approvers", req: true }];
-    return [];
+  function missing(i: number): string[] {
+    return visible(i).filter((k) => {
+      if (!required(k)) return false;
+      if (UI[k]?.kind === "file") return !files[k];
+      if ((COMPANION[k] ?? []).some((c) => blank(values[c]))) return true;
+      return blank(values[k]);
+    });
   }
-  function validate(n: number): boolean {
-    if (n === 1 && needsContract && !parentId) {
-      setErrBar("Pick the agreement this request relates to — everything else is read from it.");
-      return false;
+
+  // What gets filed. Check-approvers and the routing preview send exactly this.
+  const body = useMemo(() => {
+    const fv: Values = { ...values, request_form: def.key };
+    if (parent) {
+      fv.parent_contract_title = parent.title;
+      if (!fv.counterparty) fv.counterparty = parent.counterparty_name ?? "";
     }
-    if (n === 1 && def.parent === "none" && !values.entity?.trim()) {
-      setErrBar("Choose the legal entity that will be a party to this agreement.");
-      return false;
-    }
-    if (n === 1 && def.parent === "request" && !values.cancel_request_ref) {
-      setErrBar("Pick the request you want to cancel.");
-      return false;
-    }
-    if (n === 1 && def.parent === "upload" && !file) {
-      setErrBar("Upload the executed agreement before continuing — everything else is read from it.");
-      return false;
-    }
-    const missing = requiredFor(n).filter((f) => !String(values[f.k] ?? "").trim());
-    if (missing.length) {
-      setErrors(new Set(missing.map((f) => f.k)));
-      setErrBar(`${missing.length} field${missing.length > 1 ? "s" : ""} still needed on this step — ${missing.map((f) => f.label).join(", ")}.`);
-      return false;
-    }
-    setErrBar("");
-    return true;
-  }
-  // A step counts as done only once the requester has actually passed through
-  // it. Without the `visited` guard every step with no required fields (2, 3,
-  // 6, 8) showed a green tick on a blank form.
-  const complete = LABELS.map((_, i) => {
-    const n = i + 1;
-    if (n > visited) return false;
-    if (n === 1) {
-      if (needsContract) return !!parentId;
-      if (def.parent === "upload") return !!file && (def.parentFields ?? []).every((f) => !f.req || !!values[f.k]?.trim());
-      if (def.parent === "request") return !!values.cancel_request_ref;
-      return !!values.entity?.trim();
-    }
-    return requiredFor(n).every((f) => String(values[f.k] ?? "").trim());
+    const kind = def.key === "new_agreement" && typeof values.agreement_type === "string" ? values.agreement_type : "";
+    const text = [values.purpose, values.reason, values.processing_purpose, values.note_approvers]
+      .find((x) => typeof x === "string" && x.trim()) as string | undefined;
+    return {
+      type_label: kind ? `New agreement · ${kind}` : `${def.name} Request`,
+      priority: priorityOf(values),
+      department: typeof values.department === "string" ? values.department || null : null,
+      description: text ?? def.name,
+      field_values: fv,
+    };
+  }, [values, parent, def]);
+
+  const preview = useQuery({
+    queryKey: ["approval-preview", body],
+    queryFn: () => intakeApi.approvalPreview(body),
+    // Routing reads step-1 answers (kind, paper, needed by), so ask from the
+    // start — once a New agreement has a kind, there's something to route.
+    enabled: def.key !== "new_agreement" || !blank(values.agreement_type),
+    placeholderData: (prev) => prev,
+    staleTime: 30_000,
   });
 
-  const pageSteps = PAGES[pageIndex];
-
-  function validatePage(): boolean {
-    return pageSteps.every((n) => validate(n));
-  }
-
-  function goPage(next: number) {
-    const target = Math.min(PAGES.length - 1, Math.max(0, next));
-    if (target > pageIndex && !validatePage()) return;
-    setErrBar("");
-    setVisited((v) => Math.max(v, Math.max(...PAGES[target])));
-    setPageIndex(target);
+  function go(target: number) {
+    if (target > step) {
+      for (let i = step; i < target; i++) {
+        const miss = missing(i);
+        if (miss.length) {
+          setStep(i);
+          setErrors(new Set(miss));
+          setErrBar(`${miss.length === 1 ? "1 answer" : `${miss.length} answers`} still needed: ${miss.map(labelOf).join(", ")}.`);
+          return;
+        }
+      }
+    }
+    setErrBar(""); setErrors(new Set());
+    setVisited((v) => Math.max(v, target));
+    setStep(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  /** The stepper and the summary's Edit links address steps, not pages. */
-  function goToStep(n: number) {
-    const target = PAGES.findIndex((page) => page.includes(n));
-    if (target < 0) return;
-    if (target > pageIndex && !validatePage()) return;
-    setErrBar("");
-    setVisited((v) => Math.max(v, Math.max(...PAGES[target])));
-    setPageIndex(target);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  function subject(): string {
+    if (nameOverride.trim()) return nameOverride.trim().slice(0, 200);
+    const who = (typeof values.counterparty === "string" && values.counterparty) || parent?.counterparty_name || parent?.title || "";
+    const kind = typeof values.agreement_type === "string" ? values.agreement_type : def.name;
+    return [def.key === "new_agreement" ? kind : def.name, who].filter(Boolean).join(" — ").slice(0, 200);
+  }
+
+  async function saveDraft() {
+    setSaving(true);
+    try {
+      const payload = { form_key: def.key, title: subject(), values, parent_contract_id: parent?.id ?? null,
+        page_index: step, visited };
+      const saved = draftId ? await intakeApi.updateDraft(draftId, payload) : await intakeApi.createDraft(payload);
+      setDraftId(saved.id); setSavedAt(saved.updated_at); setDirty(false);
+      qc.invalidateQueries({ queryKey: ["intake-drafts"] });
+      notify(Object.values(files).some(Boolean)
+        ? "Draft saved. Attached files aren't kept in drafts — attach them again when you continue."
+        : "Draft saved — find it under Your drafts on the New request page.", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't save the draft", "error");
+    } finally { setSaving(false); }
   }
 
   async function submit() {
-    if (!validatePage()) return;
+    for (let i = 0; i < def.steps.length; i++) {
+      if (missing(i).length) { go(i + 1); return; }
+    }
+    // The document that IS the contract goes last: the server takes the newest
+    // readable attachment as the contract.
+    const ordered = ["attachments", "their_draft", "executed"].map((k) => files[k]).filter((f): f is File => !!f);
+    const bad = ordered.map(attachmentProblem).find(Boolean);
+    if (bad) { setErrBar(bad); return; }
     setBusy(true);
     try {
-      const payload: Record<string, string> = { ...values, request_form: def.key };
-      if (parent) {
-        payload.parent_contract_id = parent.id;
-        payload.parent_contract_title = parent.title;
-        payload.counterparty = parent.counterparty_name ?? "";
-      }
       const created = await intakeApi.create({
-        type_label: `${def.name} Request`,
-        subject: nameOverride.trim() || subjectLine(def, values, parent),
-        priority: value > 5_000_000 ? "High" : "Medium",
-        department: values.department || null,
-        requester_name: user?.full_name ?? null,
-        description: values.note_approvers || values.reason || values.purpose || def.name,
-        field_values: payload,
+        ...body, subject: subject(), requester_name: user?.full_name ?? null,
+        attachments: await Promise.all(ordered.map(toAttachment)),
       });
-      if (file) {
-        const b64 = await fileToB64(file);
-        await intakeApi.uploadDocument(created.id, {
-          filename: file.name,
-          mime_type: file.type || "application/octet-stream",
-          content_b64: b64,
-        });
-        // Only treat the attachment AS the contract where that is what it is:
-        // an already-executed agreement, or the counterparty's own paper. A
-        // budget approval or a screenshot is supporting material, not the deal.
-        const isTheContract = def.key === "regularize" || values.origin === "Counterparty paper";
-        if (isTheContract) {
-          try {
-            await intakeApi.ingestAttachment(created.id);
-          } catch {
-            // The request and the file are already saved — a failed extraction
-            // (scanned PDF, image-only) must not lose the requester's work.
-            notify(`${created.ref} filed. The attachment could not be read automatically — legal will open it manually.`, "info");
-          }
+      if (files.executed || (values.paper === "Their paper" && files.their_draft)) {
+        try {
+          await intakeApi.ingestAttachment(created.id);
+        } catch {
+          notify(`${created.ref} filed. The document could not be read automatically — Legal will open it.`, "info");
         }
+      }
+      if (draftId) {
+        await intakeApi.deleteDraft(draftId).catch(() => undefined);
+        qc.invalidateQueries({ queryKey: ["intake-drafts"] });
       }
       qc.invalidateQueries({ queryKey: ["intake-mine"] });
       qc.invalidateQueries({ queryKey: ["intake-list"] });
-      notify(`Filed ${created.ref} — routed for triage`, "success");
+      notify(`Filed ${created.ref}`, "success");
       onFiled(created.id);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Submit failed", "error");
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
-  const guide = (def.guide[pageSteps[0]] ?? COMMON_GUIDE[pageSteps[0]] ?? []).slice(0, 2);
+  const isReview = step === steps.length - 1;
+  const shownNow = visible(step);
+
+  const routing: [string, string][] = [
+    ["Workflow", def.key === "cancellation" ? "None: the request is withdrawn"
+      : preview.data?.workflow?.name ?? (preview.isFetching ? "Working it out…"
+        : preview.isSuccess ? "None fits yet: a person picks one after filing" : "Pick the kind of agreement")],
+    ["Draft", draftFor(def.key, values)],
+    ["Approvals", (preview.data?.approvers ?? []).map((a) => `${a.step_name}: ${a.approver}`).join("\n") || "None on this workflow"],
+    ["Priority", priorityOf(values) === "High" ? "High: needed within 7 days" : "Medium"],
+    ["Owner", "Assigned when filed, never you"],
+  ];
+  if (typeof values.cp_signer_email === "string" && values.cp_signer_email) {
+    routing.push(["Their signer", `${values.cp_signer_name || ""}\n${values.cp_signer_email}`.trim()]);
+  }
+  if (FINISH[def.key]) routing.push(["When the workflow finishes", FINISH[def.key]]);
+
+  const summary: [string, string][] = [];
+  if (isReview) {
+    def.steps.forEach((_, i) => visible(i).forEach((k) => {
+      const v = values[k];
+      const shown = UI[k]?.kind === "file" ? files[k]?.name
+        : UI[k]?.kind === "money" ? money(values.currency, v)
+        : k === "parent_contract_id" ? parent?.title
+        : Array.isArray(v) ? v.join(", ") : v;
+      if (shown) summary.push([labelOf(k), String(shown)]);
+    }));
+  }
+
+  if (formsLoading || !server) {
+    return <div className="py-16 text-center text-[13px] text-slate-500">{formsLoading ? "Loading the form…" : "This form isn't available."}</div>;
+  }
 
   return (
     <div className="mx-auto flex max-w-[1180px] flex-col">
@@ -813,893 +563,220 @@ export function AgreementWizard({ def, onFiled, onBack }: {
           <ChevronLeft className="h-4 w-4" />All request types
         </Button>
         <span className="h-4 w-px bg-slate-200" />
-        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-slate-900">{def.name} request form</h2>
-        <Badge tone="violet">Draft</Badge>
-        {parent && (
-          <span className="text-[12px] text-slate-500">
-            on <b className="font-medium text-slate-700">{parent.title}</b>
-          </span>
-        )}
-        <span className="ml-auto text-[12px] text-slate-400">Saved automatically</span>
+        <h2 className="text-[17px] font-semibold tracking-[-0.01em] text-slate-900">{def.name}</h2>
+        {parent && <span className="text-[12px] text-slate-500">on <b className="font-medium text-slate-700">{parent.title}</b></span>}
+        <span className={cn("ml-auto text-[12px]", dirty && savedAt ? "text-warning" : "text-slate-400")}>
+          {!savedAt ? "Not saved yet" : dirty ? "Unsaved changes" : `Draft saved ${new Date(savedAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`}
+        </span>
       </header>
 
-      <Stepper labels={LABELS} current={pageSteps[pageSteps.length - 1]} complete={complete} onGo={goToStep} />
+      <ol className="flex flex-wrap gap-2 pb-4">
+        {steps.map((s, i) => {
+          const cur = i === step, done = i < step || i <= visited - 1 && i !== step;
+          return (
+            <li key={s.title}>
+              <button type="button" onClick={() => go(i)} aria-current={cur ? "step" : undefined}
+                className={cn("flex h-9 items-center gap-2 rounded-full border pl-1.5 pr-3.5 text-[12.5px]",
+                  cur ? "border-brand-600 bg-brand-50 font-semibold text-brand-700"
+                    : done ? "border-slate-200 bg-slate-100 font-medium text-success" : "border-slate-200 bg-slate-100 text-slate-500")}>
+                <span className={cn("grid h-6 w-6 place-items-center rounded-full text-[11px] font-bold",
+                  cur ? "bg-brand-600 text-white" : done ? "bg-success text-white" : "bg-slate-200 text-slate-600")}>
+                  {done && !cur ? <Check className="h-3 w-3" /> : i + 1}
+                </span>
+                {s.title}
+              </button>
+            </li>
+          );
+        })}
+      </ol>
 
-      <div className="grid grid-cols-1 items-start gap-5 pt-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card>
-          <CardBody className="min-h-[430px] px-7 py-7">
+          <CardBody className="min-h-[420px] space-y-5 px-7 py-7">
+            <div>
+              <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-brand-600">Step {step + 1} of {steps.length}</div>
+              <h3 className="mt-1.5 text-[19px] font-semibold tracking-[-0.015em] text-slate-900">{steps[step].title}</h3>
+            </div>
             {errBar && (
-              <div className="flex gap-2.5 rounded-lg border border-danger/40 bg-danger-subtle px-3.5 py-3 text-[12.3px] text-danger">
-                <TriangleAlert className="mt-px h-4 w-4 shrink-0" />
-                <span>{errBar}</span>
+              <div className="flex gap-2.5 rounded-lg border border-danger/40 bg-danger-subtle px-3.5 py-3 text-[12.5px] text-danger">
+                <TriangleAlert className="mt-px h-4 w-4 shrink-0" /><span>{errBar}</span>
               </div>
             )}
 
-            {pageSteps.map((n, idx) => (
-              <section key={n}>
-                <div className="mb-6">
-                  <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-brand-600">
-                    Step {n} of 8
-                  </div>
-                  <h3 className="mt-1.5 text-[19px] font-semibold leading-snug tracking-[-0.015em] text-slate-900">
-                    {stepTitle(def, n)}
-                  </h3>
-                  <p className="mt-1.5 max-w-[76ch] text-[13px] leading-relaxed text-slate-600">{stepSub(def, n)}</p>
-                </div>
-
-                {n === 1 && (
-                  <StepParent
-                    def={def}
-                    contracts={contracts ?? []}
-                    parentId={parentId}
-                    onPick={setParentId}
-                    file={file}
-                    onFile={setFile}
-                    values={values}
-                    errors={errors}
-                    onChange={set}
-                    requests={myRequests ?? []}
-                  />
-                )}
-
-                {n === 2 && (
-                  <>
-                    <StepParties def={def} parent={parent} values={values} errors={errors} onChange={set} />
-                    {def.partyFields && (
-                      <div className="mt-5">
-                        <FieldGrid specs={def.partyFields} values={values} errors={errors} onChange={set} />
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {n === 3 && <StepSignature def={def} values={values} onChange={set} />}
-
-                {n === 4 && (
-                  <>
-                    <FieldGrid specs={classifyFor(def)} values={values} errors={errors} onChange={set} />
-                    <EnvelopePanel def={def} values={values} parent={parent} />
-                    <div className="mt-6 flex justify-center gap-3">
-                      <Button variant="outline" className="rounded-full border-brand-200 px-6 text-brand-700 hover:bg-brand-50" onClick={() => { setValues({}); setLadderOpen(false); }}>reset</Button>
-                      <Button className="rounded-full px-6" onClick={() => { if (validatePage()) setLadderOpen(true); }}>Check Approvers</Button>
+            {isReview ? (
+              <>
+                <label className="block space-y-1.5">
+                  <FieldLabel label="Name this request (optional)" />
+                  <Input aria-label="Name this request" value={nameOverride} maxLength={200}
+                    placeholder={subject()} onChange={(e) => setNameOverride(e.target.value)} />
+                  <span className="block text-[11.5px] text-slate-500">Shown on your queue and dashboards instead of the generated name.</span>
+                </label>
+                <dl className="grid grid-cols-1 gap-x-8 gap-y-3 md:grid-cols-2">
+                  {summary.map(([k, v]) => (
+                    <div key={k} className="border-b border-slate-200 pb-2.5">
+                      <dt className="text-[11.5px] text-slate-500">{k}</dt>
+                      <dd className="mt-0.5 whitespace-pre-line text-[13.5px] font-medium text-slate-900">{v}</dd>
                     </div>
-                    {ladderOpen && (
-                      <div className="mt-6">
-                        <div className="text-[12.5px] text-slate-600">
-                          Agreement flow: <b className="font-semibold text-slate-900">Delegated</b>
-                        </div>
-                        <div className="mt-1 text-[12.5px] text-slate-600">
-                          Legal owner / reviewer: <b className="font-semibold text-slate-900">Bhavya Murgai</b>
-                        </div>
-                        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
-                          <div className="border-b border-slate-200 px-5 py-4">
-                            <div className="mb-3 text-[12px] font-semibold text-brand-700">Approvers</div>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
-                              {approvers.map((p, i) => (
-                                <div key={p}>
-                                  <div className="text-[12.5px] font-semibold text-slate-900">{p}</div>
-                                  <div className="text-[11.5px] text-slate-500">Approver {i + 1}</div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="px-5 py-4">
-                            <div className="mb-3 text-[12px] font-semibold text-brand-700">Signatories</div>
-                            <div className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-                              <div>
-                                <div className="text-[12.5px] font-semibold text-slate-900">Counterparty signatory</div>
-                                <div className="text-[11.5px] text-slate-500">From the counterparty record</div>
-                              </div>
-                              <div>
-                                <div className="text-[12.5px] font-semibold text-slate-900">Our signatory</div>
-                                <div className="text-[11.5px] text-slate-500">Authorised at {tier.name}</div>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <p className="mt-2 text-[11.5px] text-slate-500">
-                          Approvers and the signatory are determined by the delegation of authority approved by the board.
-                          In case of doubt, reach out to your legal counsel.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {n === 5 && (
-                  <>
-                    <FieldGrid specs={def.detail} values={values} errors={errors} onChange={set} />
-                    {checks.map((c, i) => <Note key={i} tone={c.tone}>{c.text}</Note>)}
-                    <DetailPanels def={def} values={values} parent={parent} />
-                  </>
-                )}
-
-                {n === 6 && (
-                  <StepSummary
-                    def={def} values={values} parent={parent} approvers={approvers} tier={tier} onGo={goToStep}
-                    nameOverride={nameOverride} onNameChange={setNameOverride}
-                  />
-                )}
-
-                {n === 7 && <StepMessage def={def} values={values} parent={parent} errors={errors} onChange={set} approvers={approvers} />}
-
-                {n === 8 && <StepFiles def={def} file={file} onFile={setFile} values={values} onChange={set} />}
-              </section>
-            ))}
+                  ))}
+                </dl>
+                <label className="block space-y-1.5">
+                  <FieldLabel label="Note to approvers (optional)" />
+                  <textarea rows={3} className={cn(CONTROL, "h-auto border-slate-300 py-2.5 leading-relaxed")}
+                    value={String(values.note_approvers ?? "")} placeholder="Two lines beat a paragraph."
+                    onChange={(e) => set({ note_approvers: e.target.value })} />
+                </label>
+              </>
+            ) : (
+              <div className="space-y-5">
+                {shownNow.map((k) => (
+                  <Question key={k} k={k} label={labelOf(k)} req={required(k)} kind={UI[k]?.kind} field={q.get(k)}
+                    help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={values} set={set} bad={errors.has(k)}
+                    file={files[k] ?? null} onFile={(f) => { setFiles((p) => ({ ...p, [k]: f })); setDirty(true); setErrors((p) => { const n = new Set(p); n.delete(k); return n; }); }}
+                    currencies={q.get("currency")?.options ?? ["INR"]}
+                    contracts={contracts ?? []} requests={myRequests ?? []} />
+                ))}
+              </div>
+            )}
           </CardBody>
-
           <div className="flex items-center gap-3 border-t border-slate-200 px-7 py-4">
-            {pageIndex > 0 && <Button variant="ghost" onClick={() => goPage(pageIndex - 1)}>← Back</Button>}
-            <span className="text-[12px] text-slate-500">
-              <b className="font-semibold text-slate-900">{complete.filter(Boolean).length} of 8</b> steps complete
-            </span>
+            {step > 0 && <Button variant="ghost" onClick={() => go(step - 1)}>← Back</Button>}
+            <span className="text-[12px] text-slate-500">{isReview ? "Check your answers, then submit" : `${shownNow.length} question${shownNow.length === 1 ? "" : "s"} on this step`}</span>
             <div className="ml-auto flex gap-2">
-              <Button variant="outline" className="rounded-full px-5" onClick={onBack}>Save as Draft</Button>
-              {pageIndex === PAGES.length - 1
-                ? <Button loading={busy} className="rounded-full px-6" onClick={submit}>Submit</Button>
-                : <Button className="rounded-full px-6" onClick={() => goPage(pageIndex + 1)}>Proceed</Button>}
+              <Button variant="outline" className="rounded-full px-5" loading={saving} onClick={saveDraft}>Save as draft</Button>
+              {isReview
+                ? <Button loading={busy} className="rounded-full px-6" onClick={submit}>Submit request</Button>
+                : <Button className="rounded-full px-6" onClick={() => go(step + 1)}>Continue</Button>}
             </div>
           </div>
         </Card>
 
         <aside className="flex flex-col gap-3 lg:sticky lg:top-5">
-          <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Guidance
-          </div>
-          {guide.map(([head, body]) => (
-            <div key={head} className="rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-card">
-              <div className="flex items-start gap-2.5">
-                <Info className="mt-px h-4 w-4 shrink-0 text-brand-600" />
-                <div>
-                  <div className="text-[12.5px] font-semibold text-slate-900">{head}</div>
-                  <p className="mt-1 text-[12.2px] leading-relaxed text-slate-600">{body}</p>
-                </div>
-              </div>
+          {!isReview && (
+            <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-card">
+              <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">What these answers do</div>
+              <ul className="space-y-3">
+                {shownNow.map((k) => (
+                  <li key={k} className="flex gap-2.5">
+                    <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full",
+                      (UI[k]?.kind === "file" ? files[k] : !blank(values[k])) ? "bg-success" : "bg-slate-300")} />
+                    <span>
+                      <span className="block text-[12.5px] font-semibold text-slate-800">{labelOf(k)}</span>
+                      <span className="block text-[12px] leading-snug text-slate-600">{UI[k]?.uses}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          ))}
+          )}
+          <div className="rounded-xl border border-slate-200 bg-slate-100 p-4 shadow-card">
+            <div className="mb-3 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">Where this request goes</div>
+            <dl className="space-y-2.5">
+              {routing.map(([k, v]) => (
+                <div key={k} className="border-b border-slate-200 pb-2.5 last:border-0 last:pb-0">
+                  <dt className="text-[11.5px] text-slate-500">{k}</dt>
+                  <dd className="mt-0.5 whitespace-pre-line text-[13px] font-medium text-slate-900">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-3 flex gap-1.5 text-[11.5px] text-slate-500"><Info className="mt-px h-3.5 w-3.5 shrink-0" />Updates as you answer.</p>
+          </div>
         </aside>
       </div>
     </div>
   );
 }
 
-// --------------------------------------------------------------- steps ----
-
-function stepTitle(def: AgreementFormDef, step: number): string {
-  switch (step) {
-    case 1: return def.parentTitle;
-    case 2: return def.parent === "contract" ? "Confirm the parties" : "Select the counterparty";
-    case 3: return def.noSignature ? "Signature — not applicable" : "Select the signature method";
-    case 4: return "Identify the business unit requesting the agreement";
-    case 5: return def.detailTitle;
-    case 6: return "Request summary";
-    case 7: return "Write a brief description for approvers & signatories";
-    default: return "Upload attachments";
-  }
-}
-function stepSub(def: AgreementFormDef, step: number): string {
-  switch (step) {
-    case 1: return def.parentSub;
-    case 2: return def.parent === "contract"
-      ? "These come from the agreement you picked. If any is wrong, either the parent is wrong or the record needs correcting first."
-      : "Search the counterparty register. Signature routing uses the email held against the record.";
-    case 3: return def.noSignature
-      ? "Kept in the flow so every request type has the same eight steps — nothing is signed by this request."
-      : "You can change this at any point until the request reaches the signature stage.";
-    case 4: return "Function, business unit, agreement type and monetary value determine the approvers and signatories under the delegation of authority.";
-    case 5: return def.detailSub;
-    case 6: return "Check it before it goes out. Edit any section from here — nothing is submitted until step 8.";
-    case 7: return "This is the first thing your approvers read.";
-    default: return "Attach third-party papers, supporting documents and approvals. Upload DOC or DOCX where collaborative review is required.";
-  }
-}
-
-function StepParent({ def, contracts, requests, parentId, onPick, file, onFile, values, errors, onChange }: {
-  def: AgreementFormDef; contracts: ContractResponse[]; requests: IntakeRequest[]; parentId: string;
-  onPick: (id: string) => void; file: File | null; onFile: (f: File | null) => void;
-  values: Values; errors: Set<string>; onChange: (k: string, v: string) => void;
+function Question({ k, label, req, kind, field, help, placeholder, values, set, bad, file, onFile, currencies, contracts, requests }: {
+  k: string; label: string; req: boolean; kind?: UiKind; field?: RequestFormDef["fields"][number];
+  help?: string; placeholder?: string; values: Values; set: (p: Values) => void; bad: boolean;
+  file: File | null; onFile: (f: File | null) => void; currencies: string[];
+  contracts: { id: string; title: string; counterparty_name: string | null; expiration_date: string | null }[];
+  requests: { id: string; ref: string; subject: string | null; type_label: string; status: string }[];
 }) {
-  const [search, setSearch] = useState("");
-  const [extraEntity, setExtraEntity] = useState(false);
-  if (def.parent === "upload") {
-    return (
-      <>
-        <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center hover:border-brand-600 hover:bg-brand-50">
-          <input type="file" className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
-          <Paperclip className="mx-auto mb-2 h-5 w-5 text-slate-500" />
-          <div className="text-[13px] font-medium text-slate-900">
-            {file ? file.name : "Drop the executed agreement here, or browse"}
-          </div>
-          <div className="mt-1 text-[11.5px] text-slate-500">Signed PDF or DOCX · Aegis reads the parties, dates and value from it</div>
-        </label>
-        {file && def.parentFields && (
-          <div className="mt-5">
-            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
-              Read from the document — confirm each value
-            </div>
-            <FieldGrid specs={def.parentFields} values={values} errors={errors} onChange={onChange} />
-          </div>
-        )}
-        <Note>Upload the <b>fully executed</b> copy — every signature page included. A draft cannot be regularized.</Note>
-      </>
+  const v = values[k];
+  const str = typeof v === "string" ? v : "";
+  const border = bad ? "border-danger bg-danger-subtle" : "border-slate-300";
+  const select = (value: string, options: { value: string; label: string }[], onChange: (x: string) => void, cls = "") => (
+    <select aria-label={label} className={cn(CONTROL, border, cls)} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Select…</option>
+      {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+  const opts = (field?.options ?? []).map((o) => ({ value: o, label: o }));
+
+  let control: ReactNode;
+  if (kind === "entity" || kind === "counterparty" || kind === "party") {
+    const idKey = `${k}_id`;
+    control = (
+      <RegisterLookup kind={kind === "entity" ? "entity" : "counterparty"} label={label} name={str}
+        recordId={String(values[idKey] ?? "")} bad={bad}
+        onPick={(r, typed) => set(r ? { [k]: r.name, [idKey]: r.id } : { [k]: typed ?? "", [idKey]: "" })} />
     );
-  }
-
-  if (def.parent === "request") {
-    return (
-      <>
-        <div className="flex flex-col gap-2">
-          {requests.length === 0 && (
-            <p className="text-[13px] text-slate-500">You have no requests in flight to cancel.</p>
-          )}
-          {requests.map((r) => {
-            const signing = r.stage === "signature" || r.status === "approved";
-            return (
-              <button
-                key={r.id}
-                type="button"
-                disabled={signing}
-                onClick={() => onChange("cancel_request_ref", r.ref)}
-                className={cn(
-                  "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors",
-                  signing
-                    ? "cursor-not-allowed border-slate-200 bg-slate-50 opacity-70"
-                    : values.cancel_request_ref === r.ref
-                      ? "border-brand-600 bg-brand-50"
-                      : "border-slate-300 bg-slate-100 hover:border-brand-600",
-                )}
-              >
-                <span className={cn("mt-1 h-4 w-4 shrink-0 rounded-full border-[1.5px]",
-                  values.cancel_request_ref === r.ref ? "border-brand-600 bg-brand-600 ring-[3px] ring-inset ring-slate-100" : "border-slate-400")} />
-                <span className="min-w-0">
-                  <span className="block text-[13.5px] font-semibold text-slate-900">{r.ref} — {r.type_label}</span>
-                  <span className="mt-1 flex flex-wrap gap-3 text-[11.8px] text-slate-500">
-                    <span>{r.subject ?? "No subject"}</span>
-                    <span>Stage: {r.stage}</span>
-                    <span>Status: {r.status}</span>
-                  </span>
-                </span>
-                {signing && <Badge tone="red" className="ml-auto shrink-0">Cannot cancel</Badge>}
-              </button>
-            );
-          })}
-        </div>
-        <Note>
-          A request that has reached signature cannot be cancelled — one party has already committed, so the agreement
-          must complete and then be terminated.
-        </Note>
-      </>
-    );
-  }
-  if (def.parent === "none") {
-    const chosen = ENTITIES.find((e) => e.name.toLowerCase() === (values.entity ?? "").trim().toLowerCase()) ?? null;
-    return (
-      <>
-        <div className="flex flex-col gap-4">
-          <div className="max-w-[520px] space-y-1.5">
-            <FieldLabel label="Entity1" req />
-            <LookupInput
-              value={values.entity ?? ""}
-              onChange={(v) => onChange("entity", v)}
-              bad={errors.has("entity")}
-              options={ENTITY_OPTIONS}
-            />
-          </div>
-
-          {extraEntity && (
-            <div className="max-w-[520px] space-y-1.5">
-              <FieldLabel label="Entity2" />
-              <LookupInput value={values.entity_2 ?? ""} onChange={(v) => onChange("entity_2", v)} options={ENTITY_OPTIONS} />
-            </div>
-          )}
-        </div>
-
-        {chosen && (
-          <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-            <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
-              From the entity record
-            </div>
-            {([["Registered address", chosen.address], ["Authorised signatory", chosen.signatory], ["Jurisdiction", chosen.jurisdiction]] as [string, string][]).map(([k, v]) => (
-              <div key={k} className="grid grid-cols-[190px_minmax(0,1fr)] gap-3 border-b border-slate-200 px-4 py-2.5 text-[12.8px] last:border-b-0">
-                <span className="text-slate-500">{k}</span>
-                <span className="font-medium text-slate-900">{v}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {!extraEntity && (
-          <Button variant="outline" size="sm" className="mt-4 rounded-full border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setExtraEntity(true)}>+ Add Entity</Button>
-        )}
-        <Note>
-          You can add multiple entities for both our side and the counterparty. If you are unsure, it is best to consult your legal counsel.
-        </Note>
-      </>
-    );
-  }
-
-  const live = contracts
-    .filter((c) => !c.archived)
-    .filter((c) => {
-      const q = search.trim().toLowerCase();
-      if (!q) return true;
-      return `${c.title} ${c.counterparty_name ?? ""} ${c.contract_type ?? ""}`.toLowerCase().includes(q);
-    });
-  return (
-    <>
-      <div className="mb-3">
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by counterparty, title or reference…"
-        />
+  } else if (kind === "contract") {
+    control = select(str, contracts.map((c) => ({ value: c.id,
+      label: [c.title, c.counterparty_name, c.expiration_date ? `ends ${c.expiration_date}` : null].filter(Boolean).join(" · ") })),
+    (x) => set({ [k]: x }));
+  } else if (kind === "request") {
+    control = select(str, requests.filter((r) => r.status !== "closed").map((r) => ({ value: r.ref,
+      label: `${r.ref} · ${r.subject || r.type_label}` })), (x) => set({ [k]: x }));
+  } else if (kind === "money") {
+    control = (
+      <div className="flex gap-2">
+        {select(String(values.currency ?? ""), currencies.map((c) => ({ value: c, label: c })), (x) => set({ currency: x }), "w-[110px] shrink-0")}
+        <input aria-label={label} inputMode="decimal" className={cn(CONTROL, border)} value={str}
+          placeholder="Amount over the whole term" onChange={(e) => set({ [k]: e.target.value })} />
       </div>
-      <div className="flex flex-col gap-2">
-        {live.length === 0 && <p className="text-[13px] text-slate-500">No contracts you can access. Signed outside the CLM? Regularize it first.</p>}
-        {live.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => onPick(c.id)}
-            className={cn(
-              "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors",
-              parentId === c.id ? "border-brand-600 bg-brand-50" : "border-slate-300 bg-slate-100 hover:border-brand-600",
-            )}
-          >
-            <span className={cn("mt-1 h-4 w-4 shrink-0 rounded-full border-[1.5px]", parentId === c.id ? "border-brand-600 bg-brand-600 ring-[3px] ring-inset ring-slate-100" : "border-slate-400")} />
-            <span className="min-w-0">
-              <span className="block text-[13.5px] font-semibold text-slate-900">
-                {c.counterparty_name ?? "—"} — {c.title}
-              </span>
-              <span className="mt-1 flex flex-wrap gap-3 text-[11.8px] text-slate-500">
-                <span>{c.contract_type ?? "Contract"}</span>
-                <span>{c.effective_date ?? "—"} → {c.expiration_date ?? "—"}</span>
-                <span>{c.value_amount ? inr(c.value_amount) : "No value recorded"}</span>
-              </span>
-            </span>
-            {c.renewal_due && <Badge tone="amber" className="ml-auto shrink-0">Renewal due</Badge>}
-          </button>
+    );
+  } else if (kind === "file") {
+    control = (
+      <div className="flex flex-wrap items-center gap-3">
+        {file ? (
+          <span className="inline-flex h-10 items-center gap-2 rounded-lg border border-success/40 bg-success-subtle px-3 text-[13px] text-success">
+            <Paperclip className="h-4 w-4" />{file.name}
+            <button type="button" aria-label={`Remove ${file.name}`} onClick={() => onFile(null)} className="text-slate-500 hover:text-slate-900"><X className="h-3.5 w-3.5" /></button>
+          </span>
+        ) : (
+          <label className={cn("inline-flex h-10 cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3.5 text-[13px] font-medium",
+            bad ? "border-danger bg-danger-subtle text-danger" : "border-brand-300 text-brand-700 hover:bg-brand-50")}>
+            <Paperclip className="h-4 w-4" />Choose file
+            <input type="file" accept={ATTACHMENT_ACCEPT} className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
+          </label>
+        )}
+        <span className="text-[12px] text-slate-500">{ATTACHMENT_LIMITS_TEXT}</span>
+      </div>
+    );
+  } else if (field?.kind === "multiselect") {
+    const picked = Array.isArray(v) ? v : [];
+    control = (
+      <div className={cn("flex flex-wrap gap-x-5 gap-y-2 rounded-lg border px-3 py-2.5", border)}>
+        {opts.map((o) => (
+          <label key={o.value} className="inline-flex items-center gap-2 text-[13px] text-slate-800">
+            <input type="checkbox" checked={picked.includes(o.value)}
+              onChange={(e) => set({ [k]: e.target.checked ? [...picked, o.value] : picked.filter((x) => x !== o.value) })} />
+            {o.label}
+          </label>
         ))}
       </div>
-      <Note>Only contracts you have access to are listed. Signed outside the CLM? <b>Regularize</b> it first, then raise this request.</Note>
-    </>
-  );
-}
-
-function StepParties({ def, parent, values, errors, onChange }: {
-  def: AgreementFormDef; parent: ContractResponse | null; values: Values; errors: Set<string>; onChange: (k: string, v: string) => void;
-}) {
-  const [second, setSecond] = useState(false);
-  // Existing counterparties already recorded in the CLM (any contract's
-  // ContractParty/counterparty_name), so a filer can pick a known one instead
-  // of retyping a name that then won't match what Legal already has on file.
-  const { data: directory } = useQuery({
-    queryKey: ["counterparty-directory"],
-    queryFn: () => contractsApi.counterpartyDirectory(),
-    staleTime: 60_000,
-  });
-  if (def.parent === "contract" && parent) {
-    const rows: [string, string][] = [
-      ["Parent agreement", parent.title],
-      ["Counterparty", parent.counterparty_name ?? "—"],
-      ["Current term", `${parent.effective_date ?? "—"} → ${parent.expiration_date ?? "—"}`],
-      ["Current value", parent.value_amount ? inr(parent.value_amount) : "—"],
-      ["Lifecycle stage", parent.lifecycle_stage],
-    ];
-    return (
-      <>
-        <div className="overflow-hidden rounded-xl border border-slate-200">
-          <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11.5px] text-slate-600">
-            Carried across from the agreement you picked — change it at step 1 if this is the wrong one.
-          </div>
-          {rows.map(([k, v]) => (
-            <div key={k} className="grid grid-cols-[190px_minmax(0,1fr)] gap-3 border-b border-slate-200 px-4 py-2.5 text-[12.8px] last:border-b-0">
-              <span className="text-slate-500">{k}</span>
-              <span className="font-medium text-slate-900">{v}</span>
-            </div>
-          ))}
-        </div>
-        {def.key === "novation" && (
-          <Note tone="warn">The incoming entity is new to us — sanctions and conflicts screening runs automatically and must clear before signature.</Note>
-        )}
-      </>
     );
+  } else if (field?.kind === "select") {
+    control = select(str, opts, (x) => set({ [k]: x }));
+  } else if (field?.kind === "textarea") {
+    control = <textarea aria-label={label} rows={3} className={cn(CONTROL, border, "h-auto py-2.5 leading-relaxed")}
+      value={str} placeholder={placeholder} onChange={(e) => set({ [k]: e.target.value })} />;
+  } else {
+    const type = field?.kind === "date" ? "date" : kind === "email" ? "email" : field?.kind === "number" ? "number" : "text";
+    control = <input aria-label={label} type={type} className={cn(CONTROL, border, type === "date" && "max-w-[240px]")}
+      value={str} placeholder={placeholder} onChange={(e) => set({ [k]: e.target.value })} />;
   }
-  return (
-    <>
-      <div className="flex flex-col gap-4">
-        <div className="max-w-[520px] space-y-1.5">
-          <FieldLabel label="Name of Counterparty1" req />
-          <LookupInput value={values.counterparty ?? ""} onChange={(v) => onChange("counterparty", v)} bad={errors.has("counterparty")} options={directory} />
-        </div>
-        {second && (
-          <div className="max-w-[520px] space-y-1.5">
-            <FieldLabel label="Name of Counterparty2" />
-            <LookupInput value={values.counterparty_2 ?? ""} onChange={(v) => onChange("counterparty_2", v)} options={directory} />
-          </div>
-        )}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {!second && <Button variant="outline" size="sm" className="rounded-full border-brand-200 text-brand-700 hover:bg-brand-50" onClick={() => setSecond(true)}>+ Add Entity</Button>}
-        <button type="button" className="border-b border-brand-200 text-[12.5px] font-medium text-brand-700">
-          Create counterparty
-        </button>
-      </div>
-      <Note>
-        If your counterparty does not exist in the CLM system, or needs to be updated or otherwise corrected, request it
-        using the link above before you proceed.
-      </Note>
-    </>
-  );
-}
 
-function StepSignature({ def, values, onChange }: { def: AgreementFormDef; values: Values; onChange: (k: string, v: string) => void }) {
-  if (def.noSignature) {
-    return (
-      <>
-        <Note>
-          <b>Nothing is signed by this request.</b> The step stays in the flow so every request type has the same eight steps.
-          {def.key === "regularize" ? " Record how the agreement was executed so the register is accurate." : " The parties are notified when it is submitted."}
-        </Note>
-        {def.key === "regularize" && (
-          <div className="mt-4">
-            <FieldGrid
-              specs={[
-                { k: "how_signed", label: "How was it signed?", kind: "select", req: true, options: ["Wet ink — physical copies", "Emailed PDF signature", "DocuSign outside the CLM", "Other e-signature tool"] },
-                { k: "original_location", label: "Where is the original held?", kind: "text", wide: true, help: "Wet-ink originals must be traceable for audit." },
-              ]}
-              values={values}
-              errors={new Set()}
-              onChange={onChange}
-            />
-          </div>
-        )}
-      </>
-    );
-  }
-  const chosen = values.signature_method || "Digital signature";
-  const options = [
-    { key: "Digital signature", desc: "Sent through DocuSign to the counterparty email registered on their record, automatically, once every approval clears. The executed copy files itself." },
-    { key: "Offline ink signature", desc: "Download the approved copy, obtain a physical signature, then upload the executed version back into the CLM." },
-  ];
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {options.map((o) => (
-        <button
-          key={o.key}
-          type="button"
-          onClick={() => onChange("signature_method", o.key)}
-          className={cn(
-            "flex gap-3 rounded-xl border p-4 text-left transition-colors",
-            chosen === o.key ? "border-brand-600 bg-brand-50" : "border-slate-300 bg-slate-100 hover:border-slate-400",
-          )}
-        >
-          <span className={cn("mt-0.5 h-4 w-4 shrink-0 rounded-full border-[1.5px]", chosen === o.key ? "border-brand-600 bg-brand-600 ring-[3px] ring-inset ring-slate-100" : "border-slate-400")} />
-          <span>
-            <span className="block text-[13.5px] font-semibold text-slate-900">{o.key}</span>
-            <span className="mt-1 block text-[12px] leading-relaxed text-slate-500">{o.desc}</span>
-          </span>
-        </button>
-      ))}
+    <div className="space-y-1.5">
+      <FieldLabel label={label} req={req} />
+      {control}
+      {(bad || help) && <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>{bad ? "Needed before you continue." : help}</p>}
     </div>
   );
 }
 
-function StepSummary({ def, values, parent, approvers, tier, onGo, nameOverride, onNameChange }: {
-  def: AgreementFormDef; values: Values; parent: ContractResponse | null;
-  approvers: string[]; tier: { name: string; eta: string }; onGo: (n: number) => void;
-  nameOverride: string; onNameChange: (v: string) => void;
-}) {
-  const cells: [string, string, number][] = [
-    ...(parent ? [["Parent agreement", parent.title, 1] as [string, string, number]] : []),
-    ["Counterparty", parent?.counterparty_name ?? values.counterparty ?? "—", 2],
-    ["Signature", def.noSignature ? "Not applicable" : values.signature_method || "Digital signature", 3],
-    ...classifyFor(def).map((f) => [f.label, values[f.k] || "Not applicable", 4] as [string, string, number]),
-    ...def.detail.map((f) => [f.label, values[f.k] || "—", 5] as [string, string, number]),
-  ];
-  return (
-    <div className="flex flex-col gap-5">
-      <Field label="Name this request" hint="Shown on your queue and dashboards instead of the auto-generated name below.">
-        <Input
-          value={nameOverride}
-          onChange={(e) => onNameChange(e.target.value)}
-          placeholder={subjectLine(def, values, parent)}
-          maxLength={200}
-        />
-      </Field>
-      <div>
-        <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.05em] text-slate-500">
-          Effect of this {def.name.toLowerCase()}
-        </div>
-        <DiffTable rows={diffRows(def, values, parent)} />
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {cells.map(([k, v, jump]) => (
-          <button key={k} type="button" onClick={() => onGo(jump)} className="rounded-lg p-1 text-left hover:bg-slate-50">
-            <div className="text-[11px] uppercase tracking-[0.04em] text-slate-500">{k}</div>
-            <div className="mt-0.5 break-words text-[13px] font-medium text-slate-900">{v}</div>
-          </button>
-        ))}
-      </div>
-      <div className="rounded-xl border border-slate-200 p-4">
-        <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.05em] text-slate-500">Routing</div>
-        <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-900">
-          <Badge tone="blue">{tier.name}</Badge>
-          <span>{approvers.join(" → ")}</span>
-          <span className="text-slate-500">· median {tier.eta}</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepMessage({ def, values, parent, errors, onChange, approvers }: {
-  def: AgreementFormDef; values: Values; parent: ContractResponse | null;
-  errors: Set<string>; onChange: (k: string, v: string) => void; approvers: string[];
-}) {
-  const note = values.note_approvers ?? "";
-  return (
-    <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-      <div className="flex flex-col gap-4">
-        <Field label="Approvers *" hint={approvers.join(", ")}>
-          <Textarea
-            rows={5}
-            maxLength={500}
-            value={note}
-            onChange={(e) => onChange("note_approvers", e.target.value)}
-            placeholder="What is this for, why now, and anything non-standard about the terms."
-            className={errors.has("note_approvers") ? "border-danger bg-danger-subtle" : undefined}
-          />
-        </Field>
-        <div className="-mt-3 flex flex-wrap items-center gap-2">
-          {["No deviations from our template.", "Budget approved under the current plan.", "Needed before the current term lapses."].map((phrase) => (
-            <button
-              key={phrase}
-              type="button"
-              onClick={() => onChange("note_approvers", `${note.trim()} ${phrase}`.trim().slice(0, 500))}
-              className="rounded-full border border-dashed border-brand-200 bg-brand-50 px-2.5 py-1 text-[11px] font-medium text-brand-700 hover:bg-brand-100"
-            >
-              + {phrase.split(" ").slice(0, 3).join(" ").toLowerCase().replace(/[.,]$/, "")}
-            </button>
-          ))}
-          <span className="ml-auto text-[11px] text-slate-500">{note.length} / 500</span>
-        </div>
-        <Field label="Signatories">
-          <Textarea rows={3} maxLength={500} value={values.note_signatories ?? ""} onChange={(e) => onChange("note_signatories", e.target.value)} placeholder="One line for whoever signs." />
-        </Field>
-      </div>
-      <div>
-        <div className="mb-1.5 block text-xs font-medium text-slate-700">Preview — what the approver receives</div>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-[12.3px] leading-relaxed text-slate-600">
-          <p className="mb-1.5">Dear approver,</p>
-          <p>Requesting you to approve this {def.name.toLowerCase()}. The summary details are as follows:</p>
-          <ol className="my-2 list-decimal pl-5">
-            <li>Counterparty: <b className="font-medium text-slate-900">{parent?.counterparty_name ?? values.counterparty ?? "—"}</b></li>
-            <li>Type of agreement: <b className="font-medium text-slate-900">{values.agreement_type ?? def.name}</b></li>
-            <li>Agreement value: <b className="font-medium text-slate-900">{values.value ? inr(Number(values.value)) : "—"}</b></li>
-          </ol>
-          <p>Summary of the agreement: <b className="font-medium text-slate-900">{note || "—"}</b></p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepFiles({ def, file, onFile, values, onChange }: {
-  def: AgreementFormDef; file: File | null; onFile: (f: File | null) => void;
-  values: Values; onChange: (k: string, v: string) => void;
-}) {
-  return (
-    <>
-      {def.parent === "contract" && (
-        <div className="mb-4 overflow-hidden rounded-xl border border-slate-200">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
-            <span>Attached automatically</span>
-            <span>Status</span>
-          </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 text-[12.5px]">
-            <span className="font-medium text-slate-900">The executed parent agreement</span>
-            <Badge tone="green">From the register</Badge>
-          </div>
-        </div>
-      )}
-      <label className="block cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 p-7 text-center hover:border-brand-600 hover:bg-brand-50">
-        <input type="file" className="sr-only" onChange={(e) => onFile(e.target.files?.[0] ?? null)} />
-        <FileText className="mx-auto mb-2 h-5 w-5 text-slate-500" />
-        <div className="text-[13px] font-medium text-slate-900">{file ? file.name : "Drag and drop, or browse files"}</div>
-        <div className="mt-1 text-[11.5px] text-slate-500">PDF, DOC, DOCX, XLSX, PNG · up to 25 MB each</div>
-      </label>
-      <div className="mt-4">
-        <Field label="File description">
-          <Textarea rows={2} value={values.file_description ?? ""} onChange={(e) => onChange("file_description", e.target.value)} placeholder="What did you attach, and what should the reviewer look at?" />
-        </Field>
-      </div>
-      <Note>
-        {def.key === "regularize"
-          ? "Attach anything showing what was agreed at the time — email approvals, the purchase order, the quote it was signed against."
-          : "Upload a DOC or DOCX file if collaborative review is required — PDFs can only be commented on."}
-      </Note>
-    </>
-  );
-}
-
-
-// ------------------------------------------------------- computed panels ----
-
-const TODAY = () => new Date().toISOString().slice(0, 10);
-
-function Stat({ k, v, tone }: { k: string; v: string; tone?: "ok" | "bad" }) {
-  return (
-    <div>
-      <div className="text-[10.5px] uppercase tracking-[0.05em] text-slate-500">{k}</div>
-      <div className={cn("mt-0.5 text-[14px] font-semibold",
-        tone === "bad" ? "text-danger" : tone === "ok" ? "text-success" : "text-slate-900")}>{v}</div>
-    </div>
-  );
-}
-
-function Calc({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mt-4 rounded-xl border border-info/40 bg-info-subtle p-4">
-      <div className="mb-2.5 text-[12.5px] font-semibold text-info">{title}</div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">{children}</div>
-    </div>
-  );
-}
-
-function ItemList({ title, items }: { title: string; items: [string, string, boolean?][] }) {
-  return (
-    <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
-      <div className="border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.05em] text-slate-500">
-        {title}
-      </div>
-      {items.map(([head, sub, active]) => (
-        <div key={head} className="flex gap-2.5 border-b border-slate-200 px-4 py-2.5 text-[12.5px] last:border-b-0">
-          <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", active === false ? "bg-slate-300" : "bg-warning")} />
-          <span>
-            <span className="font-medium text-slate-900">{head}</span>
-            <br />
-            <span className="text-[11.5px] text-slate-500">{sub}</span>
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** The type-specific calculators and lists that sit under the step-5 fields. */
-function DetailPanels({ def, values, parent }: { def: AgreementFormDef; values: Values; parent: ContractResponse | null }) {
-  const today = TODAY();
-
-  if (def.key === "termination" && values.termination_date) {
-    const given = daysBetween(today, values.termination_date);
-    const required = 90; // ponytail: read from the contract's notice clause once it is extracted
-    return (
-      <>
-        <Calc title="Notice calculation">
-          <Stat k="Contract notice" v={`${required} days`} />
-          <Stat k="Earliest lawful date" v={addDays(today, required)} />
-          <Stat k="Your date" v={values.termination_date} />
-          <Stat k="Notice given" v={`${given} days`} tone={given < required ? "bad" : "ok"} />
-        </Calc>
-        <ItemList
-          title="Survives termination — stays tracked in Aegis"
-          items={[
-            ["Confidentiality", "Continues after termination per the confidentiality clause"],
-            ["Data return and deletion", "Within 30 days of the termination date"],
-            ["Final invoicing", "Services delivered up to the termination date remain payable"],
-            ["Audit rights", "Continue for the period stated in the agreement"],
-          ]}
-        />
-      </>
-    );
-  }
-
-  if (def.key === "renewal" && parent?.expiration_date) {
-    const remaining = daysBetween(today, parent.expiration_date);
-    const noticeBy = addDays(parent.expiration_date, -60);
-    const late = daysBetween(today, noticeBy) < 0;
-    return (
-      <Calc title="Renewal window">
-        <Stat k="Current expiry" v={parent.expiration_date} />
-        <Stat k="Days remaining" v={String(remaining)} />
-        <Stat k="Notice deadline" v={noticeBy} />
-        <Stat k="Status" v={late ? "Inside the notice window" : "In good time"} tone={late ? "bad" : "ok"} />
-      </Calc>
-    );
-  }
-
-  if (def.key === "novation") {
-    return (
-      <ItemList
-        title="Transfers with the agreement"
-        items={[
-          ["Statements of Work", "Every SoW under this agreement moves to the incoming party"],
-          ["Open obligations", "Reassigned to the incoming party on the effective date"],
-          ["Data Processing Agreement", "Must be re-signed by the incoming entity — raised as a linked request"],
-          ["Outstanding invoices", values.liabilities === "Stay with the outgoing party"
-            ? "Settled by the outgoing party before novation"
-            : "Assumed by the incoming party"],
-        ]}
-      />
-    );
-  }
-
-  if (def.key === "dpa") {
-    const dpia = values.special_category === "Yes" || values.monitoring === "Yes" || (values.scale ?? "").startsWith("Large scale");
-    const transfer = !!values.location && values.location !== "India only";
-    return (
-      <ItemList
-        title="Modules that will be attached to this DPA"
-        items={[
-          ["Article 28 processing terms", "Always — the core processor obligations"],
-          ["Technical and organisational measures", "Annexure II — supplier completes and we verify"],
-          ["Standard contractual clauses", transfer ? "Required — processing leaves India" : "Not needed — processing stays in India", transfer],
-          ["Transfer impact assessment", transfer ? "Required alongside the SCCs" : "Not needed", transfer],
-          ["Sub-processor list", values.sub_processors === "None" ? "Not needed — no sub-processors" : "Required — Annexure III", values.sub_processors !== "None"],
-          ["DPIA", dpia ? "Required before signature" : "Not triggered by this processing", dpia],
-        ]}
-      />
-    );
-  }
-
-  if (def.key === "regularize") {
-    return (
-      <Calc title="What happens on approval">
-        <Stat k="Contract" v="Created on the register" />
-        <Stat k="Obligations" v="Extracted and tracked" />
-        <Stat k="Renewal alerts" v={values.end_date || "From the end date"} />
-        <Stat k="Compliance" v="Exception logged" tone="bad" />
-      </Calc>
-    );
-  }
-
-  return null;
-}
-
-/** The SoW envelope check, shown under the classification fields. */
-function EnvelopePanel({ def, values, parent }: { def: AgreementFormDef; values: Values; parent: ContractResponse | null }) {
-  if (def.key !== "sow" || !parent?.value_amount) return null;
-  const master = parent.value_amount;
-  const sow = Number(values.value || 0);
-  const over = sow > master;
-  return (
-    <>
-      <Calc title="Master agreement envelope">
-        <Stat k="Master value" v={inr(master)} />
-        <Stat k="This SoW" v={sow ? inr(sow) : "—"} tone={over ? "bad" : "ok"} />
-        <Stat k="Headroom" v={inr(Math.max(0, master - sow))} />
-        <Stat k="Within cap" v={over ? "No" : "Yes"} tone={over ? "bad" : "ok"} />
-      </Calc>
-      {over && (
-        <Note tone="danger">
-          This SoW exceeds the master agreement&apos;s value. The master needs an amendment to raise its cap before this can be signed.
-        </Note>
-      )}
-    </>
-  );
-}
-
-/** Before / after, the way the summary showed it in the design. */
-function DiffTable({ rows }: { rows: [string, string, string, boolean][] }) {
-  return (
-    <div className="overflow-hidden rounded-xl border border-slate-200">
-      <div className="grid grid-cols-[minmax(120px,170px)_1fr_1fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-slate-500">
-        <span />
-        <span>Currently</span>
-        <span>After this request</span>
-      </div>
-      {rows.map(([k, was, now, changed]) => (
-        <div key={k} className="grid grid-cols-[minmax(120px,170px)_1fr_1fr] items-center gap-3 border-b border-slate-200 px-4 py-2.5 text-[12.8px] last:border-b-0">
-          <span className="text-slate-500">{k}</span>
-          <span className={changed ? "text-slate-500 line-through decoration-slate-400" : "text-slate-500"}>{was}</span>
-          <span className={changed ? "font-semibold text-brand-600" : "text-slate-500"}>{now}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function diffRows(def: AgreementFormDef, v: Values, parent: ContractResponse | null): [string, string, string, boolean][] {
-  const curValue = parent?.value_amount ? inr(parent.value_amount) : "—";
-  const newValue = v.value ? inr(Number(v.value)) : curValue;
-  const curTerm = `${parent?.effective_date ?? "—"} → ${parent?.expiration_date ?? "—"}`;
-  switch (def.key) {
-    case "amendment":
-      return [
-        ["Term", curTerm, `${parent?.effective_date ?? "—"} → ${v.revised_end_date || parent?.expiration_date || "—"}`, !!v.revised_end_date],
-        ["Total value", curValue, newValue, newValue !== curValue],
-        ["What changes", "—", v.what_changes || "—", true],
-      ];
-    case "renewal":
-      return [
-        ["Term", curTerm, `${v.new_start || "—"} → ${v.new_end || "—"}`, true],
-        ["Total value", curValue, newValue, newValue !== curValue],
-        ["Auto-renewal", "As signed", v.auto_renewal || "Unchanged", !!v.auto_renewal],
-      ];
-    case "termination":
-      return [
-        ["Status", `Live until ${parent?.expiration_date ?? "—"}`, `Terminated ${v.termination_date || "—"}`, true],
-        ["Grounds", "—", v.grounds || "—", true],
-        ["Value ended", curValue, curValue, false],
-      ];
-    case "novation":
-      return [
-        ["Counterparty", parent?.counterparty_name ?? "—", v.incoming_party || "—", true],
-        ["Effective from", parent?.effective_date ?? "—", v.effective_date || "—", true],
-        ["Accrued liabilities", `With ${parent?.counterparty_name ?? "the outgoing party"}`, v.liabilities || "—", true],
-      ];
-    case "sow":
-      return [
-        ["Master agreement", parent?.title ?? "—", "Unchanged", false],
-        ["SoW term", "—", `${v.services_start || "—"} → ${v.services_end || "—"}`, true],
-        ["Pricing", "Master rate card", v.rates || "Master rate card", v.rates === "Rates specific to this SoW"],
-      ];
-    case "dpa":
-      return [
-        ["Linked agreement", parent?.title ?? "Standalone", "Unchanged", false],
-        ["Processing location", "—", v.location || "—", true],
-        ["Retention", "—", v.retention || "—", true],
-      ];
-    case "regularize":
-      return [
-        ["Status", "Not on the register", "Live contract, tracked", true],
-        ["Signed", v.date_signed || "—", "Unchanged — this does not re-sign it", false],
-        ["Compliance", "No record", "Policy exception logged", true],
-      ];
-    case "cancellation":
-      return [
-        ["Request status", "In flight", "Cancelled", true],
-        ["Counterparty access", v.notify_counterparty?.startsWith("Yes") ? "Share link live" : "Never shared", v.notify_counterparty?.startsWith("Yes") ? "Revoked" : "Unchanged", v.notify_counterparty?.startsWith("Yes") ?? false],
-        ["Audit record", "Open request", "Preserved, marked cancelled", true],
-      ];
-    default:
-      return [
-        ["Agreement", "None", v.agreement_type || def.name, true],
-        ["Term", "—", `${v.effective_date || "—"} → ${v.end_date || "—"}`, true],
-        ["Total value", "—", newValue, true],
-      ];
-  }
-}
-
-function addDays(iso: string, n: number): string {
-  const d = new Date(iso);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
-
-// -------------------------------------------------------------- helpers ----
-
-function subjectLine(def: AgreementFormDef, v: Values, parent: ContractResponse | null): string {
-  const cp = parent?.counterparty_name ?? v.counterparty ?? "";
-  if (def.key === "sow" && v.sow_title) return `${v.sow_title}${cp ? ` — ${cp}` : ""}`;
-  return `${def.name}${cp ? ` — ${cp}` : ""}`;
-}
-
-async function fileToB64(f: File): Promise<string> {
-  const buf = await f.arrayBuffer();
-  let bin = "";
-  const bytes = new Uint8Array(buf);
-  for (let i = 0; i < bytes.byteLength; i += 1) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin);
-}
+/** For tests: every server question is placed on a step (or filled beside one). */
+export const _layout = { UI, COMPANION, FILE_KEYS };

@@ -33,6 +33,7 @@ def test_mock_assistant_tool_loop_requests_contract_read_tool():
     settings.mock_claude = True
     response = asyncio.run(
         claude_client.complete_with_tools(
+            org_id="org-test",
             system_prompt="system",
             messages=[{"role": "user", "content": "summarize this contract"}],
             tools=[
@@ -71,6 +72,7 @@ def test_mock_assistant_tool_loop_requests_edit_tool_for_redlines():
     settings.mock_claude = True
     response = asyncio.run(
         claude_client.complete_with_tools(
+            org_id="org-test",
             system_prompt="system",
             messages=[{"role": "user", "content": "please redline this contract"}],
             tools=[
@@ -171,10 +173,8 @@ def test_confirmation_decisions_require_ai_tool_permission():
 
 def test_assistant_prompt_uses_handles_not_internal_ids():
     contract_id = "11111111-1111-1111-1111-111111111111"
-    matter_id = "22222222-2222-2222-2222-222222222222"
     prompt = ai_controller._assistant_user_prompt(
         message="Summarize this contract",
-        matter_id=matter_id,
         contract_id=contract_id,
         contract_ids=[contract_id],
         handles=[{"handle": "contract-0", "contract_id": contract_id, "metadata": {}}],
@@ -182,13 +182,11 @@ def test_assistant_prompt_uses_handles_not_internal_ids():
 
     assert "contract-0" in prompt
     assert contract_id not in prompt
-    assert matter_id not in prompt
 
 
 def test_model_safe_result_strips_internal_identifier_keys():
     assert "current_authoritative_version_id" in INTERNAL_RESULT_KEYS
     assert "contract_version_id" in INTERNAL_RESULT_KEYS
-    assert "matter_id" in INTERNAL_RESULT_KEYS
 
 
 def test_phase3_tool_results_emit_frontend_artifact_events():
@@ -328,83 +326,87 @@ def test_max_tokens_clamped_to_ceiling_before_claude():
         assert "_clamp_max_tokens(spec.max_tokens)" in inspect.getsource(fn)
 
 
-def test_cost_cap_enforced_before_every_claude_call():
-    """Each Claude call site calls enforce_daily_token_cap first, and usage is
-    recorded back into the daily counter."""
-    for fn in (
-        ai_controller.run_structured_skill,
-        ai_controller.stream_assistant_run,
-        ai_controller.resume_assistant_run,
-    ):
-        assert "enforce_daily_token_cap(" in inspect.getsource(fn)
-    assert "record_token_usage(" in inspect.getsource(ai_controller._record_usage)
+def test_every_claude_request_is_metered_inside_the_client():
+    """LLM-06: the Claude client reserves against the daily cap before each request
+    and settles afterwards, so no call site can skip it; every call names its org."""
+    import pathlib
+    import re
+
+    from app.integrations import claude
+
+    for name in ("complete_structured", "complete_vision_structured", "complete_text", "complete_with_tools", "stream_with_tools"):
+        param = inspect.signature(getattr(claude.ClaudeClient, name)).parameters["org_id"]
+        assert param.default is inspect.Parameter.empty
+    for fn in (claude.ClaudeClient._post_messages, claude.ClaudeClient.stream_with_tools):
+        source = inspect.getsource(fn)
+        assert "reserve_tokens(" in source and "settle_tokens(" in source
+
+    call = re.compile(r"\.(complete_structured|complete_vision_structured|complete_text|complete_with_tools|stream_with_tools)\(")
+    app_root = pathlib.Path(claude.__file__).parents[1]
+    missing = []
+    for path in app_root.rglob("*.py"):
+        text = path.read_text()
+        for match in call.finditer(text):
+            depth, end = 1, match.end()
+            while depth:
+                depth += {"(": 1, ")": -1}.get(text[end], 0)
+                end += 1
+            if "org_id=" not in text[match.end():end]:
+                missing.append(f"{path.relative_to(app_root)}: {match.group(1)}")
+    assert not missing, missing
 
 
-def test_cost_cap_fails_open_and_is_noop_when_unset():
+def test_cost_cap_fails_open_and_is_noop_when_unset(monkeypatch):
     """Cap <= 0 is a no-op (no Redis touched) and any Redis error fails open."""
     from app.ai import cost_guard
     from app.core.config import settings
 
-    original_cap = settings.claude_daily_token_cap_per_org
-    original_client = cost_guard._redis_client
-    try:
-        # cap <= 0 → unlimited; Redis must not even be constructed.
-        settings.claude_daily_token_cap_per_org = 0
+    def _explode():
+        raise AssertionError("Redis must not be touched when cap <= 0")
 
-        def _explode():
-            raise AssertionError("Redis must not be touched when cap <= 0")
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 0)
+    monkeypatch.setattr(cost_guard, "_redis_client", _explode)
+    assert cost_guard.reserve_tokens("org-A", 5000) is None
+    cost_guard.settle_tokens(None, 5000)  # nothing reserved, nothing to settle
 
-        cost_guard._redis_client = _explode
-        cost_guard.enforce_daily_token_cap("org-A")  # no raise
-        cost_guard.record_token_usage("org-A", 5000)  # no raise
+    def _fail():
+        raise RuntimeError("redis down")
 
-        # Positive cap but Redis unreachable → fail open (no exception).
-        settings.claude_daily_token_cap_per_org = 100
-
-        def _fail():
-            raise RuntimeError("redis down")
-
-        cost_guard._redis_client = _fail
-        cost_guard.enforce_daily_token_cap("org-A")  # fail open → no raise
-        cost_guard.record_token_usage("org-A", 50)   # fail open → no raise
-    finally:
-        settings.claude_daily_token_cap_per_org = original_cap
-        cost_guard._redis_client = original_client
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 100)
+    monkeypatch.setattr(cost_guard, "_redis_client", _fail)
+    assert cost_guard.reserve_tokens("org-A", 50) is None  # fail open, no raise
+    cost_guard.settle_tokens(("ai:token_cap:org-A:2026-01-01", 50), 10)  # fail open, no raise
 
 
-def test_cost_cap_rejects_with_429_when_exceeded():
+def test_cost_cap_rejects_with_429_when_exceeded(monkeypatch):
     from fastapi import HTTPException
 
     from app.ai import cost_guard
     from app.core.config import settings
 
-    class _FakeClient:
-        def __init__(self, value):
-            self.value = value
+    class _FakeRedis:
+        """Applies the reserve script's rule: refuse once spent, else add the reservation."""
 
-        def get(self, _key):
-            return self.value
+        def __init__(self, spent):
+            self.spent = spent
 
-        def close(self):
-            pass
+        def eval(self, _script, _numkeys, _key, cap, reserve, _ttl):
+            if self.spent >= cap:
+                return -1
+            self.spent += reserve
+            return 1
 
-    original_cap = settings.claude_daily_token_cap_per_org
-    original_client = cost_guard._redis_client
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 100)
+    monkeypatch.setattr(cost_guard, "_redis_client", lambda: _FakeRedis(150))  # already over
     try:
-        settings.claude_daily_token_cap_per_org = 100
-        cost_guard._redis_client = lambda: _FakeClient(b"150")  # already over
-        try:
-            cost_guard.enforce_daily_token_cap("org-A")
-        except HTTPException as exc:
-            assert exc.status_code == 429
-        else:  # pragma: no cover - must raise
-            raise AssertionError("expected HTTP 429 when daily cap is exceeded")
+        cost_guard.reserve_tokens("org-A", 10)
+    except HTTPException as exc:
+        assert exc.status_code == 429
+    else:  # pragma: no cover - must raise
+        raise AssertionError("expected HTTP 429 when daily cap is exceeded")
 
-        cost_guard._redis_client = lambda: _FakeClient(b"50")  # under cap
-        cost_guard.enforce_daily_token_cap("org-A")  # no raise
-    finally:
-        settings.claude_daily_token_cap_per_org = original_cap
-        cost_guard._redis_client = original_client
+    monkeypatch.setattr(cost_guard, "_redis_client", lambda: _FakeRedis(50))  # under cap
+    assert cost_guard.reserve_tokens("org-A", 10) is not None
 
 
 def test_external_share_passcode_requires_at_least_eight_chars():

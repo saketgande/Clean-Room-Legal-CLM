@@ -54,6 +54,18 @@ celery_app.conf.update(
 # Each task is import-safe and a no-op when its tables are empty, so enabling
 # beat never destabilises a fresh deployment.
 celery_app.conf.beat_schedule = {
+    "reclaim-stale-jobs": {
+        "task": "app.jobs.tasks.reclaim_stale_jobs",
+        "schedule": crontab(minute="*/5"),  # jobs whose worker died or whose enqueue failed
+    },
+    "resume-workflow-runs": {
+        "task": "app.jobs.tasks.resume_workflow_runs",
+        "schedule": crontab(minute="*/2"),  # progress runs without the ticket being open
+    },
+    "reconcile-tabular-reviews": {
+        "task": "app.jobs.tasks.reconcile_tabular_reviews",
+        "schedule": crontab(minute="*/5"),  # settle reviews and stuck cells without anyone opening them
+    },
     "send-obligation-reminders": {
         "task": "app.jobs.tasks.send_obligation_reminders",
         "schedule": crontab(hour=8, minute=0),  # daily 08:00 UTC

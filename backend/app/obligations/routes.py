@@ -9,6 +9,7 @@ from app.auth.models import User
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.obligations.dependencies import get_obligations_service
 from app.obligations.models import Obligation
@@ -59,9 +60,8 @@ def list_obligations(
     if status_filter:
         query = query.where(Obligation.status == status_filter)
     if due_within_days is not None:
-        from datetime import date as _date
         from datetime import timedelta as _timedelta
-        _today = _date.today()
+        _today = utcnow().date()
         query = query.where(
             Obligation.due_date.isnot(None),
             Obligation.due_date >= _today,

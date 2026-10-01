@@ -6,11 +6,12 @@
 // Wired to intakeApi (get + documents + handoffs). CLM editor is a linked page.
 // Scoped under `.ro` (reuses the `.li-board` palette from the shell's CSS).
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { intakeApi, workflowsApi, brainApi, contractsApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
+import { currentStage, LIFECYCLE, LifecycleView, NextStepCard, stepStage } from "@/components/lifecycle-view";
 import { stepMeta } from "./_governance-ladder";
 import { NegotiationPanel } from "./_negotiation-panel";
 import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep, ContractDeviation, RiskDriver } from "@/lib/types";
@@ -32,7 +33,7 @@ const STEP_DOORWAY: Record<string, { label: string; icon: string }> = {
 };
 const assignOf = (s: WorkflowRunStep): string | undefined => {
   const who = s.assignee_label;
-  const grp = s.team_label ?? (s.role ? s.role.replace(/_/g, " ") : undefined);
+  const grp = s.team_label ?? undefined;
   if (who && grp) return `${who} · ${grp}`;
   return who ?? grp ?? undefined;
 };
@@ -47,7 +48,6 @@ function resultRows(res: Record<string, unknown> | null | undefined): [string, s
   push("Category", res.category);
   push("Matter", res.matter_type);
   push("Severity", res.severity);
-  if (res.sanctions_status) push("Sanctions", res.sanctions_status);
   if (res.notification_required != null) push("Breach notice", res.notification_required ? "required" : "not required");
   push("Summary", res.summary);
   const drivers = res.top_drivers ?? res.affected_data_categories ?? res.statutory_deadlines;
@@ -81,10 +81,10 @@ function counterpartyOf(r: IntakeRequest): string | null {
 export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
-  // Refetch on focus rather than poll a single open ticket — you're almost
-  // always the only one looking at it, and your own actions already
-  // invalidate this query directly (see done()/startFlow/etc. below).
-  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true });
+  // Poll only while the AI triage is still running (its result lands a few
+  // seconds after filing); otherwise refetch on focus — you're almost always
+  // the only one looking at a ticket, and your own actions invalidate it.
+  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true, refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" ? 3000 : false) });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
   const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });
@@ -99,6 +99,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   });
   const { data: deviations } = useQuery({ queryKey: ["contract-devs", cid], queryFn: () => contractsApi.deviations(cid!), enabled: !!cid });
   const { data: approvals } = useQuery({ queryKey: ["intake-approval-chain", id], queryFn: () => intakeApi.approvalChain(id) });
+  const { data: teams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
+  const { data: contractStatus } = useQuery({ queryKey: ["contract-review", cid], queryFn: () => contractsApi.reviewStatus(cid!), enabled: !!cid });
 
   // The live workflow engine — poll while an agent step is mid-beat so the ladder
   // animates; idle (waiting on a human / complete) runs don't poll. Capped: if
@@ -118,6 +120,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
       const lastProgress = cur?.updated_at ? new Date(cur.updated_at).getTime() : 0;
       return Date.now() - lastProgress < 45_000 ? 1500 : false;
     },
+  });
+  // Request events, signers, obligations, renewal — refetched as the run moves.
+  const { data: lifeRows } = useQuery({
+    queryKey: ["lifecycle-rows", id, cid, flowRun?.id, flowRun?.status, flowRun?.current_index],
+    queryFn: () => workflowsApi.lifecycle({ request_id: id }),
   });
   // Pump a mid-beat "running" step once: hold ~1s so the beat shows, then resume
   // the executor so the agent runs for real and the flow advances (back-and-forth).
@@ -151,11 +158,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
   // Engine actions — start the workflow, complete a human step, or poll an approval/signature.
-  // Pass the AI's suggested flow_id through when starting — otherwise the
-  // backend falls back to the deterministic criteria matcher, which can't see
-  // a workflow's free-text "AI condition" and silently lands on the catch-all
-  // instead of the flow actually shown as "Suggested" on this page.
-  const startFlow = useMutation({ mutationFn: () => workflowsApi.startFlow(id, fs?.flow_id ?? undefined), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
+  const { data: allFlows } = useQuery({ queryKey: ["flows"], queryFn: workflowsApi.listFlows, enabled: canManage });
+  // Start the flow shown as "Suggested" by passing its id: the backend's own
+  // matcher can't read an untyped workflow's free-text AI condition, so without
+  // the id it could land on a different flow than the one this page shows.
+  const startFlow = useMutation({ mutationFn: (flowId?: string) => workflowsApi.startFlow(id, flowId), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
   const completeStep = useMutation({ mutationFn: () => workflowsApi.completeStep(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Step completed", "success"); }, onError: fail });
   const checkStep = useMutation({ mutationFn: () => workflowsApi.refreshRun(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Refreshed", "success"); }, onError: fail });
   // Dynamic edges: send a step back for rework, and post questions/comments.
@@ -183,7 +190,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   if (isLoading || !r) return <div className="ro"><div style={{ padding: 40, color: "var(--ink-3)" }}>Loading request…</div></div>;
 
   const cp = counterpartyOf(r);
-  const ai = (r.ai_triage ?? {}) as { confidence?: number; complexity?: string };
+  const ai = (r.ai_triage ?? {}) as { confidence?: number; complexity?: string; source?: string };
+  // A form request is decided by its form; the model only leaves this note for the owner.
+  const read = (r.ai_triage as { read?: { summary?: string; mismatches?: string[]; bespoke_asks?: string[]; negotiation_points?: string[] } | null } | null)?.read;
+  const readRows = read
+    ? ([["Doesn’t match the form", read.mismatches], ["Beyond the template", read.bespoke_asks], ["Likely negotiated", read.negotiation_points]] as const)
+        .filter(([, xs]) => xs && xs.length)
+    : [];
   const fs = (r.ai_triage as { flow_suggestion?: WorkflowSuggestion } | null)?.flow_suggestion;
   const missingInfo = ((r.ai_triage as { understanding?: { missing_info?: string[] } } | null)?.understanding?.missing_info) ?? [];
   const triageDegraded = (r.ai_triage as { degraded?: boolean; degraded_reason?: string } | null) ?? {};
@@ -192,7 +205,6 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const docType = draftableDocType(r);
   const hasAttachment = (docs ?? []).some((d) => d.extracted_chars > 0);
   const canAct = canManage && open;
-  const gates = r.gates?.effective ?? [];
 
   // --- the live workflow, unified over the engine + the static fallback -------
   const hasRun = !!flowRun && ["running", "waiting", "complete", "failed", "cancelled"].includes(flowRun.status);
@@ -234,6 +246,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const wfActiveIdx = wf.findIndex((w) => w.tone === "cur" || w.tone === "warn");
   const activeLabel = hasRun ? (runComplete ? "Workflow complete" : current?.name ?? "In progress") : (wf[wfActiveIdx]?.label ?? "In progress");
   const flowTitle = hasRun ? flowRun!.flow_name : fs?.flow_name;
+  const stageNow = currentStage({ run: hasRun ? flowRun : null, contractStage: contractStatus?.lifecycle_stage, requestClosed: !open });
+  const stageLabel = LIFECYCLE.find((x) => x.key === stageNow)?.label;
 
   // The single primary action, engine-aware: run a human step, poll an
   // approval/signature, or start the workflow when none is running yet.
@@ -246,8 +260,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
       // ai_task has no owner to click "complete" — once the 45s auto-poll cap
       // above gives up, this is the only way left to nudge it forward.
       else if (current.type === "ai_task" && current.status === "running") engineAction = { label: "Check AI review status", onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
-    } else if (!hasRun) {
-      engineAction = { label: "Start workflow", onClick: () => startFlow.mutate(), icon: '<path d="M5 3l14 9-14 9z"/>' };
+    } else if (!hasRun && fs?.flow_id) {
+      engineAction = { label: "Start workflow", onClick: () => startFlow.mutate(fs.flow_id ?? undefined), icon: '<path d="M5 3l14 9-14 9z"/>' };
     }
   }
   // --- AI Risk Review: group deviations by severity, enrich with driver quotes -
@@ -281,12 +295,20 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human";
 
   const fv = (r.field_values ?? {}) as Record<string, unknown>;
-  const value = ["value", "contract_value", "spend", "amount"].map((k) => fv[k]).find((v) => typeof v === "string" && v) as string | undefined;
+  // Form numbers arrive typed (validated server-side) with the currency picked beside them.
+  const rawValue = ["value", "new_value", "renew_value", "contract_value", "amount"].map((k) => fv[k]).find((v) => (typeof v === "string" && v) || typeof v === "number");
+  const cur = typeof fv.currency === "string" ? fv.currency : fv.request_form ? "INR" : "";
+  const value = typeof rawValue === "number" || (typeof rawValue === "string" && /^[\d.,]+$/.test(rawValue))
+    ? `${cur ? `${cur} ` : ""}${Number(String(rawValue).replace(/,/g, "")).toLocaleString(cur === "INR" ? "en-IN" : "en-US")}`
+    : (rawValue as string | undefined);
+  const start = ["start_date", "services_start", "change_effective", "effective_date"].map((k) => fv[k]).find(Boolean) as string | undefined;
+  const end = ["end_date", "services_end", "new_end_date", "renew_end", "termination_date"].map((k) => fv[k]).find(Boolean) as string | undefined;
 
   const facts: [string, string][] = [
     ["Counterparty", cp ?? "—"],
-    ["Type", r.type_label],
+    ["Type", (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label],
     ...(value ? [["Value", value] as [string, string]] : []),
+    ...(start || end ? [["Term", `${start ?? "—"} → ${end ?? "open-ended"}`] as [string, string]] : []),
     ["Priority", r.priority],
   ];
 
@@ -302,7 +324,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           <div className="badges">
             <span className="bdg type">{r.type_label}</span>
             {value ? <span className="bdg val">{value}</span> : null}
-            <span className="bdg phase">{r.stage}{wf.length ? ` · ${wfDone}/${wf.length}` : ""}</span>
+            <span className="bdg phase">{stageLabel}{wf.length ? ` · ${wfDone}/${wf.length} steps` : ""}</span>
             {riskScore != null ? <span className={`bdg ${bandTone === "crit" ? "warn" : bandTone === "warn" ? "warn" : "val"}`}>⚑ risk {riskScore} · {riskBand}</span> : null}
             {stuck ? <span className="bdg warn">⚠ overdue</span> : null}
           </div>
@@ -314,27 +336,16 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
             <span className="btn spin" aria-live="polite">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}Agent working…</span>
           ) : null}
         </div>
-        {/* pinned tracker — the live workflow position */}
-        {wf.length > 0 && (
-          <div className="flowstrip">
-            <div className={`youare${stuck || runFailed ? " blocked" : ""}`}>
-              <div className="ya-ic">{svg(stuck || runFailed ? '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' : '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</div>
-              <div><div className="k">{runComplete ? "Done" : "You are here"}</div>
-                <div className="v">{activeLabel}{!runComplete && wfActiveIdx >= 0 ? ` · ${wfActiveIdx + 1} of ${wf.length}` : ""}</div>
-                <div className="m">{hasRun ? (current && isWaiting(current) ? stepMeta(current.type).wait : flowTitle ?? "in progress") : (r.assigned_to_label ? `with ${r.assigned_to_label}` : "not started")}{stuck ? " · overdue" : ""}</div></div>
-            </div>
-            <div className="ptrack">
-              {wf.map((w, i) => (
-                <div key={i} className="ph" style={{ display: "flex" }}>
-                  <div className={`ph ${w.tone === "done" ? "done" : w.tone === "warn" ? "cur blk" : w.tone === "cur" ? "cur" : "todo"}`}>
-                    <div className="phn">{w.node}</div><div className="phl">{w.label}</div>
-                  </div>
-                  {i < wf.length - 1 ? <div className={`phc ${w.tone === "done" ? "done" : ""}`} /> : null}
-                </div>
-              ))}
-            </div>
+        {/* pinned tracker — where this sits in the 7-stage lifecycle; a stage opens its steps */}
+        <div className="flowstrip">
+          <div className={`youare${stuck || runFailed ? " blocked" : ""}`}>
+            <div className="ya-ic">{svg(stuck || runFailed ? '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' : '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</div>
+            <div><div className="k">{runComplete ? "Done" : `You are here · ${stageLabel}`}</div>
+              <div className="v">{activeLabel}{!runComplete && wfActiveIdx >= 0 ? ` · ${wfActiveIdx + 1} of ${wf.length}` : ""}</div>
+              <div className="m">{hasRun ? (current && isWaiting(current) ? stepMeta(current.type).wait : flowTitle ?? "in progress") : (r.assigned_to_label ? `with ${r.assigned_to_label}` : "not started")}{stuck ? " · overdue" : ""}</div></div>
           </div>
-        )}
+          <div className="lcwrap"><LifecycleView compact steps={hasRun ? flowRun!.steps ?? [] : []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} /></div>
+        </div>
       </div>
 
       {/* body */}
@@ -362,9 +373,23 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                   </div>
                 </div>
               ) : null}
-              <div className="lbl" style={{ margin: "16px 0 0", fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)" }}>What the AI understood</div>
+              <div className="lbl" style={{ margin: "16px 0 0", fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)" }}>{ai.source === "form" ? "From the form" : "What the AI understood"}</div>
               <div className="facts">{facts.map(([k, v]) => <div key={k} className="f"><div className="k">{k}</div><div className="v">{v}</div></div>)}</div>
-              {ai.confidence != null && (
+              {read ? (
+                <>
+                  <div className="lbl" style={{ margin: "16px 0 0", fontSize: 10, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--ink-3)" }}>Aegis read</div>
+                  {read.summary ? <div style={{ fontSize: 13, lineHeight: 1.5, color: "var(--ink-2)", margin: "6px 0 0" }}>{read.summary}</div> : null}
+                  {readRows.length ? (
+                    <div className="facts">{readRows.map(([k, xs]) => (
+                      <div key={k} className="f">
+                        <div className="k" style={k === "Doesn’t match the form" ? { color: "var(--warn)" } : undefined}>{k}</div>
+                        <div className="v"><ul style={{ margin: 0, paddingLeft: 16, listStyle: "disc", fontWeight: 400, fontSize: 12.5, lineHeight: 1.5, display: "grid", gap: 4 }}>{(xs ?? []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+                      </div>
+                    ))}</div>
+                  ) : null}
+                </>
+              ) : null}
+              {ai.confidence != null && ai.source !== "form" && (
                 <div className="confline"><span>AI extraction confidence</span><div className="track"><div className="fill" style={{ width: `${Math.round(Number(ai.confidence) * 100)}%`, background: Number(ai.confidence) >= 0.8 ? "var(--good)" : "var(--warn)" }} /></div><b>{Math.round(Number(ai.confidence) * 100)}%</b>{ai.complexity ? <span className="dim"> · {ai.complexity} complexity</span> : null}</div>
               )}
             </div></div>
@@ -416,24 +441,36 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
               </div></div>
           )}
 
-          {gates.length > 0 && (
-            <div className="card"><div className="ch"><div className="glyph warn">{svg('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9.5 12l2 2 3-4"/>')}</div><h2>Governance checks</h2><span className="cnt">{gates.length}</span></div>
-              <div className="cb"><div className="flowmeta">This request triggers approval gates that must clear before it can execute:</div>
-                <div className="cactions" style={{ marginTop: 10 }}>{gates.map((g, i) => <span key={i} className="bdg warn">{g.label}</span>)}</div></div></div>
-          )}
-
           <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>')}</div><h2>Workflow &amp; stages</h2>{wf.length ? <span className="cnt">{wfDone}/{wf.length}</span> : null}{hasRun ? <span className={`bdg ${runComplete ? "phase" : runFailed ? "warn" : "type"}`} style={{ marginLeft: "auto" }}>{runComplete ? "complete" : runFailed ? flowRun!.status : "live"}</span> : null}</div>
             <div className="cb">
               {hasRun ? <div className="flowmeta"><b>Running:</b> {flowRun!.flow_name}. <span className="dim">The workflow engine drives each step — agent runs, approvals, and signatures move it forward and back.</span></div>
-                : fs?.flow_name ? <div className="flowmeta"><b>Suggested:</b> {fs.flow_name}. <span className="dim">{fs.reasoning}</span>{canAct ? <> — <a onClick={() => startFlow.mutate()} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>start it →</a></> : null}</div>
-                : <div className="flowmeta">No workflow running yet.{canAct ? <> <a onClick={() => startFlow.mutate()} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Start workflow →</a></> : null}</div>}
+                : fs?.flow_name ? <div className="flowmeta"><b>Suggested:</b> {fs.flow_name}. <span className="dim">{fs.reasoning}</span>{canAct ? <> — <a onClick={() => startFlow.mutate(fs.flow_id ?? undefined)} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>start it →</a></> : null}</div>
+                : (
+                  // No workflow is set up for this type (or none's conditions fit):
+                  // a person picks one — nothing starts by accident.
+                  <div className="flowmeta">
+                    <b>No workflow is set up for this request.</b> <span className="dim">{fs?.reasoning ?? "Pick one to start it."}</span>
+                    {canAct && (
+                      <select className="flowpick" value="" aria-label="Pick a workflow" disabled={startFlow.isPending}
+                        onChange={(e) => { if (e.target.value) startFlow.mutate(e.target.value); }}>
+                        <option value="">Pick a workflow to start…</option>
+                        {(allFlows ?? []).filter((f) => f.enabled).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                      </select>
+                    )}
+                  </div>
+                )}
               {flowRun?.error ? <div className="flowmeta" style={{ color: "var(--warn)", marginTop: 6 }}>⚠ {flowRun.error}</div> : null}
               <div className="steps" style={{ marginTop: 12 }}>
                 {wf.length === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No stages defined.</div> :
                   wf.map((w, i) => {
                     const rows = resultRows(w.result);
+                    const runSteps = hasRun ? flowRun!.steps ?? [] : [];
+                    const stg = runSteps[i] ? stepStage(runSteps[i]) : null;
+                    const newStage = stg && (i === 0 || stepStage(runSteps[i - 1]) !== stg);
                     return (
-                    <div key={i} className={`step ${w.tone}`}>
+                    <Fragment key={i}>
+                    {newStage ? <div className="stagehd">Stage {LIFECYCLE.findIndex((x) => x.key === stg) + 1} · {LIFECYCLE.find((x) => x.key === stg)?.label}</div> : null}
+                    <div className={`step ${w.tone}`}>
                       <div className="snode">{w.node}</div>
                       <div className="shd"><span className="sname">{w.label}</span>
                         {w.sub ? <span className="stype">{w.sub}</span> : null}
@@ -451,6 +488,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                       {w.assign ? <div className="sassign">{svg('<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>')}Assigned to <b>{w.assign}</b></div> : null}
                       {rows.length > 0 ? <div className="sresult">{rows.map(([k, v]) => <div key={k} className="rr"><span className="rk">{k}</span><span className="rv">{v}</span></div>)}</div> : null}
                     </div>
+                    </Fragment>
                   );})}
               </div>
 
@@ -538,6 +576,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
 
         {/* right rail */}
         <div className="col rail2">
+          {/* Next step — who the work is waiting on, by when, and what follows */}
+          {hasRun && (
+            <div className="card"><div className="ch"><div className="glyph flow">{svg('<path d="M5 12h14M13 6l6 6-6 6"/>')}</div><h2>Next step</h2></div>
+              <div className="cb"><NextStepCard run={flowRun!} teams={teams} /></div></div>
+          )}
           {/* Your decision — the current step's call, risk-aware */}
           {atReviewGate && (
             <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>')}</div><h2>Your decision</h2></div><div className="cb">
@@ -568,18 +611,18 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
             </div></div>
           )}
 
-          {/* Screening */}
+          {/* Relationship: what we already have on file with the counterparty */}
           {(() => {
-            const sc = (r.screening ?? {}) as { counterparty?: string; sanctions?: { status?: string }; conflicts?: unknown[] };
-            if (!sc || !sc.counterparty) return null;
-            const sanc = sc.sanctions?.status ?? "unavailable";
-            const conf = Array.isArray(sc.conflicts) ? sc.conflicts.length : 0;
-            const good = (v: boolean) => (v ? "var(--good)" : "var(--crit)");
+            const sc = (r.screening ?? {}) as { counterparty?: string; parties?: { name: string; role: string }[]; relationship?: { note?: string } };
+            if (!sc.counterparty) return null;
+            const parties = sc.parties ?? [];
             return (
-              <div className="card"><div className="ch"><h2>Screening</h2></div><div className="cb glance">
+              <div className="card"><div className="ch"><h2>Relationship</h2></div><div className="cb glance">
                 <div className="row"><span className="k">Counterparty</span><span className="v">{sc.counterparty}</span></div>
-                <div className="row"><span className="k">Sanctions</span><span className="v" style={{ color: sanc === "clear" ? "var(--good)" : sanc === "hit" ? "var(--crit)" : "var(--warn)" }}>{sanc}</span></div>
-                <div className="row"><span className="k">Conflicts</span><span className="v" style={{ color: good(conf === 0) }}>{conf === 0 ? "none" : `${conf} flagged`}</span></div>
+                {parties.length > 1 && (
+                  <div className="row"><span className="k">All parties</span><span className="v">{parties.map((p) => p.name).join(", ")}</span></div>
+                )}
+                {sc.relationship?.note && <div className="row"><span className="k">On file</span><span className="v">{sc.relationship.note}</span></div>}
               </div></div>
             );
           })()}
@@ -670,22 +713,15 @@ const RO_CSS = `
 .ro .ni-hint{font:11px var(--sans);color:var(--ink-3);margin-top:5px}
 .ro .btn{gap:7px;padding:8px 13px}
   .ro .btn.wide{width:100%}
-.ro .flowstrip{margin-top:14px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.ro .flowstrip{margin-top:14px;display:flex;align-items:flex-start;gap:18px;flex-wrap:wrap}
 .ro .youare{flex:none;display:flex;align-items:center;gap:11px;padding:8px 13px;background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 30%,var(--border));border-radius:11px}
 .ro .youare.blocked{background:var(--warn-soft);border-color:color-mix(in srgb,var(--warn) 34%,var(--border))}
 .ro .youare .ya-ic{width:30px;height:30px;border-radius:8px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none} .ro .youare.blocked .ya-ic{background:var(--warn)}
 .ro .youare .k{font:600 9.5px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--accent)} .ro .youare.blocked .k{color:var(--warn)}
 .ro .youare .v{font-weight:700;font-size:14px;letter-spacing:-.01em} .ro .youare .m{font-size:11.5px;color:var(--ink-2)}
-.ro .ptrack{display:flex;align-items:center;overflow-x:auto;padding:2px 0}
-.ro .ptrack>.ph{gap:0}
-.ro .ph{display:flex;align-items:center;gap:8px;flex:none}
-.ro .phn{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;flex:none;font:700 9px var(--mono);background:var(--surface);border:2px solid var(--border-strong);color:var(--ink-3)}
-.ro .ph.done .phn{background:var(--good);border-color:var(--good);color:#fff}
-.ro .ph.cur .phn{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 4px var(--accent-soft)}
-.ro .ph.cur.blk .phn{background:var(--warn);border-color:var(--warn);box-shadow:0 0 0 4px var(--warn-soft)}
-.ro .phl{font-size:11.5px;font-weight:600;color:var(--ink-3);white-space:nowrap}
-.ro .ph.done .phl,.ro .ph.cur .phl{color:var(--ink)} .ro .ph.cur .phl{color:var(--accent)}
-.ro .phc{width:26px;height:2px;background:var(--border);margin:0 9px;flex:none} .ro .phc.done{background:var(--good)}
+.ro .lcwrap{flex:1;min-width:0;overflow-x:auto}
+.ro .stagehd{margin:14px 0 6px;font:600 10.5px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.ro .stagehd:first-child{margin-top:0}
 .ro .body{display:grid;grid-template-columns:1fr 316px;gap:20px;padding:18px 0 20px}
 .ro .col{min-width:0;display:flex;flex-direction:column;gap:16px}
 .ro .card{border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow)}
@@ -700,6 +736,7 @@ const RO_CSS = `
 .ro .confline{display:flex;align-items:center;gap:8px;margin-top:12px;font-size:12px;color:var(--ink-2)}
 .ro .track{flex:none;height:5px;width:90px;border-radius:3px;background:var(--surface-2);overflow:hidden} .ro .track .fill{height:100%}
 .ro .flowmeta{font-size:12.5px;color:var(--ink-2);line-height:1.6}
+.ro .flowpick{display:block;margin-top:8px;width:100%;max-width:360px;padding:7px 10px;border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
 .ro .steps{margin-top:4px}
 .ro .step{position:relative;padding:0 0 4px 30px}
 .ro .step::before{content:"";position:absolute;left:9px;top:22px;bottom:-4px;width:2px;background:var(--border)} .ro .step:last-child::before{display:none}

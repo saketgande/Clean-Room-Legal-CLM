@@ -46,7 +46,7 @@ function stageOf(r: IntakeRequest): { name: string; done: number; total: number 
   if (!steps.length) return null;
   const done = steps.filter((s) => s.done).length;
   const active = steps.find((s) => s.active);
-  return { name: active?.label ?? "In progress", done, total: steps.length };
+  return { name: active?.label ?? (done === steps.length ? "Complete" : "In progress"), done, total: steps.length };
 }
 
 function AssignedCard({ r, onOpen }: { r: IntakeRequest; onOpen: (id: string) => void }) {

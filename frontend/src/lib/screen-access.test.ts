@@ -52,14 +52,14 @@ const SAMPLE_ACCESS: MyScreenAccessResponse = {
   org_unit_id: null,
   screens: [
     { screen_id: "s1", screen_code: "contracts", route_path: "/contracts", action_level: "EDIT", rank: 3 },
-    { screen_id: "s2", screen_code: "matters", route_path: "/matters", action_level: "VIEW", rank: 1 },
+    { screen_id: "s2", screen_code: "intake", route_path: "/intake", action_level: "VIEW", rank: 1 },
   ],
 };
 
 describe("getScreenLevel", () => {
   it("finds a granted screen's resolved level", () => {
     expect(getScreenLevel(SAMPLE_ACCESS, "contracts")).toBe("EDIT");
-    expect(getScreenLevel(SAMPLE_ACCESS, "matters")).toBe("VIEW");
+    expect(getScreenLevel(SAMPLE_ACCESS, "intake")).toBe("VIEW");
   });
 
   it("returns null for a screen not present in the response (no access)", () => {
@@ -76,7 +76,7 @@ describe("buildScreenLevelMap", () => {
   it("builds a screen_code -> action_level map from a list of entries", () => {
     const map = buildScreenLevelMap(SAMPLE_ACCESS.screens);
     expect(map.get("contracts")).toBe("EDIT");
-    expect(map.get("matters")).toBe("VIEW");
+    expect(map.get("intake")).toBe("VIEW");
     expect(map.has("trademarks")).toBe(false);
   });
 
