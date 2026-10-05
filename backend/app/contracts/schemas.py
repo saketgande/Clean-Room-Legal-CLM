@@ -143,6 +143,14 @@ class ContractPartyCreate(BaseModel):
     party_type: str | None = None
 
 
+class CounterpartyOption(BaseModel):
+    """One entry in the org-wide counterparty directory — for the intake
+    form's "Name of Counterparty" look-up, not scoped to a single contract."""
+
+    name: str
+    contact_email: str | None = None
+
+
 class SignerOption(BaseModel):
     name: str
     email: str

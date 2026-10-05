@@ -11,6 +11,7 @@ import { mattersApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
 import { titleCase } from "@/lib/utils";
 import type { MatterResponse, MatterStatus, MatterType, UnfiledItem } from "@/lib/types";
+import { useScreenAccess } from "@/lib/screen-access";
 
 const MATTER_TYPES: MatterType[] = [
   "general",
@@ -44,6 +45,10 @@ function statusTone(s: string): string {
 export default function MattersPage() {
   const qc = useQueryClient();
   const { notify } = useToast();
+  // FR-9: UI-layer control gating only — the API independently re-verifies
+  // every ADD request (FR-10/FR-13); this is a usability aid, not the
+  // security boundary.
+  const { canAdd } = useScreenAccess("matters");
   const [createOpen, setCreateOpen] = useState(false);
   const [filter, setFilter] = useState<"all" | MatterStatus>("all");
   // One-time "Projects are now Matters" notice; dismissed state in localStorage.
@@ -92,7 +97,14 @@ export default function MattersPage() {
           <p className="sub">Every client engagement — its contracts, requests, obligations and people in one place.</p>
         </div>
         <div className="acts">
-          <button className="btn pri" onClick={() => setCreateOpen(true)}>+ New matter</button>
+          <button
+            className="btn pri"
+            disabled={!canAdd}
+            title={canAdd ? undefined : "You don't have add access to this screen"}
+            onClick={() => setCreateOpen(true)}
+          >
+            + New matter
+          </button>
         </div>
       </div>
 
@@ -163,7 +175,16 @@ export default function MattersPage() {
       ) : matters.length === 0 ? (
         <div className="empty">
           No matters yet. Create one to group a client engagement — its contracts, requests, deadlines and team.
-          <div style={{ marginTop: 12 }}><button className="btn pri" onClick={() => setCreateOpen(true)}>New matter</button></div>
+          <div style={{ marginTop: 12 }}>
+            <button
+              className="btn pri"
+              disabled={!canAdd}
+              title={canAdd ? undefined : "You don't have add access to this screen"}
+              onClick={() => setCreateOpen(true)}
+            >
+              New matter
+            </button>
+          </div>
         </div>
       ) : (
         <div className="tablewrap">

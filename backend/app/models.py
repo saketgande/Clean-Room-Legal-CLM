@@ -1,4 +1,12 @@
 from app.ai.models import AICitation, AIConfirmation, AIPromptVersion, AISkillRun
+from app.approval_chains.models import (
+    ApprovalChainDefinition,
+    ApprovalChainHistory,
+    ApprovalChainInstance,
+    ApprovalChainRequirement,
+    ApprovalChainStep,
+    ApprovalChainStepRule,
+)
 from app.approvals.models import (
     ApprovalDecision,
     ApprovalRequest,
@@ -21,6 +29,7 @@ from app.auth.models import (
     User,
     UserApprovalDecision,
     UserInvitation,
+    UserRoleGrant,
 )
 from app.authority.models import AuthorityGrant
 from app.contract_brain.models import BrainQuery, ClauseExtraction, KnowledgeEdge, KnowledgeNode
@@ -65,9 +74,11 @@ from app.matters.models import (
     MatterMember,
     MatterShare,
 )
+from app.menu_security.models import ActionLevel, MenuItem, RoleScreenAccess, Screen
 from app.notices.models import Notice, NoticeDocument, NoticeEvent
 from app.notifications.models import Notification
 from app.obligations.models import Obligation, ObligationReminder
+from app.org_structure.models import Delegation, OrgUnit
 from app.organizations.models import Organization
 from app.playbooks.models import (
     Playbook,
@@ -95,8 +106,15 @@ __all__ = [
     "AIConfirmation",
     "AIPromptVersion",
     "AISkillRun",
+    "ActionLevel",
     "AdminSetting",
     "ApiKey",
+    "ApprovalChainDefinition",
+    "ApprovalChainHistory",
+    "ApprovalChainInstance",
+    "ApprovalChainRequirement",
+    "ApprovalChainStep",
+    "ApprovalChainStepRule",
     "ApprovalDecision",
     "ApprovalRequest",
     "ApprovalRoutingRule",
@@ -119,6 +137,7 @@ __all__ = [
     "ContractStageHistory",
     "ContractTextSnapshot",
     "ContractVersion",
+    "Delegation",
     "EthicalWall",
     "EthicalWallPrincipal",
     "IntakeDocument",
@@ -140,12 +159,14 @@ __all__ = [
     "MatterFolder",
     "MatterMember",
     "MatterShare",
+    "MenuItem",
     "Notice",
     "NoticeDocument",
     "NoticeEvent",
     "Notification",
     "Obligation",
     "ObligationReminder",
+    "OrgUnit",
     "Organization",
     "PasswordResetToken",
     "Permission",
@@ -163,7 +184,9 @@ __all__ = [
     "ResourceGrant",
     "ResourceTimelineEvent",
     "Role",
+    "RoleScreenAccess",
     "SanctionsListEntry",
+    "Screen",
     "SignatureEvent",
     "SignatureRecipient",
     "SignatureRequest",
@@ -176,6 +199,7 @@ __all__ = [
     "User",
     "UserApprovalDecision",
     "UserInvitation",
+    "UserRoleGrant",
     "Workflow",
     "WorkflowRun",
     "WorkflowStepRun",

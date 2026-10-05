@@ -1,0 +1,1 @@
+{"task": "T008", "agent": "frontend-dev", "status": "done", "detail": "approval-chains.ts + test written using local shapes (T007 types.ts additions not yet landed); typecheck and vitest both green (17/17 tests)", "updated": "2026-09-14T22:30:27Z"}

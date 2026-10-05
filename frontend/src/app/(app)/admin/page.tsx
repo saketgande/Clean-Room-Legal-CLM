@@ -208,8 +208,79 @@ function UsersTab() {
   return (
     <div className="space-y-4">
       <PendingUsersSection />
+      <AllUsersSection />
       <InvitationsSection />
     </div>
+  );
+}
+
+function AllUsersSection() {
+  const [search, setSearch] = useState("");
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["all-users"],
+    queryFn: () => usersApi.list(),
+  });
+  const q = search.trim().toLowerCase();
+  const rows = (data ?? []).filter(
+    (u) => !q || `${u.email} ${u.full_name}`.toLowerCase().includes(q),
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>All users</CardTitle>
+        <Badge tone="slate">{String((data ?? []).length)}</Badge>
+      </CardHeader>
+      <CardBody className="p-0">
+        <div className="border-b border-slate-200 p-3">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or email…"
+          />
+        </div>
+        {isLoading ? (
+          <CenterSpinner label="Loading users…" />
+        ) : error ? (
+          <div className="p-5">
+            <ErrorState error={error} />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="p-5">
+            <EmptyState
+              icon={<UserPlus className="h-6 w-6" />}
+              title="No users found"
+              description="Registered users in your organization appear here."
+            />
+          </div>
+        ) : (
+          <Table>
+            <THead>
+              <tr>
+                <TH>Name</TH>
+                <TH>Email</TH>
+                <TH>Role</TH>
+                <TH>Status</TH>
+              </tr>
+            </THead>
+            <tbody>
+              {rows.map((u) => (
+                <TR key={u.id}>
+                  <TD className="font-medium text-slate-900">{u.full_name}</TD>
+                  <TD>{u.email}</TD>
+                  <TD>{u.active_role_name ?? u.roles?.join(", ") ?? "—"}</TD>
+                  <TD>
+                    <Badge tone={statusTone(String(u.status))}>
+                      {titleCase(String(u.status))}
+                    </Badge>
+                  </TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 
@@ -979,6 +1050,9 @@ function RoleEditorModal({
   const [selected, setSelected] = useState<Set<string>>(
     new Set(role?.permissions ?? []),
   );
+  const [allowsHierarchyRollup, setAllowsHierarchyRollup] = useState(
+    role?.allows_hierarchy_rollup ?? true,
+  );
   const [busy, setBusy] = useState(false);
 
   const readOnly = role?.name === ADMIN_ROLE; // admin is fully locked
@@ -1025,6 +1099,7 @@ function RoleEditorModal({
           name: nameLocked ? undefined : name.trim(),
           description: description.trim() || null,
           permissions,
+          allows_hierarchy_rollup: allowsHierarchyRollup,
         });
         notify("Role updated", "success");
       }
@@ -1084,6 +1159,16 @@ function RoleEditorModal({
             disabled={readOnly}
           />
         </Field>
+        <label className="flex items-center gap-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-200"
+            checked={allowsHierarchyRollup}
+            onChange={(e) => setAllowsHierarchyRollup(e.target.checked)}
+            disabled={readOnly}
+          />
+          Rolls up the org-unit hierarchy
+        </label>
         <div>
           <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
             Permissions ({selected.size})

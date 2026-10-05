@@ -25,6 +25,7 @@ import {
   TR,
 } from "@/components/ui";
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { useScreenAccess } from "@/lib/screen-access";
 import type { Trademark } from "@/lib/types";
 import { TrademarkComments } from "@/components/TrademarkComments";
 
@@ -116,6 +117,7 @@ export default function TrademarksPage() {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [chatTrademark, setChatTrademark] = useState<Trademark | null>(null);
+  const { canAdd } = useScreenAccess("trademarks");
 
   const { data: metrics, isLoading: metricsLoading } = useQuery({
     queryKey: ["trademarks", "dashboard"],
@@ -143,14 +145,26 @@ export default function TrademarksPage() {
         description="Portfolio overview, intake, and renewal tracking for your trademark filings."
         actions={
           <>
-            <Link href="/trademarks/extract">
-              <Button variant="outline">
+            <Link
+              href="/trademarks/extract"
+              aria-disabled={!canAdd}
+              onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+            >
+              <Button
+                variant="outline"
+                disabled={!canAdd}
+                title={canAdd ? undefined : "You don't have add access to this screen"}
+              >
                 <ScanLine className="h-4 w-4" />
                 Extract from document
               </Button>
             </Link>
-            <Link href="/trademarks/intake">
-              <Button>
+            <Link
+              href="/trademarks/intake"
+              aria-disabled={!canAdd}
+              onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+            >
+              <Button disabled={!canAdd} title={canAdd ? undefined : "You don't have add access to this screen"}>
                 <Plus className="h-4 w-4" />
                 New intake
               </Button>
@@ -214,8 +228,16 @@ export default function TrademarksPage() {
               title="No trademarks yet"
               description="Start a new intake or extract records from a filed document to populate your portfolio."
               action={
-                <Link href="/trademarks/intake">
-                  <Button size="sm">
+                <Link
+                  href="/trademarks/intake"
+                  aria-disabled={!canAdd}
+                  onClick={(e) => { if (!canAdd) e.preventDefault(); }}
+                >
+                  <Button
+                    size="sm"
+                    disabled={!canAdd}
+                    title={canAdd ? undefined : "You don't have add access to this screen"}
+                  >
                     <Plus className="h-4 w-4" />
                     New intake
                   </Button>

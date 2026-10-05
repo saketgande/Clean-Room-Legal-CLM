@@ -88,6 +88,55 @@ NOTICE_PERMISSIONS = {
     "notice:update",
 }
 
+# Org-unit hierarchy + delegation self-service:
+#   org_unit:read     — view the org-unit tree (every picker, incl. the
+#                        self-service delegation screen, needs this)
+#   delegation:manage — create/list/revoke one's OWN delegations
+# Both are granted to every default role since they gate read-only/self-scoped
+# actions, not administration of the hierarchy itself (that stays behind
+# admin_panel:access).
+ORG_STRUCTURE_PERMISSIONS = {"org_unit:read", "delegation:manage"}
+
+# Menu/screen-level security (VIEW/ADD/EDIT/DELETE):
+#   menu:read            — fetch one's own resolved menu tree / own
+#                           screen-access resolution / the action-level
+#                           reference list. Granted to every default role
+#                           since the sidebar is fetched on every page load
+#                           by every user; gating it on admin_panel:access
+#                           would blank the navigation for non-admins.
+#   screen_access:read   — list the screen catalog and existing role->screen
+#                           grants (the admin screen's reads). Admin only.
+#   screen_access:manage — create/modify/revoke a screen-access grant.
+#                           Admin only.
+MENU_SECURITY_PERMISSIONS = {"menu:read", "screen_access:read", "screen_access:manage"}
+
+# Condition-driven approval chains (feature 004):
+#   approval_chain:read         — view chain instances, materialized required-
+#                                  approver lists, condition explanations and
+#                                  history. Granted broadly (every default
+#                                  role) since any user may be a requester or
+#                                  an assigned approver on a chain instance.
+#   approval_chain:manage       — define/modify/deactivate chain definitions,
+#                                  steps, base requirements and condition
+#                                  rules; also the FR-20 "which role has no
+#                                  eligible holder" blocked-step view.
+#                                  Admin only.
+#   approval_chain:decide       — record an approve/reject decision against a
+#                                  materialized requirement (FR-15). Granted
+#                                  to the roles that already act as approvers
+#                                  today (mirrors approval:decide's holders).
+#   approval_chain:recalculate  — invoke the explicit "recalculate required
+#                                  approvers" action (FR-9), deliberately
+#                                  distinct from approval_chain:decide so an
+#                                  ordinary approver can never recalculate
+#                                  their own chain instance. Admin only.
+APPROVAL_CHAIN_PERMISSIONS = {
+    "approval_chain:read",
+    "approval_chain:manage",
+    "approval_chain:decide",
+    "approval_chain:recalculate",
+}
+
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
@@ -102,6 +151,9 @@ ALL_PERMISSIONS = (
     | NOTICE_PERMISSIONS
     | ADMIN_PERMISSIONS
     | USER_PERMISSIONS
+    | ORG_STRUCTURE_PERMISSIONS
+    | MENU_SECURITY_PERMISSIONS
+    | APPROVAL_CHAIN_PERMISSIONS
 )
 
 ADMIN_ROLE_NAME = "admin"
@@ -124,6 +176,10 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "intake:create",  # any employee can file + track their own requests
         "trademark:read",
         "trademark:create",
+        "org_unit:read",
+        "delegation:manage",
+        "menu:read",
+        "approval_chain:read",
     },
     LEGAL_REVIEWER_ROLE_NAME: {
         "contract:read",
@@ -153,6 +209,11 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "notice:read",
         "notice:create",
         "notice:update",
+        "org_unit:read",
+        "delegation:manage",
+        "menu:read",
+        "approval_chain:read",
+        "approval_chain:decide",
     },
     APPROVER_ROLE_NAME: {
         "contract:read",
@@ -163,30 +224,15 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "intake:create",
         "intake:read",
         "notice:read",
+        "org_unit:read",
+        "delegation:manage",
+        "menu:read",
+        "approval_chain:read",
+        "approval_chain:decide",
     },
 }
 
 
 def has_permission(user_permissions: Iterable[str], required_permission: str) -> bool:
-    # RBAC disabled by request: every authenticated user passes every
-    # permission check, regardless of role.
-    #
-    # Read this before assuming any admin-gated path still holds: is_org_admin()
-    # in core/access.py consults this function first, so *every* authenticated
-    # user is now an org admin. That silently opens the ~22 call sites that give
-    # admins a shortcut, including:
-    #   * clearance_permits() in contracts/access.py — so confidentiality/MAC
-    #     classification is NOT enforced while this stands, even though the code
-    #     reads as though it is;
-    #   * _require_admin() on the debug router (dev/local only, but still).
-    #
-    # Genuinely still enforced, independently of this function:
-    #   * org_id tenant isolation — scoped per query, never routed through here;
-    #   * ethical walls (walls/service.py) — they override every ALLOW and bind
-    #     admins too, by design, so the disable doesn't reach them;
-    #   * delegation-of-authority (authority/service.py) — no admin shortcut.
-    #
-    # To restore RBAC, revert this to:
-    #   permissions = set(user_permissions)
-    #   return required_permission in permissions or "*" in permissions
-    return True
+    permissions = set(user_permissions)
+    return required_permission in permissions or "*" in permissions

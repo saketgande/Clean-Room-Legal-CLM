@@ -9,6 +9,7 @@ so two concurrent creates routing to A and B can't deadlock.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from fastapi import HTTPException
@@ -25,6 +26,7 @@ from app.intake.models import (
     IntakeTeam,
     IntakeTeamMember,
 )
+from app.intake.schemas import TeamMemberSpec
 
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -189,20 +191,37 @@ class TeamService:
             t = db.get(IntakeTeam, cur)
             cur = t.overflow_team_id if t else None
 
-    def _apply_members(self, t: IntakeTeam, org_id: str, members) -> None:
-        db = self.db
+    def _apply_members(self, t: IntakeTeam, org_id: str, members: Sequence[TeamMemberSpec]) -> None:
+        """Reuse existing IntakeTeamMember rows (update capacity/active in place)
+        rather than replacing the whole `t.members` collection with new objects.
+        With cascade="all, delete-orphan", wholesale replacement makes SQLAlchemy
+        INSERT the new (team_id, user_id) rows before DELETEing the orphaned ones,
+        tripping `uq_intake_team_member_team_user` when a save re-submits a member
+        already on the team (e.g. editing only the team's departments)."""
+        existing_by_user = {m.user_id: m for m in t.members}
+        keep: list[IntakeTeamMember] = []
         seen: set[str] = set()
-        rows = []
+
         for m in members:
             if m.user_id in seen:
                 continue
             seen.add(m.user_id)
-            u = db.get(User, m.user_id)
+
+            u = self.db.get(User, m.user_id)
             if u is None or u.org_id != org_id:
                 raise HTTPException(404, "Team member not found in org")
-            rows.append(IntakeTeamMember(org_id=org_id, user_id=m.user_id,
-                                         capacity=max(0, m.capacity), active=m.active))
-        t.members = rows
+
+            capacity = max(0, m.capacity)
+            row = existing_by_user.get(m.user_id)
+            if row is not None:
+                row.capacity = capacity
+                row.active = m.active
+            else:
+                row = IntakeTeamMember(org_id=org_id, user_id=m.user_id,
+                                       capacity=capacity, active=m.active)
+            keep.append(row)
+
+        t.members = keep
 
     def create_team(self, *, actor: User, payload) -> dict:
         db = self.db

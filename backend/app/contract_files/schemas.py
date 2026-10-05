@@ -108,6 +108,8 @@ class ExternalShareResponse(BaseModel):
     download_allowed: bool
     text_excerpt: str | None = None
     text_truncated: bool = False
+    can_submit: bool = False
+    expires_at: datetime | None = None
 
 
 class ExternalCommentResponse(BaseModel):

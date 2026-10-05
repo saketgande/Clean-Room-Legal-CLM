@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { AppShell } from "@/components/app-shell";
 import { CenterSpinner } from "@/components/ui";
+import { ScreenGuard } from "@/components/screen-guard";
 
 export default function AppLayout({
   children,
@@ -26,5 +27,9 @@ export default function AppLayout({
     );
   }
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell>
+      <ScreenGuard>{children}</ScreenGuard>
+    </AppShell>
+  );
 }

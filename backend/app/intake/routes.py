@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db, require_permission
+from app.core.deps import get_db, require_permission, require_screen_level
 from app.intake import copilot as copilot_mod
 from app.intake.dependencies import (
     get_drafting_service,
@@ -48,6 +48,8 @@ from app.intake.schemas import (
 )
 from app.intake.screening import ScreeningService
 from app.intake.service import IntakeService
+from app.intake.service import claim_request as _claim_request
+from app.intake.service import list_pool_requests as _list_pool_requests
 from app.intake.teams import TeamService
 
 router = APIRouter(prefix="/intake", tags=["intake"])
@@ -56,6 +58,13 @@ _CREATE = require_permission("intake:create")   # all employees — file + own t
 _READ = require_permission("intake:read")        # the staff gate — queue + manage actions
 _UPDATE = require_permission("intake:update")     # stage / handoff / tasks
 _MANAGE = require_permission("admin_panel:access")  # admin config (types, teams, rules)
+
+# FR-10/FR-11/FR-17 tranche-1 screen-level gates — additive to the permission
+# checks above, declared next to the router per plan.md's frozen shape.
+_INTAKE_VIEW = require_screen_level("intake", "VIEW")
+_INTAKE_ADD = require_screen_level("intake", "ADD")
+_INTAKE_EDIT = require_screen_level("intake", "EDIT")
+_INTAKE_DELETE = require_screen_level("intake", "DELETE")
 
 
 def _req_id(request: Request) -> str | None:
@@ -113,6 +122,7 @@ def create_request(
     request: Request,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_CREATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return intake_service.create_request(
         actor=current_user, payload=payload, request_id=_req_id(request)
@@ -136,6 +146,14 @@ def list_my_requests(
     return intake_service.list_requests(user=current_user, mine=True)
 
 
+@router.get("/requests/pool", response_model=list[RequestResponse])
+def list_request_pool(
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+):
+    return _list_pool_requests(db, user=current_user)
+
+
 @router.get("/requests/{request_id}", response_model=RequestResponse)
 def get_request(
     request_id: str,
@@ -154,6 +172,7 @@ def update_request(
     request: Request,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.update_request(
         actor=current_user, request_id=request_id, payload=payload,
@@ -168,10 +187,24 @@ def triage_request(
     request: Request,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.record_triage_action(
         actor=current_user, request_id=request_id, payload=payload,
         http_request_id=_req_id(request),
+    )
+
+
+@router.post("/requests/{request_id}/assign-to-me", response_model=RequestResponse)
+def assign_to_me(
+    request_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
+):
+    return _claim_request(
+        db, actor=current_user, request_id=request_id, http_request_id=_req_id(request),
     )
 
 
@@ -180,6 +213,7 @@ def suggest_flow(
     request_id: str,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_VIEW),
 ):
     """Re-run the Flow Router agent for this request; the suggestion lands on
     ai_triage.flow_suggestion. Assigning it is a separate one-click flows/start."""
@@ -201,6 +235,7 @@ async def submit_for_approval(
     payload: _ApprovalLadderSubmit | None = None,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     p = payload or _ApprovalLadderSubmit()
     return await intake_service.start_approval_ladder(
@@ -232,6 +267,7 @@ def override_gate(
     request: Request,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.override_gate(
         actor=current_user, request_id=request_id, gate_key=payload.gate_key,
@@ -247,6 +283,7 @@ def create_handoff(
     payload: HandoffCreate,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return intake_service.handoff(actor=current_user, request_id=request_id, payload=payload)
 
@@ -278,6 +315,7 @@ def create_task(
     payload: TaskCreateReq,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_ADD),
 ):
     return intake_service.create_task(actor=current_user, request_id=request_id, payload=payload)
 
@@ -288,6 +326,7 @@ def update_task(
     payload: TaskUpdateReq,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.update_task(actor=current_user, task_id=task_id, payload=payload)
 
@@ -297,6 +336,7 @@ def delete_task(
     task_id: str,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_DELETE),
 ):
     intake_service.delete_task(actor=current_user, task_id=task_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -308,6 +348,7 @@ def log_effort(
     minutes: int,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.log_effort(actor=current_user, task_id=task_id, minutes=minutes)
 
@@ -339,6 +380,7 @@ def promote(
     request: Request,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.promote(actor=current_user, request_id=request_id, payload=payload,
                            http_request_id=_req_id(request))
@@ -351,6 +393,7 @@ async def draft_contract(
     intake_service: IntakeService = Depends(get_intake_service),
     drafting_service: DraftingService = Depends(get_drafting_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     """Render a draft contract from an intake request and link it back — the
     intake → contract-lifecycle bridge. Idempotent."""
@@ -369,6 +412,7 @@ async def ingest_attachment(
     intake_service: IntakeService = Depends(get_intake_service),
     drafting_service: DraftingService = Depends(get_drafting_service),
     current_user=Depends(_READ),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     """Use the request's attached document as the contract (the 'review an
     existing contract' path) instead of drafting from a template. Idempotent."""
@@ -398,6 +442,7 @@ def set_pause(
     paused: bool = True,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_UPDATE),
+    _screen=Depends(_INTAKE_EDIT),
 ):
     return intake_service.set_pause(actor=current_user, request_id=request_id, paused=paused)
 
@@ -508,13 +553,14 @@ def pool_ops(days: int = 30, intake_service: IntakeService = Depends(get_intake_
 # ---- copilot (conversational filing) --------------------------------------
 
 @router.post("/copilot/turn", response_model=CopilotTurnResponse)
-def copilot_turn(payload: CopilotTurnRequest, current_user=Depends(_CREATE)):
+def copilot_turn(payload: CopilotTurnRequest, current_user=Depends(_CREATE),
+                  _screen=Depends(_INTAKE_VIEW)):
     return copilot_mod.turn(payload.messages, payload.user_message)
 
 
 @router.post("/copilot/file", response_model=RequestResponse, status_code=status.HTTP_201_CREATED)
 def copilot_file(payload: CopilotFileRequest, request: Request,
-                 intake_service: IntakeService = Depends(get_intake_service), current_user=Depends(_CREATE)):
+                 intake_service: IntakeService = Depends(get_intake_service), current_user=Depends(_CREATE), _screen=Depends(_INTAKE_ADD)):
     return intake_service.file_from_copilot(actor=current_user, payload=payload,
                                      request_id=_req_id(request))
 
@@ -582,7 +628,7 @@ def rescreen_request(request_id: str,
                      db: Session = Depends(get_db),
                      intake_service: IntakeService = Depends(get_intake_service),
                      screening_service: ScreeningService = Depends(get_screening_service),
-                     current_user=Depends(_READ)):
+                     current_user=Depends(_READ),_screen=Depends(_INTAKE_EDIT)):
     r = intake_service.get_request(user=current_user, request_id=request_id)
     result = screening_service.run_screening(r, actor_user_id=current_user.id)
     db.commit()
@@ -623,6 +669,6 @@ def list_request_documents(request_id: str, intake_service: IntakeService = Depe
 @router.put("/requests/{request_id}/parties", response_model=RequestResponse)
 def set_request_parties(request_id: str, payload: PartiesUpdate,
                         intake_service: IntakeService = Depends(get_intake_service),
-                        current_user=Depends(_READ)):
+                        current_user=Depends(_READ),_screen=Depends(_INTAKE_EDIT)):
     """Replace the request's parties (counterparty + adverse/related) and re-screen."""
     return intake_service.set_parties(actor=current_user, request_id=request_id, parties=payload.parties)

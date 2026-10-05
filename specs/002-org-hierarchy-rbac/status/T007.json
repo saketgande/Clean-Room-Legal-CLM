@@ -1,0 +1,1 @@
+{"task": "T007", "agent": "frontend-dev", "status": "done", "detail": "org-tree.ts + org-tree.test.ts written; used local OrgUnitLike shape (T006 types.ts not landed yet); typecheck clean, vitest 11/11 passed", "updated": "2026-09-13T15:16:04Z"}

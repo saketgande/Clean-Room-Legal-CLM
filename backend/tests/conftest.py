@@ -9,7 +9,7 @@ Two things matter here:
 * The production code now defaults the mock integrations OFF and treats
   ``DATABASE_URL`` as required (no hardcoded dev fallback). The suite opts the
   mocks back ON and supplies a local Postgres URL so tests don't reach out to
-  real Claude/DocuSign/Reducto/Resend or a missing database.
+  real Claude/DocuSign/Reducto/Resend/SendGrid or a missing database.
 * ``setdefault`` is used deliberately: an explicit value already exported in
   the environment (e.g. CI pointing at its own Postgres) still wins.
 
@@ -25,6 +25,7 @@ os.environ.setdefault("MOCK_CLAUDE", "true")
 os.environ.setdefault("MOCK_DOCUSIGN", "true")
 os.environ.setdefault("MOCK_REDUCTO", "true")
 os.environ.setdefault("MOCK_RESEND", "true")
+os.environ.setdefault("MOCK_SENDGRID", "true")
 os.environ.setdefault(
     "DATABASE_URL",
     "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm",

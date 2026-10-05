@@ -1,0 +1,1 @@
+{"task": "T016", "agent": "backend-dev", "status": "done", "detail": "Added require_screen_level(\"notices\", <level>) to all 11 plan.md tranche-1 notices routes, additive to existing require_permission checks. ruff clean; pytest -k notice 43 passed; full suite 347 passed, 6 skipped (baseline unchanged).", "updated": "2026-09-14T11:45:00Z"}

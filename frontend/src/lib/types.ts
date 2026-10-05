@@ -76,6 +76,7 @@ export interface WorkflowSuggestion {
   alternatives: { flow_id: string; flow_name: string; why: string }[];
   needs_human: boolean;
   source: "llm" | "deterministic" | "degraded";
+  steps?: string[];
 }
 // Litigation Intake Agent output — lives on ai_triage.litigation_assessment.
 export interface LitigationAssessment {
@@ -100,9 +101,13 @@ export interface IntakeGates {
   effective: IntakeGateEffective[]; effective_keys: string[];
 }
 export interface IntakeApprovalRung {
-  approval_request_id: ID; step_order: number; status: string;
+  approval_request_id: ID | null; step_order: number; status: string;
   approver_label: string; due_at: string | null;
   mode?: "any" | "all"; approvals?: number; needed?: number;
+  requirement_id?: ID | null;       // NEW — set iff this rung is a chain requirement
+  chain_instance_id?: ID | null;    // NEW — the pair approvalChainsApi.decide needs
+  explanation?: string | null;      // NEW — FR-7 text, null for a base requirement
+  blocked?: boolean;                // NEW — mirrors requirement.is_unfulfillable (FR-19)
 }
 export interface IntakeTask {
   id: ID; request_id: ID; title: string; description: string | null;
@@ -184,6 +189,7 @@ export interface RoleResponse {
   is_builtin: boolean;
   permissions: string[];
   user_count: number;
+  allows_hierarchy_rollup: boolean;
 }
 
 export interface PermissionInfo {
@@ -473,6 +479,19 @@ export interface ExternalShareView {
   download_allowed: boolean;
   text_excerpt: string | null;
   text_truncated: boolean;
+  can_submit?: boolean;
+  expires_at?: ISODateTime | null;
+}
+
+export interface CounterpartyState {
+  state: "not_sent" | "sent" | "submitted" | "expired";
+  recipient_email: string | null;
+  sent_at: string | null;
+  expires_at: ISODateTime | null;
+  submitted_at: ISODateTime | null;
+  suggested_email: string | null;
+  expiry_days: number;
+  comments: ExternalComment[];
 }
 
 export interface ExternalComment {
@@ -489,6 +508,11 @@ export interface ContractParty {
   contract_id: ID;
   name: string;
   party_type: string | null;
+  contact_email: string | null;
+}
+
+export interface CounterpartyOption {
+  name: string;
   contact_email: string | null;
 }
 
@@ -894,6 +918,8 @@ export interface Workflow {
     match_priority?: string | null;
     match_department?: string | null;
     match_keyword?: string | null;
+    /** Free text an AI reads when auto-picking a workflow at intake. */
+    ai_condition?: string | null;
   };
   steps: WorkflowStepDef[];
 }
@@ -1914,4 +1940,380 @@ export interface AiUsageSummary {
   by_category: { category: string; calls: number; cost: number }[];
   daily: { date: ISODate; calls: number; cost: number }[];
   rates: { model_family: string; input_per_m: number; output_per_m: number }[];
+}
+
+// ---------------------------------------------------------------------------
+// Org-unit hierarchy + scoped, hierarchical RBAC (org-units, role-grants,
+// delegations) — mirrors the API contract exactly, copied verbatim from
+// specs/002-org-hierarchy-rbac/plan.md.
+// ---------------------------------------------------------------------------
+
+export interface OrgUnitResponse {
+  id: ID;
+  org_id: ID;
+  name: string;
+  parent_id: ID | null;
+  is_root: boolean;
+  depth: number;
+  path_names: string[];
+  child_count: number;
+  active_grant_count: number;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgUnitReparentEntry {
+  org_unit_id: ID;
+  name: string;
+  from_parent_id: ID | null;
+  to_parent_id: ID | null;
+}
+
+export interface OrgUnitDeleteResponse {
+  deleted_org_unit_id: ID;
+  reparented: OrgUnitReparentEntry[];
+}
+
+export interface RoleGrantResponse {
+  id: ID;
+  org_id: ID;
+  user_id: ID;
+  user_label: string;
+  role_id: ID;
+  role_name: string;
+  allows_hierarchy_rollup: boolean;
+  org_unit_id: ID;
+  org_unit_name: string;
+  valid_from: string | null;
+  valid_to: string | null;
+  is_active: boolean;
+  revoked_at: string | null;
+  revoked_by_user_id: ID | null;
+  created_at: string;
+  created_by_user_id: ID | null;
+}
+
+export type DelegationStatus = "active" | "revoked";
+
+export interface DelegationResponse {
+  id: ID;
+  org_id: ID;
+  delegator_user_id: ID;
+  delegator_label: string;
+  delegate_user_id: ID;
+  delegate_label: string;
+  role_id: ID | null;
+  role_name: string | null;
+  org_unit_id: ID | null;
+  org_unit_name: string | null;
+  start_date: string;
+  end_date: string;
+  status: DelegationStatus;
+  is_active: boolean;
+  can_revoke: boolean;
+  revoked_at: string | null;
+  revoked_by_user_id: ID | null;
+  created_at: string;
+  created_by_user_id: ID | null;
+}
+
+export interface DelegationEligibilityEntry {
+  role_id: ID;
+  role_name: string;
+  allows_hierarchy_rollup: boolean;
+  org_unit_id: ID;
+  org_unit_name: string;
+  valid_to: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Menu / screen-level security (VIEW/ADD/EDIT/DELETE) — mirrors the API
+// contract exactly, copied verbatim from
+// specs/003-menu-screen-security/plan.md.
+// ---------------------------------------------------------------------------
+
+export type ActionLevelCode = "VIEW" | "ADD" | "EDIT" | "DELETE";
+export type MenuNodeType = "group" | "screen_link";
+
+export interface ActionLevelResponse {
+  id: ID;
+  code: ActionLevelCode;
+  rank: number;
+}
+
+export interface MenuNode {
+  id: ID;
+  parent_id: ID | null;
+  label: string;
+  icon: string | null;
+  menu_type: MenuNodeType;
+  sequence_order: number;
+  screen_id: ID | null;
+  screen_code: string | null;
+  route_path: string | null;
+  action_level: ActionLevelCode | null;
+  children: MenuNode[];
+}
+
+export interface MenuTreeResponse {
+  org_unit_id: ID | null;
+  nodes: MenuNode[];
+}
+
+export interface ScreenAccessEntry {
+  screen_id: ID;
+  screen_code: string;
+  route_path: string;
+  action_level: ActionLevelCode;
+  rank: number;
+}
+
+export interface MyScreenAccessResponse {
+  org_unit_id: ID | null;
+  screens: ScreenAccessEntry[];
+}
+
+export interface ScreenResponse {
+  id: ID;
+  code: string;
+  name: string;
+  module: string;
+  route_path: string;
+  is_enforced: boolean;
+}
+
+export interface ScreenGrantResponse {
+  id: ID;
+  org_id: ID;
+  role_id: ID;
+  role_name: string;
+  role_is_builtin_admin: boolean;
+  allows_hierarchy_rollup: boolean;
+  screen_id: ID;
+  screen_code: string;
+  screen_name: string;
+  org_unit_id: ID | null;
+  org_unit_name: string | null;
+  max_action_level_id: ID;
+  max_action_level: ActionLevelCode;
+  max_action_rank: number;
+  is_locked: boolean;
+  is_active: boolean;
+  revoked_at: string | null;
+  revoked_by_user_id: ID | null;
+  created_at: string;
+  created_by_user_id: ID | null;
+  updated_at: string;
+  updated_by_user_id: ID | null;
+}
+
+export interface ScreenGrantCreate {
+  role_id: ID;
+  screen_id: ID;
+  org_unit_id?: ID | null;
+  action_level: ActionLevelCode;
+}
+
+export interface ScreenGrantUpdate {
+  action_level: ActionLevelCode;
+}
+
+// ---------------------------------------------------------------------------
+// Approval chains (feature 004 — condition-driven, materialized approval
+// chains). Mirrors the API contract exactly — copy verbatim, do not "improve".
+// ---------------------------------------------------------------------------
+
+export type ConditionOperator = "gt" | "lt" | "eq" | "in" | "contains";
+export type ChainSubjectType = "contract" | "intake_request";
+export type ChainInstanceStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type ChainRequirementStatus = "pending" | "approved" | "rejected" | "cancelled";
+export type ChainApprovalMode = "sequential" | "parallel";
+export type ChainStepType = "action" | "approval";
+export type ChainHistoryAction =
+  | "instance_created"
+  | "materialized"
+  | "approved"
+  | "rejected"
+  | "recalculated"
+  | "blocked_no_eligible_approver"
+  | "instance_completed"
+  | "instance_rejected";
+
+export interface ConditionExpression {
+  field: string;
+  operator: ConditionOperator;
+  value: string | number | boolean | Array<string | number | boolean> | null;
+}
+
+export interface ConditionFieldDescriptor {
+  name: string;
+  type: "number" | "string" | "boolean";
+  label: string;
+}
+
+export interface ConditionFieldCatalogResponse {
+  module: ChainSubjectType;
+  operators: ConditionOperator[];
+  fields: ConditionFieldDescriptor[];
+}
+
+export interface ChainStepRuleResponse {
+  id: ID;
+  org_id: ID;
+  step_id: ID;
+  is_base_requirement: boolean;
+  condition_expression: ConditionExpression | null;
+  condition_text: string | null;
+  required_role_id: ID;
+  required_role_name: string;
+  sequence_order: number;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+  created_by_user_id: ID | null;
+  updated_at: string;
+  updated_by_user_id: ID | null;
+}
+
+export interface ChainStepResponse {
+  id: ID;
+  org_id: ID;
+  definition_id: ID;
+  step_key: string;
+  name: string;
+  sequence_order: number;
+  step_type: ChainStepType;
+  approval_mode: ChainApprovalMode;
+  rules: ChainStepRuleResponse[];
+  created_at: string;
+  created_by_user_id: ID | null;
+  updated_at: string;
+  updated_by_user_id: ID | null;
+}
+
+export interface ChainDefinitionResponse {
+  id: ID;
+  org_id: ID;
+  name: string;
+  module: ChainSubjectType;
+  version: number;
+  is_active: boolean;
+  is_default_seeded: boolean;
+  steps: ChainStepResponse[];
+  created_at: string;
+  created_by_user_id: ID | null;
+  updated_at: string;
+  updated_by_user_id: ID | null;
+}
+
+export interface ChainInstanceSummary {
+  id: ID;
+  org_id: ID;
+  definition_id: ID;
+  definition_name: string;
+  module: ChainSubjectType;
+  module_record_id: ID;
+  module_record_label: string;
+  org_unit_id: ID;
+  org_unit_name: string;
+  current_step_id: ID | null;
+  current_step_key: string | null;
+  status: ChainInstanceStatus;
+  is_blocked: boolean;
+  pending_requirement_count: number;
+  started_by_user_id: ID;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChainConditionExplanation {
+  rule_id: ID;
+  field: string;
+  operator: ConditionOperator;
+  value: string | number | boolean | Array<string | number | boolean> | null;
+  actual: string | number | boolean | null;
+  text: string;
+}
+
+export interface ChainRequirementResponse {
+  id: ID;
+  instance_id: ID;
+  step_id: ID;
+  required_role_id: ID;
+  required_role_name: string;
+  sequence_order: number;
+  is_base_requirement: boolean;
+  triggered_by_rule_ids: ID[];
+  condition_explanations: ChainConditionExplanation[];
+  explanation: string | null;
+  status: ChainRequirementStatus;
+  counts_toward_completion: boolean;
+  superseded_at: string | null;
+  acted_by_user_id: ID | null;
+  acted_by_label: string | null;
+  acted_as_role_id: ID | null;
+  delegated_from_user_id: ID | null;
+  acted_at: string | null;
+  comment: string | null;
+  is_unfulfillable: boolean;
+  eligible_user_count: number;
+  can_decide: boolean;
+  blocked_by_sequence: boolean;
+  materialized_at: string;
+}
+
+export interface ChainInstanceStep {
+  step_id: ID;
+  step_key: string;
+  name: string;
+  sequence_order: number;
+  approval_mode: ChainApprovalMode;
+  is_current: boolean;
+  is_complete: boolean;
+  is_blocked: boolean;
+  requirements: ChainRequirementResponse[];
+}
+
+export interface ChainBlockingEntry {
+  requirement_id: ID;
+  step_id: ID;
+  step_key: string;
+  required_role_id: ID;
+  required_role_name: string;
+  sequence_order: number;
+  org_unit_id: ID;
+  org_unit_name: string;
+}
+
+export interface ChainHistoryEntry {
+  id: ID;
+  instance_id: ID;
+  step_id: ID | null;
+  requirement_id: ID | null;
+  action: ChainHistoryAction;
+  acted_by_user_id: ID | null;
+  acted_by_label: string | null;
+  acted_as_role_id: ID | null;
+  acted_as_role_name: string | null;
+  delegated_from_user_id: ID | null;
+  delegated_from_label: string | null;
+  comments: string | null;
+  before_json: unknown | null;
+  after_json: unknown | null;
+  acted_at: string;
+}
+
+export interface ChainInstanceDetailResponse {
+  instance: ChainInstanceSummary;
+  steps: ChainInstanceStep[];
+  blocking: ChainBlockingEntry[];
+  blocking_visible: boolean;
+  can_recalculate: boolean;
+  history: ChainHistoryEntry[];
+}
+
+export interface ChainBlockedResponse {
+  instance_id: ID;
+  blocking: ChainBlockingEntry[];
 }

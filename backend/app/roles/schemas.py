@@ -14,6 +14,7 @@ class RoleResponse(BaseModel):
     is_builtin: bool
     permissions: list[str]
     user_count: int
+    allows_hierarchy_rollup: bool
 
 
 class RoleCreate(BaseModel):
@@ -26,6 +27,7 @@ class RoleUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     permissions: list[str] | None = None
+    allows_hierarchy_rollup: bool | None = None
 
 
 class UserRolesUpdate(BaseModel):

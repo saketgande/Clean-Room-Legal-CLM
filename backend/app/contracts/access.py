@@ -167,6 +167,28 @@ class ContractAccessService:
                     return True
         return False
 
+    def _is_workflow_assignee(self, *, contract: Contract, user: User) -> bool:
+        """True if the user is (or was) the assignee of any step on this contract's
+        governance workflow run — e.g. the "Legal Review" human_task reviewer.
+        Unlike an "approval" step (modeled as an ApprovalRequest and already
+        covered by _is_pending_approver), a human_task/ai_task/counterparty step
+        only ever records its assignee on WorkflowStepRun.assignee_user_id — with
+        no grant or ApprovalRequest created alongside it. Without this, the very
+        person a workflow assigns to review a contract gets 404s on every one of
+        its endpoints."""
+        from app.workflows.models import WorkflowRun, WorkflowStepRun
+
+        return self.db.scalar(
+            select(WorkflowStepRun.id)
+            .join(WorkflowRun, WorkflowRun.id == WorkflowStepRun.flow_run_id)
+            .where(
+                WorkflowRun.contract_id == contract.id,
+                WorkflowRun.org_id == user.org_id,
+                WorkflowStepRun.assignee_user_id == user.id,
+            )
+            .limit(1)
+        ) is not None
+
     def user_can_access_contract(self, *, contract: Contract, user: User) -> bool:
         db = self.db
         if contract.org_id != user.org_id:
@@ -184,6 +206,10 @@ class ContractAccessService:
         # An assigned approver can read the contract they're being asked to approve,
         # while a decision is pending.
         if self._is_pending_approver(contract=contract, user=user):
+            return True
+        # Same idea for a non-approval workflow step (human_task/ai_task/etc.)
+        # assigned directly to this user.
+        if self._is_workflow_assignee(contract=contract, user=user):
             return True
         # Phase 2: a direct, time-bound resource grant on this contract.
         if user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id):

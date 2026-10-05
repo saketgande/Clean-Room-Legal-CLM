@@ -1,0 +1,1 @@
+{"task": "T012", "agent": "frontend-dev", "status": "done", "detail": "_chains-tab.tsx (ChainsTab) + _chain-detail.tsx (ChainDetail) landed; typecheck clean, vitest 48/48 passed", "updated": "2026-09-14T22:45:00Z"}

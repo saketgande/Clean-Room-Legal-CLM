@@ -595,6 +595,25 @@ class ApprovalsService:
         ):
             return []
 
+        # FR-22: after this feature ships, a NEW submission of either subject type
+        # is routed to the condition-driven engine. Everything above this line is
+        # untouched, which is what keeps FR-21 true: an in-flight legacy chain is
+        # returned by the idempotency query above and never reaches this branch.
+        from app.approval_chains import dispatch as chain_dispatch
+
+        definition = chain_dispatch.active_definition_for(
+            db, org_id=user.org_id, subject_kind=subject.kind
+        )
+        if definition is not None:
+            chain_dispatch.start_chain_for_subject(
+                db, actor=user, subject=subject, definition=definition, request_id=request_id
+            )
+            return []          # no legacy ApprovalRequest rows are created
+        write_audit_log(
+            db, action="approval_chain.reroute_skipped", resource_type=subject.kind,
+            resource_id=subject.id, org_id=user.org_id, actor_user_id=user.id,
+            request_id=request_id, metadata={"reason": "no_active_chain_definition"},
+        )
         # Routed rungs + forced Tier-0 gate rungs (intake only; [] for contracts),
         # or the manual fallback approver. Same planner the ladder preview uses.
         chain = self.plan_chain(
@@ -1134,6 +1153,20 @@ async def submit_subject_for_approval(
         user=user, subject=subject, approver_user_id=approver_user_id,
         approver_group_id=approver_group_id, approver_role=approver_role,
         routing_rule_id=routing_rule_id, request_id=request_id,
+    )
+
+
+async def decide_in_app(
+    db: Session,
+    *,
+    user: User,
+    approval: ApprovalRequest,
+    decision: str,
+    comment: str | None,
+    request_id: str | None = None,
+) -> ApprovalRequest:
+    return await ApprovalsService(db).decide_in_app(
+        user=user, approval=approval, decision=decision, comment=comment, request_id=request_id,
     )
 
 

@@ -498,6 +498,41 @@ class ContractService:
         return list(options.values())
 
 
+def list_counterparty_directory(db: Session, *, org_id: str, q: str | None = None) -> list[dict]:
+    """Org-wide, distinct-by-name counterparty directory for the intake
+    form's look-up — merges ``ContractParty(party_type='counterparty')`` rows
+    (which may carry a contact email) with any ``Contract.counterparty_name``
+    that never got a party row of its own, so a counterparty someone only
+    ever typed into the contract header still shows up as a suggestion.
+    Not per-contract-access-filtered: a counterparty's name is an org-wide
+    lookup value, the same trust level as picking from an assignee list."""
+    needle = f"%{q.strip().lower()}%" if q and q.strip() else None
+
+    party_query = select(ContractParty.name, ContractParty.contact_email).where(
+        ContractParty.org_id == org_id, ContractParty.party_type == "counterparty",
+    )
+    if needle:
+        party_query = party_query.where(func.lower(ContractParty.name).like(needle))
+    by_name: dict[str, str | None] = {}
+    for name, email in db.execute(party_query.order_by(ContractParty.name)).all():
+        if name and name not in by_name:
+            by_name[name] = email
+
+    contract_query = select(Contract.counterparty_name).where(
+        Contract.org_id == org_id, Contract.counterparty_name.is_not(None), Contract.deleted_at.is_(None),
+    )
+    if needle:
+        contract_query = contract_query.where(func.lower(Contract.counterparty_name).like(needle))
+    for (name,) in db.execute(contract_query.distinct()).all():
+        if name and name not in by_name:
+            by_name[name] = None
+
+    return [
+        {"name": name, "contact_email": email}
+        for name, email in sorted(by_name.items(), key=lambda item: item[0].lower())
+    ][:50]
+
+
 # --- DI-MIGRATION: temporary wrappers ---------------------------------------
 # Every function below is a thin delegate to ContractService, kept so the ~40
 # other files that import these names directly keep working unchanged while

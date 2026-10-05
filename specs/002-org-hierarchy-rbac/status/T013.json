@@ -1,0 +1,1 @@
+{"task": "T013", "agent": "frontend-dev", "status": "done", "detail": "Added allows_hierarchy_rollup checkbox in RoleEditorModal (frontend/src/app/(app)/admin/page.tsx), disabled when role is the built-in admin role (readOnly), included in rolesApi.update payload on save. typecheck and vitest both green.", "updated": "2026-09-13T15:35:00Z"}

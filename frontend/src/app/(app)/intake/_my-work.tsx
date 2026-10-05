@@ -11,7 +11,10 @@ import { intakeApi } from "@/lib/endpoints";
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import type { IntakeRequest, IntakeTask } from "@/lib/types";
 
-const POLL = { refetchInterval: 15_000 } as const;
+// Refetch on window focus rather than poll — see the note on LIVE_POLL in
+// intake/page.tsx for the trade-off (sla_status won't advance on its own
+// while the tab sits unfocused).
+const POLL = { refetchOnWindowFocus: true } as const;
 
 const isOpenReq = (r: IntakeRequest) => r.status !== "closed" && r.status !== "approved";
 function counterpartyOf(r: IntakeRequest): string | null {

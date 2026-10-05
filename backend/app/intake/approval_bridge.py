@@ -133,10 +133,10 @@ class IntakeApprovalSubject:
     def _transition(
         self, db: Session, *, actor_user_id: str | None, request_id: str | None, **kwargs
     ) -> None:
-        from app.intake.service import _transition
+        from app.intake.service import IntakeService
 
         actor = db.get(User, actor_user_id) if actor_user_id else None
-        _transition(db, request=self.request, actor=actor, request_id=request_id, **kwargs)
+        IntakeService(db)._transition(request=self.request, actor=actor, request_id=request_id, **kwargs)
 
     def on_submit(self, db: Session, *, actor_user_id: str | None, request_id: str | None) -> None:
         # M6: no to_stage. "approval" is not a stage on the intake spine

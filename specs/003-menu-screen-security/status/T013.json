@@ -1,0 +1,1 @@
+{"task": "T013", "agent": "backend-dev", "status": "done", "detail": "Retrofitted require_screen_level('contracts', <level>) alongside existing require_permission on all 6 tranche-1 contracts routes per plan.md. ruff clean; contract tests 38 passed/1 skipped; full suite 347 passed/6 skipped (matches baseline, no regressions).", "updated": "2026-09-14T11:45:00Z"}

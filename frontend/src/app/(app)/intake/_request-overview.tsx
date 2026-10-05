@@ -90,7 +90,10 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const qc = useQueryClient();
   const router = useRouter();
   const { notify } = useToast();
-  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchInterval: 20_000 });
+  // Refetch on focus rather than poll a single open ticket — you're almost
+  // always the only one looking at it, and your own actions already
+  // invalidate this query directly (see done()/startFlow/etc. below).
+  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
   const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });
@@ -107,7 +110,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const { data: approvals } = useQuery({ queryKey: ["intake-approval-chain", id], queryFn: () => intakeApi.approvalChain(id) });
 
   // The live workflow engine — poll while an agent step is mid-beat so the ladder
-  // animates; idle (waiting on a human / complete) runs don't poll.
+  // animates; idle (waiting on a human / complete) runs don't poll. Capped: if
+  // the current step hasn't actually progressed server-side in 45s, stop
+  // auto-polling instead of hammering every 1.5s forever — a stuck ai_task
+  // otherwise polls indefinitely (see the AI Risk Review incident). The
+  // "Check status" manual action below takes over once the cap kicks in.
   const { data: flowRun } = useQuery({
     queryKey: ["flow-run", id],
     queryFn: () => workflowsApi.runForRequest(id),
@@ -115,7 +122,10 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
       const run = q.state.data as WorkflowRun | null | undefined;
       if (!run) return false;
       const working = (run.steps ?? []).some((s) => s.status === "running" || s.status === "waiting_job");
-      return run.status === "running" || working ? 1500 : false;
+      if (run.status !== "running" && !working) return false;
+      const cur = (run.steps ?? [])[run.current_index];
+      const lastProgress = cur?.updated_at ? new Date(cur.updated_at).getTime() : 0;
+      return Date.now() - lastProgress < 45_000 ? 1500 : false;
     },
   });
   // Pump a mid-beat "running" step once: hold ~1s so the beat shows, then resume
@@ -155,7 +165,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     onError: fail,
   });
   // Engine actions — start the workflow, complete a human step, or poll an approval/signature.
-  const startFlow = useMutation({ mutationFn: () => workflowsApi.startFlow(id), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
+  // Pass the AI's suggested flow_id through when starting — otherwise the
+  // backend falls back to the deterministic criteria matcher, which can't see
+  // a workflow's free-text "AI condition" and silently lands on the catch-all
+  // instead of the flow actually shown as "Suggested" on this page.
+  const startFlow = useMutation({ mutationFn: () => workflowsApi.startFlow(id, fs?.flow_id ?? undefined), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
   const completeStep = useMutation({ mutationFn: () => workflowsApi.completeStep(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Step completed", "success"); }, onError: fail });
   const checkStep = useMutation({ mutationFn: () => workflowsApi.refreshRun(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Refreshed", "success"); }, onError: fail });
   // Dynamic edges: send a step back for rework, and post questions/comments.
@@ -218,6 +232,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           result: s.result,
         } as WfStep;
       })
+    // No run started yet — preview the auto-chosen workflow's own steps
+    // (all "todo") rather than the generic per-request-type stage ladder,
+    // so the ticket shows what will actually run once Start is clicked.
+    : fs?.steps?.length
+    ? fs.steps.map((label, i) => ({ label, tone: "todo", node: String(i + 1), badgeTone: "cur" } as WfStep))
     : steps.map((s, i) => ({
         label: s.label,
         tone: s.done ? "done" : s.active ? (stuck ? "warn" : "cur") : "todo",
@@ -238,6 +257,9 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     if (hasRun && !runComplete && current) {
       if (current.status === "waiting_human") engineAction = { label: "Complete this step", onClick: () => completeStep.mutate(), icon: '<path d="M20 6 9 17l-5-5"/>' };
       else if (current.type === "approval" || current.type === "signature") engineAction = { label: `Check ${current.type} status`, onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
+      // ai_task has no owner to click "complete" — once the 45s auto-poll cap
+      // above gives up, this is the only way left to nudge it forward.
+      else if (current.type === "ai_task" && current.status === "running") engineAction = { label: "Check AI review status", onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
     } else if (!hasRun) {
       engineAction = { label: "Start workflow", onClick: () => startFlow.mutate(), icon: '<path d="M5 3l14 9-14 9z"/>' };
     }

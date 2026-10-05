@@ -10,7 +10,7 @@ import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { workflowsApi, rolesApi, usersApi } from "@/lib/endpoints";
+import { workflowsApi, rolesApi, usersApi, intakeApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { initials } from "@/lib/utils";
 import { useToast } from "@/components/toast";
@@ -62,8 +62,9 @@ const OUTCOME_GROUPS: { label: string; keys: string[] }[] = [
   { label: "Stop or escalate", keys: ["reject", "decline", "escalate"] },
 ];
 // Assignment model (mirrors the reference designer): a team/department + how the
-// person is picked, with a plain-English preview.
-const DEPTS = ["Legal & IP", "Finance & Tax", "Quality & Compliance", "Privacy / DPO", "Risk & Compliance", "IT / Digital", "Procurement", "Business owner", "Signatory", "Counterparty", "System (automated)"];
+// person is picked, with a plain-English preview. The team list itself is NOT
+// hardcoded — it comes from whatever teams are configured on the Roles & Teams
+// (Teams & Routing) admin page, via `intakeApi.teams()`.
 const ASSIGN_BY = ["Auto — least-loaded in team", "Auto — team head", "Specific person", "The requester"];
 const ASSIGN_DESC: Record<string, string> = {
   "Auto — least-loaded in team": "Picks whoever has the fewest open items in the team.",
@@ -115,11 +116,14 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
   const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
   const roleNames = (roles ?? []).map((r) => r.name);
   const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => usersApi.list() });
+  const { data: intakeTeams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
+  const depts = (intakeTeams ?? []).filter((t) => t.active).map((t) => t.name);
 
   const [name, setName] = useState(flow?.name ?? "");
   const [enabled, setEnabled] = useState(flow?.enabled ?? false);
   const [matchType, setMatchType] = useState(flow?.criteria.match_type ?? "");
   const [matchKeyword, setMatchKeyword] = useState(flow?.criteria.match_keyword ?? "");
+  const [aiCondition, setAiCondition] = useState(flow?.criteria.ai_condition ?? "");
   const [evalOrder, setEvalOrder] = useState(String(flow?.eval_order ?? 100));
   const [steps, setSteps] = useState<Step[]>((flow?.steps ?? []).map((s) => ({ id: s.id, type: s.type, name: s.name, config: { ...s.config }, parallel: s.parallel ?? false, cond: s.cond ?? null })));
   const [sel, setSel] = useState<number | null>(null);
@@ -137,7 +141,17 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
       description: flow?.description ?? null,
       enabled: pub ?? enabled,
       eval_order: Number(evalOrder) || 100,
-      criteria: { match_type: matchType.trim() || null, match_keyword: matchKeyword.trim() || null },
+      // Spread the flow's existing criteria first — this panel only edits
+      // match_type/match_keyword/ai_condition, so any other key already on
+      // the flow (match_priority, match_department, a field condition — all
+      // read by the backend matcher but not surfaced in this UI) survives a
+      // save here instead of being silently dropped.
+      criteria: {
+        ...(flow?.criteria ?? {}),
+        match_type: matchType.trim() || null,
+        match_keyword: matchKeyword.trim() || null,
+        ai_condition: aiCondition.trim() || null,
+      },
       steps: steps.filter((s) => s.name.trim()).map((s, i) => ({ ...(s.id ? { id: s.id } : {}), type: s.type, name: s.name.trim(), config: s.config ?? {}, ...(s.parallel && i > 0 ? { parallel: true } : {}), ...(s.cond && s.cond.field.trim() ? { cond: { field: s.cond.field.trim(), op: s.cond.op || "eq", value: s.cond.value } } : {}) })),
     };
   }
@@ -293,10 +307,40 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                     {tab === "assign" && (
                       <>
                         <div className="ihelp">Who lands this step when a request reaches it.</div>
-                        <div className="fld"><label className="lab">Team / department</label>
-                          <select className="inp" value={cfgStr(cur.config, "dept") || DEPTS[0]} onChange={(e) => { patchCfg(sel!, "dept", e.target.value); patchCfg(sel!, "approver_role", e.target.value); }}>
-                            {DEPTS.map((d) => <option key={d} value={d}>{d}</option>)}
-                          </select>
+                        {cur.type === "approval" && (
+                          <div
+                            className="ihelp"
+                            style={{
+                              margin: "0 0 14px",
+                              padding: "8px 10px",
+                              borderRadius: 6,
+                              background: "var(--warning-subtle, #fff7e6)",
+                              color: "var(--warning, #92600a)",
+                            }}
+                          >
+                            This approver role only applies when no condition-driven approval
+                            chain is active for this module — see Approvals → Condition rules.
+                          </div>
+                        )}
+                        <div className="fld"><label className="lab">Team</label>
+                          {depts.length > 0 ? (
+                            <select
+                              className="inp"
+                              value={cfgStr(cur.config, "dept")}
+                              onChange={(e) => {
+                                const v = e.target.value || undefined;
+                                patchCfg(sel!, "dept", v);
+                                patchCfg(sel!, "approver_role", v);
+                              }}
+                            >
+                              <option value="">— No team —</option>
+                              {depts.map((d) => <option key={d} value={d}>{d}</option>)}
+                            </select>
+                          ) : (
+                            <div className="ihelp">
+                              No teams configured yet — add one under <Link href="/admin?tab=teams">Roles &amp; teams → Teams &amp; Routing</Link>.
+                            </div>
+                          )}
                         </div>
                         <div className="fld"><label className="lab">Pick the person by…</label>
                           <select className="inp" value={cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]} onChange={(e) => patchCfg(sel!, "assign_by", e.target.value)}>
@@ -311,7 +355,7 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                             </select>
                           </div>
                         )}
-                        <div className="assignprev">{svg('<circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/>')}<div>{ASSIGN_DESC[cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]]} <b>{cfgStr(cur.config, "dept") || DEPTS[0]}</b></div></div>
+                        <div className="assignprev">{svg('<circle cx="12" cy="8" r="4"/><path d="M4 20a8 8 0 0 1 16 0"/>')}<div>{ASSIGN_DESC[cfgStr(cur.config, "assign_by") || ASSIGN_BY[0]]} <b>{cfgStr(cur.config, "dept") || "No team"}</b></div></div>
                       </>
                     )}
                     {tab === "outcomes" && (
@@ -378,6 +422,18 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                     <div className="emptyhint">Select a step on the canvas to edit it, or use a <b>+</b> to add one. These settings decide when this workflow is picked.</div>
                     <div className="fld"><label className="lab">Applies to type</label><input className="inp" value={matchType} onChange={(e) => setMatchType(e.target.value)} placeholder="e.g. msa, nda, dpa (blank = any)" /></div>
                     <div className="fld"><label className="lab">Keyword match</label><input className="inp" value={matchKeyword} onChange={(e) => setMatchKeyword(e.target.value)} placeholder="optional keyword in the request" /></div>
+                    <div className="fld">
+                      <label className="lab">When should AI choose this workflow?</label>
+                      <textarea
+                        className="inp"
+                        rows={3}
+                        value={aiCondition}
+                        onChange={(e) => setAiCondition(e.target.value)}
+                        placeholder="e.g. Use this for any NDA where the counterparty is based outside the US, or the deal value exceeds $500k."
+                        style={{ resize: "vertical", fontFamily: "inherit" }}
+                      />
+                      <div className="hint">Free text read by the AI that picks a workflow automatically at intake — in addition to the structured match rules above, not instead of them.</div>
+                    </div>
                     <div className="fld"><label className="lab">Priority order</label><input className="inp" type="number" value={evalOrder} onChange={(e) => setEvalOrder(e.target.value)} /><div className="hint">Lower wins when several workflows match.</div></div>
                     <label className="chk"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />Enabled (available to pick)</label>
                   </div>
