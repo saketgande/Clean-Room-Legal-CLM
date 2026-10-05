@@ -85,7 +85,7 @@ def test_a_signed_save_becomes_the_next_version(monkeypatch):
         versions = lambda: len(c.get(f"/api/v1/contracts/{cid}/versions", headers=h).json())
         before = versions()
 
-        assert c.post("/api/v1" + save_url, json=signed(6, secret="not-the-editor")).status_code == 403
+        assert c.post("/api/v1" + save_url, json=signed(6, secret="not-the-editor-secret-" + "y" * 24)).status_code == 403
         file_token_as_save = "/api/v1/editor/contract-saved?" + file_url.split("?", 1)[1]
         assert c.post(file_token_as_save, json=signed(6)).status_code == 403
         assert c.post("/api/v1" + save_url, json=signed(1)).json() == {"error": 0}  # someone opened it

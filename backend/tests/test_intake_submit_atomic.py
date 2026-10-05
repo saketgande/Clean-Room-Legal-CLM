@@ -108,6 +108,15 @@ def test_an_identical_resubmission_is_still_treated_as_a_retry(db, actor):
     assert a["id"] == b["id"] and _count(db) == 1
 
 
+def test_an_identical_resubmission_without_answers_is_still_a_retry(db, actor):
+    """A request with no structured answers (quick question, Ask Aegis, the general
+    legal question form) stores JSON null in field_values; a double click must
+    still return the first request instead of filing a second one."""
+    a = _file(db, actor)
+    b = _file(db, actor)
+    assert a["id"] == b["id"] and _count(db) == 1
+
+
 def test_quick_requests_with_different_subjects_are_not_merged(db, actor):
     """The quick form has no structured answers, so the subject tells them apart."""
     def mk(subj):

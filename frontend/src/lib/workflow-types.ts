@@ -22,9 +22,13 @@ export function typeOptions(forms: RequestFormDef[] | undefined): TypeOption[] {
 }
 
 export const typeKey = (w: Pick<Workflow, "criteria">): string | null => {
-  const u = w.criteria.used_for?.[0];
+  const u = w.criteria.used_for?.find((x) => x.form);
   return u ? `${u.form}::${u.agreement_type ?? ""}` : null;
 };
+
+/** Request types (for requests without a form) this workflow is pinned to. */
+export const pinnedRequestTypes = (w: Pick<Workflow, "criteria"> | null | undefined): string[] =>
+  (w?.criteria.used_for ?? []).flatMap((u) => (!u.form && u.type_label ? [u.type_label] : []));
 
 export interface Question { field: string; label: string; amount: boolean; date?: boolean; options: string[] }
 

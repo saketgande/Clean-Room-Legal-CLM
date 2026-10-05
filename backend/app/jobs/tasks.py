@@ -344,6 +344,79 @@ def _mark_job_succeeded(job: JobRun) -> None:
 
 
 @celery_app.task
+def sweep_assistant_confirmations() -> dict:
+    """Every few minutes: expire Ask Aegis confirmations nobody decided within
+    their window and close chat turns left waiting on a dead confirmation, so no
+    run stays "waiting_confirmation" forever (see ai.confirmations.sweep_confirmations).
+    Also marks answers whose worker died as interrupted (assistant.runner.sweep_stale_runs),
+    so no chat shows "Thinking…" forever."""
+    from app.ai.confirmations import sweep_confirmations
+    from app.assistant.runner import sweep_stale_runs
+
+    db = SessionLocal()
+    try:
+        result = dict(sweep_confirmations(db))
+        result["interrupted_runs"] = sweep_stale_runs(db)
+        return result
+    finally:
+        db.close()
+
+
+# Not retried and not idempotent: an answer may already have run tools. If the
+# worker dies mid-answer, acks_late redelivers the task; the claim below makes
+# that redelivery mark the run interrupted (the user sees Retry) instead of
+# running the same answer — and its tools — a second time.
+@celery_app.task(bind=True)
+def run_assistant_turn(
+    self,
+    run_id: str,
+    mode: str = "start",
+    confirmation_id: str | None = None,
+    request_id: str | None = None,
+) -> str:
+    """Produce one Ask Aegis answer in the background (see app.assistant.runner)."""
+    from app.assistant import run_events
+    from app.assistant.models import AssistantRun
+    from app.assistant.runner import INTERRUPTED_MESSAGE, drive_run, run_lease
+    from app.core.enums import AssistantRunStatus
+
+    db = SessionLocal()
+    try:
+        claimed = run_events.claim(run_id, ttl_seconds=int(run_lease().total_seconds()))
+        if claimed is False:
+            run = db.get(AssistantRun, run_id)
+            if run is not None and run.status == AssistantRunStatus.RUNNING:
+                run.status = AssistantRunStatus.INTERRUPTED
+                run.error_message = INTERRUPTED_MESSAGE
+                run.completed_at = utcnow()
+                db.commit()
+                run_events.publish(run_id, "error", {"message": INTERRUPTED_MESSAGE, "assistant_run_id": run_id})
+                run_events.publish(
+                    run_id, run_events.TERMINAL_EVENT, {"assistant_run_id": run_id, "run_status": run.status}
+                )
+            logger.warning("assistant run %s was already claimed; not running it again", run_id)
+            return "duplicate"
+        run = db.get(AssistantRun, run_id)
+        if run is not None and run.status == AssistantRunStatus.RUNNING:
+            run.updated_at = utcnow()  # the stale-run lease counts from the worker's start
+            db.commit()
+        try:
+            return asyncio.run(
+                drive_run(
+                    db,
+                    run_id=run_id,
+                    mode="resume" if mode == "resume" else "start",
+                    confirmation_id=confirmation_id,
+                    request_id=request_id,
+                )
+            )
+        finally:
+            run_events.release_claim(run_id)
+    finally:
+        db.close()
+
+
+@celery_app.task
 def reclaim_stale_jobs() -> dict:
     """Every few minutes: recover jobs no worker will ever finish. job_run is the
     durable outbox; this is its poller.

@@ -283,7 +283,7 @@ class TrademarksService:
 
     async def save_uploaded_document(self, *, user: User, file: UploadFile) -> UploadDocumentResponse:
         if not (file.filename or "").lower().endswith(".pdf"):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only PDF files are supported")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Only PDF files are supported")
         from app.contract_files.service import ingest_upload
 
         content = (await ingest_upload(file)).content  # size limit, type check and antivirus scan
@@ -295,7 +295,7 @@ class TrademarksService:
         try:
             total_pages = len(PdfReader(BytesIO(content)).pages)
         except Exception as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Couldn't read that PDF") from exc
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Couldn't read that PDF") from exc
 
         stored = self.storage.save_bytes(
             org_id=user.org_id, filename=file.filename, mime_type="application/pdf", content=content

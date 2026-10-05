@@ -216,10 +216,8 @@ class AdvanceIntakeWorkflowInput(BaseModel):
 
 _register("create_intake_request", "Raise a new legal intake request (NDA, contract review, privacy, trademark, etc.). The triage classifies it, flags missing info, assigns an owner, and may auto-start a workflow.", AssistantToolCategory.MUTATING, "intake:create", CreateIntakeRequestInput)
 _register("get_intake_request", "Get an intake request's status, owner, missing info, and current workflow stage. Accepts a ref like 'REQ-4188'.", AssistantToolCategory.READ_ONLY, "intake:read", IntakeRequestRef)
-_register("start_intake_workflow", "Start / assign a governance workflow on an intake request (omit workflow_id to use the AI-suggested one).", AssistantToolCategory.MUTATING, "intake:update", StartIntakeWorkflowInput)
-_register("advance_intake_workflow", "Move an intake request's workflow forward — complete the current human step, or re-check a pending approval/signature.", AssistantToolCategory.MUTATING, "intake:update", AdvanceIntakeWorkflowInput)
-
-
+_register("start_intake_workflow", "Start / assign a governance workflow on an intake request (omit workflow_id to use the AI-suggested one).", AssistantToolCategory.MUTATING, "intake:update", StartIntakeWorkflowInput, confirmation_policy="required")
+_register("advance_intake_workflow", "Move an intake request's workflow forward — complete the current human step, or re-check a pending approval/signature.", AssistantToolCategory.MUTATING, "intake:update", AdvanceIntakeWorkflowInput, confirmation_policy="required")
 class DecideApprovalInput(BaseModel):
     request_id: str = Field(description="intake request id or ref that has a pending approval")
     decision: str = Field(pattern="^(approve|reject)$")
@@ -241,11 +239,9 @@ class CreateWorkflowInput(BaseModel):
 # NOTE: workflow authoring IS exposed (gated to admins via admin_panel:access). The
 # other Admin-config changes (teams, roles, authority, ethical walls, users) stay
 # UI/admin-only — Ask Aegis operates the app, it does not reconfigure those.
-_register("create_workflow", "Create a new governance workflow (the engine kind) with ordered steps. Step types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify.", AssistantToolCategory.MUTATING, "admin_panel:access", CreateWorkflowInput)
-_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "approval:decide", DecideApprovalInput)
-_register("reassign_request", "Reassign an intake request to a different owner, given their name or email.", AssistantToolCategory.MUTATING, "intake:update", ReassignRequestInput)
-
-
+_register("create_workflow", "Create a new governance workflow (the engine kind) with ordered steps. Step types: clm_draft, human_task, ai_task, approval, signature, counterparty, notify.", AssistantToolCategory.MUTATING, "admin_panel:access", CreateWorkflowInput, confirmation_policy="required")
+_register("decide_approval", "Approve or reject the pending approval on an intake request.", AssistantToolCategory.MUTATING, "approval:decide", DecideApprovalInput, confirmation_policy="required")
+_register("reassign_request", "Reassign an intake request to a different owner, given their name or email.", AssistantToolCategory.MUTATING, "intake:update", ReassignRequestInput, confirmation_policy="required")
 class SignatureLinkInput(BaseModel):
     request_id: str | None = Field(default=None, description="intake request id or ref")
     contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
@@ -317,12 +313,12 @@ class AdvanceContractStageInput(BaseModel):
     to_stage: str = Field(description="target lifecycle stage, e.g. review, approval, signature, executed")
 
 
-_register("advance_contract_stage", "Move a request's contract to a target lifecycle stage (respects the approval-before-signature gate).", AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput)
+_register("advance_contract_stage", "Move a request's contract to a target lifecycle stage (respects the approval-before-signature gate).", AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput, confirmation_policy="required")
 _register("list_my_approvals", "List approvals pending your decision.", AssistantToolCategory.READ_ONLY, "contract:approve", EmptyInput)
 _register("read_notice", "Read a legal notice's full details.", AssistantToolCategory.READ_ONLY, "contract:read", NoticeRef)
 _register("get_signature_link", "Get the link to sign a request's contract — the user clicks it to review and sign in the app.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureLinkInput)
-_register("add_contract_comment", "Add a comment to a contract (internal, or shared with the counterparty).", AssistantToolCategory.MUTATING, "contract:update", AddCommentInput)
-_register("send_for_negotiation", "Send a request's contract out for negotiation — create a counterparty share link, or notify an internal team.", AssistantToolCategory.EXTERNAL_ACTION, "contract_file:share", SendForNegotiationInput)
+_register("add_contract_comment", "Add a comment to a contract (internal, or shared with the counterparty).", AssistantToolCategory.MUTATING, "contract:update", AddCommentInput, confirmation_policy="required")
+_register("send_for_negotiation", "Send a request's contract out for negotiation — create a counterparty share link, or notify an internal team.", AssistantToolCategory.EXTERNAL_ACTION, "contract_file:share", SendForNegotiationInput, confirmation_policy="required")
 _register("read_contract", "Read a contract's full text and metadata. Long contracts return in windows: if the result has_more is true, call again with next_offset to keep reading until you've seen the whole document before analysing it.", AssistantToolCategory.READ_ONLY, "contract:read", ReadContractInput)
 _register("find_in_contract", "Find text in a contract.", AssistantToolCategory.READ_ONLY, "contract:read", FindInContractInput)
 _register("get_contract_status", "Read contract lifecycle and risk metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)

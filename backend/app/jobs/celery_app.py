@@ -54,6 +54,10 @@ celery_app.conf.update(
 # Each task is import-safe and a no-op when its tables are empty, so enabling
 # beat never destabilises a fresh deployment.
 celery_app.conf.beat_schedule = {
+    "sweep-assistant-confirmations": {
+        "task": "app.jobs.tasks.sweep_assistant_confirmations",
+        "schedule": crontab(minute="*/5"),  # expire overdue confirmations, close stuck chat turns
+    },
     "reclaim-stale-jobs": {
         "task": "app.jobs.tasks.reclaim_stale_jobs",
         "schedule": crontab(minute="*/5"),  # jobs whose worker died or whose enqueue failed

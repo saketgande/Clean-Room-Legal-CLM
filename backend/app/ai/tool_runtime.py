@@ -622,7 +622,7 @@ class ToolRuntime:
         contract = ContractService(db).get_contract_for_user(contract_id=cid, user=user)
         if payload.party == "internal":
             if not payload.team_id:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "team_id is required for internal negotiation")
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "team_id is required for internal negotiation")
             from app.intake.models import IntakeTeam, IntakeTeamMember
             from app.notifications.models import Notification
 
@@ -1172,7 +1172,7 @@ class ToolRuntime:
             # placeholder skeleton that looks like a real contract and then
             # gets redlined/accepted.
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "The drafting model returned no contract sections. This usually "
                 "means the request was too broad for a single pass — try again "
                 "or split it into a tighter scope (fewer/known sections).",
@@ -1375,7 +1375,7 @@ class ToolRuntime:
             # Fail loudly instead of echoing the whole document back as a fake
             # single "tracked change" that can be accepted.
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Couldn't produce tracked changes — the model could not locate "
                 "specific language to revise. The document may be a placeholder "
                 "draft, or the instruction may be too broad. Re-draft the "
@@ -1603,7 +1603,7 @@ class ToolRuntime:
         )
         if drafted is None or not getattr(drafted, "sections", None):
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "The drafting model returned no contract sections. Try again, or "
                 "give a tighter scope (e.g. name the sections you need).",
             )
@@ -1905,7 +1905,7 @@ class ToolRuntime:
             contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
             contract_id = contract.id
         if payload.query_scope == "contract" and not contract_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract handle or contract_id is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "contract handle or contract_id is required")
         # The Brain page's retrieval, off the event loop (DB queries plus an embedding call).
         context = await run_in_threadpool(
             assemble_context,
@@ -2100,7 +2100,7 @@ class ToolRuntime:
             contract_ids.append(contract.id)
         contract_ids = list(dict.fromkeys(contract_ids))
         if not contract_ids:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No contracts selected")
         contract_service = ContractService(db)
         for contract_id in contract_ids:
             contract_service.get_contract_for_user(contract_id=contract_id, user=user)
@@ -2299,7 +2299,7 @@ class ToolRuntime:
                 raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract handle not found")
             contract_id = handle.contract_id
         if not contract_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract_id or contract_handle is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "contract_id or contract_handle is required")
         return ContractService(db).get_contract_for_user(contract_id=contract_id, user=user)
 
 

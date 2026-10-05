@@ -1,25 +1,46 @@
 import json
+import logging
 from collections.abc import AsyncIterator
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import anyio
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.ai.confirmations import confirm_confirmation, reject_confirmation
-from app.ai.controller import ai_controller
+from app.ai.confirmations import (
+    close_turn_for_confirmation,
+    confirm_confirmation,
+    reject_confirmation,
+)
 from app.ai.tool_registry import tool_registry
+from app.assistant import run_events
 from app.assistant.dependencies import get_assistant_service
-from app.assistant.models import AssistantMessage, AssistantRun
+from app.assistant.models import AssistantMessage, AssistantRun, AssistantSession
+from app.assistant.runner import (
+    accumulate_block as _accumulate_block,  # noqa: F401  (re-exported for callers/tests)
+)
+from app.assistant.runner import (
+    citations_from_tool_result as _citations_from_tool_result,  # noqa: F401
+)
+from app.assistant.runner import (
+    events_from_tool_result as _events_from_tool_result,  # noqa: F401
+)
+from app.assistant.runner import (
+    user_facing_error as _user_facing_error,  # noqa: F401
+)
 from app.assistant.service import AssistantService
 from app.contracts.service import get_contract_for_user
 from app.core.config import settings
+from app.core.database import SessionLocal, utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import AssistantRunStatus, AssistantSessionType
 from app.core.rate_limit import limiter
 from app.core.rbac import has_permission
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
+logger = logging.getLogger(__name__)
 
 
 class AssistantSessionCreate(BaseModel):
@@ -169,6 +190,20 @@ async def stream_session(
     for contract_id in payload.contract_ids:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
 
+    # One answer at a time per chat: a second one would interleave with the
+    # first in the conversation history. The row lock makes two simultaneous
+    # sends (two tabs) take turns at this check.
+    db.execute(select(AssistantSession.id).where(AssistantSession.id == session.id).with_for_update())
+    if db.scalar(
+        select(AssistantRun.id).where(
+            AssistantRun.session_id == session.id, AssistantRun.status == AssistantRunStatus.RUNNING
+        )
+    ):
+        db.rollback()
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "Aegis is still answering your last message in this chat. Wait for it, or press Stop.",
+        )
     for contract_id in payload.contract_ids:
         service.ensure_contract_handle(session=session, contract_id=contract_id, current_user=current_user)
     user_message = AssistantMessage(
@@ -196,124 +231,10 @@ async def stream_session(
     db.commit()
     db.refresh(assistant_run)
 
-    async def event_stream() -> AsyncIterator[str]:
-        yield _sse("session_started", {"session_id": session.id, "assistant_run_id": assistant_run.id})
-        answer_parts: list[str] = []
-        citations: list[dict] = []
-        blocks: list[dict] = []
-        waiting_for_confirmation = False
-        client_disconnected = False
-        finalized = False
-        try:
-            async for event in ai_controller.stream_assistant_run(
-                db,
-                user=current_user,
-                org_id=current_user.org_id,
-                created_by_user_id=current_user.id,
-                session_id=session.id,
-                assistant_run_id=assistant_run.id,
-                message=payload.message,
-                request_id=getattr(request.state, "request_id", None),
-                contract_id=session.contract_id or (payload.contract_ids[0] if payload.contract_ids else None),
-                contract_ids=payload.contract_ids,
-            ):
-                if event["event"] == "message_delta":
-                    answer_parts.append(event["payload"].get("text", ""))
-                if event["event"] == "confirmation_required":
-                    waiting_for_confirmation = True
-                if event["event"] == "tool_finished":
-                    result = event["payload"].get("result")
-                    citations.extend(_citations_from_tool_result(result))
-                _accumulate_block(blocks, event)
-                yield _sse(event["event"], event["payload"])
-                if event["event"] == "tool_finished":
-                    for extra_event in _events_from_tool_result(event["payload"].get("result")):
-                        yield _sse(extra_event["event"], extra_event["payload"])
-                # F-01/F-07: best-effort early-out. When the disconnect is observed
-                # BETWEEN iterations, break to stop driving the (paid) Claude loop and fall
-                # through to finalization. NOTE: on the pinned uvicorn/ASGI-2.3 stack
-                # Starlette cancels this generator at the suspended yield on disconnect,
-                # which can skip the finalization below and leave the run in RUNNING. The
-                # durable fix (terminal-state in a finally + the controller's own session)
-                # is the F-01 follow-up; this guard only reduces wasted spend.
-                if await request.is_disconnected():
-                    client_disconnected = True
-                    break
-            if waiting_for_confirmation:
-                # The controller already set the run to WAITING_CONFIRMATION and
-                # committed; just surface the current status to the client.
-                db.refresh(assistant_run)
-                finalized = True
-                yield _sse(
-                    "done",
-                    {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
-                )
-                return
-            if client_disconnected:
-                service.persist_assistant_answer(
-                    org_id=current_user.org_id,
-                    session_id=session.id,
-                    run=assistant_run,
-                    answer_parts=answer_parts,
-                    citations=citations,
-                    blocks=blocks,
-                    current_user=current_user,
-                    extra_metadata={"interrupted": True},
-                )
-                assistant_run.status = AssistantRunStatus.INTERRUPTED
-                assistant_run.error_message = "Assistant stream interrupted before completion"
-                db.commit()
-                finalized = True
-                return
-            service.persist_assistant_answer(
-                org_id=current_user.org_id,
-                session_id=session.id,
-                run=assistant_run,
-                answer_parts=answer_parts,
-                citations=citations,
-                blocks=blocks,
-                current_user=current_user,
-            )
-            assistant_run.status = AssistantRunStatus.SUCCEEDED
-            db.commit()
-            finalized = True
-            yield _sse(
-                "done",
-                {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status},
-            )
-        except Exception as exc:
-            try:
-                service.persist_assistant_answer(
-                    org_id=current_user.org_id,
-                    session_id=session.id,
-                    run=assistant_run,
-                    answer_parts=answer_parts,
-                    citations=citations,
-                    blocks=blocks,
-                    current_user=current_user,
-                    extra_metadata={"interrupted": True},
-                )
-            except Exception:
-                db.rollback()
-            assistant_run.status = AssistantRunStatus.FAILED
-            assistant_run.error_message = str(exc)
-            db.commit()
-            finalized = True
-            yield _sse("error", {"message": str(exc), "assistant_run_id": assistant_run.id})
-            yield _sse("done", {"assistant_run_id": assistant_run.id, "run_status": assistant_run.status})
-        finally:
-            if not finalized:
-                try:
-                    db.rollback()
-                    current = db.get(AssistantRun, assistant_run.id)
-                    if current is not None and current.status == AssistantRunStatus.RUNNING:
-                        current.status = AssistantRunStatus.INTERRUPTED
-                        current.error_message = "Assistant stream interrupted before completion"
-                        db.commit()
-                except Exception:
-                    db.rollback()
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    request_id = getattr(request.state, "request_id", None)
+    failure = _enqueue_turn(db, assistant_run, mode="start", request_id=request_id)
+    first = _sse("session_started", {"session_id": session.id, "assistant_run_id": assistant_run.id})
+    return _watch_response(assistant_run.id, after=None, first=first, failure=failure)
 
 
 @router.post("/runs/{assistant_run_id}/resume")
@@ -326,103 +247,137 @@ async def resume_run(
     current_user=Depends(require_permission("assistant:use")),
     service: AssistantService = Depends(get_assistant_service),
 ):
+    """Continue a run after its action was confirmed. The worker does the work;
+    this response only watches it (leaving the page does not stop it)."""
     _require_ai_tools(current_user)
     run = service.get_run_for_user(assistant_run_id=assistant_run_id, current_user=current_user)
+    # Atomic: of two clicks (or two tabs) only one may continue the run — the
+    # confirmed action must never execute twice.
+    moved = db.execute(
+        update(AssistantRun)
+        .where(
+            AssistantRun.id == run.id,
+            AssistantRun.status == AssistantRunStatus.WAITING_CONFIRMATION,
+        )
+        .values(status=AssistantRunStatus.RUNNING, updated_at=utcnow())
+    ).rowcount
+    db.commit()
+    if not moved:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This answer isn't waiting for a confirmation")
+    db.refresh(run)
+    # The old stream ends with the "done" that paused the run; start a new one.
+    run_events.reset_events(run.id)
+    failure = _enqueue_turn(
+        db, run, mode="resume", confirmation_id=confirmation_id,
+        request_id=getattr(request.state, "request_id", None),
+    )
+    return _watch_response(run.id, after=None, first=None, failure=failure)
 
+
+@router.get("/runs/{assistant_run_id}/events")
+async def watch_run_events(
+    assistant_run_id: str,
+    after: str | None = None,
+    last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
+    current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
+):
+    """Watch an answer that is being (or was) produced: replays its events from
+    the start, or after ``after`` / ``Last-Event-ID`` when reconnecting. Ends
+    with ``done``. Only the chat's owner may watch."""
+    run = service.get_run_for_user(assistant_run_id=assistant_run_id, current_user=current_user)
+    return _watch_response(run.id, after=after or last_event_id, first=None, failure=None)
+
+
+@router.post("/runs/{assistant_run_id}/cancel")
+def cancel_run(
+    assistant_run_id: str,
+    current_user=Depends(require_permission("assistant:use")),
+    service: AssistantService = Depends(get_assistant_service),
+):
+    """The Stop button. The worker stops at its next check (within about half a
+    second, or when the tool in progress finishes) and saves what it has."""
+    run = service.get_run_for_user(assistant_run_id=assistant_run_id, current_user=current_user)
+    if run.status != AssistantRunStatus.RUNNING:
+        return {"assistant_run_id": run.id, "run_status": run.status, "cancel_requested": False}
+    if not run_events.request_cancel(run.id):
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Couldn't stop the answer right now. Try again.")
+    return {"assistant_run_id": run.id, "run_status": run.status, "cancel_requested": True}
+
+
+ENQUEUE_FAILED_MESSAGE = "Aegis couldn't start this answer right now. Please try again in a moment."
+
+
+def _enqueue_turn(
+    db: Session,
+    run: AssistantRun,
+    *,
+    mode: str,
+    request_id: str | None,
+    confirmation_id: str | None = None,
+) -> str | None:
+    """Queue the answer for a worker. Returns a user-facing message if that
+    failed (the run is then marked failed so it doesn't look stuck)."""
+    from app.jobs.tasks import run_assistant_turn
+
+    try:
+        run_assistant_turn.apply_async(
+            kwargs={
+                "run_id": run.id,
+                "mode": mode,
+                "confirmation_id": confirmation_id,
+                "request_id": request_id,
+            }
+        )
+        return None
+    except Exception:
+        logger.exception("could not queue assistant run %s (request %s)", run.id, request_id)
+        run.status = AssistantRunStatus.FAILED
+        run.error_message = ENQUEUE_FAILED_MESSAGE
+        run.completed_at = utcnow()
+        db.commit()
+        return ENQUEUE_FAILED_MESSAGE
+
+
+def _run_status_reader(run_id: str):
+    """Fresh read of a run's status, off the event loop (used by the watcher
+    only when no events arrive for a while)."""
+
+    def read() -> str | None:
+        with SessionLocal() as db:
+            run = db.get(AssistantRun, run_id)
+            return run.status if run is not None else None
+
+    async def status_now() -> str | None:
+        return await anyio.to_thread.run_sync(read)
+
+    return status_now
+
+
+def _watch_response(run_id: str, *, after: str | None, first: str | None, failure: str | None) -> StreamingResponse:
     async def event_stream() -> AsyncIterator[str]:
-        answer_parts: list[str] = []
-        citations: list[dict] = []
-        blocks: list[dict] = []
-        client_disconnected = False
-        finalized = False
-        try:
-            async for event in ai_controller.resume_assistant_run(
-                db,
-                user=current_user,
-                assistant_run_id=assistant_run_id,
-                confirmation_id=confirmation_id,
-                request_id=getattr(request.state, "request_id", None),
-            ):
-                if event["event"] == "message_delta":
-                    answer_parts.append(event["payload"].get("text", ""))
-                if event["event"] == "tool_finished":
-                    result = event["payload"].get("result")
-                    citations.extend(_citations_from_tool_result(result))
-                _accumulate_block(blocks, event)
-                yield _sse(event["event"], event["payload"])
-                if event["event"] == "tool_finished":
-                    for extra_event in _events_from_tool_result(event["payload"].get("result")):
-                        yield _sse(extra_event["event"], extra_event["payload"])
-                if await request.is_disconnected():
-                    client_disconnected = True
-                    break
-            if client_disconnected:
-                service.persist_assistant_answer(
-                    org_id=current_user.org_id,
-                    session_id=run.session_id,
-                    run=run,
-                    answer_parts=answer_parts,
-                    citations=citations,
-                    blocks=blocks,
-                    current_user=current_user,
-                    extra_metadata={"resumed": True, "interrupted": True},
-                )
-                run.status = AssistantRunStatus.INTERRUPTED
-                run.error_message = "Assistant stream interrupted before completion"
-                db.commit()
-                finalized = True
-                return
-            service.persist_assistant_answer(
-                org_id=current_user.org_id,
-                session_id=run.session_id,
-                run=run,
-                answer_parts=answer_parts,
-                citations=citations,
-                blocks=blocks,
-                current_user=current_user,
-                extra_metadata={"resumed": True},
-            )
-            # Was previously never set on the success path (only the
-            # message/tool-call linking was committed), leaving a resumed run
-            # stuck at whatever status it had before resuming (typically
-            # WAITING_CONFIRMATION) forever.
-            run.status = AssistantRunStatus.SUCCEEDED
-            db.commit()
-            finalized = True
-            yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
-        except Exception as exc:
-            try:
-                service.persist_assistant_answer(
-                    org_id=current_user.org_id,
-                    session_id=run.session_id,
-                    run=run,
-                    answer_parts=answer_parts,
-                    citations=citations,
-                    blocks=blocks,
-                    current_user=current_user,
-                    extra_metadata={"resumed": True, "interrupted": True},
-                )
-            except Exception:
-                db.rollback()
-            run.status = AssistantRunStatus.FAILED
-            run.error_message = str(exc)
-            db.commit()
-            finalized = True
-            yield _sse("error", {"message": str(exc), "assistant_run_id": run.id})
-            yield _sse("done", {"assistant_run_id": run.id, "run_status": run.status})
-        finally:
-            if not finalized:
-                try:
-                    db.rollback()
-                    current = db.get(AssistantRun, run.id)
-                    if current is not None and current.status == AssistantRunStatus.RUNNING:
-                        current.status = AssistantRunStatus.INTERRUPTED
-                        current.error_message = "Assistant stream interrupted before completion"
-                        db.commit()
-                except Exception:
-                    db.rollback()
+        if first:
+            yield first
+        if failure:
+            yield _sse("error", {"message": failure, "assistant_run_id": run_id})
+            yield _sse("done", {"assistant_run_id": run_id, "run_status": AssistantRunStatus.FAILED})
+            return
+        # Disconnecting simply ends this generator: the answer keeps going in
+        # the worker and can be watched again from GET /runs/{id}/events.
+        async for event_id, event, payload in run_events.tail(
+            run_id, after=after, run_status=_run_status_reader(run_id)
+        ):
+            if event == "ping":
+                yield ": keep-alive\n\n"
+                continue
+            yield _sse(event, payload, event_id=event_id)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        # Don't let a proxy (nginx) buffer the live answer.
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/confirmations/{confirmation_id}/confirm")
@@ -456,6 +411,9 @@ def reject_assistant_action(
         user=current_user,
         reason=payload.reason,
     )
+    # Close the turn: the run used to stay "waiting_confirmation" forever with no
+    # reply saved, so after a reload the chat showed the request with no answer.
+    close_turn_for_confirmation(db, confirmation, outcome="rejected", actor_user_id=current_user.id)
     db.commit()
     return {
         "confirmation_id": confirmation.id,
@@ -472,145 +430,6 @@ def _require_ai_tools(current_user) -> None:
         )
 
 
-def _sse(event: str, payload: dict) -> str:
-    return f"event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"
-
-
-def _citations_from_tool_result(result: dict | None) -> list[dict]:
-    if not isinstance(result, dict):
-        return []
-    citations: list[dict] = []
-    if result.get("text_snapshot_id"):
-        excerpt = (result.get("text_excerpt") or result.get("text") or "")[:1200]
-        citations.append(
-            {
-                "type": "text_snapshot",
-                "contract_id": result.get("contract_id"),
-                "text_snapshot_id": result.get("text_snapshot_id"),
-                "start_char": 0 if excerpt else None,
-                "end_char": len(excerpt) if excerpt else None,
-                "excerpt": excerpt,
-            }
-        )
-    for match in result.get("matches") or []:
-        citations.append(
-            {
-                "type": "match",
-                "contract_id": result.get("contract_id"),
-                "start_char": match.get("start_char"),
-                "end_char": match.get("end_char"),
-                "excerpt": match.get("excerpt"),
-            }
-        )
-    for cit in result.get("citations") or []:
-        if isinstance(cit, dict) and (cit.get("excerpt") or cit.get("quote")):
-            citations.append(
-                {
-                    "type": cit.get("type", "citation"),
-                    "contract_id": result.get("contract_id"),
-                    "excerpt": cit.get("excerpt") or cit.get("quote"),
-                }
-            )
-    return citations
-
-
-# Tools whose result is an intake request the user should be able to open. Their
-# result carries {id, ref}; we persist those on the tool block so the trace can
-# render an "Open REQ-…" link after reload (the live stream is replaced by these
-# persisted blocks once the answer lands).
-_REQUEST_LINK_TOOLS = {
-    "create_intake_request",
-    "get_intake_request",
-    "start_intake_workflow",
-    "advance_intake_workflow",
-}
-
-
-def _accumulate_block(blocks: list[dict], event: dict) -> None:
-    """Build an ordered, persistable timeline of the assistant turn (content
-    interleaved with tool steps) so the Mike-style trace survives reload."""
-    name = event.get("event")
-    payload = event.get("payload") or {}
-    if name == "message_delta":
-        text = payload.get("text", "")
-        if not text:
-            return
-        if blocks and blocks[-1].get("type") == "content":
-            blocks[-1]["text"] += text
-        else:
-            blocks.append({"type": "content", "text": text})
-    elif name == "tool_started":
-        blocks.append(
-            {
-                "type": "tool",
-                "name": payload.get("tool_name", "tool"),
-                "status": "running",
-            }
-        )
-    elif name == "tool_finished":
-        result = payload.get("result")
-        for b in reversed(blocks):
-            if b.get("type") == "tool" and b.get("status") == "running":
-                b["status"] = "error" if payload.get("error") else "done"
-                if isinstance(result, dict):
-                    art = {
-                        k: result.get(k)
-                        for k in (
-                            "artifact_type",
-                            "contract_id",
-                            "edits",
-                            "summary",
-                        )
-                        if result.get(k) is not None
-                    }
-                    if (
-                        b.get("name") in _REQUEST_LINK_TOOLS
-                        and isinstance(result.get("id"), str)
-                        and isinstance(result.get("ref"), str)
-                    ):
-                        art["request_id"] = result["id"]
-                        art["request_ref"] = result["ref"]
-                    if art:
-                        b["artifact"] = art
-                break
-
-
-def _events_from_tool_result(result: dict | None) -> list[dict]:
-    if not isinstance(result, dict):
-        return []
-    events = [
-        {"event": "citation", "payload": citation}
-        for citation in _citations_from_tool_result(result)
-    ]
-    artifact_type = result.get("artifact_type")
-    if artifact_type == "generated_contract":
-        events.append(
-            {
-                "event": "contract_generated",
-                "payload": {
-                    "contract_id": result.get("contract_id"),
-                    "contract_file_id": result.get("contract_file_id"),
-                    "contract_version_id": result.get("contract_version_id"),
-                },
-            }
-        )
-    if artifact_type in {"assistant_edit", "playbook_redline"}:
-        events.append(
-            {
-                "event": "tracked_change_created",
-                "payload": {
-                    "contract_id": result.get("contract_id"),
-                    "base_version_id": result.get("base_version_id"),
-                    "contract_version_id": result.get("contract_version_id"),
-                    "contract_edit_id": result.get("contract_edit_id"),
-                },
-            }
-        )
-    if result.get("playbooks"):
-        events.append(
-            {
-                "event": "playbooks_offered",
-                "payload": {"playbooks": result["playbooks"]},
-            }
-        )
-    return events
+def _sse(event: str, payload: dict, *, event_id: str | None = None) -> str:
+    head = f"id: {event_id}\n" if event_id else ""
+    return f"{head}event: {event}\ndata: {json.dumps(payload, default=str)}\n\n"

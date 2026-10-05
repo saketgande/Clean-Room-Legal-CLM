@@ -7,78 +7,63 @@ Owner agents: backend-dev, db-engineer
 ## Models
 
 - `IntakeDocument` (table `intake_document`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id
+- `IntakeDraft` (table `intake_draft`, org_scoped=True, soft_delete=False) -- FKs: user_id->user.id
 - `IntakeHandoff` (table `intake_handoff`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id
-- `IntakeKbArticle` (table `intake_kb_article`, org_scoped=True, soft_delete=False) -- FKs: (none)
-- `IntakeRequest` (table `intake_request`, org_scoped=True, soft_delete=False) -- FKs: requester_user_id->user.id, request_type_id->intake_request_type.id, assigned_to_user_id->user.id, approval_gate_user_id->user.id, triaged_by_user_id->user.id, contract_id->contract.id
-- `IntakeRequestField` (table `intake_request_field`, org_scoped=True, soft_delete=False) -- FKs: request_type_id->intake_request_type.id
-- `IntakeRequestType` (table `intake_request_type`, org_scoped=True, soft_delete=False) -- FKs: (none)
-- `IntakeRoutingRule` (table `intake_routing_rule`, org_scoped=True, soft_delete=False) -- FKs: set_assignee_user_id->user.id, set_team_id->intake_team.id, escalate_to_user_id->user.id, require_approval_from_user_id->user.id
+- `IntakeRequest` (table `intake_request`, org_scoped=True, soft_delete=False) -- FKs: requester_user_id->user.id, assigned_to_user_id->user.id, approval_gate_user_id->user.id, triaged_by_user_id->user.id, contract_id->contract.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id
 - `IntakeTask` (table `intake_task`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id, assignee_user_id->user.id
 - `IntakeTeam` (table `intake_team`, org_scoped=True, soft_delete=False) -- FKs: overflow_team_id->intake_team.id
 - `IntakeTeamMember` (table `intake_team_member`, org_scoped=True, soft_delete=False) -- FKs: team_id->intake_team.id, user_id->user.id
-- `SanctionsListEntry` (table `sanctions_list_entry`, org_scoped=True, soft_delete=False) -- FKs: (none)
 
 ## Endpoints
 
-- `DELETE /intake/kb/{kb_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `DELETE /intake/request-types/{type_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `DELETE /intake/routing-rules/{rule_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `DELETE /intake/drafts/{draft_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `DELETE /intake/tasks/{task_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `DELETE /intake/teams/{team_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/assignees` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[AssigneeResponse]
-- `GET /intake/kb` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[KbResponse]
-- `GET /intake/kb/all` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[KbResponse]
+- `GET /intake/drafts` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[DraftResponse]
+- `GET /intake/forms` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/my-work` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `GET /intake/pool-ops` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `GET /intake/request-types` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestTypeResponse]
 - `GET /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: list[RequestResponse]
 - `GET /intake/requests/mine` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
+- `GET /intake/requests/pool` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
 - `GET /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `GET /intake/requests/{request_id}/approval-chain` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests/{request_id}/handoffs` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[HandoffResponse]
 - `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests/{request_id}/tasks` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TaskResponse]
-- `GET /intake/routing-rules` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RuleResponse]
 - `GET /intake/sla-ops` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/teams` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TeamResponse]
-- `PATCH /intake/kb/{kb_id}` -- permission: `*(none -- verify manual auth)*` -- request: KbUpdate -- response: KbResponse
-- `PATCH /intake/request-types/{type_id}` -- permission: `*(none -- verify manual auth)*` -- request: RequestTypeUpdate -- response: RequestTypeResponse
 - `PATCH /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: RequestUpdate -- response: RequestResponse
-- `PATCH /intake/routing-rules/{rule_id}` -- permission: `*(none -- verify manual auth)*` -- request: RuleUpdate -- response: RuleResponse
 - `PATCH /intake/tasks/{task_id}` -- permission: `*(none -- verify manual auth)*` -- request: TaskUpdateReq -- response: TaskResponse
 - `PATCH /intake/teams/{team_id}` -- permission: `*(none -- verify manual auth)*` -- request: TeamUpdate -- response: TeamResponse
-- `POST /intake/copilot/file` -- permission: `*(none -- verify manual auth)*` -- request: CopilotFileRequest -- response: RequestResponse
-- `POST /intake/copilot/turn` -- permission: `*(none -- verify manual auth)*` -- request: CopilotTurnRequest -- response: CopilotTurnResponse
+- `POST /intake/approval-preview` -- permission: `*(none -- verify manual auth)*` -- request: _ApprovalPreview -- response: ?
+- `POST /intake/drafts` -- permission: `*(none -- verify manual auth)*` -- request: DraftSave -- response: DraftResponse
 - `POST /intake/email-webhook` -- permission: `*(none -- verify manual auth)*` -- request: dict -- response: ?
 - `POST /intake/gmail-sync` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `POST /intake/kb` -- permission: `*(none -- verify manual auth)*` -- request: KbCreate -- response: KbResponse
 - `POST /intake/mailbox/poll` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `POST /intake/request-types` -- permission: `*(none -- verify manual auth)*` -- request: RequestTypeCreate -- response: RequestTypeResponse
 - `POST /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: RequestCreate -- response: RequestResponse
+- `POST /intake/requests/{request_id}/assign-to-me` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: dict -- response: ?
 - `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
-- `POST /intake/requests/{request_id}/gates` -- permission: `*(none -- verify manual auth)*` -- request: _GateOverride -- response: RequestResponse
 - `POST /intake/requests/{request_id}/handoff` -- permission: `*(none -- verify manual auth)*` -- request: HandoffCreate -- response: RequestResponse
 - `POST /intake/requests/{request_id}/ingest-attachment` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/pause` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/promote` -- permission: `*(none -- verify manual auth)*` -- request: PromoteRequest -- response: RequestResponse
 - `POST /intake/requests/{request_id}/screen` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `POST /intake/requests/{request_id}/submit-for-approval` -- permission: `*(none -- verify manual auth)*` -- request: _ApprovalLadderSubmit | None -- response: ?
 - `POST /intake/requests/{request_id}/suggest-flow` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/tasks` -- permission: `*(none -- verify manual auth)*` -- request: TaskCreateReq -- response: TaskResponse
 - `POST /intake/requests/{request_id}/triage` -- permission: `*(none -- verify manual auth)*` -- request: TriageActionRequest -- response: RequestResponse
-- `POST /intake/routing-rules` -- permission: `*(none -- verify manual auth)*` -- request: RuleCreate -- response: RuleResponse
-- `POST /intake/sanctions/refresh` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `POST /intake/sla-scan` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `POST /intake/tasks/{task_id}/effort` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: TaskResponse
 - `POST /intake/teams` -- permission: `*(none -- verify manual auth)*` -- request: TeamCreate -- response: TeamResponse
 - `POST /intake/teams-webhook` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `PUT /intake/drafts/{draft_id}` -- permission: `*(none -- verify manual auth)*` -- request: DraftSave -- response: DraftResponse
 - `PUT /intake/requests/{request_id}/parties` -- permission: `*(none -- verify manual auth)*` -- request: PartiesUpdate -- response: RequestResponse
 
 ## Schemas
 
-AssigneeResponse, CopilotFileRequest, CopilotMessage, CopilotTurnRequest, CopilotTurnResponse, FieldSpec, HandoffCreate, HandoffResponse, KbCreate, KbResponse, KbUpdate, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestTypeCreate, RequestTypeResponse, RequestTypeUpdate, RequestUpdate, RuleCreate, RuleResponse, RuleUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -86,59 +71,53 @@ AssigneeResponse, CopilotFileRequest, CopilotMessage, CopilotTurnRequest, Copilo
 - `0023_intake_gaps` (backend/alembic/versions/0023_intake_gaps.py)
 - `0024_intake_parties` (backend/alembic/versions/0024_intake_parties.py)
 - `0029_intake_subject` (backend/alembic/versions/0029_intake_subject.py)
+- `0044_intake_type_sla_hours` (backend/alembic/versions/0044_intake_type_sla_hours.py)
+- `0048_intake_agreement_form_types` (backend/alembic/versions/0048_intake_agreement_form_types.py)
+- `0049_intake_drafts` (backend/alembic/versions/0049_intake_drafts.py)
+- `0053_drop_intake_kb_and_routing` (backend/alembic/versions/0053_drop_intake_kb_and_routing.py)
+- `0055_drop_intake_gates` (backend/alembic/versions/0055_drop_intake_gates.py)
 
 ## Frontend counterpart
 
 Api group: `intakeApi` (confidence: exact)
 - `intakeApi.approvalChain()` -> `GET /intake/requests/${id}/approval-chain`
+- `intakeApi.approvalPreview()` -> `POST /intake/approval-preview`
+- `intakeApi.assignToMe()` -> `POST /intake/requests/${id}/assign-to-me`
 - `intakeApi.assignees()` -> `GET /intake/assignees`
-- `intakeApi.copilotFile()` -> `POST /intake/copilot/file`
-- `intakeApi.copilotTurn()` -> `POST /intake/copilot/turn`
 - `intakeApi.create()` -> `POST /intake/requests`
-- `intakeApi.createKb()` -> `POST /intake/kb`
-- `intakeApi.createRule()` -> `POST /intake/routing-rules`
+- `intakeApi.createDraft()` -> `POST /intake/drafts`
 - `intakeApi.createTask()` -> `POST /intake/requests/${id}/tasks`
 - `intakeApi.createTeam()` -> `POST /intake/teams`
-- `intakeApi.createType()` -> `POST /intake/request-types`
-- `intakeApi.deleteKb()` -> `DELETE /intake/kb/${id}`
-- `intakeApi.deleteRule()` -> `DELETE /intake/routing-rules/${id}`
+- `intakeApi.deleteDraft()` -> `DELETE /intake/drafts/${id}`
 - `intakeApi.deleteTask()` -> `DELETE /intake/tasks/${taskId}`
 - `intakeApi.deleteTeam()` -> `DELETE /intake/teams/${id}`
-- `intakeApi.deleteType()` -> `DELETE /intake/request-types/${id}`
 - `intakeApi.documents()` -> `GET /intake/requests/${id}/documents`
 - `intakeApi.draftContract()` -> `POST /intake/requests/${id}/draft-contract`
+- `intakeApi.forms()` -> `GET /intake/forms`
 - `intakeApi.get()` -> `GET /intake/requests/${id}`
 - `intakeApi.gmailSync()` -> `POST /intake/gmail-sync`
 - `intakeApi.handoff()` -> `POST /intake/requests/${id}/handoff`
 - `intakeApi.handoffs()` -> `GET /intake/requests/${id}/handoffs`
 - `intakeApi.ingestAttachment()` -> `POST /intake/requests/${id}/ingest-attachment`
-- `intakeApi.kb()` -> `GET /intake/kb`
-- `intakeApi.kbAll()` -> `GET /intake/kb/all`
 - `intakeApi.list()` -> `GET /intake/requests${intakeQs({ status_filter: statusFilter })}`
-- `intakeApi.listTypes()` -> `GET /intake/request-types${includeInactive ? "?include_inactive=true" : ""}`
+- `intakeApi.listDrafts()` -> `GET /intake/drafts`
 - `intakeApi.logEffort()` -> `POST /intake/tasks/${taskId}/effort?minutes=${minutes}`
 - `intakeApi.mine()` -> `GET /intake/requests/mine`
 - `intakeApi.myWork()` -> `GET /intake/my-work`
-- `intakeApi.overrideGate()` -> `POST /intake/requests/${id}/gates`
 - `intakeApi.pause()` -> `POST /intake/requests/${id}/pause?paused=${paused}`
-- `intakeApi.poolOps()` -> `GET /intake/pool-ops?days=${days}`
+- `intakeApi.pool()` -> `GET /intake/requests/pool`
 - `intakeApi.promote()` -> `POST /intake/requests/${id}/promote`
-- `intakeApi.rules()` -> `GET /intake/routing-rules`
-- `intakeApi.sanctionsRefresh()` -> `POST /intake/sanctions/refresh`
 - `intakeApi.screen()` -> `POST /intake/requests/${id}/screen`
 - `intakeApi.setParties()` -> `PUT /intake/requests/${id}/parties`
 - `intakeApi.slaLegs()` -> `GET /intake/requests/${id}/sla`
 - `intakeApi.slaOps()` -> `GET /intake/sla-ops`
 - `intakeApi.slaScan()` -> `POST /intake/sla-scan`
-- `intakeApi.submitForApproval()` -> `POST /intake/requests/${id}/submit-for-approval`
 - `intakeApi.suggestFlow()` -> `POST /intake/requests/${id}/suggest-flow`
 - `intakeApi.tasks()` -> `GET /intake/requests/${id}/tasks`
 - `intakeApi.teams()` -> `GET /intake/teams`
 - `intakeApi.triage()` -> `POST /intake/requests/${id}/triage`
 - `intakeApi.update()` -> `PATCH /intake/requests/${id}`
-- `intakeApi.updateKb()` -> `PATCH /intake/kb/${id}`
-- `intakeApi.updateRule()` -> `PATCH /intake/routing-rules/${id}`
+- `intakeApi.updateDraft()` -> `PUT /intake/drafts/${id}`
 - `intakeApi.updateTask()` -> `PATCH /intake/tasks/${taskId}`
 - `intakeApi.updateTeam()` -> `PATCH /intake/teams/${id}`
-- `intakeApi.updateType()` -> `PATCH /intake/request-types/${id}`
 - `intakeApi.uploadDocument()` -> `POST /intake/requests/${id}/documents`

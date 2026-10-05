@@ -525,7 +525,8 @@ function Tile({ cls, n, l }: { cls?: string; n: number | string; l: string }) {
 
 function toggleSet(set: Set<string>, v: string): Set<string> {
   const next = new Set(set);
-  next.has(v) ? next.delete(v) : next.add(v);
+  if (next.has(v)) next.delete(v);
+  else next.add(v);
   return next;
 }
 

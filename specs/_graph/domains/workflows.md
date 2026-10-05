@@ -13,17 +13,21 @@ Owner agents: backend-dev, db-engineer
 ## Endpoints
 
 - `GET /workflows` -- permission: `workflow:read` -- request: ? -- response: ?
+- `GET /workflows/lifecycle` -- permission: `intake:read` -- request: str | None -- response: ?
 - `GET /workflows/runs/by-contract/{contract_id}` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /workflows/runs/by-request/{request_id}` -- permission: `intake:read` -- request: ? -- response: ?
+- `GET /workflows/runs/{run_id}/counterparty` -- permission: `intake:read` -- request: ? -- response: ?
 - `GET /workflows/{flow_id}` -- permission: `workflow:read` -- request: ? -- response: ?
 - `PATCH /workflows/{flow_id}` -- permission: `workflow:update` -- request: FlowPayload -- response: ?
 - `POST /workflows` -- permission: `workflow:create` -- request: FlowPayload -- response: ?
 - `POST /workflows/runs/{run_id}/comment` -- permission: `intake:read` -- request: CommentPayload -- response: ?
 - `POST /workflows/runs/{run_id}/complete-step` -- permission: `intake:read` -- request: CompleteStepPayload -- response: ?
+- `POST /workflows/runs/{run_id}/counterparty/send` -- permission: `intake:read` -- request: CounterpartySendPayload -- response: ?
 - `POST /workflows/runs/{run_id}/refresh` -- permission: `intake:read` -- request: ? -- response: ?
 - `POST /workflows/runs/{run_id}/return` -- permission: `intake:read` -- request: ReturnPayload -- response: ?
 - `POST /workflows/seed` -- permission: `workflow:create` -- request: ? -- response: ?
 - `POST /workflows/start` -- permission: `intake:read` -- request: StartPayload -- response: ?
+- `POST /workflows/start-for-contract` -- permission: `intake:read` -- request: StartForContractPayload -- response: ?
 
 ## Schemas
 
@@ -33,19 +37,26 @@ Owner agents: backend-dev, db-engineer
 
 - `0017_workflow_versioning` (backend/alembic/versions/0017_workflow_versioning.py)
 - `0036_workflow_rename` (backend/alembic/versions/0036_workflow_rename.py)
+- `0057_workflow_step_stages` (backend/alembic/versions/0057_workflow_step_stages.py)
+- `0060_workflow_types` (backend/alembic/versions/0060_workflow_types.py)
+- `0061_contract_workflow_library` (backend/alembic/versions/0061_contract_workflow_library.py)
 
 ## Frontend counterpart
 
 Api group: `workflowsApi` (confidence: exact)
 - `workflowsApi.comment()` -> `POST /workflows/runs/${run_id}/comment`
 - `workflowsApi.completeStep()` -> `POST /workflows/runs/${run_id}/complete-step`
+- `workflowsApi.counterparty()` -> `GET /workflows/runs/${run_id}/counterparty`
 - `workflowsApi.createFlow()` -> `POST /workflows`
 - `workflowsApi.getFlow()` -> `GET /workflows/${id}`
+- `workflowsApi.lifecycle()` -> `GET /workflows/lifecycle?${new URLSearchParams(q as Record<string, string>)}`
 - `workflowsApi.listFlows()` -> `GET /workflows`
 - `workflowsApi.refreshRun()` -> `POST /workflows/runs/${run_id}/refresh`
 - `workflowsApi.returnStep()` -> `POST /workflows/runs/${run_id}/return`
 - `workflowsApi.runForContract()` -> `GET /workflows/runs/by-contract/${contract_id}`
 - `workflowsApi.runForRequest()` -> `GET /workflows/runs/by-request/${request_id}`
 - `workflowsApi.seedFlows()` -> `POST /workflows/seed`
+- `workflowsApi.sendToCounterparty()` -> `POST /workflows/runs/${run_id}/counterparty/send`
 - `workflowsApi.startFlow()` -> `POST /workflows/start`
+- `workflowsApi.startForContract()` -> `POST /workflows/start-for-contract`
 - `workflowsApi.updateFlow()` -> `PATCH /workflows/${id}`

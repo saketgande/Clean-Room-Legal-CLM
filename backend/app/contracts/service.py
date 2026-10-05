@@ -459,7 +459,7 @@ class ContractService:
     ) -> ContractParty:
         db = self.db
         if not name or not name.strip():
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Party name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Party name is required")
         party = ContractParty(
             org_id=contract.org_id,
             contract_id=contract.id,

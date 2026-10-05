@@ -15,8 +15,6 @@ import type { IntakeRequest, IntakeTask } from "@/lib/types";
 // intake/page.tsx for the trade-off (sla_status won't advance on its own
 // while the tab sits unfocused).
 const POLL = { refetchOnWindowFocus: true } as const;
-
-const isOpenReq = (r: IntakeRequest) => r.status !== "closed" && r.status !== "approved";
 function counterpartyOf(r: IntakeRequest): string | null {
   const parties = (r.parties ?? []) as { name?: string; role?: string }[];
   const cp = parties.find((p) => /counter|vendor|supplier|opposing|third|other/i.test(p.role ?? "")) ?? parties[0];
@@ -110,7 +108,7 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
     const seen = new Set<string>();
     return [...(mw?.awaiting_review ?? []), ...(mw?.my_tickets ?? [])].filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
   }, [mw]);
-  const raised = useMemo(() => (mineData ?? []).filter((r) => true), [mineData]);
+  const raised = useMemo(() => mineData ?? [], [mineData]);
   const tasks = mw?.my_tasks ?? [];
 
   const over = assigned.filter((r) => urgency(r) === "over");

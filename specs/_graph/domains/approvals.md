@@ -7,30 +7,18 @@ Owner agents: backend-dev, db-engineer
 ## Models
 
 - `ApprovalDecision` (table `approval_decision`, org_scoped=True, soft_delete=False) -- FKs: approval_request_id->approval_request.id, approver_user_id->user.id
-- `ApprovalRequest` (table `approval_request`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, intake_request_id->intake_request.id, contract_version_id->contract_version.id, requested_by_user_id->user.id, approver_user_id->user.id, approver_group_id->approver_group.id, routing_rule_id->approval_routing_rule.id
-- `ApprovalRoutingRule` (table `approval_routing_rule`, org_scoped=True, soft_delete=False) -- FKs: approver_user_id->user.id
-- `ApprovalRoutingStep` (table `approval_routing_step`, org_scoped=True, soft_delete=False) -- FKs: rule_id->approval_routing_rule.id, approver_group_id->approver_group.id, approver_user_id->user.id
+- `ApprovalRequest` (table `approval_request`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, intake_request_id->intake_request.id, contract_version_id->contract_version.id, requested_by_user_id->user.id, approver_user_id->user.id, approver_team_id->intake_team.id
 - `ApprovalToken` (table `approval_token`, org_scoped=True, soft_delete=False) -- FKs: approval_request_id->approval_request.id
-- `ApproverGroup` (table `approver_group`, org_scoped=True, soft_delete=False) -- FKs: (none)
 
 ## Endpoints
 
-- `DELETE /approvals/routing-rules/{rule_id}` -- permission: `approval:admin` -- request: ? -- response: ?
 - `GET /approvals` -- permission: `approval:read` -- request: ? -- response: ?
 - `GET /approvals/contracts/{contract_id}/chain` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /approvals/eligible-approvers` -- permission: `approval:admin` -- request: ? -- response: ?
-- `GET /approvals/groups` -- permission: `approval:admin` -- request: ? -- response: ?
 - `GET /approvals/review/{token}` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ApprovalReviewResponse
-- `GET /approvals/routing-rules` -- permission: `approval:admin` -- request: ? -- response: ?
-- `PATCH /approvals/groups/{group_id}` -- permission: `approval:admin` -- request: GroupUpdatePayload -- response: ?
-- `PATCH /approvals/routing-rules/{rule_id}` -- permission: `approval:admin` -- request: RoutingRulePayload -- response: ?
-- `POST /approvals/groups` -- permission: `approval:admin` -- request: GroupPayload -- response: ?
-- `POST /approvals/requests` -- permission: `contract:approve` -- request: ApprovalSubmit -- response: ?
 - `POST /approvals/requests/{approval_request_id}/decision` -- permission: `approval:decide` -- request: ApprovalDecisionPayload -- response: ?
 - `POST /approvals/requests/{approval_request_id}/reassign` -- permission: `approval:decide` -- request: ReassignPayload -- response: ?
-- `POST /approvals/routing-rules` -- permission: `approval:admin` -- request: RoutingRulePayload -- response: ?
 - `POST /approvals/token-decision` -- permission: `*(none -- verify manual auth)*` -- request: TokenDecisionPayload -- response: ?
-- `PUT /approvals/groups/{group_id}/members` -- permission: `approval:admin` -- request: GroupMembersPayload -- response: ?
 
 ## Schemas
 
@@ -44,17 +32,9 @@ Owner agents: backend-dev, db-engineer
 
 Api group: `approvalsApi` (confidence: exact)
 - `approvalsApi.chain()` -> `GET /approvals/contracts/${contractId}/chain`
-- `approvalsApi.createGroup()` -> `POST /approvals/groups`
-- `approvalsApi.createRoutingRule()` -> `POST /approvals/routing-rules`
 - `approvalsApi.decide()` -> `POST /approvals/requests/${id}/decision`
-- `approvalsApi.deleteRoutingRule()` -> `DELETE /approvals/routing-rules/${id}`
 - `approvalsApi.eligibleApprovers()` -> `GET /approvals/eligible-approvers`
-- `approvalsApi.groups()` -> `GET /approvals/groups`
 - `approvalsApi.list()` -> `GET /approvals`
 - `approvalsApi.reassign()` -> `POST /approvals/requests/${id}/reassign`
 - `approvalsApi.reviewByToken()` -> `GET /approvals/review/${token}`
-- `approvalsApi.routingRules()` -> `GET /approvals/routing-rules`
-- `approvalsApi.setGroupMembers()` -> `PUT /approvals/groups/${id}/members`
-- `approvalsApi.submit()` -> `POST /approvals/requests`
 - `approvalsApi.tokenDecide()` -> `POST /approvals/token-decision`
-- `approvalsApi.updateRoutingRule()` -> `PATCH /approvals/routing-rules/${id}`

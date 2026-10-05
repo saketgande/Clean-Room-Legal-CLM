@@ -63,7 +63,7 @@ services:
     # watchfiles restarts the Celery worker whenever app/ changes.
     command:
       ["watchfiles",
-       "celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=4",
+       "celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=12",
        "/app/app"]
     environment:
       <<: *dev_app_env

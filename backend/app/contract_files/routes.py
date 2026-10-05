@@ -1416,7 +1416,7 @@ def create_contract_share(
     if version is not None and (version.org_id != current_user.org_id or version.contract_id != contract_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract version not found")
     if payload.access_mode == ShareAccessMode.VIEW_ONLY and payload.download_allowed:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "View-only shares cannot allow downloads")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "View-only shares cannot allow downloads")
     token = secrets.token_urlsafe(32)
     share = ContractShare(
         org_id=current_user.org_id,

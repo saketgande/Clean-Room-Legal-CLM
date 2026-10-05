@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Send, X } from "lucide-react";
+import { CheckCircle2, X } from "lucide-react";
 import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
 import { contractDisplayName, fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
@@ -173,7 +173,7 @@ function RequestsTab() {
             <CheckCircle2 className="ic" />
           </div>
           <div className="et">No approval requests</div>
-          <div className="ed">Approvals start when a contract's workflow reaches an Approval step.</div>
+          <div className="ed">Approvals start when a contract&apos;s workflow reaches an Approval step.</div>
         </div>
       ) : (
         <div className="tablewrap">
@@ -480,19 +480,13 @@ const APPRV_CSS = `
 .apprv .hd .stat b{color:var(--ink);font-weight:650}
 .apprv .hd .stat .warn{color:var(--warn)} .apprv .hd .stat .crit{color:var(--crit)}
 
-
 .apprv .actrow{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin-bottom:14px}
 .apprv .note{font-size:12px;color:var(--ink-2);max-width:640px;margin:0}
 .apprv .note strong{color:var(--ink)}
 
-
-
-
-
 .apprv .btn.danger{border-color:color-mix(in srgb,var(--crit) 45%,var(--border));color:var(--crit);background:var(--surface)}
 .apprv .btn.danger:hover{background:var(--crit-soft)}
 .apprv .btn.sm{padding:5px 10px;font-size:12px}
-
 
 .apprv .tablewrap{overflow-x:auto}
 .apprv .tablewrap table{min-width:820px}
@@ -526,8 +520,6 @@ const APPRV_CSS = `
 .apprv .skelrows{padding:6px}
 .apprv .skelrow{height:38px;border-radius:8px;margin:6px;background:var(--surface-2);animation:apprvpulse 1.4s ease-in-out infinite}
 @keyframes apprvpulse{50%{opacity:.55}}
-
-
 
 .apprv .empty .eic{width:40px;height:40px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin-bottom:4px}
 .apprv .empty .et{font-weight:660;font-size:14px;color:var(--ink)}

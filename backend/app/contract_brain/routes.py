@@ -85,7 +85,7 @@ async def ask_contract_brain(
 ):
     if payload.query_scope == "contract":
         if not payload.contract_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "contract_id required for contract scope")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "contract_id required for contract scope")
         get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
 
     request_id = getattr(request.state, "request_id", None)

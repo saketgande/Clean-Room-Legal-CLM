@@ -80,18 +80,18 @@ def default_body(key: str) -> str:
 def check_body(body: str) -> None:
     """Refuse a template drafting couldn't fill, naming what's wrong."""
     if not body.strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The template is empty.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The template is empty.")
     try:
         names = {f for _, f, _, _ in string.Formatter().parse(body) if f is not None}
     except ValueError as exc:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"The braces don't pair up ({exc}). Write a literal brace as {{{{ or }}}}.",
         ) from exc
     unknown = sorted(n for n in names if n not in SAMPLE_VALUES)
     if unknown:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Unknown placeholder" + ("s " if len(unknown) > 1 else " ")
             + ", ".join("{" + n + "}" for n in unknown)
             + ". Use one from the list, or write a literal brace as {{ or }}.",

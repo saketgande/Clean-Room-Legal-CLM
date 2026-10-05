@@ -1,0 +1,26 @@
+# AEGIS backend — Python requirements.
+#
+#   pip install -r requirements.txt
+#
+# installs exactly what the Docker image and CI run (Python 3.12). It does that
+# by reading requirements.lock, so the versions live in ONE place and can't
+# drift. How the three files fit together:
+#
+#   pyproject.toml     What the app depends on, as version ranges. To add,
+#                      remove or bump a dependency, edit THIS file...
+#   requirements.lock  ...then regenerate this one: every package (including
+#                      sub-dependencies) pinned to an exact version, e.g.
+#                        uv pip compile pyproject.toml -o requirements.lock --python-version 3.12
+#                      (or pip-compile from pip-tools; the tool that made the
+#                      current lock isn't recorded). Review the diff, then
+#                      rebuild the image: make dev-build.
+#   requirements.txt   This file. Only points at the lock; never add packages here.
+#
+# Tests and lint (pytest, ruff, …) are dev extras; -c keeps the runtime packages
+# they share at the locked versions:
+#   pip install -c requirements.lock -e ".[dev]"
+#
+# System packages the Python packages need are installed by the Dockerfile
+# (libgomp1 for onnxruntime/fastembed; see the comments there).
+
+-r requirements.lock

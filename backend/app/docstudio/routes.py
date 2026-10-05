@@ -116,11 +116,11 @@ def upload_document(
     mime_type = mime_for(filename)
     if mime_type is None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "Cannot read that file type: use .pdf, .docx or .txt."
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "Cannot read that file type: use .pdf, .docx or .txt."
         )
     content = _read_capped(file)
     if not content:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The file is empty.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The file is empty.")
     if document_id:
         _document(db, document_id, current_user.org_id)
 
@@ -135,7 +135,7 @@ def upload_document(
             actor_user_id=current_user.id,
         )
     except UnsupportedFormat as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     db.commit()
     return _summary(db.get(DsVersion, result.version_id))
 
@@ -208,7 +208,7 @@ def _read_capped(upload: UploadFile) -> bytes:
         size += len(chunk)
         if size > MAX_UPLOAD_BYTES:
             raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status.HTTP_413_CONTENT_TOO_LARGE,
                 f"The file is over the {MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
             )
         chunks.append(chunk)

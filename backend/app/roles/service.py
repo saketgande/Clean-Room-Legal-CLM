@@ -95,7 +95,7 @@ class RoleService:
         unknown = [v for v in values if v not in ALL_PERMISSIONS]
         if unknown:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Unknown permission(s): {', '.join(sorted(unknown))}",
             )
         wanted = list(dict.fromkeys(values))  # de-dup, preserve order
@@ -155,7 +155,7 @@ class RoleService:
         db = self.db
         name = payload.name.strip()
         if not name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Role name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Role name is required")
         if name in BUILTIN_ROLE_NAMES:
             raise HTTPException(
                 status.HTTP_409_CONFLICT, f'"{name}" is a reserved built-in role name'
@@ -209,7 +209,7 @@ class RoleService:
                 )
             new_name = payload.name.strip()
             if not new_name:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Role name is required")
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Role name is required")
             if new_name in BUILTIN_ROLE_NAMES:
                 raise HTTPException(status.HTTP_409_CONFLICT, "Reserved built-in role name")
             clash = db.scalar(
@@ -351,7 +351,7 @@ class RoleService:
             select(Role).where(Role.org_id == actor.org_id, Role.id.in_(role_ids))
         ).all()
         if len(roles) != len(role_ids):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "One or more roles not found")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "One or more roles not found")
 
         self._assert_actor_can_grant(actor, roles)
 

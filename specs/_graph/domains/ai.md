@@ -22,12 +22,13 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, BrainQueryParseOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseOutput, ClauseRiskOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, ContractRiskOutput, ObligationExtractionOutput, ObligationOutput, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, SkillInfo, TabularCellOutput, TabularChatOutput
+AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, BrainQueryParseOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseLabel, ClauseLabelingOutput, ClauseOutput, ClauseRiskOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, ContractRiskOutput, ObligationExtractionOutput, ObligationOutput, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, SkillInfo, TabularCellOutput, TabularChatOutput, TabularRowAnswer, TabularRowOutput
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
 - `0002_ai_architecture_spine` (backend/alembic/versions/0002_ai_architecture_spine.py)
 - `0006_audit_hash_chain` (backend/alembic/versions/0006_audit_hash_chain.py)
+- `0044_approval_chains` (backend/alembic/versions/0044_approval_chains.py)
 
 ## Frontend counterpart
 

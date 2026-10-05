@@ -191,32 +191,6 @@ class PromoteRequest(BaseModel):
     target_id: str
 
 
-# ---- copilot (conversational filing) --------------------------------------
-
-class CopilotMessage(BaseModel):
-    role: str = Field(pattern="^(user|assistant)$")
-    content: str
-
-
-class CopilotTurnRequest(BaseModel):
-    messages: list[CopilotMessage] = Field(default_factory=list)
-    user_message: str
-
-
-class CopilotTurnResponse(BaseModel):
-    reply: str
-    extracted: dict = Field(default_factory=dict)
-    ready: bool = False
-    suggested_type_label: str | None = None
-
-
-class CopilotFileRequest(BaseModel):
-    messages: list[CopilotMessage] = Field(default_factory=list)
-    type_label: str
-    description: str
-    field_values: dict | None = None
-
-
 class PartyIn(BaseModel):
     name: str
     role: str = "counterparty"  # counterparty|adverse|related|our_side
@@ -264,3 +238,5 @@ class RequestResponse(BaseModel):
     contract_title: str | None = None
     workflow: list[WorkflowStep] = Field(default_factory=list)
     created_at: str | None = None
+    draftable_doc_type: str | None = None  # nda|msa|dpa|vendor|… — what "Approve & draft" makes
+    draftable_doc_label: str | None = None

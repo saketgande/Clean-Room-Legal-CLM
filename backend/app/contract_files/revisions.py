@@ -379,9 +379,9 @@ def decide(change, *, decision: str, counter: str | None, user) -> None:
     if change.kind == "ours":
         raise HTTPException(status.HTTP_409_CONFLICT, "They kept our wording here; there is nothing to decide.")
     if decision not in DECISIONS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Decide accepted, kept or countered.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Decide accepted, kept or countered.")
     if decision == "countered" and not (counter or "").strip():
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Write the wording you are proposing instead.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Write the wording you are proposing instead.")
     change.decision = decision
     change.counter_text = counter.strip() if decision == "countered" else None
     change.decided_by_user_id = None if decision == "open" else user.id

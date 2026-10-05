@@ -116,7 +116,7 @@ async def _resolve_source_text(
         )
         if not result.text or not result.text.strip():
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Couldn't extract text from that file (scanned or empty?). Paste the text instead.",
             )
         return result.text
@@ -140,7 +140,7 @@ async def _resolve_source_text(
             )
         return snapshot.text
     raise HTTPException(
-        status.HTTP_422_UNPROCESSABLE_ENTITY, "Provide a file, pasted text, or a source contract"
+        status.HTTP_422_UNPROCESSABLE_CONTENT, "Provide a file, pasted text, or a source contract"
     )
 
 
@@ -288,7 +288,7 @@ async def build_extract_documents(
             }
         )
     if not any(doc["status"] == "ok" for doc in extracted):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "None of the uploaded files could be read")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "None of the uploaded files could be read")
     return extracted
 
 @router.post("/build/chat")

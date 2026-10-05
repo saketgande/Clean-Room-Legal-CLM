@@ -186,7 +186,7 @@ class ContractLifecycleService:
                     )
                 if not reason or not reason.strip():
                     raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
                         "Overriding open redlines requires a reason.",
                     )
 

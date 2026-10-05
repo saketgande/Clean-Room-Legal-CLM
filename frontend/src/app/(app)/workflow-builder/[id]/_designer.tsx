@@ -9,13 +9,12 @@
 import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { intakeApi, workflowsApi, rolesApi, usersApi } from "@/lib/endpoints";
-import { useAuth } from "@/lib/auth";
-import { initials } from "@/lib/utils";
+import { intakeApi, workflowsApi, usersApi } from "@/lib/endpoints";
+
 import { useToast } from "@/components/toast";
 import type { LifecycleStage, Workflow, WorkflowCondition, WorkflowStepType } from "@/lib/types";
 import { useRequestForms } from "../../intake/_agreement-forms";
-import { AMOUNT_OPS, CHOICE_OPS, DATE_OPS, OP_LABEL as COND_OP_LABEL, overlaps, questionsFor, typeKey, typeOptions, whenText } from "@/lib/workflow-types";
+import { AMOUNT_OPS, CHOICE_OPS, DATE_OPS, OP_LABEL as COND_OP_LABEL, overlaps, pinnedRequestTypes, questionsFor, typeKey, typeOptions, whenText } from "@/lib/workflow-types";
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 
@@ -62,7 +61,6 @@ const TYPE_DESC: Record<WorkflowStepType, string> = {
   counterparty: "Redlines go back and forth with the counterparty until both sides agree.",
   notify: "Pauses to collect a missing detail before the workflow continues.",
 };
-const HAS_ASSIGNEE = (t: WorkflowStepType) => t === "human_task" || t === "approval" || t === "counterparty";
 
 // Configurable per-step outcomes — the buttons a reviewer sees. "Send it back"
 // outcomes drive the to-and-fro (return) edge, executed by the engine's
@@ -120,25 +118,11 @@ const condLabel = (s: Step): string | null => {
   return `only when ${c.field} ${OP_LABEL[c.op] ?? c.op} ${c.value}`;
 };
 
-const NAV = [
-  { label: "Legal Intake", href: "/intake", icon: '<path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/>' },
-  { label: "My Work", href: "/my-work", icon: '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>' },
-  { label: "Contracts", href: "/contracts", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>' },
-];
-const ADMIN = [
-  { label: "Workflows", href: "/workflow-builder", icon: '<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>', on: true },
-  { label: "Playbooks", href: "/playbooks", icon: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>' },
-  { label: "Roles & teams", href: "/admin", icon: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>' },
-];
-
 export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew: boolean }) {
   const router = useRouter();
   const qc = useQueryClient();
   const { notify } = useToast();
-  const { user } = useAuth();
   const { data: allFlows } = useQuery({ queryKey: ["flows"], queryFn: workflowsApi.listFlows });
-  const { data: roles } = useQuery({ queryKey: ["roles"], queryFn: rolesApi.list });
-  const roleNames = (roles ?? []).map((r) => r.name);
   const { data: users } = useQuery({ queryKey: ["users"], queryFn: () => usersApi.list() });
   const { data: teams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
   const teamName = (id: string) => (teams ?? []).find((t) => t.id === id)?.name ?? "";
@@ -210,7 +194,11 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
         // AI condition are for untyped (email/chat) ones, so neither can override a type pick.
         match_type: typeOpt ? null : matchType.trim() || null, match_keyword: typeOpt ? null : matchKeyword.trim() || null,
         ai_condition: typeOpt ? null : aiCondition.trim() || null,
-        used_for: typeOpt ? [{ form: typeOpt.form, agreement_type: typeOpt.agreement_type }] : [],
+        // Untyped workflows keep any request-type pin (e.g. General Legal Question);
+        // choosing an agreement type replaces it.
+        used_for: typeOpt
+          ? [{ form: typeOpt.form, agreement_type: typeOpt.agreement_type }]
+          : pinnedRequestTypes(flow).map((t) => ({ type_label: t })),
         conditions: typeOpt ? conds : [],
       },
       steps: steps.filter((s) => s.name.trim()).map((s, i) => ({ ...(s.id ? { id: s.id } : {}), type: s.type, name: s.name.trim(), config: s.config ?? {}, ...(s.parallel && i > 0 ? { parallel: true } : {}), ...(s.stage ? { stage: s.stage } : {}), ...(s.cond && s.cond.field.trim() ? { cond: { field: s.cond.field.trim(), op: s.cond.op || "eq", value: s.cond.value } } : {}) })),
@@ -506,6 +494,9 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                         {types.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                       </select>
                       <div className="hint">{typeOpt ? `Only ${typeOpt.label} requests can get this workflow.` : "Form requests never get an untyped workflow; the AI may suggest it for email and chat requests."}</div>
+                      {!typeOpt && pinnedRequestTypes(flow).length > 0 && (
+                        <div className="hint">Always used for {pinnedRequestTypes(flow).map((t) => `“${t}”`).join(", ")} requests (except ones triage marks as litigation).</div>
+                      )}
                     </div>
                     {typeOpt ? (
                       <div className="fld"><label className="lab">Chosen when</label>

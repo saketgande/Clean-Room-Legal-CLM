@@ -60,14 +60,8 @@ const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("")
 
 // Which doc type this request can auto-draft (mirrors the intake service's
 // heuristic). null ⇒ not a draft-able contract request.
-function draftableDocType(r: IntakeRequest): string | null {
-  const t = `${r.type_label} ${r.description ?? ""}`.toLowerCase();
-  if (/nda|non-disclosure|non disclosure/.test(t)) return "NDA";
-  if (/\b(dpa|data processing|data protection|gdpr)\b/.test(t)) return "DPA";
-  if (/\b(msa|master service|master services|services agreement|statement of work|sow)\b/.test(t)) return "MSA";
-  if (/vendor|supplier|procurement/.test(t)) return "Vendor agreement";
-  return null;
-}
+// The server decides what (if anything) a request drafts — see resolve_doc_type.
+const draftableDocType = (r: IntakeRequest): string | null => r.draftable_doc_label ?? null;
 
 function counterpartyOf(r: IntakeRequest): string | null {
   const parties = (r.parties ?? []) as { name?: string; role?: string }[];
@@ -152,7 +146,6 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     notify(msg, "success");
   };
   const fail = (e: unknown) => notify(e instanceof Error ? e.message : "Action failed", "error");
-  const refreshRunQ = () => qc.invalidateQueries({ queryKey: ["flow-run", id] });
 
   const reassign = useMutation({ mutationFn: (uid: string) => intakeApi.triage(id, { action: "reassigned", assignee_user_id: uid }), onSuccess: (u) => { setReassignTo(""); done("Owner reassigned")(u); }, onError: fail });
   const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
@@ -353,7 +346,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
         <div className="col">
           <div className="card"><div className="ch"><div className="glyph">{svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>')}</div><h2>The request</h2></div>
             <div className="cb">
-              <div className="quote">{r.description || "No description provided."}<br /><span className="dim" style={{ fontSize: 11.5 }}>— {r.source ?? "submitted"} by {r.requester_name ?? "requester"}</span></div>
+              <div className="quote"><span style={{ whiteSpace: "pre-line" }}>{r.description || "No description provided."}</span><br /><span className="dim" style={{ fontSize: 11.5 }}>— {r.source ?? "submitted"} by {r.requester_name ?? "requester"}</span></div>
               {missingInfo.length > 0 ? (
                 <div className="needsinfo">
                   {svg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>')}

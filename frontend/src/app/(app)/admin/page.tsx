@@ -1071,7 +1071,8 @@ function RoleEditorModal({
     if (readOnly) return;
     setSelected((prev) => {
       const next = new Set(prev);
-      next.has(value) ? next.delete(value) : next.add(value);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
       return next;
     });
   }
@@ -1079,7 +1080,10 @@ function RoleEditorModal({
     if (readOnly) return;
     setSelected((prev) => {
       const next = new Set(prev);
-      for (const p of perms) on ? next.add(p.value) : next.delete(p.value);
+      for (const p of perms) {
+        if (on) next.add(p.value);
+        else next.delete(p.value);
+      }
       return next;
     });
   }
@@ -1262,7 +1266,8 @@ function AssignRolesPanel({ roles }: { roles: RoleResponse[] }) {
   function toggleRole(id: string) {
     setRoleIds((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       if (!next.has(activeRoleId)) setActiveRoleId([...next][0] ?? "");
       return next;
     });
@@ -1570,7 +1575,8 @@ function WallEditorModal({
   function toggle(key: string) {
     setBarred((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }

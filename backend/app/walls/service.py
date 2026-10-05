@@ -158,7 +158,7 @@ class WallService:
     def _validate_scope(self, *, org_id: str, scope_type: str, scope_id: str) -> None:
         db = self.db
         if scope_type not in SCOPE_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid scope_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid scope_type")
         c = db.get(Contract, scope_id)
         ok = c is not None and c.org_id == org_id
         if not ok:
@@ -167,7 +167,7 @@ class WallService:
     def _validate_principal(self, *, org_id: str, principal_type: str, principal_id: str) -> None:
         db = self.db
         if principal_type not in PRINCIPAL_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid principal_type")
         if principal_type == "user":
             u = db.get(User, principal_id)
             ok = u is not None and u.org_id == org_id
@@ -195,7 +195,7 @@ class WallService:
             )
         if not rows:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "A wall must bar at least one principal"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "A wall must bar at least one principal"
             )
         wall.principals = rows
 
@@ -205,7 +205,7 @@ class WallService:
         db = self.db
         name = (payload.name or "").strip()
         if not name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Wall name is required")
         self._validate_scope(
             org_id=actor.org_id, scope_type=payload.scope_type, scope_id=payload.scope_id
         )
@@ -253,7 +253,7 @@ class WallService:
         if payload.name is not None:
             new_name = payload.name.strip()
             if not new_name:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Wall name is required")
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Wall name is required")
             wall.name = new_name
         if payload.reason is not None:
             wall.reason = payload.reason.strip() or None

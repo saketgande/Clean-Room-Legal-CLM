@@ -38,6 +38,9 @@ export const PRIORITY_TONE: Record<string, string> = {
 // check, so nav items / buttons gated on `can()` are visible to everyone.
 // To restore RBAC, revert this to:
 //   return !!user?.permissions?.some((p) => p === perm || p === "*");
+// `perm` is kept (unused) so call sites already say which permission they need
+// and re-enabling RBAC is the one-line change above.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function can(user: UserResponse | null | undefined, perm: string): boolean {
   return !!user;
 }

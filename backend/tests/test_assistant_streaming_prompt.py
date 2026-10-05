@@ -18,3 +18,15 @@ def test_assistant_streaming_prompt_covers_its_actual_tool_behaviors():
     assert "ambiguous" in prompt.lower()
     # Not just longer — substantively longer than the old three-sentence prompt.
     assert len(prompt) > 500
+
+
+def test_a_general_legal_question_is_answered_before_anything_is_filed():
+    """The Legal Intake "General legal question" card used to open a keyword
+    script that could only file a ticket (and filed most things as NDAs). It
+    now opens Ask Aegis, which must answer first and file with Legal only when
+    a lawyer is needed and the user agrees — as a general question."""
+    prompt = DEFAULT_SKILL_PROMPTS["assistant_streaming"]
+    assert "Answer it first" in prompt
+    assert "create_intake_request" in prompt
+    assert "Legal Question — General" in prompt
+    assert "Only when the user says yes" in prompt

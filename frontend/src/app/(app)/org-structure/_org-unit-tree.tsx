@@ -85,7 +85,7 @@ export function OrgUnitTree() {
         <MessageBar intent="info">
           Re-parented{" "}
           {lastDelete.reparented.map((r) => r.name).join(", ")} to their
-          former parent's parent as a consequence of the deletion.
+          former parent&apos;s parent as a consequence of the deletion.
         </MessageBar>
       )}
       <Card>

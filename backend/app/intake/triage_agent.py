@@ -135,6 +135,11 @@ def triage(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     except Exception:
         logger.warning("used-for lookup failed for %s", request.id, exc_info=True)
         set_up = None
+    # A request without a form can only be "Used for"-matched by its type. That pin
+    # yields to litigation: request.ai_triage isn't saved yet, so the fresh
+    # category is checked here (afterwards, _used_for_rank checks the saved one).
+    if set_up and str(result.get("category") or "").strip().lower() == "litigation":
+        set_up = None
     if set_up:
         result["flow_suggestion"] = set_up
     return result

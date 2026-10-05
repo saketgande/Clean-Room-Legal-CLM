@@ -507,7 +507,7 @@ class ApprovalsService:
                 approver = db.get(User, target["approver_user_id"])
                 if approver is None or approver.org_id != user.org_id:
                     raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
                         "Approver user must belong to this organization",
                     )
             if target["approver_team_id"]:
@@ -516,13 +516,13 @@ class ApprovalsService:
                 team = db.get(IntakeTeam, target["approver_team_id"])
                 if team is None or team.org_id != user.org_id:
                     raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
                         "Approver team must belong to this organization",
                     )
 
             problem = self._rung_config_problem(target, user.org_id)
             if problem:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, problem)
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
 
             # Fix an "all members must approve" rung's requirement NOW: later team
             # edits must not change how many (or which) approvals it needs.
@@ -642,7 +642,7 @@ class ApprovalsService:
         if to_user.org_id != approval.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Target user not found")
         if to_user.id == approval.requested_by_user_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The requester can't approve their own request")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The requester can't approve their own request")
 
         prev = approval.approver_user_id
         approval.approver_user_id = to_user.id
@@ -687,7 +687,7 @@ class ApprovalsService:
     ) -> ApprovalRequest:
         db = self.db
         if decision == "reject" and not comment:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Rejection requires a comment")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Rejection requires a comment")
         # Fail closed: the duplicate-decision and authority checks key off the
         # approver's identity, so "couldn't identify you" must never mean "exempt".
         if not actor_user_id:

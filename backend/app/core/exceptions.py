@@ -27,7 +27,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         request_id = getattr(request.state, "request_id", None)
         response = JSONResponse(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             # jsonable_encoder matches FastAPI's own handler and is required,
             # not cosmetic: each error carries the offending `input`, which for
             # a file field is raw bytes. Serialising that directly raises inside

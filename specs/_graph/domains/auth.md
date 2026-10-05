@@ -48,6 +48,7 @@ AcceptInvitationRequest, ApiKeyCreate, ApiKeyResponse, ApprovalRequest, LoginReq
 - `0008_revoked_access_token` (backend/alembic/versions/0008_revoked_access_token.py)
 - `0021_authority_grants` (backend/alembic/versions/0021_authority_grants.py)
 - `0030_auth_hash_indexes` (backend/alembic/versions/0030_auth_hash_indexes.py)
+- `0045_backfill_role_permissions` (backend/alembic/versions/0045_backfill_role_permissions.py)
 
 ## Frontend counterpart
 

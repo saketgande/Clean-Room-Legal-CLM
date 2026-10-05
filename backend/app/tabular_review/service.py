@@ -201,17 +201,17 @@ def _enforce_review_size(*, contract_count: int, column_count: int) -> None:
     cell_count = contract_count * column_count
     if contract_count > MAX_REVIEW_CONTRACTS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Tabular reviews are limited to {MAX_REVIEW_CONTRACTS} contracts",
         )
     if column_count > MAX_REVIEW_COLUMNS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Tabular reviews are limited to {MAX_REVIEW_COLUMNS} columns",
         )
     if cell_count > MAX_REVIEW_CELLS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Tabular reviews are limited to {MAX_REVIEW_CELLS} contract-column cells",
         )
 
@@ -255,7 +255,7 @@ class TabularReviewService:
         db = self.db
         contract_ids = list(dict.fromkeys(payload.contract_ids))
         if not contract_ids:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No contracts selected")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No contracts selected")
         # Access-check every row contract.
         for cid in contract_ids:
             get_contract_for_user(db, contract_id=cid, user=current_user)

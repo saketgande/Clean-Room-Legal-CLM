@@ -124,8 +124,11 @@ function RecordModal({ kind, existing, onClose, onSaved }: { kind: Kind; existin
     setBusy(true);
     try {
       const payload = Object.fromEntries(FIELDS[kind].map((f) => [f.key, values[f.key].trim() || null]));
-      if (kind === "entity") existing ? await partiesApi.updateEntity(existing.id, payload) : await partiesApi.createEntity(payload);
-      else existing ? await partiesApi.updateCounterparty(existing.id, payload) : await partiesApi.createCounterparty(payload);
+      if (kind === "entity") {
+        if (existing) await partiesApi.updateEntity(existing.id, payload);
+        else await partiesApi.createEntity(payload);
+      } else if (existing) await partiesApi.updateCounterparty(existing.id, payload);
+      else await partiesApi.createCounterparty(payload);
       notify(existing ? "Saved" : "Added to the register", "success");
       onSaved();
     } catch (e) { notify(e instanceof Error ? e.message : "Save failed", "error"); }

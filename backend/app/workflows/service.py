@@ -201,12 +201,12 @@ def _validate_condition(cond: dict, step_name: str) -> None:
     op = (cond.get("op") or "eq").strip().lower()
     if op not in _CONDITION_OPS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Step '{step_name}': unsupported condition operator '{op}'. Use one of: {', '.join(_CONDITION_OPS)}.",
         )
     if op in ("lt", "lte", "gt", "gte") and not isinstance(_typed(cond.get("value")), float):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Step '{step_name}': '{op}' needs a number to compare against.",
         )
 
@@ -221,12 +221,31 @@ def _used_for(criteria: dict | None) -> list[tuple[str, str]]:
     return out
 
 
+def _used_for_types(criteria: dict | None) -> set[str]:
+    """Request types (type_label, lowercased) a workflow is pinned to, for
+    requests that come without a form — e.g. {"type_label": "Legal Question — General"}."""
+    return {
+        str(e["type_label"]).strip().lower()
+        for e in (criteria or {}).get("used_for") or []
+        if isinstance(e, dict) and not e.get("form") and str(e.get("type_label") or "").strip()
+    }
+
+
 def _used_for_rank(criteria: dict | None, request: IntakeRequest) -> int | None:
     """2 = this request's form AND its agreement-type answer, 1 = its form (any
-    agreement type), None = not used for it."""
+    agreement type) or — for a request without a form — its request type,
+    None = not used for it.
+
+    A type pin never claims a request that triage marked as litigation: those
+    keep the litigation assessment and its workflow (decided 2026-10-05)."""
     fv = request.field_values or {}
     form_of_request = fv.get("request_form")
     if not form_of_request:
+        from app.intake.litigation_agent import is_litigation
+
+        pinned = _used_for_types(criteria)
+        if pinned and (request.type_label or "").strip().lower() in pinned and not is_litigation(request):
+            return 1
         return None
     answer = str(fv.get("agreement_type") or "").strip().lower()
     best = None
@@ -295,10 +314,15 @@ def used_for_clash(db: Session, *, org_id: str, criteria: dict | None, exclude_i
     same conditions — two such workflows could never be told apart. Different
     conditions are fine: that is how one type gets several workflows."""
     mine = (set(_used_for(criteria)), _conditions_key(criteria))
-    if not mine[0]:
+    my_types = _used_for_types(criteria)
+    if not mine[0] and not my_types:
         return None
     for f in db.scalars(select(Workflow).where(Workflow.org_id == org_id, Workflow.enabled.is_(True))).all():
-        if f.id != exclude_id and mine[0] & set(_used_for(f.criteria)) and _conditions_key(f.criteria) == mine[1]:
+        if f.id == exclude_id:
+            continue
+        if mine[0] & set(_used_for(f.criteria)) and _conditions_key(f.criteria) == mine[1]:
+            return f.name
+        if my_types & _used_for_types(f.criteria):  # one request type, two pinned workflows
             return f.name
     return None
 
@@ -351,6 +375,9 @@ def select_flow(db: Session, *, request: IntakeRequest) -> Workflow | None:
     flows = _enabled_flows(db, request.org_id)
     if (request.field_values or {}).get("request_form"):
         return _pick_used_for(flows, request)
+    pinned = _pick_used_for(flows, request)  # a workflow set up for this request type
+    if pinned is not None:
+        return pinned
     wants_document = resolve_doc_type(request) is not None
     for f in flows:
         if _used_for(f.criteria):
@@ -467,7 +494,7 @@ async def start_flow(
 
     flow = flow or select_flow(db, request=request)
     if flow is None:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "No workflow matches this request.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "No workflow matches this request.")
     if not flow.enabled:
         # A flow picked by id (manual start, Ask Aegis, auto-start) honours the same
         # switch that automatic selection does.
@@ -1194,7 +1221,7 @@ async def return_run(
     if to_idx is None:
         to_idx = _configured_return_to(steps, run.current_index)
     if to_idx < 0 or to_idx >= len(steps) or to_idx >= run.current_index:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Can only return to an earlier step.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Can only return to an earlier step.")
     _require_step_actor(db, sr=_sr_at(db, run, run.current_index), actor=actor)
     from_idx = run.current_index
     for sr in _step_runs(db, run):
@@ -1661,25 +1688,40 @@ def update_flow(
 
 
 def _clean_criteria(db: Session, org_id: str, criteria: dict | None) -> dict:
-    """Keep only real "Used for" entries: one of the agreement forms, and at most
-    one entry per (form, agreement type)."""
+    """Keep only real "Used for" entries: one of the agreement forms (at most one
+    entry per form + agreement type), or — for requests without a form — one of
+    the built-in request types such as "Legal Question — General"."""
+    from app.intake.agents import BUILTIN_EXTRA_TYPES
     from app.intake.agreement_forms import form_defs
 
     c = dict(criteria or {})
     if "used_for" not in c:
         return c
     if {e[0] for e in _used_for(c)} - {f["key"] for f in form_defs()}:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Used for names a form that doesn't exist.")
-    seen, entries = set(), []
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Used for names a form that doesn't exist.")
+    known_types = {t.lower(): t for t in BUILTIN_EXTRA_TYPES}
+    seen, entries, type_pins = set(), [], []
     for e in c.get("used_for") or []:
-        if not isinstance(e, dict) or not e.get("form"):
+        if not isinstance(e, dict):
+            continue
+        if not e.get("form"):
+            label = str(e.get("type_label") or "").strip()
+            if not label:
+                continue
+            if label.lower() not in known_types:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                    f"Used for names a request type that doesn't exist: {label}")
+            if ("type", label.lower()) not in seen:
+                seen.add(("type", label.lower()))
+                type_pins.append({"type_label": known_types[label.lower()]})
             continue
         agreement = str(e.get("agreement_type") or "").strip() or None
         key = (e["form"], (agreement or "").lower())
         if key not in seen:
             seen.add(key)
             entries.append({"form": e["form"], "agreement_type": agreement})
-    c["used_for"] = entries
+    c["used_for"] = entries + type_pins
+    # "Chosen when" conditions are questions on a form, so only form entries count.
     c["conditions"] = _clean_conditions(c.get("conditions"), entries)
     return c
 
@@ -1693,21 +1735,21 @@ def _clean_conditions(conditions, used_for: list[dict]) -> list[dict]:
     if not conditions:
         return []
     if not used_for:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick an agreement type before adding conditions.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Pick an agreement type before adding conditions.")
     kinds = {f["key"]: f.get("kind") for f in (form_def(used_for[0]["form"]) or {}).get("fields", [])}
     asked = set(kinds)
     out = []
     for c in conditions:
         field, op = str(c.get("field") or ""), str(c.get("op") or "")
         if op not in CHOOSE_OPS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown condition '{op}'.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown condition '{op}'.")
         if field != "value" and field not in asked:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"This form doesn't ask '{field}'.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"This form doesn't ask '{field}'.")
         if field == "value" and not asked & set(_VALUE_KEYS):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This form doesn't ask a value.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "This form doesn't ask a value.")
         cond = {"field": field, "op": op, "value": c.get("value")}
         if (op in _DATE_OPS) != (kinds.get(field) == "date"):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                 "'Within days' is for date questions, and a date question needs it.")
         if op in _DATE_OPS:
             try:
@@ -1715,7 +1757,7 @@ def _clean_conditions(conditions, used_for: list[dict]) -> list[dict]:
                 if cond["value"] < 0:
                     raise ValueError
             except (TypeError, ValueError) as exc:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                     "Days must be a whole number, 0 or more.") from exc
         elif op in _AMOUNT_OPS:
             try:
@@ -1725,11 +1767,11 @@ def _clean_conditions(conditions, used_for: list[dict]) -> list[dict]:
                     if cond["value2"] <= cond["value"]:
                         raise ValueError
             except (TypeError, ValueError) as exc:
-                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
                                     "Amounts must be numbers, and a range must go from low to high.") from exc
             cond["currency"] = c.get("currency") or settings.default_currency
         elif not str(c.get("value") or "").strip():
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick an answer for each condition.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Pick an answer for each condition.")
         out.append(cond)
     return out
 
@@ -1781,7 +1823,7 @@ def _clean_steps(steps: list) -> list:
     stages.infer(out)
     bad = stages.problems(out)
     if bad:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, " ".join(bad[:3]))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, " ".join(bad[:3]))
     return out
 
 

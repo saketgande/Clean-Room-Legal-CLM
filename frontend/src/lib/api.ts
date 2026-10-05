@@ -209,14 +209,16 @@ export async function apiDownload(path: string, fallbackName = "download") {
 }
 
 export interface StreamCallbacks {
-  onEvent: (event: string, data: Record<string, unknown>) => void;
+  /** `id` is the server's event id (SSE `id:` line) when it sent one. */
+  onEvent: (event: string, data: Record<string, unknown>, id?: string) => void;
   onError?: (err: Error) => void;
   onClose?: () => void;
 }
 
 /**
- * POST a body and consume a text/event-stream response. Returns an abort fn.
- * Used by the assistant streaming + resume endpoints.
+ * Consume a text/event-stream response (POST with a JSON body, or GET when
+ * `body` is null). Returns an abort fn. Used by Ask Aegis: sending a message,
+ * resuming after a confirmation, and watching an answer in progress.
  */
 export async function apiStream(
   path: string,
@@ -224,25 +226,23 @@ export async function apiStream(
   cb: StreamCallbacks,
 ): Promise<() => void> {
   const controller = new AbortController();
+  const isGet = body === null;
+  const request = () =>
+    fetch(`${API_BASE}${path}`, {
+      method: isGet ? "GET" : "POST",
+      headers: isGet
+        ? authHeaders({ Accept: "text/event-stream" })
+        : authHeaders({ "Content-Type": "application/json" }),
+      body: isGet ? undefined : JSON.stringify(body ?? {}),
+      credentials: "include",
+      signal: controller.signal,
+    });
   (async () => {
     try {
-      let res = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body ?? {}),
-        credentials: "include",
-        signal: controller.signal,
-      });
+      let res = await request();
       if (res.status === 401) {
         const ok = await tryRefresh();
-        if (ok)
-          res = await fetch(`${API_BASE}${path}`, {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body ?? {}),
-            credentials: "include",
-            signal: controller.signal,
-          });
+        if (ok) res = await request();
       }
       if (!res.ok || !res.body) {
         cb.onError?.(await parseError(res));
@@ -260,12 +260,14 @@ export async function apiStream(
         buffer = chunks.pop() ?? "";
         for (const chunk of chunks) {
           let eventName = "message";
+          let eventId: string | undefined;
           const dataLines: string[] = [];
           for (const line of chunk.split(/\r?\n/)) {
             if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("id:")) eventId = line.slice(3).trim();
             else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
           }
-          if (!dataLines.length) continue;
+          if (!dataLines.length) continue; // e.g. ": keep-alive" comments
           const raw = dataLines.join("\n");
           let parsed: Record<string, unknown> = {};
           try {
@@ -273,7 +275,7 @@ export async function apiStream(
           } catch {
             parsed = { raw };
           }
-          cb.onEvent(eventName, parsed);
+          cb.onEvent(eventName, parsed, eventId);
         }
       }
       cb.onClose?.();

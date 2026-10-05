@@ -279,7 +279,7 @@ class AuthorityService:
     def _validate_principal(self, *, org_id: str, principal_type: str, principal_id: str) -> None:
         db = self.db
         if principal_type not in PRINCIPAL_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid principal_type")
         if principal_type == "user":
             u = db.get(User, principal_id)
             ok = u is not None and u.org_id == org_id
@@ -292,11 +292,11 @@ class AuthorityService:
     def _validate_payload(self, *, org_id: str, payload) -> None:
         db = self.db
         if payload.action not in ACTIONS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported action")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported action")
         if payload.max_risk_band and payload.max_risk_band not in RISK_BANDS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid max_risk_band")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid max_risk_band")
         if payload.max_value is not None and payload.max_value < 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "max_value cannot be negative")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "max_value cannot be negative")
         self._validate_principal(
             org_id=org_id, principal_type=payload.principal_type, principal_id=payload.principal_id
         )
@@ -355,9 +355,9 @@ class AuthorityService:
         db = self.db
         g = self._get(actor.org_id, grant_id)
         if payload.max_value is not None and payload.max_value < 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "max_value cannot be negative")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "max_value cannot be negative")
         if payload.max_risk_band and payload.max_risk_band not in RISK_BANDS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid max_risk_band")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid max_risk_band")
         for field in (
             "max_value",
             "currency",

@@ -6,7 +6,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Models
 
-- `Contract` (table `contract`, org_scoped=True, soft_delete=True) -- FKs: owner_user_id->user.id, matter_id->matter.id, current_contract_file_id->contract_file.id, current_authoritative_version_id->contract_version.id
+- `Contract` (table `contract`, org_scoped=True, soft_delete=True) -- FKs: owner_user_id->user.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id, current_contract_file_id->contract_file.id, current_authoritative_version_id->contract_version.id
 - `ContractParty` (table `contract_party`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id
 - `ContractStageHistory` (table `contract_stage_history`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, changed_by_user_id->user.id
 
@@ -14,6 +14,7 @@ Owner agents: backend-dev, db-engineer
 
 - `DELETE /contracts/{contract_id}/parties/{party_id}` -- permission: `contract:update` -- request: ? -- response: ?
 - `GET /contracts` -- permission: `contract:read` -- request: ? -- response: list[ContractResponse]
+- `GET /contracts/counterparties` -- permission: `contract:read` -- request: str | None -- response: list[CounterpartyOption]
 - `GET /contracts/{contract_id}` -- permission: `contract:read` -- request: ? -- response: ContractResponse
 - `GET /contracts/{contract_id}/activity` -- permission: `contract:read` -- request: ? -- response: list[ContractActivityResponse]
 - `GET /contracts/{contract_id}/deviations` -- permission: `contract:read` -- request: ? -- response: ?
@@ -33,7 +34,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractUpdate, ContractUploadResponse, DiffLine, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewStatusResponse, SignerOption, VersionDiffResponse
+ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractUpdate, ContractUploadResponse, CounterpartyOption, DiffLine, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewStatusResponse, SignerOption, VersionDiffResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -41,6 +42,9 @@ ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractRe
 - `0007_drop_dead_contract_activity` (backend/alembic/versions/0007_drop_dead_contract_activity.py)
 - `0013_contract_comments` (backend/alembic/versions/0013_contract_comments.py)
 - `0016_contract_risk_score` (backend/alembic/versions/0016_contract_risk_score.py)
+- `0046_contract_share_step_link` (backend/alembic/versions/0046_contract_share_step_link.py)
+- `0051_contract_party_links` (backend/alembic/versions/0051_contract_party_links.py)
+- `0061_contract_workflow_library` (backend/alembic/versions/0061_contract_workflow_library.py)
 
 ## Frontend counterpart
 
@@ -50,26 +54,33 @@ Api group: `contractsApi` (confidence: exact)
 - `contractsApi.addComment()` -> `POST /contracts/${id}/comments`
 - `contractsApi.addParty()` -> `POST /contracts/${id}/parties`
 - `contractsApi.aiRedline()` -> `POST /contracts/${id}/edits/ai-redline`
+- `contractsApi.clauses()` -> `GET /contracts/${id}/clauses`
 - `contractsApi.comments()` -> `GET /contracts/${id}/comments`
 - `contractsApi.computeRisk()` -> `POST /contracts/${id}/risk`
+- `contractsApi.counterpartyDirectory()` -> `GET /contracts/counterparties${q ? `
 - `contractsApi.createShare()` -> `POST /contracts/${id}/shares`
+- `contractsApi.decideRevisionChange()` -> `POST /contracts/${id}/revisions/${roundId}/changes/${changeId}`
 - `contractsApi.deleteComment()` -> `DELETE /contracts/${id}/comments/${commentId}`
 - `contractsApi.deviations()` -> `GET /contracts/${id}/deviations`
 - `contractsApi.downloadVersion()` -> `GET /contracts/${id}/versions/${versionId}/download`
+- `contractsApi.editorConfig()` -> `GET /contracts/${id}/editor/config`
 - `contractsApi.edits()` -> `GET /contracts/${id}/edits${qs({ status_filter })}`
 - `contractsApi.exportDocx()` -> `GET /contracts/${id}/export-docx`
+- `contractsApi.finishRevisionRound()` -> `POST /contracts/${id}/revisions/${roundId}/finish`
 - `contractsApi.get()` -> `GET /contracts/${id}`
 - `contractsApi.lifecycleOptions()` -> `GET /contracts/${id}/lifecycle`
 - `contractsApi.list()` -> `GET /contracts`
 - `contractsApi.logCounterpartyRevision()` -> `POST /contracts/${id}/counterparty-revision`
 - `contractsApi.logNegotiationRevision()` -> `POST /contracts/${id}/negotiation-revision`
 - `contractsApi.notifyTeam()` -> `POST /contracts/${id}/notify-team`
+- `contractsApi.parties()` -> `GET /contracts/${id}/parties`
 - `contractsApi.plainSummary()` -> `GET /contracts/${id}/plain-summary`
 - `contractsApi.proposeEdit()` -> `POST /contracts/${id}/edits/propose`
 - `contractsApi.rejectEdit()` -> `POST /contracts/${id}/edits/${editId}/reject`
 - `contractsApi.resolveComment()` -> `POST /contracts/${id}/comments/${commentId}/resolve`
 - `contractsApi.restoreVersion()` -> `POST /contracts/${id}/versions/${versionId}/restore`
 - `contractsApi.reviewStatus()` -> `GET /contracts/${id}/review-status`
+- `contractsApi.revisionRound()` -> `GET /contracts/${id}/revisions/current`
 - `contractsApi.risk()` -> `GET /contracts/${id}/risk`
 - `contractsApi.shares()` -> `GET /contracts/${id}/shares`
 - `contractsApi.signers()` -> `GET /contracts/${id}/signers`

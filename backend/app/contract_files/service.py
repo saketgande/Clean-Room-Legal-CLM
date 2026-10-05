@@ -151,7 +151,7 @@ def _scan_for_malware(content: bytes) -> None:
         signature = status_tuple[1] if len(status_tuple) > 1 else "unknown"
         logger.warning("Rejected uploaded file: ClamAV detected %s", signature)
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Uploaded file was rejected by antivirus scanning.",
         )
 
@@ -170,7 +170,7 @@ async def _read_upload_with_limit(upload: UploadFile, *, limit: int, chunk_size:
             break
         if len(buffer) + len(chunk) > limit:
             raise HTTPException(
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                status.HTTP_413_CONTENT_TOO_LARGE,
                 "Upload exceeds size limit",
             )
         buffer.extend(chunk)
@@ -209,7 +209,7 @@ async def ingest_upload(upload: UploadFile, *, default_name: str = "document") -
         chunk_size=settings.upload_stream_chunk_bytes,
     )
     if not content:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The uploaded file is empty")
     mime_type = validate_upload_mime(content, mime_type)
     await asyncio.to_thread(_scan_for_malware, content)  # network call to clamd when enabled
     return IngestedUpload(filename=filename, mime_type=mime_type, content=content)

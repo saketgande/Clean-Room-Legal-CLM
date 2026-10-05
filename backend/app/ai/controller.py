@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
+from app.ai.confirmations import confirmation_details
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.fallback import fallback_metadata_from_text
 from app.ai.models import AICitation, AIConfirmation, AISkillRun
@@ -40,7 +41,7 @@ from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
-from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
+from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus, AssistantSessionType
 from app.core.models import AdminSetting, AICallLog, UsageRecord
 from app.core.rbac import has_permission
 from app.integrations.claude import ClaudeProvider, ClaudeProviderResponse
@@ -208,6 +209,7 @@ class AIController:
         request_id: str | None,
         contract_id: str | None = None,
         contract_ids: list[str] | None = None,
+        session_type: str | None = None,
     ):
         spec = skill_registry.get("assistant_streaming")
         model_config = {"temperature": spec.temperature, "max_tokens": spec.max_tokens}
@@ -278,6 +280,7 @@ class AIController:
                     contract_summaries=contract_summaries,
                     contract_inventory=contract_inventory,
                     blackboard=blackboard_text,
+                    session_type=session_type,
                 ),
             },
         ]
@@ -377,6 +380,7 @@ class AIController:
                                     "tool_call_id": result.get("tool_call_id"),
                                     "confirmation_id": result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
+                                    "details": _confirmation_details(tool_use.get("input")),
                                 },
                             }
                             return
@@ -668,6 +672,7 @@ class AIController:
                                     "tool_call_id": loop_result.get("tool_call_id"),
                                     "confirmation_id": loop_result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
+                                    "details": _confirmation_details(tool_use.get("input")),
                                 },
                             }
                             return
@@ -756,6 +761,7 @@ class AIController:
         contract_summaries: list[dict[str, Any]] | None = None,
         contract_inventory: list[dict[str, Any]] | None = None,
         blackboard: str = "",
+        session_type: str | None = None,
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
@@ -768,6 +774,7 @@ class AIController:
         }
         parts = [
             f"User message:\n{message}",
+            _SESSION_CONTEXT.get(session_type or "", ""),  # filtered out below when empty
             blackboard,  # shared agent memory — filtered out below when empty
             "Available contract handles for tool use:",
             self._json_tool_result(safe_handles),
@@ -1891,6 +1898,29 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
             citations.extend(getattr(item, "citations", []) or [])
     return citations
 
+
+# Per-session-type context for the assistant turn. Static text only (never user
+# input), keyed by AssistantSession.session_type.
+_SESSION_CONTEXT: dict[str, str] = {
+    AssistantSessionType.LEGAL_QUESTION: (
+        "Session context: the user opened this chat from Legal Intake's \"General legal question\" "
+        "form — they came to ask Legal a question. Their first message is the question followed by "
+        "the jurisdiction, urgency and any related contract they gave. \"Jurisdiction: Not specified\" "
+        "means they left it blank: then answer under Indian law, and open your answer by saying you "
+        "assumed India and they should tell you if another jurisdiction applies. Follow "
+        "<general_legal_questions>: answer first, state the jurisdiction and "
+        "assumptions you relied on, then judge whether a lawyer is needed and, if so, offer in one "
+        "sentence to send it to the legal team. File with create_intake_request only after they say "
+        "yes, with type_label exactly \"Legal Question — General\" and a priority matching the "
+        "urgency they gave (No rush=Low, Within a week=Medium, Within 48 hours=High, Today=Critical)."
+    ),
+}
+
+
+
+
+# Shared with the session API (restoring a confirmation card after a reload).
+_confirmation_details = confirmation_details
 
 def _handle_for_contract_id(contract_id: str | None, handles: list[dict[str, Any]]) -> str | None:
     if not contract_id:

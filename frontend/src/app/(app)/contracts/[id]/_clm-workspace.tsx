@@ -25,18 +25,6 @@ import type { ContractDeviation, ContractEditResponse, ContractParty, RevisionCh
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
 
-const NAV = [
-  { label: "Legal Intake", href: "/intake", icon: '<path d="M3 7l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/>' },
-  { label: "My Work", href: "/my-work", icon: '<path d="M9 11l3 3 8-8"/><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9"/>' },
-  { label: "Contracts", href: "/contracts", icon: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>', on: true },
-  { label: "Search", href: "/search", icon: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4-4"/>' },
-];
-const NAV2 = [
-  { label: "Approvals", href: "/approvals", icon: '<path d="M9 11l3 3 8-8"/>' },
-  { label: "Signatures", href: "/signatures", icon: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>' },
-  { label: "Obligations", href: "/obligations", icon: '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/>' },
-];
-
 const SEV = (s: string) => { const v = (s || "").toLowerCase(); return v === "critical" || v === "high" ? "high" : v === "their_change" ? "ext" : v; };
 
 export function ClmWorkspace({ id }: { id: string }) {
@@ -232,7 +220,6 @@ export function ClmWorkspace({ id }: { id: string }) {
   const nextStep = run && !["complete", "failed", "cancelled"].includes(run.status) ? run.steps?.[run.current_index]?.name : null;
   const editCount = (edits ?? []).length;
   const cpty = contract?.counterparty_name;
-  const bandTone = risk?.band === "high" ? "crit" : risk?.band === "medium" ? "warn" : risk?.band === "low" ? "good" : "ink-3";
 
   function toggleTheme() {
     const el = document.documentElement;

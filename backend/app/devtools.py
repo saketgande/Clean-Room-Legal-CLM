@@ -103,6 +103,11 @@ def seed() -> None:
                     print("Seeded dev users: " + ", ".join(e for e, _ in dev_users))
                 else:
                     print("Dev users already present.")
+                # Their role grants and screen access (see menu_security/bootstrap.py).
+                from app.menu_security.bootstrap import ensure_org_access
+
+                print(f"Access: {ensure_org_access(db, org_id=org.id)}")
+                db.commit()
 
                 # Legal intake demo data (request types, KB, sample requests).
                 from app.auth.models import Role as _Role
@@ -220,9 +225,25 @@ def reset_database() -> None:
     print("Local database reset complete")
 
 
+def bootstrap_access() -> None:
+    """Repair an install whose organisation was created after the access
+    migrations ran (every fresh install before this fix): add the root org
+    unit, each user's role grant and every role's default screen access.
+    Idempotent — run it as often as you like."""
+    from app.menu_security.bootstrap import ensure_org_access
+
+    db = SessionLocal()
+    try:
+        for org in db.scalars(select(Organization)).all():
+            print(f"{org.name}: {ensure_org_access(db, org_id=org.id)}")
+        db.commit()
+    finally:
+        db.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local backend development helpers")
-    parser.add_argument("command", choices=["seed", "reset-db", "backfill-brain"])
+    parser.add_argument("command", choices=["seed", "reset-db", "backfill-brain", "bootstrap-access"])
     args = parser.parse_args()
     if args.command == "seed":
         seed()
@@ -230,6 +251,8 @@ def main() -> None:
         reset_database()
     if args.command == "backfill-brain":
         backfill_contract_brain()
+    if args.command == "bootstrap-access":
+        bootstrap_access()
 
 
 if __name__ == "__main__":

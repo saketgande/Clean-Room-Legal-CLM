@@ -11,6 +11,7 @@ from app.assistant.routes import (
     _events_from_tool_result,
     confirm_assistant_action,
     reject_assistant_action,
+    stream_session,
 )
 from app.contract_files.routes import _decision_summary
 from app.contract_files.service import INITIAL_CONTRACT_AI_JOB_TYPES
@@ -151,8 +152,13 @@ def test_confirmation_reject_and_expiry_paths_are_explicit():
 
     assert "AIConfirmationStatus.REJECTED" in reject_source
     assert "AssistantToolCallStatus.REJECTED" in reject_source
-    assert "AIConfirmationStatus.EXPIRED" in pending_source
+    expire_source = inspect.getsource(confirmations.expire_confirmation)
+    assert "AIConfirmationStatus.EXPIRED" in expire_source
     assert "Confirmation expired" in pending_source
+    # The expiry is committed BEFORE the 409 is raised: get_db rolls back on the
+    # exception, which used to discard it and leave the run waiting forever.
+    expire_at = pending_source.index("expire_confirmation(db, confirmation)")
+    assert expire_at < pending_source.index("db.commit()") < pending_source.index('"Confirmation expired"')
 
 
 def test_resume_requires_confirmed_confirmation_before_execution():
@@ -417,3 +423,97 @@ def test_external_share_passcode_requires_at_least_eight_chars():
         ExternalShareInput(contract_handle="contract-0", passcode="1234567")  # 7 chars
     ok = ExternalShareInput(contract_handle="contract-0", passcode="12345678")  # 8 chars
     assert ok.passcode == "12345678"
+
+
+def test_legal_question_session_adds_intake_context_only_for_that_session_type():
+    """A chat opened from Legal Intake's 'General legal question' form tells the model
+    where the user came from and how to file; other sessions are unchanged."""
+    kwargs = dict(message="Can we terminate early?", contract_id=None, contract_ids=[], handles=[])
+    legal = ai_controller._assistant_user_prompt(**kwargs, session_type="legal_question")
+    general = ai_controller._assistant_user_prompt(**kwargs, session_type="general")
+    default = ai_controller._assistant_user_prompt(**kwargs)
+
+    assert "General legal question" in legal
+    assert '"Legal Question — General"' in legal
+    assert "Indian law" in legal  # blank jurisdiction defaults to India, stated in the answer
+    assert "General legal question" not in general
+    assert general == default
+    # The worker passes the session's type through to the controller.
+    from app.assistant.runner import drive_run
+
+    assert "session_type=session.session_type" in inspect.getsource(drive_run)
+
+
+# Ask Aegis must ask before any high-risk action: deciding approvals, anything that
+# reaches the counterparty, moving a contract or a governance workflow, or changing
+# who owns a request. A prompt-injected contract could otherwise make the model do
+# these on its own. (Decided 2026-10-05: lower-risk filing/notice/task/obligation
+# tools stay instant.)
+HIGH_RISK_TOOLS = {
+    "decide_approval",
+    "send_for_negotiation",
+    "add_contract_comment",
+    "advance_contract_stage",
+    "reassign_request",
+    "start_intake_workflow",
+    "advance_intake_workflow",
+    "create_workflow",
+    # already confirmation-gated before this change
+    "edit_contract",
+    "redraft_contract",
+    "redline_against_playbook",
+    "send_for_signature",
+    "external_share",
+}
+
+
+def test_high_risk_assistant_tools_require_confirmation():
+    from app.ai.tool_registry import tool_registry
+
+    missing = sorted(n for n in HIGH_RISK_TOOLS if not tool_registry.get(n).requires_confirmation)
+    assert missing == []
+
+
+def test_every_external_action_tool_requires_confirmation():
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    external = [s.name for s in tool_registry._tools.values()
+                if s.category == AssistantToolCategory.EXTERNAL_ACTION and not s.requires_confirmation]
+    assert external == []
+
+
+def test_confirmation_card_shows_what_is_being_approved():
+    """The confirmation event carries the action's arguments, so the user sees WHICH
+    request / WHO / WHAT decision — not just the tool name."""
+    from app.ai.controller import _confirmation_details
+
+    details = _confirmation_details(
+        {"request_id": "REQ-5960", "assignee": "Erin Legal", "notify": True,
+         "nested": {"x": 1}, "note": "x" * 500, "blank": "  "}
+    )
+    assert details["request_id"] == "REQ-5960" and details["assignee"] == "Erin Legal"
+    assert details["notify"] == "yes"
+    assert "nested" not in details and "blank" not in details
+    assert len(details["note"]) == 300
+    assert _confirmation_details(None) == {}
+    src = inspect.getsource(ai_controller.stream_assistant_run) + inspect.getsource(ai_controller.resume_assistant_run)
+    assert src.count('"details": _confirmation_details(') == 2
+
+
+def test_assistant_errors_shown_to_users_never_carry_internal_detail():
+    """Provider/SDK/database errors are logged, not streamed: the user and the run
+    row (returned by the runs API) get a generic message with the request id."""
+    from fastapi import HTTPException
+
+    from app.assistant.routes import _user_facing_error
+
+    internal = RuntimeError("anthropic.APIStatusError: 401 invalid x-api-key sk-ant-123 at /app/integrations/claude.py")
+    msg = _user_facing_error(internal, request_id="req-42", run_id="run-1")
+    assert "sk-ant" not in msg and "claude.py" not in msg and "401" not in msg
+    assert "req-42" in msg
+    # Messages written for users (e.g. the AI budget guard) still pass through.
+    budget = HTTPException(429, "Today's AI budget for your organisation is used up.")
+    assert _user_facing_error(budget, request_id=None, run_id="run-1") == budget.detail
+    for fn in (stream_session,):
+        assert 'yield _sse("error", {"message": str(exc)' not in inspect.getsource(fn)

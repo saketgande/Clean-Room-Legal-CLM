@@ -47,6 +47,8 @@ class AssistantSessionType(StrEnum):
     GENERAL = "general"
     CONTRACT = "contract"
     TABULAR_REVIEW = "tabular_review"
+    # Opened from Legal Intake's "General legal question" form.
+    LEGAL_QUESTION = "legal_question"
 
 
 class AssistantToolCategory(StrEnum):

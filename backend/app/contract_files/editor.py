@@ -238,7 +238,7 @@ async def contract_saved(
         return {"error": 1}
     content = answer.content
     if len(content) > _MAX_BYTES or not content.startswith(b"PK"):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The editor sent back something that isn't Word.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The editor sent back something that isn't Word.")
 
     opened = db.get(ContractVersion, ours["vid"])
     current = db.get(ContractVersion, contract.current_authoritative_version_id)

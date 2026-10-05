@@ -251,6 +251,13 @@ class AuthService:
         from app.intake.teams import ensure_default_teams
 
         ensure_default_teams(db, org_id=org.id, actor_user_id=user.id)
+        # The root org unit, the admin's role grant and every role's default
+        # screen access. The migrations seed these only for organisations that
+        # already existed, so a fresh install's admin otherwise holds no grant
+        # (User.roles above is view-only) and sees no Legal Intake, no Contracts.
+        from app.menu_security.bootstrap import ensure_org_access
+
+        ensure_org_access(db, org_id=org.id, actor_user_id=user.id)
         write_audit_log(
             db,
             action="organization.setup_completed",
@@ -907,7 +914,7 @@ class AuthService:
     ) -> User:
         db = self.db
         if not role_id and not role_name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "role_id or role_name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "role_id or role_name is required")
         role = next(
             (
                 item

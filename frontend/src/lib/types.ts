@@ -66,6 +66,9 @@ export interface IntakeRequest {
   type_label: string; subject: string | null; description: string;
   counterparty_id?: ID | null; legal_entity_id?: ID | null;
   field_values: Record<string, unknown> | null;
+  /** Server-decided document "Approve & draft" would produce (null = not draftable). */
+  draftable_doc_type?: string | null;
+  draftable_doc_label?: string | null;
   priority: "Critical" | "High" | "Medium" | "Low";
   status: IntakeStatus; stage: string; work_status: string | null;
   assigned_to_user_id: ID | null; assigned_to_label: string | null;
@@ -158,9 +161,6 @@ export interface IntakeTeam {
   overflow_team_name: string | null; sort_order: number;
   is_default_intake: boolean; used_in: { where: string; kind: string | null; stage?: LifecycleStage | null }[];
   expertise: string[]; departments: string[]; members: IntakeTeamMember[];
-}
-export interface CopilotTurn {
-  reply: string; extracted: Record<string, string>; ready: boolean; suggested_type_label: string | null;
 }
 
 export interface RoleResponse {
@@ -686,11 +686,28 @@ export interface AssistantMessage {
   created_by_user_id: ID | null;
 }
 
+export type AssistantRunStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "waiting_confirmation"
+  | "interrupted"
+  | "cancelled";
+
+/** What a reopened chat needs to know about its latest answer. */
+export interface AssistantRunSummary {
+  id: ID;
+  status: AssistantRunStatus;
+  error_message: string | null;
+  user_message_id: ID | null;
+  has_answer: boolean;
+}
+
 export interface AssistantRun {
   id: ID;
   session_id: ID;
   org_id: ID;
-  status: "running" | "succeeded" | "failed" | "waiting_confirmation";
+  status: AssistantRunStatus;
   user_message_id: ID | null;
   assistant_message_id: ID | null;
   model: string | null;
@@ -807,8 +824,10 @@ export interface Workflow {
     /** Free text an AI reads when auto-picking a workflow at intake. */
     ai_condition?: string | null;
     /** The agreement type this workflow is for: a form, and for New agreement a
-     * kind of agreement. Form requests only ever get a workflow of their type. */
-    used_for?: { form: string; agreement_type: string | null }[];
+     * kind of agreement. Form requests only ever get a workflow of their type.
+     * An entry with `type_label` (and no form) pins requests WITHOUT a form by
+     * their request type, e.g. "Legal Question — General". */
+    used_for?: { form?: string; agreement_type?: string | null; type_label?: string }[];
     /** "Chosen when": all must hold for a request of that type to get it. */
     conditions?: WorkflowCondition[];
   };

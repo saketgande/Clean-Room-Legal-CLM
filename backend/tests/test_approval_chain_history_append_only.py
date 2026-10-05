@@ -50,7 +50,10 @@ from app.organizations.models import Organization
 def db():
     connection = engine.connect()
     trans = connection.begin()
-    session = Session(bind=connection)
+    # create_savepoint: the guard test makes a flush fail on purpose. Without a
+    # savepoint the session's rollback would also end this outer transaction,
+    # and the cleanup below would warn that it is already gone.
+    session = Session(bind=connection, join_transaction_mode="create_savepoint")
     try:
         yield session
     finally:

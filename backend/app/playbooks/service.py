@@ -1298,7 +1298,7 @@ class PlaybooksService:
         text = (source_text or "").strip()
         if len(text) < 50:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "The document text is too short to derive a playbook from.",
             )
         from app.ai.context import chunk_text

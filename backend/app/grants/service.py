@@ -213,7 +213,7 @@ class GrantService:
     def _validate_principal(self, *, org_id: str, principal_type: str, principal_id: str) -> None:
         db = self.db
         if principal_type not in PRINCIPAL_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid principal_type")
         if principal_type == "user":
             u = db.get(User, principal_id)
             ok = u is not None and u.org_id == org_id
@@ -231,9 +231,9 @@ class GrantService:
     def grant_access(self, *, actor: User, payload) -> dict:
         db = self.db
         if payload.resource_type not in RESOURCE_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported resource_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported resource_type")
         if payload.access_level not in LEVELS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid access_level")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid access_level")
         if self._resource_owner_id(payload.resource_type, payload.resource_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Resource not found")
         if not self.can_manage_grants(

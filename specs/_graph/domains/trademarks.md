@@ -32,6 +32,8 @@ DashboardMetrics, ExtractRequest, ExtractResponse, ExtractedRecord, FieldDefinit
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
 - `0029_trademarks` (backend/alembic/versions/0029_trademarks.py)
+- `0066_trademarks_menu_item` (backend/alembic/versions/0066_trademarks_menu_item.py)
+- `0067_remove_trademarks_menu_item` (backend/alembic/versions/0067_remove_trademarks_menu_item.py)
 
 ## Frontend counterpart
 

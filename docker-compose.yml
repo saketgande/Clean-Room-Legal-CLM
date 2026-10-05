@@ -118,7 +118,10 @@ services:
 
   worker:
     <<: *backend
-    command: ["celery", "-A", "app.jobs.celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+    # 12 slots: Ask Aegis answers run here (one slot each, mostly waiting on the
+    # AI provider) alongside document jobs. Sized for ~10 people asking at once
+    # plus spare; idle cost measured at ~140 MiB per slot (2026-10-05).
+    command: ["celery", "-A", "app.jobs.celery_app.celery_app", "worker", "--loglevel=info", "--concurrency=12"]
     volumes:
       - contracts:/data/contracts
     depends_on:

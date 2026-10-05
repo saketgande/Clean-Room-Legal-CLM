@@ -24,6 +24,10 @@ BUILTIN_EXTRA_TYPES = (
 )
 DEFAULT_BUILTIN_EXTRA = "Other"
 
+# Request types that ask Legal a question rather than ask for a document. Words in
+# the question ("our vendor", "the MSA") must never turn them into a drafting job.
+NON_DRAFTABLE_TYPES = frozenset({"Legal Question — General", "IP Question"})
+
 # category (from classify() below) -> the closest BUILTIN_EXTRA_TYPES bucket,
 # the type label an email or chat request gets for its category.
 CATEGORY_TO_BUILTIN_EXTRA = {

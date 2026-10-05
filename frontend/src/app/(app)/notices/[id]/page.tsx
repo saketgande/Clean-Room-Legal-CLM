@@ -8,9 +8,9 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Sparkles, Trash2, Upload } from "lucide-react";
+import { FileText, Sparkles, Trash2 } from "lucide-react";
 import { noticesApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -28,19 +28,10 @@ import {
   Textarea,
 } from "@/components/ui";
 import { useToast } from "@/components/toast";
-import {
-  NOTICE_TYPES,
-  POSTURE_TONE,
-  REMINDER_LABEL,
-  STATUS_TONE,
-  deadlineLabel,
-  fmtDate,
-  typeLabel,
-} from "../shared";
+import { POSTURE_TONE, REMINDER_LABEL, STATUS_TONE, deadlineLabel, fmtDate, typeLabel } from "../shared";
 
 export default function NoticeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const qc = useQueryClient();
   const { notify } = useToast();
 

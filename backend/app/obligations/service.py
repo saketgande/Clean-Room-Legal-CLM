@@ -131,7 +131,7 @@ class ObligationsService:
             owner = db.get(User, updates["owner_user_id"])
             if owner is None or owner.org_id != current_user.org_id:
                 raise HTTPException(
-                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
                     "Owner user must belong to this organization",
                 )
         for key, value in updates.items():

@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.deps import get_db, require_permission, require_screen_level
 from app.core.rate_limit import limiter
-from app.intake import copilot as copilot_mod
 from app.intake import drafts as drafts_mod
 from app.intake.dependencies import (
     get_drafting_service,
@@ -21,9 +20,6 @@ from app.intake.gmail_sync import GmailSyncService
 from app.intake.ingest import IngestService
 from app.intake.schemas import (
     AssigneeResponse,
-    CopilotFileRequest,
-    CopilotTurnRequest,
-    CopilotTurnResponse,
     DraftResponse,
     DraftSave,
     HandoffCreate,
@@ -447,21 +443,6 @@ def update_team(team_id: str, payload: TeamUpdate, team_service: TeamService = D
 def delete_team(team_id: str, team_service: TeamService = Depends(get_team_service), current_user=Depends(_MANAGE)):
     team_service.delete_team(actor=current_user, team_id=team_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
-# ---- copilot (conversational filing) --------------------------------------
-
-@router.post("/copilot/turn", response_model=CopilotTurnResponse)
-def copilot_turn(payload: CopilotTurnRequest, current_user=Depends(_CREATE),
-                  _screen=Depends(_INTAKE_VIEW)):
-    return copilot_mod.turn(payload.messages, payload.user_message)
-
-
-@router.post("/copilot/file", response_model=RequestResponse, status_code=status.HTTP_201_CREATED)
-def copilot_file(payload: CopilotFileRequest, request: Request,
-                 intake_service: IntakeService = Depends(get_intake_service), current_user=Depends(_CREATE), _screen=Depends(_INTAKE_ADD)):
-    return intake_service.file_from_copilot(actor=current_user, payload=payload,
-                                     request_id=_req_id(request))
 
 
 # ---- gap-fill: channels, screening, documents, agent ops -------------------

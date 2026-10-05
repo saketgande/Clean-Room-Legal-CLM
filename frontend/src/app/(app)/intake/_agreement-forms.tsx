@@ -332,7 +332,7 @@ function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
           {kind === "counterparty" && text.trim() && !exact && (
             <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { setCreating(true); setOpen(false); }}
               className="w-full border-t border-slate-200 px-3 py-2 text-left text-[12.5px] font-medium text-brand-700 hover:bg-brand-50">
-              + Create "{text.trim()}" as a new counterparty
+              + Create &ldquo;{text.trim()}&rdquo; as a new counterparty
             </button>
           )}
         </div>

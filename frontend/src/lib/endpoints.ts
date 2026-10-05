@@ -1,144 +1,6 @@
 // Typed endpoint functions, grouped by backend module.
 import { apiFetch, apiDownload } from "./api";
-import type {
-  AdminSetting,
-  DraftingTemplate,
-  DraftingTemplateSummary,
-  DraftingTemplateVersion,
-  AiUsageSummary,
-  ApprovalChainStep,
-  ApprovalRequest,
-  ApprovalReviewContext,
-  ApproverBrief,
-  AssistantMessage,
-  AssistantRun,
-  AssistantSession,
-  BrainQuery,
-  BrainSearchResponse,
-  BrainScope,
-  ClauseSearchResult,
-  ConfigStatus,
-  ContractActivityResponse,
-  ContractClause,
-  ContractEditResponse,
-  ContractComment,
-  ContractParty,
-  ContractResponse,
-  ContractRiskSummary,
-  CounterpartyOption,
-  CounterpartyState,
-  ExternalComment,
-  Workflow,
-  WorkflowRun,
-  LifecycleRow,
-  LifecycleStage,
-  SignerOption,
-  ExternalShareView,
-  ContractDeviation,
-  ReviewStatusResponse,
-  VersionDiffResponse,
-  ContractShareCreateResponse,
-  ContractShareResponse,
-  ContractStageHistoryResponse,
-  ContractTextSearchResult,
-  ContractTextSnapshotResponse,
-  ContractUploadResponse,
-  ContractVersionResponse,
-  ContractLifecycleStage,
-  JobRun,
-  LifecycleOptionsResponse,
-  Notification,
-  Notice,
-  NoticeExtraction,
-  NoticeReminderRun,
-  NoticeSummary,
-  Obligation,
-  OrganizationResponse,
-  BuildChatResponse,
-  ExtractedDoc,
-  PlaybookDraftRule,
-  PlaybookInsights,
-  PlaybookResponse,
-  PlaybookRuleResponse,
-  PlaybookRunDetailResponse,
-  PlaybookRunResponse,
-  PlaybookVersionResponse,
-  RegistrationResponse,
-  RenewalEvent,
-  RevisionRound,
-  RenewalRecommendation,
-  SignatureRecipient,
-  SignatureRequest,
-  TabularReview,
-  TabularReviewChat,
-  TabularReviewDetail,
-  TokenResponse,
-  UserInvitationResponse,
-  UserResponse,
-  RoleResponse,
-  PermissionInfo,
-  GrantResponse,
-  WallResponse,
-  AuthorityGrantResponse,
-  Prompt,
-  PromptVersion,
-  PromptUsage,
-  IntakeRequest,
-  IntakeApprovalRung,
-  IntakeTask,
-  IntakeHandoff,
-  IntakeAssignee,
-  IntakeMyWork,
-  IntakeSlaLegs,
-  IntakeSlaOps,
-  IntakeTeam,
-  IntakeDocument,
-  IntakeDraft,
-  RequestFormDef,
-  IntakeApprovalPreview,
-  LegalEntity,
-  Counterparty,
-  CopilotTurn,
-  Trademark,
-  TrademarkCreatePayload,
-  TrademarkUpdatePayload,
-  IntakeSubmitPayload,
-  TrademarkDashboardMetrics,
-  RenewalCalendarEntry,
-  SearchSimilarRequest,
-  SearchSimilarResponse,
-  UploadDocumentResponse,
-  ExtractRequest,
-  ExtractResponse,
-  IngestRequest,
-  IngestResponse,
-  IntegrationStatusResponse,
-  IntegrationTestResponse,
-  OrgUnitResponse,
-  OrgUnitDeleteResponse,
-  RoleGrantResponse,
-  DelegationResponse,
-  DelegationEligibilityEntry,
-  MenuTreeResponse,
-  MyScreenAccessResponse,
-  ActionLevelResponse,
-  ScreenResponse,
-  ScreenGrantResponse,
-  ScreenGrantCreate,
-  ScreenGrantUpdate,
-  ConditionFieldCatalogResponse,
-  ConditionExpression,
-  ChainDefinitionResponse,
-  ChainStepResponse,
-  ChainStepRuleResponse,
-  ChainInstanceSummary,
-  ChainInstanceDetailResponse,
-  ChainBlockedResponse,
-  ChainHistoryEntry,
-  ChainInstanceStatus,
-  ChainApprovalMode,
-  ChainStepType,
-} from "./types";
+import type { AdminSetting, DraftingTemplate, DraftingTemplateSummary, DraftingTemplateVersion, AiUsageSummary, ApprovalChainStep, ApprovalRequest, ApprovalReviewContext, ApproverBrief, AssistantMessage, AssistantRunSummary, AssistantSession, BrainQuery, BrainSearchResponse, BrainScope, ClauseSearchResult, ConfigStatus, ContractActivityResponse, ContractClause, ContractEditResponse, ContractComment, ContractParty, ContractResponse, ContractRiskSummary, CounterpartyOption, CounterpartyState, ExternalComment, Workflow, WorkflowRun, LifecycleRow, LifecycleStage, SignerOption, ExternalShareView, ContractDeviation, ReviewStatusResponse, VersionDiffResponse, ContractShareCreateResponse, ContractShareResponse, ContractStageHistoryResponse, ContractTextSearchResult, ContractTextSnapshotResponse, ContractUploadResponse, ContractVersionResponse, ContractLifecycleStage, JobRun, LifecycleOptionsResponse, Notification, Notice, NoticeExtraction, NoticeReminderRun, NoticeSummary, Obligation, OrganizationResponse, BuildChatResponse, ExtractedDoc, PlaybookDraftRule, PlaybookInsights, PlaybookResponse, PlaybookRuleResponse, PlaybookRunDetailResponse, PlaybookRunResponse, PlaybookVersionResponse, RegistrationResponse, RenewalEvent, RevisionRound, RenewalRecommendation, SignatureRecipient, SignatureRequest, TabularReview, TabularReviewChat, TabularReviewDetail, TokenResponse, UserInvitationResponse, UserResponse, RoleResponse, PermissionInfo, GrantResponse, WallResponse, AuthorityGrantResponse, Prompt, PromptVersion, PromptUsage, IntakeRequest, IntakeApprovalRung, IntakeTask, IntakeHandoff, IntakeAssignee, IntakeMyWork, IntakeSlaLegs, IntakeSlaOps, IntakeTeam, IntakeDocument, IntakeDraft, RequestFormDef, IntakeApprovalPreview, LegalEntity, Counterparty, Trademark, TrademarkCreatePayload, TrademarkUpdatePayload, IntakeSubmitPayload, TrademarkDashboardMetrics, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, UploadDocumentResponse, ExtractRequest, ExtractResponse, IngestRequest, IngestResponse, IntegrationStatusResponse, IntegrationTestResponse, OrgUnitResponse, OrgUnitDeleteResponse, RoleGrantResponse, DelegationResponse, DelegationEligibilityEntry, MenuTreeResponse, MyScreenAccessResponse, ActionLevelResponse, ScreenResponse, ScreenGrantResponse, ScreenGrantCreate, ScreenGrantUpdate, ConditionFieldCatalogResponse, ConditionExpression, ChainDefinitionResponse, ChainStepResponse, ChainStepRuleResponse, ChainInstanceSummary, ChainInstanceDetailResponse, ChainBlockedResponse, ChainHistoryEntry, ChainInstanceStatus, ChainApprovalMode, ChainStepType } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
   const sp = new URLSearchParams();
@@ -779,9 +641,20 @@ export const assistantApi = {
       body: payload,
     }),
   session: (id: string) =>
-    apiFetch<{ session: AssistantSession; contract_handles: unknown[] }>(
-      `/assistant/sessions/${id}`,
-    ),
+    apiFetch<{
+      session: AssistantSession;
+      contract_handles: unknown[];
+      /** A still-actionable confirmation, so a reloaded chat can show its card. */
+      pending_confirmation: {
+        confirmation_id: string;
+        assistant_run_id: string;
+        tool_name: string;
+        details: Record<string, string>;
+        expires_at: string | null;
+      } | null;
+      /** The chat's most recent answer, so a reopened chat can watch it or explain it. */
+      latest_run: AssistantRunSummary | null;
+    }>(`/assistant/sessions/${id}`),
   updateSession: (id: string, payload: { title?: string; status?: string }) =>
     apiFetch<AssistantSession>(`/assistant/sessions/${id}`, {
       method: "PATCH",
@@ -790,6 +663,12 @@ export const assistantApi = {
   messages: (id: string, limit = 100) =>
     apiFetch<AssistantMessage[]>(
       `/assistant/sessions/${id}/messages${qs({ limit })}`,
+    ),
+  /** Stop button: the answer stops at its next check and keeps what it has. */
+  cancelRun: (runId: string) =>
+    apiFetch<{ assistant_run_id: string; run_status: string; cancel_requested: boolean }>(
+      `/assistant/runs/${runId}/cancel`,
+      { method: "POST" },
     ),
   confirm: (confirmationId: string) =>
     apiFetch<{
@@ -1469,7 +1348,6 @@ export const intakeApi = {
     apiFetch<IntakeTeam>(`/intake/teams/${id}`, { method: "PATCH", body: payload }),
   deleteTeam: (id: string) => apiFetch<void>(`/intake/teams/${id}`, { method: "DELETE" }),
 
-  // copilot (Phase 2)
   screen: (id: string) =>
     apiFetch<Record<string, unknown>>(`/intake/requests/${id}/screen`, { method: "POST" }),
   documents: (id: string) =>
@@ -1478,8 +1356,4 @@ export const intakeApi = {
     apiFetch<IntakeDocument>(`/intake/requests/${id}/documents`, { method: "POST", body: payload }),
   setParties: (id: string, parties: { name: string; role: string; is_person?: boolean }[]) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/parties`, { method: "PUT", body: { parties } }),
-  copilotTurn: (messages: { role: string; content: string }[], userMessage: string) =>
-    apiFetch<CopilotTurn>("/intake/copilot/turn", { method: "POST", body: { messages, user_message: userMessage } }),
-  copilotFile: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequest>("/intake/copilot/file", { method: "POST", body: payload }),
 };

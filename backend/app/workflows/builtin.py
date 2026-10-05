@@ -111,6 +111,15 @@ _LIBRARY = [
          _h("Legal Vetting", "legal_review", "attorney", 72),
          _h("CS / Board Approval", "board_signoff", "gc", 168),
      ]),
+    # Filed from Ask Aegis after it has answered (type "Legal Question — General"):
+    # a lawyer takes it from the AI's preliminary answer. No drafting step — a
+    # question that fell through to the Contract Approval Ladder below got a
+    # contract shell drafted for it.
+    ("general_legal_question", "General Legal Question",
+     "A legal question sent to Legal from Ask Aegis or the intake form: a lawyer reviews it and any preliminary answer, then replies.",
+     {"match_keyword": "legal question — general"}, 90, [
+         _h("Answer the question", "legal_review", "attorney", 48),
+     ]),
     ("clm_contract_approval", "Contract Approval Ladder",
      "Commercial contracts: supply, distribution, licensing, services. Default for any contract.",
      {}, 100, [
@@ -221,6 +230,13 @@ for _spec in BUILTIN_FLOWS:
         _spec["used_for"] = [{"form": "new_agreement", "agreement_type": "NDA"}]
         _spec["conditions"] = [{"field": "paper", "op": "is", "value": "Our template"},
                                {"field": "needed_by", "op": "within_days", "value": 7}]
+
+# Legal questions (the intake form, Ask Aegis) always get the General Legal
+# Question workflow — pinned by request type, not guessed. Litigation-classified
+# questions are the exception; see workflows.service._used_for_rank.
+for _spec in BUILTIN_FLOWS:
+    if _spec["name"] == "General Legal Question":
+        _spec["used_for"] = [{"type_label": "Legal Question — General"}]
 
 BUILTIN_FLOWS.append({
     "name": "Master Services Agreement",

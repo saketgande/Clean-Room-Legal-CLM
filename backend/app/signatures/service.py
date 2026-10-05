@@ -65,7 +65,7 @@ class SignaturesService:
         db = self.db
         if not recipients:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "At least one recipient is required"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "At least one recipient is required"
             )
         allowed = {
             email.lower()
@@ -92,7 +92,7 @@ class SignaturesService:
         )
         if invalid:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Recipients must be a contract party or an organization user: "
                 + ", ".join(invalid),
             )

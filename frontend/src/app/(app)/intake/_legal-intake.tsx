@@ -7,13 +7,13 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
-import { Mail, MessageSquare, FileText, Search, ChevronDown, Clock, Inbox, CheckSquare, ClipboardCheck, PenLine, ListChecks, Moon } from "lucide-react";
+
+import { Mail, MessageSquare, FileText, Search, ChevronDown, Clock, Moon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { intakeApi } from "@/lib/endpoints";
-import { useAuth } from "@/lib/auth";
+
 import { useToast } from "@/components/toast";
-import { initials } from "@/lib/utils";
+
 import type { IntakeRequest, WorkflowSuggestion } from "@/lib/types";
 
 // Refetch on window focus rather than poll — see the note on LIVE_POLL in
@@ -389,31 +389,12 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   );
 }
 
-// ---------- full mockup shell (sidebar + topbar) ----------
-const NAV_MAIN: { key: string; label: string; href: string; icon: LucideIcon }[] = [
-  { key: "intake", label: "Legal Intake", href: "/intake", icon: Inbox },
-  { key: "mywork", label: "My Work", href: "/my-work", icon: CheckSquare },
-  { key: "contracts", label: "Contracts", href: "/contracts", icon: FileText },
-  { key: "search", label: "Search", href: "/search", icon: Search },
-];
-const NAV_LIFE: { key: string; label: string; href: string; icon: LucideIcon }[] = [
-  { key: "approvals", label: "Approvals", href: "/approvals", icon: ClipboardCheck },
-  { key: "signatures", label: "Signatures", href: "/signatures", icon: PenLine },
-  { key: "obligations", label: "Obligations", href: "/obligations", icon: ListChecks },
-];
-
-export function MockupShell({ active, title, subtitle, stats, actions, onMyWork, children }: {
-  active: string; title: string; subtitle?: string; stats?: ReactNode; actions?: ReactNode; onMyWork?: () => void; children: ReactNode;
+// The page header + content frame for the intake screens. Navigation lives in
+// the app shell's sidebar (this used to draw its own, hence the old
+// `active`/`onMyWork` props, now removed).
+export function MockupShell({ title, subtitle, stats, actions, children }: {
+  title: string; subtitle?: string; stats?: ReactNode; actions?: ReactNode; children: ReactNode;
 }) {
-  const { user } = useAuth();
-  const name = user?.full_name ?? user?.email ?? "You";
-  const role = user?.active_role_name ?? "Legal";
-  const navItem = (n: { key: string; label: string; href: string; icon: LucideIcon }) => {
-    const Icon = n.icon;
-    const cls = active === n.key ? "on" : "";
-    void onMyWork;
-    return <Link key={n.key} href={n.href} className={cls}><Icon className="ic" />{n.label}</Link>;
-  };
   return (
     <div className="li-board li-shell">
       <style dangerouslySetInnerHTML={{ __html: LI_CSS }} />
@@ -455,7 +436,12 @@ const LI_CSS = `
   --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px rgba(0,0,0,.4);--pop:0 14px 34px rgba(0,0,0,.55);
 }
 .li-board *{box-sizing:border-box}
-.li-board button{cursor:pointer;border:0;background:none;color:inherit;font:inherit}
+/* :where() keeps this reset at element specificity (0,0,1): it still strips the
+   browser's default button chrome, but any class (Tailwind utilities on shared
+   <Button>s, the shell's own .btn/.primary) now wins. As .li-board button it
+   beat single-class utilities, so primary Buttons inside the shell rendered as
+   plain text. */
+:where(.li-board) button{cursor:pointer;border:0;background:none;color:inherit;font:inherit}
 .li-board .num{font-variant-numeric:tabular-nums} .li-board .dim{color:var(--ink-3)}
 .li-board .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .li-board .sp{flex:1}

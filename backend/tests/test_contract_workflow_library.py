@@ -78,7 +78,8 @@ def test_every_form_and_kind_has_a_workflow():
     from app.intake.agreement_forms import form_def, form_defs
 
     kinds = next(f for f in form_def(_NEW)["fields"] if f["key"] == "agreement_type")["options"]
-    have = {(u["form"], u["agreement_type"] or "") for f in _FLOWS for u in f.criteria["used_for"]}
+    # Request-type pins ({"type_label": …}, e.g. General Legal Question) aren't forms.
+    have = {(u["form"], u["agreement_type"] or "") for f in _FLOWS for u in f.criteria["used_for"] if u.get("form")}
     missing = [k for k in kinds if (_NEW, k) not in have]
     missing += [f["key"] for f in form_defs() if f["key"] not in (_NEW, "cancellation") and (f["key"], "") not in have]
     assert missing == []

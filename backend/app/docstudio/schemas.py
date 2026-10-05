@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ClauseOut(BaseModel):
@@ -24,8 +24,7 @@ class ClauseOut(BaseModel):
     # Who decided where this clause sits: numbering, list, ai, undecided…
     structure_source: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AnnotationOut(BaseModel):
@@ -40,8 +39,7 @@ class AnnotationOut(BaseModel):
     anchor_state: str
     anchor_rung: int | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class VersionSummary(BaseModel):

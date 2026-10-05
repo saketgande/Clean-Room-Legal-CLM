@@ -67,6 +67,10 @@ def resolve_doc_type(request: IntakeRequest) -> str | None:
         return _KIND_DOC.get(str(fv.get("agreement_type") or ""))
     if form:
         return None
+    from app.intake.agents import NON_DRAFTABLE_TYPES
+
+    if (request.type_label or "").strip() in NON_DRAFTABLE_TYPES:
+        return None  # a question that mentions a vendor or an MSA is still a question
     field_hint = f"{fv.get('agreement_type') or ''} {fv.get('agreement_category') or ''}"
     text = f"{request.type_label} {request.description or ''} {field_hint}".lower()
     category = (classify(request.type_label, request.description or "").get("category") or "").lower()
@@ -405,7 +409,7 @@ class DraftingService:
         doc_type = resolve_doc_type(request)
         if doc_type is None and not custom:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "This request type has no draft template — handle it manually.",
             )
         # A custom draft doesn't need a template doc_type — it gets a generic shell.
@@ -510,7 +514,7 @@ class DraftingService:
         ).first()
         if doc is None or not (doc.extracted_text or "").strip():
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "No attached document with extractable text to use as the contract.",
             )
 

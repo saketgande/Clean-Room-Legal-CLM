@@ -17,6 +17,7 @@ from datetime import date, timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import cast, func, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
@@ -262,6 +263,15 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
 
 # --- request create / list / get -------------------------------------------
 
+def _draftable(r: IntakeRequest) -> dict:
+    from app.drafting_templates.service import TEMPLATES
+    from app.intake.drafting import resolve_doc_type
+
+    code = resolve_doc_type(r)
+    label = (TEMPLATES.get(code) or {}).get("label") if code else None
+    return {"draftable_doc_type": code, "draftable_doc_label": label}
+
+
 def _derive_subject(subject: str | None, description: str | None, type_label: str) -> str:
     """A short human title for a request: the explicit subject if given, else the
     first non-empty line of the description, else the type label. Capped at 200."""
@@ -414,8 +424,6 @@ def _ms(dt) -> float:
     return dt.timestamp() * 1000.0
 
 
-# --- copilot filing --------------------------------------------------------
-
 _STAGE_STATUS = {"new": "open", "complete": "closed"}
 
 
@@ -567,6 +575,9 @@ class IntakeService:
             "contract_title": self._contract_title(r.contract_id),
             "workflow": _workflow(r, self._latest_run(r)),
             "created_at": _iso(r.created_at),
+            # Which document "Approve & draft" would produce — decided here, by the
+            # same rule the draft endpoint uses, so the UI never guesses on its own.
+            **_draftable(r),
         }
 
     def _transition(self, *, request: IntakeRequest, actor: User | None,
@@ -984,9 +995,12 @@ class IntakeService:
         different agreements filed with the same quick-phrase note used to be merged
         into the first, silently losing the second."""
         db = self.db
-        same_answers = func.coalesce(cast(IntakeRequest.field_values, JSONB), cast({}, JSONB)) == cast(
-            field_values or {}, JSONB
-        )
+        # `field_values` is a plain JSON column, so a request filed without answers
+        # stores JSON `null`, not SQL NULL — COALESCE alone never turned it into {},
+        # and identical answer-less filings (quick questions, Ask Aegis, a double
+        # click) were never recognised as retries. NULLIF maps JSON null to SQL NULL.
+        stored = func.nullif(cast(IntakeRequest.field_values, JSONB), sql_text("'null'::jsonb"))
+        same_answers = func.coalesce(stored, cast({}, JSONB)) == cast(field_values or {}, JSONB)
         return db.scalar(
             select(IntakeRequest)
             .where(
@@ -1792,14 +1806,6 @@ class IntakeService:
         db.commit()
         return {"escalated": escalated, "breached": breached, "downgraded": downgraded}
 
-    def file_from_copilot(self, *, actor: User, payload, request_id: str | None = None) -> dict:
-        from app.intake.schemas import RequestCreate
-
-        convo = [{"role": m.role, "content": m.content} for m in payload.messages]
-        rc = RequestCreate(type_label=payload.type_label, description=payload.description,
-                           field_values=payload.field_values, source="copilot")
-        return self.create_request(actor=actor, payload=rc, request_id=request_id, conversation=convo)
-
     def list_assignees(self, *, org_id: str) -> list[dict]:
         from app.core.enums import UserStatus
 
@@ -2074,10 +2080,6 @@ def sla_ops_summary(db: Session, *, org_id: str) -> dict:
 
 def run_sla_sweep(db: Session, *, org_id: str | None = None) -> dict:
     return IntakeService(db).run_sla_sweep(org_id=org_id)
-
-
-def file_from_copilot(db: Session, *, actor: User, payload, request_id: str | None = None) -> dict:
-    return IntakeService(db).file_from_copilot(actor=actor, payload=payload, request_id=request_id)
 
 
 def list_assignees(db: Session, *, org_id: str) -> list[dict]:

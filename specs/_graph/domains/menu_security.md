@@ -29,6 +29,9 @@ ActionLevelResponse, MenuNode, MenuTreeResponse, MyScreenAccessResponse, ScreenA
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
 - `0043_menu_screen_security` (backend/alembic/versions/0043_menu_screen_security.py)
+- `0065_drop_matters_screens` (backend/alembic/versions/0065_drop_matters_screens.py)
+- `0066_trademarks_menu_item` (backend/alembic/versions/0066_trademarks_menu_item.py)
+- `0067_remove_trademarks_menu_item` (backend/alembic/versions/0067_remove_trademarks_menu_item.py)
 
 ## Frontend counterpart
 
