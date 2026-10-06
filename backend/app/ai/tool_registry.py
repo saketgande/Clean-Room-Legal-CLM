@@ -168,11 +168,18 @@ def _register(
     permission: str,
     input_model: type[BaseModel],
     *,
-    confirmation_policy: str = "none",
+    confirmation_policy: str | None = None,
     feature_flag: str | None = None,
     session_types: set[str] | None = None,
     enabled_by_default: bool = True,
 ) -> None:
+    # Safe by default: a tool that changes data or leaves the app asks the user
+    # first. Contract, notice and email text reaches this loop, so a side effect
+    # must never run on the model's say-so alone (a hidden instruction in a
+    # document could otherwise trigger it). A tool opts out only by passing
+    # confirmation_policy="none" explicitly, with the reason next to it.
+    if confirmation_policy is None:
+        confirmation_policy = "none" if category == AssistantToolCategory.READ_ONLY else "required"
     tool_registry.register(
         ToolSpec(
             name=name,
@@ -377,6 +384,10 @@ _register(
     AssistantToolCategory.MUTATING,
     "playbook:run",
     PlaybookToolInput,
+    # Opt-out: adds a new review run for the user to read; changes no existing
+    # record and sends nothing. Turning findings into edits is
+    # redline_against_playbook, which asks first.
+    confirmation_policy="none",
 )
 _register(
     "redline_against_playbook",
@@ -401,7 +412,8 @@ _register(
     confirmation_policy="required",
 )
 _register("extract_obligations", "Queue obligation extraction for a contract.", AssistantToolCategory.MUTATING, "obligation:update", ExtractObligationsInput)
-_register("create_tabular_review", "Create a tabular review from selected contracts.", AssistantToolCategory.MUTATING, "assistant:use_ai_tools", TabularReviewInput)
+# Opt-out: creates a new review table for the user to read; changes no existing record.
+_register("create_tabular_review", "Create a tabular review from selected contracts.", AssistantToolCategory.MUTATING, "assistant:use_ai_tools", TabularReviewInput, confirmation_policy="none")
 _register("read_table_cells", "Read a tabular review's generated cells.", AssistantToolCategory.READ_ONLY, "assistant:use", ReadTableCellsInput)
 _register(
     "external_share",

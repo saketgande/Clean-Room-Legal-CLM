@@ -8,9 +8,17 @@ success — so every drafted contract silently had no clauses and no risk score.
 
 import pytest
 
-from app.ai.controller import ai_controller
+from app.ai.gateway import AICallContext, AIGateway, AIOutputInvalid
 from app.ai.registry import skill_registry
 from app.integrations.claude import ClaudeProviderResponse
+from tests.test_ai_gateway import (  # noqa: F401 — the autouse fixture applies here too
+    FakeProvider,
+    FakeSession,
+    _ledger_uses_fake_sessions,
+)
+
+# Skills now run through the AI gateway, which owns this check for every
+# structured feature (it used to live in AIController._extract_structured_output).
 
 
 def _response(stop_reason: str, tool_input: dict) -> ClaudeProviderResponse:
@@ -22,16 +30,20 @@ def _response(stop_reason: str, tool_input: dict) -> ClaudeProviderResponse:
     )
 
 
+def _run(response: ClaudeProviderResponse):
+    return AIGateway(provider=FakeProvider(response)).structured_sync(
+        FakeSession(), "clause_extraction", ctx=AICallContext(org_id="org-1"), user_prompt="contract",
+    )
+
+
 def test_a_cut_off_answer_is_an_error_not_an_empty_result():
-    spec = skill_registry.get("clause_extraction")
-    with pytest.raises(RuntimeError, match="cut off at max_tokens"):
-        ai_controller._extract_structured_output(_response("max_tokens", {}), spec)
+    with pytest.raises(AIOutputInvalid, match="cut off at max_tokens"):
+        _run(_response("max_tokens", {}))
 
 
 def test_a_complete_answer_still_comes_through():
-    spec = skill_registry.get("clause_extraction")
-    out = ai_controller._extract_structured_output(_response("tool_use", {"clauses": []}), spec)
-    assert out == {"clauses": []}
+    out = _run(_response("tool_use", {"clauses": []}))
+    assert out.data.model_dump()["clauses"] == []
 
 
 def test_clause_extraction_has_room_for_a_full_length_contract():

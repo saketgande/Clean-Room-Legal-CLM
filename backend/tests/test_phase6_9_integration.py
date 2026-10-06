@@ -19,7 +19,8 @@ def test_phase6_9_assistant_tools_are_enabled_with_expected_policies():
     expected = {
         "ask_contract_brain": ("assistant:use", False),
         "send_for_signature": ("contract:sign", True),
-        "extract_obligations": ("obligation:update", False),
+        # Asks first: re-extraction replaces earlier AI-extracted obligations.
+        "extract_obligations": ("obligation:update", True),
         "create_tabular_review": ("assistant:use_ai_tools", False),
         "read_table_cells": ("assistant:use", False),
         "external_share": ("contract_file:share", True),

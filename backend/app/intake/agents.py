@@ -105,7 +105,6 @@ def is_agent_active(agent_id: str | None) -> bool:
         return False
     return agent_id in PRODUCTION_READY or settings.intake_demo_agents
 
-_PRIORITY_BY_RISK = {"high": "High", "medium": "Medium", "low": "Medium"}
 
 # category -> (agent_id, complexity, risk_flag), derived from _RULES so any
 # classifier that already knows the category (not just the regex below — e.g.
@@ -139,7 +138,3 @@ def classify(type_label: str, description: str) -> dict:
             adj = conf - (0.07 if len(description) > 400 else 0.0)
             return result_for_category(cat, round(adj, 2), source="regex")
     return result_for_category("General", 0.4, source="regex")
-
-
-def priority_hint(risk: str) -> str:
-    return _PRIORITY_BY_RISK.get(risk, "Medium")

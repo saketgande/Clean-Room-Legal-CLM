@@ -1,5 +1,15 @@
 # Docstudio — Build Plan
 
+> **Status (2026-10-06): docstudio has been removed.** It was a stand-alone
+> prototype for trying the editor; once the ONLYOFFICE editor moved into the
+> contract page, the rest went. What survives: the reader (parsers, clause
+> builder, tree, `carry_ids`) as `backend/app/documents/reader/`, used by every
+> upload, and the AI hierarchy step as `backend/app/documents/hierarchy.py`,
+> now through the AI gateway and not yet switched on. The `ds_*` tables
+> (migrations 0045–0047) are still in the database until a drop migration is
+> approved. The plan below is kept as history.
+
+
 A ground-up rebuild of how AEGIS represents, displays, annotates and versions
 legal documents.
 

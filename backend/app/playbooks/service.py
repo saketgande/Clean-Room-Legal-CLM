@@ -1003,18 +1003,8 @@ class PlaybooksService:
         if settings.mock_claude:
             return _rules_from_templates(missing), False
 
-        from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
-        from app.integrations.claude import run_coro_blocking
-        from app.integrations.dependencies import get_claude_client
+        from app.ai.gateway import AICallContext, gateway_for
 
-        claude_client = self._claude_client or get_claude_client()
-        system = (
-            "You are senior in-house counsel authoring standard negotiation-playbook "
-            "rules. For each requested clause type, give a company-favourable preferred "
-            "position, a fallback, any prohibited language, a risk level, and a one-line "
-            "rationale. Keep positions concrete and commercially reasonable; do not "
-            "invent facts about a specific deal."
-        )
         user = (
             f"Playbook: {playbook.name}\n"
             + (f"Context: {playbook.description}\n" if playbook.description else "")
@@ -1023,29 +1013,25 @@ class PlaybooksService:
             + "\n".join(f"- {c}" for c in missing)
         )
         try:
-            resp = run_coro_blocking(
-                lambda: claude_client.complete_structured(
-                    org_id=org_id,
-                    system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
-                    user_prompt=user,
-                    tool_name="draft_playbook_rules",
-                    input_schema=_EXPAND_SCHEMA,
-                    max_tokens=2500,
-                    temperature=0.3,
-                    model=settings.claude_model,
-                )
+            # Feature "playbook_expand": prompt from the prompt table, call
+            # recorded in the AI ledger.
+            result = gateway_for(self._claude_client).structured_sync(
+                self.db,
+                "playbook_expand",
+                ctx=AICallContext(org_id=org_id, resource=("playbook", playbook.id)),
+                user_prompt=user,
+                input_schema=_EXPAND_SCHEMA,
+                log_input={"playbook_id": playbook.id, "missing": len(missing), "covered": len(covered)},
             )
-            blocks = getattr(resp, "tool_use_blocks", None) or []
-            data = blocks[0].get("input") if blocks else None
-            rules = data.get("rules") if isinstance(data, dict) else None
-            if not isinstance(rules, list) or not rules:
-                return _rules_from_templates(missing), False
-            # Keep only requested clause types; drop anything malformed.
-            wanted = set(missing)
-            clean = [r for r in rules if isinstance(r, dict) and r.get("clause_type") in wanted]
-            return (clean or _rules_from_templates(missing)), bool(clean)
         except Exception:
             return _rules_from_templates(missing), False
+        rules = result.data.get("rules")
+        if not isinstance(rules, list) or not rules:
+            return _rules_from_templates(missing), False
+        # Keep only requested clause types; drop anything malformed.
+        wanted = set(missing)
+        clean = [r for r in rules if isinstance(r, dict) and r.get("clause_type") in wanted]
+        return (clean or _rules_from_templates(missing)), bool(clean)
 
     def expand_playbook(self, *, playbook: Playbook, user: User) -> PlaybookVersion:
         """Draft rules for the standard clauses this playbook is missing and land

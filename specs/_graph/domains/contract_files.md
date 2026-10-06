@@ -51,7 +51,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse, StorageObjectResponse
+ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 

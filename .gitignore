@@ -52,7 +52,6 @@ frontend/.env.production
 
 # `make phase1` output. Every report carries a contract's full text, so it must
 # never be committed.
-backend/docstudio_out/
 
 # Local database / file backups (never commit)
 backups/

@@ -6,7 +6,7 @@ answers it clause by clause and keeps the reviewer's decisions:
 
 1. The version we sent and theirs are split into clauses the same way
    (`split_blocks`), and matched with the Documents clause matcher
-   (`docstudio.versions.carry_ids`): an unchanged clause matches even after
+   (`documents.reader.versions.carry_ids`): an unchanged clause matches even after
    renumbering, a reworded one by similarity, the rest were added or removed.
 2. Each changed clause is classed against what WE changed in the version we
    sent: they kept our wording, countered it, or put back their original.
@@ -27,7 +27,7 @@ import re
 import zipfile
 
 from app.contract_files.blocks import split_blocks
-from app.docstudio.versions import carry_ids
+from app.documents.reader.versions import carry_ids
 
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 # A clause number at the start of a block: "3.3", "10.", "(a)", "Article 4".

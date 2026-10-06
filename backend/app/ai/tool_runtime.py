@@ -2636,10 +2636,6 @@ def _append_revision_runs(parent: Any, text: str, *, text_tag: str, OxmlElement:
         parent.append(run)
 
 
-def _assistant_edit_text(*, source_text: str, instructions: str) -> str:
-    return f"{source_text}\n\n[Assistant proposed tracked change]\n\n{instructions}".strip()
-
-
 def _safe_filename(value: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-._")
     return cleaned[:120] or "contract"

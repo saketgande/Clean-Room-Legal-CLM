@@ -107,9 +107,9 @@ services:
       retries: 18
       start_period: 60s
 
-  # The document editor behind docstudio's dev page (Original tab → Edit
-  # document): ONLYOFFICE Docs Community, which opens a Word file or a PDF with
-  # its own formatting and edits it in place. Opt-in — it wants ~2 GB of memory:
+  # The Word editor on the contract page (contract_files/editor.py):
+  # ONLYOFFICE Docs Community, which opens a Word file with its own formatting
+  # and edits it in place. Opt-in — it wants ~2 GB of memory:
   #   docker compose --profile editor up -d onlyoffice
   # AGPL-3.0, run unmodified as its own service. Dev only; the secret below is a
   # local default, as the seeded admin password is.
@@ -126,11 +126,3 @@ services:
       JWT_SECRET: "${ONLYOFFICE_JWT_SECRET:-aegis-dev-onlyoffice-secret-local-only}"
       # It fetches files from, and saves back to, the backend on this private network.
       ALLOW_PRIVATE_IP_ADDRESS: "true"
-    volumes:
-      # Our own plugin, installed as one of the editor's: it finds the words of
-      # a clause in the open document when the page beside it asks. A plugin
-      # loaded from elsewhere (pluginsData) is started only now and then since
-      # 8.2, so it lives in the editor's own plugin folder, named by its guid.
-      - ./backend/app/docstudio/editor_plugin:/var/www/onlyoffice/documentserver/sdkjs-plugins/{6F2A1C54-6E8B-4A1F-9D2C-3B7E5A904F11}:ro
-      # and served without caching, so an edit to it reaches the browser
-      - ./backend/app/docstudio/editor_nginx.conf:/etc/nginx/includes/ds-aegis-plugin.conf:ro

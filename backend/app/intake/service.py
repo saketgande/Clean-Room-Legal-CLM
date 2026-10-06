@@ -376,18 +376,6 @@ def _validate_handoff(r: IntakeRequest, to_holder: str, to_user_id: str | None) 
 
 # --- triage actions (Phase 0 subset: reassign / close / snooze / escalate) --
 
-@dataclass
-class _AuthorityShim:
-    """The six attributes enforce_authority._grant_covers reads (Part 0.6).
-    Intake approve grants use max_value=None + allowed_contract_types keyed to
-    the intake type key/label."""
-    contract_type: str | None
-    value_amount: float | None = None
-    currency: str | None = None
-    jurisdiction: str | None = None
-    risk_band: str | None = None
-    risk_level: str | None = None
-
 
 # --- approval ladder -------------------------------------------------------
 
@@ -1231,27 +1219,6 @@ class IntakeService:
         db.refresh(r)
         return self.serialize_request(r)
 
-    def _approval_gate_blocked(self, *, actor: User, request: IntakeRequest,
-                               attempted: str, http_request_id: str | None) -> None:
-        """Part 0.5 — a 🔒 gate names the only user whose approve sticks; anyone else
-        is refused and the refusal is logged on an isolated session (survives the
-        403 rollback) plus an intake audit row."""
-        db = self.db
-        gate = request.approval_gate_user_id
-        if not gate or actor.id == gate or is_org_admin(actor):
-            return
-        from app.core.authz import record_decision
-
-        record_decision(user=actor, action="intake:approve", outcome="denied",
-                        resource_type="intake_request", resource_id=request.id,
-                        reason="approval_gate", request_id=http_request_id)
-        write_audit_log(db, action="intake.approval_blocked", resource_type="intake_request",
-                        resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
-                        before={"triage_action": request.triage_action},
-                        after={"attempted_action": attempted, "required_approver_id": gate},
-                        metadata={"source": "approval-gate"})
-        db.commit()  # persist the intake audit row before the 403 rollback
-        raise HTTPException(403, "Approval is gated to a specific person for this request")
 
     def record_triage_action(self, *, actor: User, request_id: str, payload,
                              http_request_id: str | None = None) -> dict:

@@ -1,4 +1,4 @@
-"""New uploads are read with the Documents reader (app/docstudio).
+"""New uploads are read with the Documents reader (app/documents/reader).
 
 Guards the ways swapping the reader could quietly damage a contract: elements
 whose offsets don't slice back out of the stored text (every citation then

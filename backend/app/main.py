@@ -34,7 +34,6 @@ from app.core.request_log_queue import start_writer as start_request_log_writer
 from app.core.request_log_queue import stop_writer as stop_request_log_writer
 from app.debug.routes import check_readiness
 from app.debug.routes import router as debug_router
-from app.docstudio.routes import router as docstudio_router
 from app.drafting_templates.routes import router as drafting_templates_router
 from app.grants.routes import router as grants_router
 from app.intake.routes import router as intake_router
@@ -192,7 +191,6 @@ def create_app() -> FastAPI:
     # The Word editor's own calls (file fetch, save callback): signed links, no session.
     app.include_router(word_editor_router, prefix=prefix)
     app.include_router(drafting_templates_router, prefix=prefix)
-    app.include_router(docstudio_router, prefix=prefix)
     app.include_router(external_share_router, prefix=prefix)
     app.include_router(ai_router, prefix=prefix)
     app.include_router(assistant_router, prefix=prefix)
@@ -219,14 +217,6 @@ def create_app() -> FastAPI:
     # production. The LB-facing /healthz and /readyz below are always present.
     if non_prod:
         app.include_router(debug_router, prefix=prefix)
-        # The `ideal` redesign prototype — non-prod only, in-memory, no schema.
-        from app.ideal.routes import router as ideal_router
-        app.include_router(ideal_router, prefix=prefix)
-        # Temporary page for trying docstudio Phase 1 on a file. It spends real
-        # OCR and Claude credits and has NO sign-in (see devui.py), so the only
-        # thing keeping it private is that this block never runs in production.
-        from app.docstudio.devui import router as docstudio_dev_router
-        app.include_router(docstudio_dev_router, prefix=prefix)
 
     if settings.enable_metrics:
         # Prometheus /metrics. Guarded so a missing instrumentator package is a

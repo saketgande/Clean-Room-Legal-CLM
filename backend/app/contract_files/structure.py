@@ -167,7 +167,7 @@ def elements_from_flat_text(text: str) -> tuple[list[dict[str, Any]], bool]:
 # --- the Documents reader, for new uploads ---------------------------------------------------
 
 def read_with_documents_reader(content: bytes, *, mime_type: str, filename: str) -> dict | None:
-    """Read an upload with the Documents reader (app/docstudio): Word numbering
+    """Read an upload with the Documents reader (app/documents/reader): Word numbering
     and tracked insertions, PDF page furniture (running headers, page numbers,
     e-signature stamps) removed, wrapped lines rejoined, and a clause tree.
 
@@ -183,9 +183,9 @@ def read_with_documents_reader(content: bytes, *, mime_type: str, filename: str)
 
     from app.contract_files.text_extraction import score_extraction_quality
     from app.core.config import settings
-    from app.docstudio import structure as docs
-    from app.docstudio.parsing.base import UnsupportedFormat
-    from app.docstudio.parsing.registry import parser_for
+    from app.documents.reader import structure as docs
+    from app.documents.reader.parsing.base import UnsupportedFormat
+    from app.documents.reader.parsing.registry import parser_for
 
     try:
         parser = parser_for(mime_type)

@@ -205,15 +205,6 @@ class RenewalExtractionOutput(BaseModel):
     citations: list[CitationInput] = Field(default_factory=list)
 
 
-class BrainQueryParseOutput(BaseModel):
-    query_scope: Literal["contract", "portfolio"] = "portfolio"
-    target_clause_types: list[str] = Field(default_factory=list)
-    party_filters: list[str] = Field(default_factory=list)
-    needs_vector_search: bool = True
-    needs_graph_search: bool = True
-    needs_full_text_search: bool = True
-
-
 class BrainAnswerOutput(BaseModel):
     answer: str = Field(min_length=1)
     citations: list[CitationInput] = Field(default_factory=list)

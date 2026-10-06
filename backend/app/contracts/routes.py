@@ -163,7 +163,7 @@ async def contract_plain_summary(
     deviations). Best-effort — degrades to a deterministic summary; never raises."""
     from sqlalchemy import select as _select
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
+    from app.ai.gateway import AICallContext, gateway_for
     from app.core.config import settings
     from app.playbooks.models import PlaybookDeviation
 
@@ -202,17 +202,15 @@ async def contract_plain_summary(
             for d in devs[:12]
         )
         user_prompt = f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}"
-        bundle = get_agent_prompt(db, agent_id="plain_language_summary", org_id=current_user.org_id)
-        resp = await claude_client.complete_text(
-            org_id=current_user.org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
+        # Feature "plain_language_summary" via the AI gateway. An empty answer
+        # raises into the except below, which keeps the deterministic summary.
+        result = await gateway_for(claude_client).text(
+            db, "plain_language_summary",
+            ctx=AICallContext(org_id=current_user.org_id, user_id=current_user.id, resource=("contract", contract_id)),
             user_prompt=user_prompt,
-            max_tokens=500, temperature=0.3, model=bundle.model_name,
+            log_input={"contract_id": contract_id},
         )
-        log_agent_call(db, org_id=current_user.org_id, agent_id="plain_language_summary", prompt_bundle=bundle,
-                        input_payload={"contract_id": contract_id}, response=resp)
-        answer = "".join(b.get("text", "") for b in resp.content_blocks if b.get("type") == "text").strip()
-        return {"summary": answer or _fallback(), "generated": bool(answer)}
+        return {"summary": result.data, "generated": True}
     except Exception:
         # Degrading to the deterministic summary is intentional (never block a
         # lawyer from seeing risk info over an AI hiccup) — but doing so

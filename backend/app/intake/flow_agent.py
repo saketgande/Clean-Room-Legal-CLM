@@ -142,30 +142,21 @@ def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> 
     if settings.mock_claude:
         return baseline
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
     steps_by_id = {c["id"]: c["steps"] for c in catalog}
-    bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
     user_prompt = _prompt_for(request, catalog)
     try:
-        resp = run_coro_blocking(lambda: claude_client.complete_structured(
-            org_id=request.org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
-            user_prompt=user_prompt,
-            tool_name="suggest_flow", input_schema=_SCHEMA,
-            max_tokens=600, temperature=0.0, model=bundle.model_name,
-        ))
-        log_agent_call(db, org_id=request.org_id, agent_id="flow_router", prompt_bundle=bundle,
-                        input_payload={"user_prompt": user_prompt}, response=resp)
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = (blocks[0].get("input") if blocks else None)
-        if not isinstance(data, dict):
-            return {**baseline, "source": "degraded"}
+        # Feature "flow_router" via the AI gateway: prompt + guard, token cap, output
+        # check and ledger row in one place. Bad or cut-off output raises
+        # into the except below, which keeps this agent's fallback.
+        data = gateway_for(claude_client).structured_sync(
+            db, "flow_router", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
+            user_prompt=user_prompt, input_schema=_SCHEMA,
+            log_input={"user_prompt": user_prompt},
+        ).data
 
         fid = data.get("flow_id")
         if fid not in ids:  # ungrounded / null → hand to a human, keep baseline pick visible

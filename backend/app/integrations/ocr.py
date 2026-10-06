@@ -1,6 +1,6 @@
 """The shape every OCR provider returns.
 
-Vendor-neutral on purpose, so contract_files.service and docstudio can loop
+Vendor-neutral on purpose, so contract_files.service can loop
 over providers without knowing which ran. Reducto is the only one today.
 """
 

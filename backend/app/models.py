@@ -53,14 +53,6 @@ from app.core.models import (
     ResourceTimelineEvent,
     UsageRecord,
 )
-from app.docstudio.models import (
-    DsAnnotation,
-    DsClause,
-    DsDocument,
-    DsEvent,
-    DsOcrResult,
-    DsVersion,
-)
 from app.drafting_templates.models import DraftingTemplateVersion
 from app.grants.models import ResourceGrant
 from app.intake.models import (
@@ -142,12 +134,6 @@ __all__ = [
     "Delegation",
     "DocumentExtract",
     "DraftingTemplateVersion",
-    "DsAnnotation",
-    "DsClause",
-    "DsDocument",
-    "DsEvent",
-    "DsOcrResult",
-    "DsVersion",
     "EthicalWall",
     "EthicalWallPrincipal",
     "IntakeDocument",

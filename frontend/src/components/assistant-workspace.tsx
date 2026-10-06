@@ -1876,6 +1876,30 @@ function confirmCopy(name: string): { title: string; body: string } {
       title: "Create a new workflow?",
       body: "I'll add a new governance workflow your team can use.",
     },
+    create_intake_request: {
+      title: "Raise this legal request?",
+      body: "I'll create a new request for the legal team with the details below.",
+    },
+    create_notice: {
+      title: "Log this notice?",
+      body: "I'll add this notice to the notice register.",
+    },
+    draft_notice_response: {
+      title: "Draft a reply to this notice?",
+      body: "I'll write an AI draft reply and save it on the notice, replacing any earlier draft.",
+    },
+    complete_obligation: {
+      title: "Mark this obligation as done?",
+      body: "I'll mark the obligation below as completed. If it repeats, the next one is scheduled.",
+    },
+    complete_task: {
+      title: "Mark this task as done?",
+      body: "I'll mark the task below as done on its request.",
+    },
+    extract_obligations: {
+      title: "Re-read this contract's obligations?",
+      body: "I'll extract obligations from the contract again. Earlier AI-found obligations that are still open are replaced.",
+    },
   };
   return (
     m[name] ?? {

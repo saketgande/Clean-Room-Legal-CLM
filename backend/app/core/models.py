@@ -107,6 +107,12 @@ class AICallLog(
     prompt_tokens = Column(Integer, nullable=True)
     completion_tokens = Column(Integer, nullable=True)
     total_tokens = Column(Integer, nullable=True)
+    # Prompt-cache tokens, billed apart from prompt_tokens (Anthropic's
+    # input_tokens excludes them): a cache write costs 1.25x input, a cache read
+    # 0.1x. Written by the AI gateway's ledger; NULL on older rows and on rows
+    # from writers not yet moved onto the gateway.
+    cache_creation_input_tokens = Column(Integer, nullable=True)
+    cache_read_input_tokens = Column(Integer, nullable=True)
     latency_ms = Column(Float, nullable=True)
     status = Column(String(80), index=True, nullable=True)
     validation_status = Column(String(80), index=True, nullable=True)

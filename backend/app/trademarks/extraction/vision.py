@@ -2,6 +2,10 @@
 image and asks Claude to read it directly (the same way a human would),
 instead of guessing entry boundaries from plain extracted text.
 
+The prompt lives in the prompt table (key "trademark_journal_vision", default
+in app/ai/prompt_versions.py) and every call goes through the AI gateway, so it
+is recorded in the AI ledger like every other AI call.
+
 v1 intentionally drops the POC's few-shot (image, JSON) example pairs and
 embedded product-image extraction/cropping - see the integration plan for
 why; `has_product_image` is still captured for future use.
@@ -10,46 +14,11 @@ why; `has_product_image` is still captured for future use.
 from dataclasses import dataclass
 
 import fitz  # PyMuPDF
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.integrations.claude import claude_client as _default_claude_client
 
-SYSTEM_PROMPT = """You are extracting structured trademark data from a page \
-of the India Trade Marks Journal. A single page may contain MORE THAN ONE \
-trademark entry - read the whole page and return every entry you find, in \
-top-to-bottom reading order.
-
-For each entry, extract these fields exactly:
-- product_name: the word mark's name, in the exact case/spelling shown. If \
-this is a device/label mark with no separate text mark name (the mark IS an \
-image/logo), set this to null.
-- mark_type: "word" if it's a plain text mark, "device" if it's a logo/label \
-image, "combination" if both a name and a distinct logo are shown together.
-- tm_id: the numeric application/registration number, as a string.
-- tm_date: the date on the same line as tm_id, in DD/MM/YYYY format exactly \
-as printed.
-- address: ALL of the proprietor name, address, business type, incorporation \
-details, and attorney/service address lines, concatenated with \\n between \
-lines, exactly as printed. Do not summarize or shorten this.
-- used_since: the date from a "Used Since" line, in DD/MM/YYYY format. null \
-if this entry instead says "Proposed to be Used".
-- proposed_to_be_used: true if the entry says "Proposed to be Used" instead \
-of giving a Used Since date, false otherwise.
-- jurisdiction: the single city name shown after the used-since/proposed \
-line (e.g. MUMBAI, CHENNAI, DELHI, KOLKATA, AHMEDABAD, or any other city \
-actually printed - do not assume it must be one of a fixed list).
-- goods_services: the full goods/services description text, including any \
-"subject to" or disclaimer clause printed immediately after it, concatenated \
-with \\n between lines.
-- has_product_image: true if this entry has an embedded product photo, \
-label, or device/logo image anywhere in its block (not just for device \
-marks - a word mark can still have an accompanying product photo).
-
-Be precise and complete - do not paraphrase, summarize, or omit any part of \
-the address or goods/services text. If a field genuinely isn't present, use \
-null (or false for booleans) rather than guessing.
-"""
-
+# Must match the "trademark_journal_vision" feature's tool_name (app/ai/gateway/features.py).
 TOOL_NAME = "extract_journal_entries"
 
 INPUT_SCHEMA = {
@@ -113,24 +82,22 @@ def render_page_to_png_bytes(pdf_bytes: bytes, page_number: int, dpi: int) -> by
 
 
 async def extract_journal_page(
-    pdf_bytes: bytes, page_number: int, *, org_id: str, claude_client=None
+    db: Session, pdf_bytes: bytes, page_number: int, *, org_id: str, claude_client=None
 ) -> list[VisionEntry]:
-    page_png = render_page_to_png_bytes(pdf_bytes, page_number, settings.trademark_vision_render_dpi)
-    claude_client = claude_client or _default_claude_client
+    """Read one journal page. Raises on a failed call or an unusable answer
+    (the caller reports the page as failed); both are recorded in the ledger."""
+    from app.ai.gateway import AICallContext, gateway_for
 
-    response = await claude_client.complete_vision_structured(
-        org_id=org_id,
-        system_prompt=SYSTEM_PROMPT,
+    page_png = render_page_to_png_bytes(pdf_bytes, page_number, settings.trademark_vision_render_dpi)
+    result = await gateway_for(claude_client).vision(
+        db,
+        "trademark_journal_vision",
+        ctx=AICallContext(org_id=org_id),
         user_prompt="Extract every entry on this page.",
         image_bytes=page_png,
         image_media_type="image/png",
-        tool_name=TOOL_NAME,
         input_schema=INPUT_SCHEMA,
-        max_tokens=4000,
-        temperature=0.0,
+        log_input={"page_number": page_number, "image_bytes": len(page_png)},
     )
-    if not response.tool_use_blocks:
-        return []
-    payload = response.tool_use_blocks[0].get("input") or {}
-    entries = payload.get("entries", [])
+    entries = result.data.get("entries", [])
     return [VisionEntry(**entry) for entry in entries]

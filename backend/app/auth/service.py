@@ -45,10 +45,6 @@ _LOGIN_INVALID_CREDENTIALS = "Invalid email or password"
 _DUMMY_PASSWORD_HASH = "$2b$12$OaXwEt/8jCeiZ6W/9ZFURuXp292uSJDCEDX6EiAMMTmAt0JJRci8y"
 
 
-def _normalize_domain(email: str) -> str:
-    return email.rsplit("@", 1)[-1].lower()
-
-
 def _mask_email(email: str | None) -> str | None:
     """Mask the local-part of an email for audit metadata.
 

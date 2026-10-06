@@ -96,48 +96,36 @@ def _fallback(renewal, contract) -> dict:
 
 
 def recommend_renewal(db: Session, *, org_id: str, renewal, contract, claude_client=None) -> dict:
-    """Return {decision, rationale, confidence, generated}. Advisory only."""
+    """Return {decision, rationale, confidence, generated}. Advisory only.
+
+    Runs through the AI gateway (feature "renewal_recommendation"): the prompt
+    comes from the prompt table, and every call — success, bad answer or
+    failure — is recorded in the AI ledger (on its own session)."""
     from app.core.config import settings
 
     if settings.mock_claude:
         return _fallback(renewal, contract)
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
-    system = (
-        "You are senior in-house counsel advising on a contract renewal. Recommend "
-        "exactly one action — renew, renegotiate, or terminate — grounded only in the "
-        "facts provided. Be decisive, give a one-to-two sentence rationale specific to "
-        "those facts, and set confidence honestly (low when the facts are thin). Never "
-        "invent terms, amounts, or risks that are not stated."
-    )
-    user = "Recommend a renewal action for this contract:\n\n" + "\n".join(
-        _facts(renewal, contract)
-    )
+    facts = _facts(renewal, contract)
+    user = "Recommend a renewal action for this contract:\n\n" + "\n".join(facts)
     try:
-        resp = run_coro_blocking(
-            lambda: claude_client.complete_structured(
-                org_id=org_id,
-                system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
-                user_prompt=user,
-                tool_name="recommend_renewal",
-                input_schema=_SCHEMA,
-                max_tokens=400,
-                temperature=0.2,
-                model=settings.claude_model,
-            )
+        result = gateway_for(claude_client).structured_sync(
+            db,
+            "renewal_recommendation",
+            ctx=AICallContext(org_id=org_id, resource=("renewal_event", renewal.id)),
+            user_prompt=user,
+            input_schema=_SCHEMA,
+            log_input={"renewal_id": renewal.id, "contract_id": contract.id, "facts": len(facts)},
         )
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = blocks[0].get("input") if blocks else None
-        if not isinstance(data, dict) or "decision" not in data:
-            return _fallback(renewal, contract)
-        data["generated"] = True
-        return data
     except Exception:
         logger.warning(
             "renewal recommendation failed for %s — using heuristic", renewal.id, exc_info=True
         )
         return _fallback(renewal, contract)
+    data = dict(result.data)
+    if "decision" not in data:
+        return _fallback(renewal, contract)
+    data["generated"] = True
+    return data

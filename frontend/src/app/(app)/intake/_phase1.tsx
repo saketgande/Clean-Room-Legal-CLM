@@ -78,7 +78,7 @@ export function SlaDashboardTab({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-export function SlaLegsBar({ legs, breached }: { legs: IntakeSlaLeg[]; breached: boolean }) {
+function SlaLegsBar({ legs, breached }: { legs: IntakeSlaLeg[]; breached: boolean }) {
   const total = legs.reduce((s, l) => s + l.elapsed_ms, 0) || 1;
   const color = (h: string) => (h === "agent" ? "#7A3EA6" : h === "human" ? "#0F6CBD" : "#8A8A8A");
   return (

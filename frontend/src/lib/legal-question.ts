@@ -23,7 +23,7 @@ export const URGENCY_OPTIONS: { value: LegalQuestionPriority; label: string }[] 
   { value: "Critical", label: "Today — it's urgent" },
 ];
 
-export const QUESTION_MIN_CHARS = 15;
+const QUESTION_MIN_CHARS = 15;
 export const QUESTION_MAX_CHARS = 4000;
 const JURISDICTION_MAX_CHARS = 120;
 

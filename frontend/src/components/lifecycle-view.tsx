@@ -63,7 +63,7 @@ const KIND: Record<string, string> = {
 
 /** One line on what a step needs or found: authority for approvals, why it was
  * skipped, its note, or the headline of its result. */
-export function stepDetail(s: WorkflowRunStep): string {
+function stepDetail(s: WorkflowRunStep): string {
   if (s.authority_note) return s.authority_note;
   if (s.note) return s.note;
   const r = (s.result ?? {}) as Record<string, unknown>;

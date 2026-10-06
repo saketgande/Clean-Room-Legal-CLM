@@ -1,38 +1,4 @@
-import type { IntakeRequest, IntakeSlaPosture, IntakeStatus, UserResponse } from "./types";
-
-// Presentation labels live here, NOT in the wire types (Part 0.19).
-export const STATUS_LABEL: Record<IntakeStatus, string> = {
-  open: "Open",
-  escalated: "Escalated",
-  approved: "Approved",
-  closed: "Closed",
-};
-
-// Badge tones available in ui.tsx: slate | blue | green | amber | red | violet | cyan
-export const STATUS_TONE: Record<IntakeStatus, string> = {
-  open: "blue",
-  escalated: "violet",
-  approved: "green",
-  closed: "slate",
-};
-
-export const POSTURE_LABEL: Record<IntakeSlaPosture, string> = {
-  on_track: "On track",
-  at_risk: "At risk",
-  overdue: "Overdue",
-};
-export const POSTURE_TONE: Record<IntakeSlaPosture, string> = {
-  on_track: "green",
-  at_risk: "amber",
-  overdue: "red",
-};
-
-export const PRIORITY_TONE: Record<string, string> = {
-  Critical: "red",
-  High: "amber",
-  Medium: "slate",
-  Low: "slate",
-};
+import type { UserResponse } from "./types";
 
 // RBAC disabled by request: every logged-in user passes every permission
 // check, so nav items / buttons gated on `can()` are visible to everyone.
@@ -45,40 +11,11 @@ export function can(user: UserResponse | null | undefined, perm: string): boolea
   return !!user;
 }
 
-// humanize an audit action string for the requester-facing latest-update line
-export function humanizeEvent(action: string): string {
-  const map: Record<string, string> = {
-    "intake.created": "Request filed",
-    "intake.assigned": "Assigned to a reviewer",
-    "intake.handoff": "Moved between reviewers",
-    "intake.stage_advanced": "Advanced a stage",
-    "intake.sla_breached": "SLA breached",
-    "intake.auto_escalated": "Escalated",
-    "intake.closed": "Closed",
-    "intake.agent_no_match": "Queued for manual triage",
-    "intake.approval_blocked": "Approval blocked",
-    "intake.promoted": "Linked to a contract",
-    "intake.paused": "Paused — waiting on requester",
-    "intake.resumed": "Resumed",
-    "intake.approved": "Response approved by legal",
-    "intake.rejected": "Sent back for manual handling",
-  };
-  return map[action] || action.replace("intake.", "").replace(/[._]/g, " ");
-}
-
-export function slaBarColor(posture: IntakeSlaPosture): string {
-  return { on_track: "var(--good, #0E7A0B)", at_risk: "#9A6700", overdue: "#B10E1C" }[posture];
-}
-
-export function sortBySla(a: IntakeRequest, b: IntakeRequest): number {
-  return b.sla_pct - a.sla_pct; // most-elapsed first
-}
-
 // ---- request attachments ---------------------------------------------------
 // Must match the server: backend/app/intake/service.py (_DOC_MAX_BYTES and the
 // upload MIME allowlist in core/config.py). Checked here only to fail fast —
 // the server checks again and is the authority.
-export const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+const ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
 export const ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg";
 export const ATTACHMENT_LIMITS_TEXT = "PDF, Word, text, PNG or JPEG · up to 25 MB";
 

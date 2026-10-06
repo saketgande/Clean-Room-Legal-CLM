@@ -312,7 +312,7 @@ class TrademarksService:
             for page_number in range(request.page_start, request.page_end + 1):
                 try:
                     entries = await extract_journal_page(
-                        content, page_number, org_id=user.org_id, claude_client=self.claude_client
+                        self.db, content, page_number, org_id=user.org_id, claude_client=self.claude_client
                     )
                 except Exception as exc:
                     warnings.append(f"Page {page_number}: vision extraction failed ({exc})")

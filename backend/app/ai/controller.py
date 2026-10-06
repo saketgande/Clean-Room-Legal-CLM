@@ -10,6 +10,7 @@ from app.ai.citations import validate_citations
 from app.ai.confirmations import confirmation_details
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
 from app.ai.fallback import fallback_metadata_from_text
+from app.ai.gateway import AICallContext, gateway_for
 from app.ai.models import AICitation, AIConfirmation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
@@ -41,10 +42,10 @@ from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
-from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus, AssistantSessionType
+from app.core.enums import AISkillRunStatus, AIValidationStatus, AssistantSessionType
 from app.core.models import AdminSetting, AICallLog, UsageRecord
 from app.core.rbac import has_permission
-from app.integrations.claude import ClaudeProvider, ClaudeProviderResponse
+from app.integrations.claude import ClaudeProvider
 from app.integrations.claude import claude_client as _default_claude_client
 from app.jobs.models import JobRun
 from app.obligations.models import Obligation, ObligationReminder
@@ -289,32 +290,45 @@ class AIController:
 
         try:
             for iteration in range(settings.ai_max_tool_iterations):
+                # One model round through the AI gateway (feature "assistant_streaming"):
+                # same system prompt (shared legal prompt + the assistant's own, passed as
+                # system_context), budget and tools; it records the round in the AI ledger
+                # on this session, which this loop commits.
                 provider_response = None
-                async for chunk in self.claude_client.stream_with_tools(
-                    org_id=org_id,
-                    system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                async for chunk in gateway_for(self.claude_client).stream(
+                    db,
+                    "assistant_streaming",
+                    ctx=AICallContext(
+                        org_id=org_id,
+                        user_id=created_by_user_id,
+                        resource=("assistant_session", session_id),
+                        request_id=request_id,
+                        session_id=session_id,
+                        assistant_run_id=assistant_run_id,
+                        skill_run_id=skill_run.id,
+                    ),
                     messages=messages,
                     tools=tools,
-                    max_tokens=_clamp_max_tokens(spec.max_tokens),
-                    temperature=spec.temperature,
-                    model=prompt_bundle.model_name,
+                    system_context=prompt_bundle.skill_prompt,
+                    log_input=skill_run.input_payload,
+                    prompt=prompt_bundle,
+                    record_on=db,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
                         yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
                     else:
                         provider_response = chunk["response"]
-                self._log_assistant_ai_call(
+                self._record_usage(
                     db,
                     org_id=org_id,
                     created_by_user_id=created_by_user_id,
-                    request_id=request_id,
+                    resource_type="assistant_session",
+                    resource_id=session_id,
+                    token_usage=provider_response.token_usage,
                     skill_run=skill_run,
-                    spec=spec,
-                    provider_response=provider_response,
-                    assistant_run_id=assistant_run_id,
-                    session_id=session_id,
                 )
+                db.commit()
                 if not provider_response.tool_use_blocks:
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
@@ -588,32 +602,45 @@ class AIController:
         final_answer_parts: list[str] = []
         try:
             for _iteration in range(settings.ai_max_tool_iterations):
+                # One model round through the AI gateway (feature "assistant_streaming"):
+                # same system prompt (shared legal prompt + the assistant's own, passed as
+                # system_context), budget and tools; it records the round in the AI ledger
+                # on this session, which this loop commits.
                 provider_response = None
-                async for chunk in self.claude_client.stream_with_tools(
-                    org_id=user.org_id,
-                    system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                async for chunk in gateway_for(self.claude_client).stream(
+                    db,
+                    "assistant_streaming",
+                    ctx=AICallContext(
+                        org_id=user.org_id,
+                        user_id=user.id,
+                        resource=("assistant_session", run.session_id),
+                        request_id=request_id,
+                        session_id=run.session_id,
+                        assistant_run_id=assistant_run_id,
+                        skill_run_id=skill_run.id,
+                    ),
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
-                    max_tokens=_clamp_max_tokens(spec.max_tokens),
-                    temperature=spec.temperature,
-                    model=prompt_bundle.model_name,
+                    system_context=prompt_bundle.skill_prompt,
+                    log_input=skill_run.input_payload,
+                    prompt=prompt_bundle,
+                    record_on=db,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
                         yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
                     else:
                         provider_response = chunk["response"]
-                self._log_assistant_ai_call(
+                self._record_usage(
                     db,
                     org_id=user.org_id,
                     created_by_user_id=user.id,
-                    request_id=request_id,
+                    resource_type="assistant_session",
+                    resource_id=run.session_id,
+                    token_usage=provider_response.token_usage,
                     skill_run=skill_run,
-                    spec=spec,
-                    provider_response=provider_response,
-                    assistant_run_id=assistant_run_id,
-                    session_id=run.session_id,
                 )
+                db.commit()
                 if not provider_response.tool_use_blocks:
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
@@ -813,74 +840,6 @@ class AIController:
             }
             for c in rows
         ]
-
-    def _log_assistant_ai_call(
-        self,
-        db: Session,
-        *,
-        org_id: str,
-        created_by_user_id: str | None,
-        request_id: str | None,
-        skill_run: AISkillRun,
-        spec: SkillSpec,
-        provider_response: ClaudeProviderResponse,
-        assistant_run_id: str,
-        session_id: str,
-    ) -> AICallLog:
-        text_output = "".join(
-            block.get("text", "")
-            for block in provider_response.content_blocks
-            if block.get("type") == "text"
-        )
-        row = AICallLog(
-            org_id=org_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            session_id=session_id,
-            assistant_run_id=assistant_run_id,
-            resource_type="assistant_session",
-            resource_id=session_id,
-            provider=self.claude_client.provider,
-            model=provider_response.model,
-            model_config_hash=skill_run.model_config_hash,
-            prompt_key=skill_run.prompt_key,
-            prompt_version=skill_run.prompt_version,
-            prompt_hash=skill_run.prompt_hash,
-            input_payload=skill_run.input_payload,
-            output_schema_name=spec.output_schema_name,
-            prompt_tokens=provider_response.token_usage.get("prompt_tokens"),
-            completion_tokens=provider_response.token_usage.get("completion_tokens"),
-            total_tokens=provider_response.token_usage.get("total_tokens"),
-            latency_ms=provider_response.latency_ms,
-            status=AICallStatus.SUCCEEDED,
-            validation_status=AIValidationStatus.NOT_VALIDATED,
-            provider_request_id=provider_response.provider_request_id,
-            stop_reason=provider_response.stop_reason,
-            redaction_status="redacted",
-            raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None,
-            validated_output={
-                "text": text_output,
-                "tool_uses": [
-                    {"id": block.get("id"), "name": block.get("name")}
-                    for block in provider_response.tool_use_blocks
-                ],
-            },
-            created_by_user_id=created_by_user_id,
-            updated_by_user_id=created_by_user_id,
-        )
-        db.add(row)
-        db.flush()
-        self._record_usage(
-            db,
-            org_id=org_id,
-            created_by_user_id=created_by_user_id,
-            resource_type="assistant_session",
-            resource_id=session_id,
-            provider_response=provider_response,
-            skill_run=skill_run,
-        )
-        db.commit()
-        return row
 
     def _handle_for_contract(
         self,
@@ -1125,18 +1084,32 @@ class AIController:
             db.commit()
         ai_call_log: AICallLog | None = None
         try:
-            provider_response = await self.claude_client.complete_structured(
-                org_id=org_id,
-                system_prompt=built_prompt.system_prompt,
+            # Feature = this skill, through the AI gateway: same prompt (built
+            # above), budget and schema; the gateway checks the output against
+            # spec.output_model (a cut-off answer or a missing/invalid tool call
+            # raises into the fallback below) and records the call. The ledger
+            # row goes on THIS session (record_on=db): the citations below point
+            # at it by foreign key, and it commits or rolls back with the run.
+            result = await gateway_for(self.claude_client).structured(
+                db,
+                spec.name,
+                ctx=AICallContext(
+                    org_id=org_id,
+                    user_id=created_by_user_id,
+                    resource=(resource_type, resource_id) if (resource_type or resource_id) else None,
+                    request_id=request_id,
+                    job_id=job_id,
+                    session_id=session_id,
+                    assistant_run_id=assistant_run_id,
+                    tool_call_id=tool_call_id,
+                    skill_run_id=skill_run.id,
+                ),
                 user_prompt=built_prompt.user_prompt,
-                tool_name=spec.return_tool_name,
-                input_schema=spec.output_model.model_json_schema(),
-                max_tokens=_clamp_max_tokens(spec.max_tokens),
-                temperature=spec.temperature,
-                model=prompt_bundle.model_name,
+                log_input=skill_run.input_payload,  # already redacted
+                prompt=prompt_bundle,
+                record_on=db,
             )
-            raw_output = self._extract_structured_output(provider_response, spec)
-            validated = spec.output_model.model_validate(raw_output)
+            validated = result.data
             validation_status = self._validate_and_store_citations(
                 db,
                 org_id=org_id,
@@ -1155,25 +1128,11 @@ class AIController:
             )
             skill_run.output_payload = validated.model_dump(mode="json")
             skill_run.finished_at = utcnow()
-            ai_call_log = self._log_ai_call(
-                db,
-                org_id=org_id,
-                created_by_user_id=created_by_user_id,
-                request_id=request_id,
-                skill_run=skill_run,
-                spec=spec,
-                provider_response=provider_response,
-                raw_output=raw_output,
-                validated=validated,
-                status=AICallStatus.SUCCEEDED,
-                validation_status=validation_status,
-                job_id=job_id,
-                session_id=session_id,
-                assistant_run_id=assistant_run_id,
-                tool_call_id=tool_call_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            ai_call_log = db.get(AICallLog, result.call_id)
+            # The gateway judged the schema; the citation check is this run's
+            # final verdict, as the ledger row recorded before the gateway.
+            ai_call_log.validation_status = validation_status
+            ai_call_log.redaction_status = "redacted"
             self._persist_skill_output(
                 db,
                 spec=spec,
@@ -1190,7 +1149,7 @@ class AIController:
                 created_by_user_id=created_by_user_id,
                 resource_type=resource_type,
                 resource_id=resource_id,
-                provider_response=provider_response,
+                token_usage=result.usage,
                 skill_run=skill_run,
             )
             write_timeline_event(
@@ -1312,19 +1271,6 @@ class AIController:
             focus_query=input_payload.get("focus_query"),
         )
 
-    def _extract_structured_output(self, response: ClaudeProviderResponse, spec: SkillSpec) -> dict[str, Any]:
-        # An answer cut off at max_tokens arrives as a tool call with an empty or
-        # partial input, which validates as an empty result (e.g. "no clauses")
-        # and was recorded as a success. Fail instead, so it shows up.
-        if response.stop_reason == "max_tokens":
-            raise RuntimeError(
-                f"{spec.name}: the answer was cut off at max_tokens ({spec.max_tokens}); nothing was stored"
-            )
-        for block in response.tool_use_blocks:
-            if block.get("name") == spec.return_tool_name:
-                return block.get("input") or {}
-        raise RuntimeError(f"Claude did not return expected tool output: {spec.return_tool_name}")
-
     def _validate_and_store_citations(
         self,
         db: Session,
@@ -1370,63 +1316,6 @@ class AIController:
                 )
             )
         return status
-
-    def _log_ai_call(
-        self,
-        db: Session,
-        *,
-        org_id: str,
-        created_by_user_id: str | None,
-        request_id: str | None,
-        skill_run: AISkillRun,
-        spec: SkillSpec,
-        provider_response: ClaudeProviderResponse,
-        raw_output: dict[str, Any],
-        validated: BaseModel,
-        status: str,
-        validation_status: str,
-        job_id: str | None,
-        session_id: str | None,
-        assistant_run_id: str | None,
-        tool_call_id: str | None,
-        resource_type: str | None,
-        resource_id: str | None,
-    ) -> AICallLog:
-        row = AICallLog(
-            org_id=org_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            job_id=job_id,
-            session_id=session_id,
-            assistant_run_id=assistant_run_id,
-            tool_call_id=tool_call_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            provider=self.claude_client.provider,
-            model=provider_response.model,
-            model_config_hash=skill_run.model_config_hash,
-            prompt_key=skill_run.prompt_key,
-            prompt_version=skill_run.prompt_version,
-            prompt_hash=skill_run.prompt_hash,
-            input_payload=skill_run.input_payload,
-            output_schema_name=spec.output_schema_name,
-            prompt_tokens=provider_response.token_usage.get("prompt_tokens"),
-            completion_tokens=provider_response.token_usage.get("completion_tokens"),
-            total_tokens=provider_response.token_usage.get("total_tokens"),
-            latency_ms=provider_response.latency_ms,
-            status=status,
-            validation_status=validation_status,
-            provider_request_id=provider_response.provider_request_id,
-            stop_reason=provider_response.stop_reason,
-            redaction_status="redacted",
-            raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None,
-            validated_output=validated.model_dump(mode="json"),
-            created_by_user_id=created_by_user_id,
-            updated_by_user_id=created_by_user_id,
-        )
-        db.add(row)
-        db.flush()
-        return row
 
     def _persist_skill_output(
         self,
@@ -1655,14 +1544,14 @@ class AIController:
         created_by_user_id: str | None,
         resource_type: str | None,
         resource_id: str | None,
-        provider_response: ClaudeProviderResponse,
+        token_usage: dict[str, int | None],
         skill_run: AISkillRun,
     ) -> None:
         for metric, quantity in [
             ("ai.call", 1),
-            ("ai.prompt_tokens", provider_response.token_usage.get("prompt_tokens") or 0),
-            ("ai.completion_tokens", provider_response.token_usage.get("completion_tokens") or 0),
-            ("ai.total_tokens", provider_response.token_usage.get("total_tokens") or 0),
+            ("ai.prompt_tokens", token_usage.get("prompt_tokens") or 0),
+            ("ai.completion_tokens", token_usage.get("completion_tokens") or 0),
+            ("ai.total_tokens", token_usage.get("total_tokens") or 0),
         ]:
             db.add(
                 UsageRecord(
@@ -1936,15 +1825,6 @@ def _redacted_input(payload: dict[str, Any]) -> dict[str, Any]:
     # Scrub inline PII (emails, 16+ digit numbers) and oversized/sensitive text
     # recursively before this payload is persisted on the skill run + AI call log.
     return redact_ai_payload(payload)
-
-
-def _clamp_max_tokens(max_tokens: int) -> int:
-    """Clamp a per-request/per-skill max_tokens to the configured ceiling so a
-    misconfigured skill can never request an unbounded completion."""
-    ceiling = settings.claude_max_tokens_ceiling
-    if ceiling and ceiling > 0:
-        return min(max_tokens, ceiling)
-    return max_tokens
 
 
 ai_controller = AIController()

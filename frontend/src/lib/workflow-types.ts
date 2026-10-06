@@ -65,7 +65,7 @@ export const DATE_OPS: WorkflowCondition["op"][] = ["within_days"];
 const money = (cur: string | undefined, n: unknown) =>
   `${cur || "INR"} ${Number(n || 0).toLocaleString(cur && cur !== "INR" ? "en-US" : "en-IN")}`;
 
-export function conditionText(c: WorkflowCondition, label?: string): string {
+function conditionText(c: WorkflowCondition, label?: string): string {
   const name = (label ?? (c.field === "value" ? "Contract value" : c.field.replace(/_/g, " "))).toLowerCase();
   if (c.op === "within_days") return `${name} is within ${c.value} day${Number(c.value) === 1 ? "" : "s"}`;
   if (c.op === "between") return `${name} is between ${money(c.currency, c.value)} and ${money(c.currency, c.value2)}`;

@@ -12,18 +12,7 @@ dependencies = [
   "fastembed>=0.4.2",
   "fastapi>=0.115.0",
   "httpx>=0.27.2",
-  # Renders the docstudio dev page's reports server-side with raw HTML
-  # escaped. Was only present because `rich` pulls it in.
-  # Reads the family name out of a PDF's embedded font file, so a subset called
-  # "ABCDEF+CIDFont" is written into Word as the Times New Roman it is
-  # (docstudio toword). Came in with pdf2docx, which is gone.
-  "fonttools>=4.65.0",
-  "markdown-it-py>=4.2.0",
   "openpyxl>=3.1.2",
-  # Reads a PDF page's drawing instructions, so an agreed change to a few words
-  # is written inside the text it replaces (docstudio marks.patch) and the
-  # page's reading order is kept. MPL-2.0; PyMuPDF still writes the file.
-  "pikepdf==10.13.0.post1",
   "pgvector>=0.3.6",
   "psycopg[binary]>=3.2.3",
   "pyjwt[crypto]>=2.9.0",

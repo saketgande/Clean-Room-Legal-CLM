@@ -1,6 +1,6 @@
 // Typed endpoint functions, grouped by backend module.
 import { apiFetch, apiDownload } from "./api";
-import type { AdminSetting, DraftingTemplate, DraftingTemplateSummary, DraftingTemplateVersion, AiUsageSummary, ApprovalChainStep, ApprovalRequest, ApprovalReviewContext, ApproverBrief, AssistantMessage, AssistantRunSummary, AssistantSession, BrainQuery, BrainSearchResponse, BrainScope, ClauseSearchResult, ConfigStatus, ContractActivityResponse, ContractClause, ContractEditResponse, ContractComment, ContractParty, ContractResponse, ContractRiskSummary, CounterpartyOption, CounterpartyState, ExternalComment, Workflow, WorkflowRun, LifecycleRow, LifecycleStage, SignerOption, ExternalShareView, ContractDeviation, ReviewStatusResponse, VersionDiffResponse, ContractShareCreateResponse, ContractShareResponse, ContractStageHistoryResponse, ContractTextSearchResult, ContractTextSnapshotResponse, ContractUploadResponse, ContractVersionResponse, ContractLifecycleStage, JobRun, LifecycleOptionsResponse, Notification, Notice, NoticeExtraction, NoticeReminderRun, NoticeSummary, Obligation, OrganizationResponse, BuildChatResponse, ExtractedDoc, PlaybookDraftRule, PlaybookInsights, PlaybookResponse, PlaybookRuleResponse, PlaybookRunDetailResponse, PlaybookRunResponse, PlaybookVersionResponse, RegistrationResponse, RenewalEvent, RevisionRound, RenewalRecommendation, SignatureRecipient, SignatureRequest, TabularReview, TabularReviewChat, TabularReviewDetail, TokenResponse, UserInvitationResponse, UserResponse, RoleResponse, PermissionInfo, GrantResponse, WallResponse, AuthorityGrantResponse, Prompt, PromptVersion, PromptUsage, IntakeRequest, IntakeApprovalRung, IntakeTask, IntakeHandoff, IntakeAssignee, IntakeMyWork, IntakeSlaLegs, IntakeSlaOps, IntakeTeam, IntakeDocument, IntakeDraft, RequestFormDef, IntakeApprovalPreview, LegalEntity, Counterparty, Trademark, TrademarkCreatePayload, TrademarkUpdatePayload, IntakeSubmitPayload, TrademarkDashboardMetrics, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, UploadDocumentResponse, ExtractRequest, ExtractResponse, IngestRequest, IngestResponse, IntegrationStatusResponse, IntegrationTestResponse, OrgUnitResponse, OrgUnitDeleteResponse, RoleGrantResponse, DelegationResponse, DelegationEligibilityEntry, MenuTreeResponse, MyScreenAccessResponse, ActionLevelResponse, ScreenResponse, ScreenGrantResponse, ScreenGrantCreate, ScreenGrantUpdate, ConditionFieldCatalogResponse, ConditionExpression, ChainDefinitionResponse, ChainStepResponse, ChainStepRuleResponse, ChainInstanceSummary, ChainInstanceDetailResponse, ChainBlockedResponse, ChainHistoryEntry, ChainInstanceStatus, ChainApprovalMode, ChainStepType } from "./types";
+import type { AdminSetting, DraftingTemplate, DraftingTemplateSummary, DraftingTemplateVersion, AiUsageSummary, ApprovalChainStep, ApprovalRequest, ApprovalReviewContext, ApproverBrief, AssistantMessage, AssistantRunSummary, AssistantSession, BrainQuery, BrainSearchResponse, BrainScope, ClauseSearchResult, ConfigStatus, ContractActivityResponse, ContractClause, ContractEditResponse, ContractComment, ContractParty, ContractResponse, ContractRiskSummary, CounterpartyOption, CounterpartyState, ExternalComment, Workflow, WorkflowRun, LifecycleRow, LifecycleStage, SignerOption, ExternalShareView, ContractDeviation, ReviewStatusResponse, VersionDiffResponse, ContractShareCreateResponse, ContractShareResponse, ContractStageHistoryResponse, ContractTextSearchResult, ContractTextSnapshotResponse, ContractUploadResponse, ContractVersionResponse, ContractLifecycleStage, JobRun, LifecycleOptionsResponse, Notification, Notice, NoticeExtraction, NoticeReminderRun, NoticeSummary, Obligation, OrganizationResponse, BuildChatResponse, ExtractedDoc, PlaybookDraftRule, PlaybookInsights, PlaybookResponse, PlaybookRuleResponse, PlaybookRunDetailResponse, PlaybookRunResponse, PlaybookVersionResponse, RegistrationResponse, RenewalEvent, RevisionRound, RenewalRecommendation, SignatureRecipient, SignatureRequest, TabularReview, TabularReviewChat, TabularReviewDetail, TokenResponse, UserInvitationResponse, UserResponse, RoleResponse, PermissionInfo, WallResponse, AuthorityGrantResponse, Prompt, PromptVersion, PromptUsage, IntakeRequest, IntakeApprovalRung, IntakeTask, IntakeHandoff, IntakeAssignee, IntakeMyWork, IntakeSlaLegs, IntakeSlaOps, IntakeTeam, IntakeDocument, IntakeDraft, RequestFormDef, IntakeApprovalPreview, LegalEntity, Counterparty, Trademark, TrademarkCreatePayload, TrademarkUpdatePayload, IntakeSubmitPayload, TrademarkDashboardMetrics, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, UploadDocumentResponse, ExtractRequest, ExtractResponse, IngestRequest, IngestResponse, IntegrationStatusResponse, IntegrationTestResponse, OrgUnitResponse, OrgUnitDeleteResponse, RoleGrantResponse, DelegationResponse, DelegationEligibilityEntry, MenuTreeResponse, MyScreenAccessResponse, ActionLevelResponse, ScreenResponse, ScreenGrantResponse, ScreenGrantCreate, ScreenGrantUpdate, ConditionFieldCatalogResponse, ConditionExpression, ChainDefinitionResponse, ChainStepResponse, ChainStepRuleResponse, ChainInstanceSummary, ChainInstanceDetailResponse, ChainBlockedResponse, ChainHistoryEntry, ChainInstanceStatus, ChainApprovalMode, ChainStepType } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
   const sp = new URLSearchParams();
@@ -59,26 +59,6 @@ export const authApi = {
       body: { token, full_name, password },
       noRetry: true,
     }),
-};
-
-// ---- Users / org ---------------------------------------------------------
-// ---- Resource grants (object-level access) -------------------------------
-export const grantsApi = {
-  list: (resourceType: string, resourceId: string) =>
-    apiFetch<GrantResponse[]>(
-      `/grants?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}`,
-    ),
-  create: (payload: {
-    principal_type: string;
-    principal_id: string;
-    resource_type: string;
-    resource_id: string;
-    access_level: string;
-    valid_until?: string | null;
-    note?: string | null;
-  }) => apiFetch<GrantResponse>("/grants", { method: "POST", body: payload }),
-  revoke: (id: string) =>
-    apiFetch<void>(`/grants/${id}`, { method: "DELETE" }),
 };
 
 // ---- Roles (custom RBAC role management) ---------------------------------
@@ -686,20 +666,6 @@ export const assistantApi = {
     }>(`/assistant/confirmations/${confirmationId}/reject`, {
       method: "POST",
       body: { reason },
-    }),
-};
-
-// ---- AI ------------------------------------------------------------------
-export const aiApi = {
-  rerunMetadata: (contractId: string) =>
-    apiFetch(`/ai/contracts/${contractId}/metadata-extraction`, {
-      method: "POST",
-      body: {},
-    }),
-  rerunClauses: (contractId: string) =>
-    apiFetch(`/ai/contracts/${contractId}/clause-extraction`, {
-      method: "POST",
-      body: {},
     }),
 };
 

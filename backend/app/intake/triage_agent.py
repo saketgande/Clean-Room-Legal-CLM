@@ -241,13 +241,9 @@ def aegis_read(db: Session, request: IntakeRequest, *, claude_client=None) -> di
 
     if settings.mock_claude:
         return None
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
     try:
-        bundle = get_agent_prompt(db, agent_id="intake_form_read", org_id=request.org_id)
         attachments = db.scalars(
             select(IntakeDocument).where(IntakeDocument.request_id == request.id)
             .order_by(IntakeDocument.created_at)
@@ -257,19 +253,14 @@ def aegis_read(db: Session, request: IntakeRequest, *, claude_client=None) -> di
         # flagged a start date next week as suspiciously far off.
         context = (f"Today is {utcnow().date().isoformat()}. Form amounts are in "
                    f"{settings.default_currency} unless a field says otherwise.\n\n")
-        resp = run_coro_blocking(lambda: claude_client.complete_structured(
-            org_id=request.org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
-            user_prompt=context + "INTAKE REQUEST:" + user_prompt,
-            tool_name="read_request", input_schema=_READ_SCHEMA,
-            max_tokens=700, temperature=0.0, model=bundle.model_name,
-        ))
-        log_agent_call(db, org_id=request.org_id, agent_id="intake_form_read", prompt_bundle=bundle,
-                       input_payload={"user_prompt": user_prompt}, response=resp)
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = blocks[0].get("input") if blocks else None
-        if not isinstance(data, dict):
-            return None
+        # Feature "intake_form_read" via the AI gateway: prompt + guard, token cap, output
+        # check and ledger row in one place. Bad or cut-off output raises
+        # into the except below, which keeps this agent's fallback.
+        data = gateway_for(claude_client).structured_sync(
+            db, "intake_form_read", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
+            user_prompt=context + "INTAKE REQUEST:" + user_prompt, input_schema=_READ_SCHEMA,
+            log_input={"user_prompt": user_prompt},
+        ).data
         lists = ("bespoke_asks", "negotiation_points")
         return {"summary": str(data.get("summary") or "")[:600],
                 "mismatches": real_mismatches(data.get("mismatches")),
@@ -287,31 +278,22 @@ def _triage(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     if settings.mock_claude:
         return _fallback(db, request)
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
     try:
-        bundle = get_agent_prompt(db, agent_id="intake_triage", org_id=request.org_id)
         attachments = db.scalars(
             select(IntakeDocument).where(IntakeDocument.request_id == request.id)
             .order_by(IntakeDocument.created_at)
         ).all()
         user_prompt = _prompt(request, catalog, attachments)
-        resp = run_coro_blocking(lambda: claude_client.complete_structured(
-            org_id=request.org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
-            user_prompt=user_prompt,
-            tool_name="triage_request", input_schema=_SCHEMA,
-            max_tokens=900, temperature=0.0, model=bundle.model_name,
-        ))
-        log_agent_call(db, org_id=request.org_id, agent_id="intake_triage", prompt_bundle=bundle,
-                       input_payload={"user_prompt": user_prompt}, response=resp)
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = blocks[0].get("input") if blocks else None
-        if not isinstance(data, dict):
-            return _fallback(db, request, degraded=True)
+        # Feature "intake_triage" via the AI gateway: prompt + guard, token cap, output
+        # check and ledger row in one place. Bad or cut-off output raises
+        # into the except below, which keeps this agent's fallback.
+        data = gateway_for(claude_client).structured_sync(
+            db, "intake_triage", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
+            user_prompt=user_prompt, input_schema=_SCHEMA,
+            log_input={"user_prompt": user_prompt},
+        ).data
         return _to_triage(request, data, catalog)
     except Exception:
         logger.warning("intake triage model call failed for %s", request.id, exc_info=True)

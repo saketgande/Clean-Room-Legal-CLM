@@ -6,7 +6,7 @@
 import { Bell, Bot, FileText, PenLine, ShieldCheck, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-export const STEP_META: Record<string, { icon: LucideIcon; label: string; wait: string; running: string }> = {
+const STEP_META: Record<string, { icon: LucideIcon; label: string; wait: string; running: string }> = {
   ai_task: { icon: Bot, label: "AI step", wait: "Needs your review", running: "Agent is working…" },
   human_task: { icon: Users, label: "Human task", wait: "Waiting on you", running: "In progress" },
   approval: { icon: ShieldCheck, label: "Approval", wait: "Awaiting sign-off", running: "Awaiting sign-off" },

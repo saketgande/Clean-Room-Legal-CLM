@@ -109,10 +109,6 @@ def is_(field, value):
     return {"field": field, "op": "is", "value": value}
 
 
-def needed_within(days):
-    return {"field": "needed_by", "op": "within_days", "value": days}
-
-
 def under(amount):
     return {"field": "value", "op": "under", "value": float(amount), "currency": "INR"}
 

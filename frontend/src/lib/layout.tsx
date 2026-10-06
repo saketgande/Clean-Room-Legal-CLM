@@ -67,10 +67,3 @@ export function useLayout() {
  * Mount-scoped helper: collapses the desktop nav to an icon rail while a
  * document/workspace page is open, then restores it on leave.
  */
-export function useCollapseChrome() {
-  const { setForceCollapsed } = useLayout();
-  useEffect(() => {
-    setForceCollapsed(true);
-    return () => setForceCollapsed(false);
-  }, [setForceCollapsed]);
-}

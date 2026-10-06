@@ -1,8 +1,13 @@
 """AI usage & cost analytics over the a_i_call_log ledger.
 
 Cost is derived, not stored: the ledger records tokens per call, and we price
-them here from a per-model rate table. Sonnet 4.5 (the model the app actually
-runs on) is $3 / $15 per million input / output tokens.
+them here from a per-model rate table (Sonnet is $3 / $15 per million input /
+output tokens). Prompt-cache tokens are counted apart from input tokens by the
+API and priced here too: a cache read at 0.1x the input rate, a cache write
+(5-minute cache) at 1.25x. Rows written before the cache columns existed have
+none recorded, so their cached input is not priced.
+
+Labels come from the AI feature registry (app/ai/gateway/features.py).
 """
 from __future__ import annotations
 
@@ -12,6 +17,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.ai.gateway.features import feature_registry
 from app.core.deps import get_db, require_permission
 from app.core.models import AICallLog
 
@@ -36,28 +42,8 @@ def _rate_for(model: str | None) -> tuple[float, float]:
     return _DEFAULT_RATE
 
 
-# prompt_key -> (human label, user-facing action category)
-_LABELS: dict[str, tuple[str, str]] = {
-    "intake_triage": ("Intake triage", "Raise a request"),
-    "contract_metadata_extraction": ("Metadata extraction", "Raise a request"),
-    "contract_docx_generation": ("Auto-draft generation", "Raise a request"),
-    "contract_edit_suggestions": ("Redline suggestions", "Redlining"),
-    "playbook_review": ("Playbook deviation review", "Redlining"),
-    "playbook_generation": ("Playbook generation", "Redlining"),
-    "assistant_streaming": ("Ask Aegis (chat turn)", "Ask Aegis / Chat"),
-    "contract_brain_answer": ("Contract Brain answer", "Ask Aegis / Chat"),
-    "tabular_review_chat": ("Tabular review chat", "Ask Aegis / Chat"),
-    "flow_router": ("Workflow router", "Ask Aegis / Chat"),
-    "clause_extraction": ("Clause extraction", "Analysis & extraction"),
-    "clause_labeling": ("Clause labelling", "Analysis & extraction"),
-    "contract_risk_assessment": ("Risk assessment", "Analysis & extraction"),
-    "tabular_cell_extraction": ("Tabular cell extraction", "Analysis & extraction"),
-    "tabular_row_extraction": ("Tabular row extraction", "Analysis & extraction"),
-    "obligation_extraction": ("Obligation extraction", "Analysis & extraction"),
-    "renewal_extraction": ("Renewal extraction", "Analysis & extraction"),
-    "plain_language_summary": ("Plain-language summary", "Analysis & extraction"),
-    "notice_response_agent": ("Notice response", "Analysis & extraction"),
-}
+# prompt_key -> (human label, user-facing action category), from the registry.
+_LABELS: dict[str, tuple[str, str]] = feature_registry.labels()
 
 
 def _label(prompt_key: str | None) -> tuple[str, str]:
@@ -66,9 +52,25 @@ def _label(prompt_key: str | None) -> tuple[str, str]:
     return _LABELS.get(prompt_key, (prompt_key.replace("_", " ").title(), "Other"))
 
 
-def _cost(prompt_tokens: int, completion_tokens: int, model: str | None) -> float:
+# Prompt-cache multipliers on the input rate (Anthropic list pricing).
+_CACHE_READ_MULTIPLIER = 0.1
+_CACHE_WRITE_MULTIPLIER = 1.25
+
+
+def _cost(
+    prompt_tokens: int,
+    completion_tokens: int,
+    model: str | None,
+    cache_read: int = 0,
+    cache_write: int = 0,
+) -> float:
     in_rate, out_rate = _rate_for(model)
-    return prompt_tokens / 1_000_000 * in_rate + completion_tokens / 1_000_000 * out_rate
+    return (
+        prompt_tokens * in_rate
+        + completion_tokens * out_rate
+        + cache_read * in_rate * _CACHE_READ_MULTIPLIER
+        + cache_write * in_rate * _CACHE_WRITE_MULTIPLIER
+    ) / 1_000_000
 
 
 @router.get("/ai-usage")
@@ -88,6 +90,8 @@ def ai_usage(
             func.count().label("calls"),
             func.coalesce(func.sum(AICallLog.prompt_tokens), 0).label("in_tok"),
             func.coalesce(func.sum(AICallLog.completion_tokens), 0).label("out_tok"),
+            func.coalesce(func.sum(AICallLog.cache_read_input_tokens), 0).label("cache_read"),
+            func.coalesce(func.sum(AICallLog.cache_creation_input_tokens), 0).label("cache_write"),
             func.avg(AICallLog.latency_ms).label("avg_latency"),
         )
         .where(*base)
@@ -96,10 +100,13 @@ def ai_usage(
 
     by_operation: list[dict] = []
     by_category: dict[str, dict] = {}
-    totals = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0}
+    totals = {
+        "calls": 0, "prompt_tokens": 0, "completion_tokens": 0,
+        "cache_read_tokens": 0, "cache_write_tokens": 0, "cost": 0.0,
+    }
     for r in rows:
         label, category = _label(r.prompt_key)
-        cost = _cost(int(r.in_tok), int(r.out_tok), r.model)
+        cost = _cost(int(r.in_tok), int(r.out_tok), r.model, int(r.cache_read), int(r.cache_write))
         calls = int(r.calls)
         by_operation.append(
             {
@@ -123,6 +130,8 @@ def ai_usage(
         totals["calls"] += calls
         totals["prompt_tokens"] += int(r.in_tok)
         totals["completion_tokens"] += int(r.out_tok)
+        totals["cache_read_tokens"] += int(r.cache_read)
+        totals["cache_write_tokens"] += int(r.cache_write)
         totals["cost"] += cost
 
     totals["total_tokens"] = totals["prompt_tokens"] + totals["completion_tokens"]
@@ -145,6 +154,8 @@ def ai_usage(
             func.count().label("calls"),
             func.coalesce(func.sum(AICallLog.prompt_tokens), 0).label("in_tok"),
             func.coalesce(func.sum(AICallLog.completion_tokens), 0).label("out_tok"),
+            func.coalesce(func.sum(AICallLog.cache_read_input_tokens), 0).label("cache_read"),
+            func.coalesce(func.sum(AICallLog.cache_creation_input_tokens), 0).label("cache_write"),
         )
         .where(*base)
         .group_by(day, AICallLog.model)
@@ -155,7 +166,7 @@ def ai_usage(
         key = str(r.day)
         d = daily.setdefault(key, {"date": key, "calls": 0, "cost": 0.0})
         d["calls"] += int(r.calls)
-        d["cost"] += _cost(int(r.in_tok), int(r.out_tok), r.model)
+        d["cost"] += _cost(int(r.in_tok), int(r.out_tok), r.model, int(r.cache_read), int(r.cache_write))
     daily_list = [
         {**d, "cost": round(d["cost"], 4)} for d in sorted(daily.values(), key=lambda x: x["date"])
     ]

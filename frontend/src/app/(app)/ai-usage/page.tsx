@@ -61,7 +61,7 @@ export default function AiUsagePage() {
     <div className="space-y-4">
       <PageHeader
         title="AI Usage & Cost"
-        description="Every AI operation, priced from the token ledger. Sonnet 4.5 at $3 / $15 per million input / output tokens."
+        description="Every AI operation, priced from the token ledger at list rates (Sonnet: $3 / $15 per million input / output tokens; cached input costs 10% to read, 125% to write)."
         actions={
           <div className="flex gap-1 rounded-lg border border-slate-200 p-0.5">
             {WINDOWS.map((w) => (
@@ -228,9 +228,9 @@ export default function AiUsagePage() {
           </Card>
 
           <p className="px-1 text-xs text-slate-400">
-            Costs are derived from logged token counts at list price and exclude
-            prompt-caching and batch discounts, so they are an upper bound on
-            actual spend.
+            Costs are derived from logged token counts at list price. Cached
+            input is priced at its own rates where the call recorded it; calls
+            logged before cache tokens were recorded show less than they cost.
           </p>
         </>
       ) : null}

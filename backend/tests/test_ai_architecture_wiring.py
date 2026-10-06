@@ -2,7 +2,8 @@ import asyncio
 import inspect
 
 from app.ai import confirmations
-from app.ai.controller import INTERNAL_RESULT_KEYS, _clamp_max_tokens, ai_controller
+from app.ai.controller import INTERNAL_RESULT_KEYS, ai_controller
+from app.ai.gateway.gateway import _clamp as _clamp_max_tokens
 from app.ai.redaction import redact_ai_payload
 from app.ai.tool_registry import ExternalShareInput, tool_registry
 from app.ai.tool_runtime import tool_runtime
@@ -311,11 +312,10 @@ def test_skill_run_input_payload_uses_strengthened_redaction():
 
 def test_raw_ai_output_only_persisted_when_flag_enabled():
     """raw_ai_output must be gated on settings.ai_store_raw_outputs (defaults off)."""
-    structured = inspect.getsource(ai_controller._log_ai_call)
-    assistant = inspect.getsource(ai_controller._log_assistant_ai_call)
+    from app.ai.gateway import ledger
 
-    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in structured
-    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in assistant
+    # Skills and the assistant both write through the gateway's single ledger writer.
+    assert "if (response is not None and settings.ai_store_raw_outputs) else None" in inspect.getsource(ledger.record_call)
 
 
 def test_max_tokens_clamped_to_ceiling_before_claude():
@@ -324,12 +324,11 @@ def test_max_tokens_clamped_to_ceiling_before_claude():
     assert _clamp_max_tokens(settings.claude_max_tokens_ceiling + 100000) == settings.claude_max_tokens_ceiling
     assert _clamp_max_tokens(123) == 123
     # Every Claude call site clamps its max_tokens.
-    for fn in (
-        ai_controller.run_structured_skill,
-        ai_controller.stream_assistant_run,
-        ai_controller.resume_assistant_run,
-    ):
-        assert "_clamp_max_tokens(spec.max_tokens)" in inspect.getsource(fn)
+    # Skills and the assistant go through the AI gateway, which clamps every
+    # feature's budget.
+    from app.ai.gateway import gateway as gateway_module
+
+    assert "max_tokens=_clamp(feature.max_tokens)" in inspect.getsource(gateway_module.AIGateway._plan)
 
 
 def test_every_claude_request_is_metered_inside_the_client():
@@ -481,6 +480,33 @@ def test_every_external_action_tool_requires_confirmation():
     external = [s.name for s in tool_registry._tools.values()
                 if s.category == AssistantToolCategory.EXTERNAL_ACTION and not s.requires_confirmation]
     assert external == []
+
+
+# Tools that change data but deliberately run without asking. Each one only
+# adds a new analysis record for the user to read and changes nothing that
+# exists; the reason is written next to its registration.
+NO_CONFIRMATION_BY_DESIGN = {"run_playbook_review", "create_tabular_review"}
+
+
+def test_every_tool_that_changes_data_asks_first_unless_listed():
+    """Safe by default: a non-read-only tool must ask the user before it runs,
+    so a hidden instruction in contract or email text can't trigger it. A new
+    exception has to be added to NO_CONFIRMATION_BY_DESIGN on purpose."""
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    unconfirmed = {s.name for s in tool_registry.all()
+                   if s.category != AssistantToolCategory.READ_ONLY and not s.requires_confirmation}
+    assert unconfirmed == NO_CONFIRMATION_BY_DESIGN
+
+
+def test_read_only_tools_never_ask():
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    asking = [s.name for s in tool_registry.all()
+              if s.category == AssistantToolCategory.READ_ONLY and s.requires_confirmation]
+    assert asking == []
 
 
 def test_confirmation_card_shows_what_is_being_approved():

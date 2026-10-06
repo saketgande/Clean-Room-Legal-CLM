@@ -49,6 +49,19 @@ os.environ.setdefault(
 
 import pytest
 
+# --- Never hand jobs to the real background worker -------------------------
+# The suite runs inside the dev backend container, whose Celery broker is the
+# SAME Redis the dev worker listens on — and that worker runs with the mocks
+# OFF and real API keys. Tests that file a request with defer_triage=True
+# commit an intake_triage job and dispatch it, so every full run made real,
+# paid Claude calls (8 triage + 1 form read per run, seen in a_i_call_log) and
+# could send real notifications. The mocks forced above only cover THIS
+# process. Point this process's Celery at an in-memory broker instead: tasks
+# are still "sent" (ids assigned, code paths unchanged) but nothing consumes them.
+from app.jobs.celery_app import celery_app as _celery_app
+
+_celery_app.conf.update(broker_url="memory://", result_backend="cache+memory://")
+
 # --- DI migration test harness ---------------------------------------------
 # Added alongside the contracts/ DI conversion (see backend/DI_MIGRATION.md).
 # The suite previously had no TestClient / dependency_overrides fixtures — all

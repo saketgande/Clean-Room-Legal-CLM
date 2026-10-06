@@ -15,6 +15,7 @@ Owner agents: backend-dev, db-engineer
 ## Endpoints
 
 - `GET /assistant/runs/{assistant_run_id}` -- permission: `assistant:use` -- request: ? -- response: ?
+- `GET /assistant/runs/{assistant_run_id}/events` -- permission: `assistant:use` -- request: str | None -- response: ?
 - `GET /assistant/sessions` -- permission: `assistant:use` -- request: str | None -- response: ?
 - `GET /assistant/sessions/{session_id}` -- permission: `assistant:use` -- request: ? -- response: ?
 - `GET /assistant/sessions/{session_id}/messages` -- permission: `assistant:use` -- request: ? -- response: ?
@@ -23,6 +24,7 @@ Owner agents: backend-dev, db-engineer
 - `PATCH /assistant/sessions/{session_id}` -- permission: `assistant:use` -- request: AssistantSessionUpdate -- response: ?
 - `POST /assistant/confirmations/{confirmation_id}/confirm` -- permission: `assistant:use` -- request: ? -- response: ?
 - `POST /assistant/confirmations/{confirmation_id}/reject` -- permission: `assistant:use` -- request: ConfirmationRejectRequest -- response: ?
+- `POST /assistant/runs/{assistant_run_id}/cancel` -- permission: `assistant:use` -- request: ? -- response: ?
 - `POST /assistant/runs/{assistant_run_id}/resume` -- permission: `assistant:use` -- request: str | None -- response: ?
 - `POST /assistant/sessions` -- permission: `assistant:use` -- request: AssistantSessionCreate -- response: ?
 - `POST /assistant/sessions/{session_id}/contracts` -- permission: `assistant:use` -- request: AssistantContractHandleAdd -- response: ?
@@ -39,6 +41,7 @@ Owner agents: backend-dev, db-engineer
 ## Frontend counterpart
 
 Api group: `assistantApi` (confidence: exact)
+- `assistantApi.cancelRun()` -> `POST /assistant/runs/${runId}/cancel`
 - `assistantApi.confirm()` -> `POST /assistant/confirmations/${confirmationId}/confirm`
 - `assistantApi.createSession()` -> `POST /assistant/sessions`
 - `assistantApi.messages()` -> `GET /assistant/sessions/${id}/messages${qs({ limit })}`

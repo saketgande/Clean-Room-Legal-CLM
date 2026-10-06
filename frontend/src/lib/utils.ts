@@ -80,22 +80,6 @@ export const STAGE_ORDER = [
   "closed",
 ] as const;
 
-// Mirrors backend app/contracts/lifecycle.py ALLOWED_TRANSITIONS — UI hint
-// only; the backend remains the authority and rejects invalid moves.
-export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  intake: ["drafting", "review"],
-  drafting: ["review"],
-  review: ["drafting", "approval", "signature"],
-  approval: ["signature", "review"],
-  signature: ["active", "review"],
-  active: ["closed"],
-  closed: [],
-};
-
-export function nextStages(stage: string | null | undefined): string[] {
-  return ALLOWED_TRANSITIONS[stage ?? ""] ?? [];
-}
-
 type Tone =
   | "slate"
   | "blue"
@@ -104,23 +88,6 @@ type Tone =
   | "red"
   | "violet"
   | "cyan";
-
-export function stageTone(stage?: string | null): Tone {
-  switch (stage) {
-    case "active":
-      return "green";
-    case "signature":
-      return "cyan";
-    case "approval":
-      return "amber";
-    case "closed":
-      return "slate";
-    case "review":
-      return "violet";
-    default:
-      return "blue"; // intake, drafting
-  }
-}
 
 export function riskTone(risk?: string | null): Tone {
   switch ((risk ?? "").toLowerCase()) {

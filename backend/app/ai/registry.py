@@ -100,7 +100,7 @@ for registered_spec in [
         # a full-length contract needs more than 4096: the playbook-aligned
         # templates (2.4-4k words) were cut off there and stored no clauses.
         # 8000 is settings.claude_max_tokens_ceiling; a contract that still
-        # doesn't fit now fails the job visibly (_extract_structured_output).
+        # doesn't fit now fails the job visibly (the AI gateway rejects a cut-off answer).
         max_tokens=8000,
     ),
     SkillSpec(
@@ -298,6 +298,10 @@ for registered_spec in [
         feature_flag="feature.ai.contract_brain",
         enabled_by_default=True,
         max_tokens=3072,
+        # The answer is grounded only against the retrieved context. With the full
+        # contract in the prompt too, a contract-scoped answer quoted text that
+        # retrieval never returned, matched 0 citations and was suppressed whole.
+        include_contract_text=False,
     ),
     SkillSpec(
         name="tabular_cell_extraction",
@@ -365,7 +369,10 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.playbook_review",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Counterparty paper deviates on most rules, and each deviation carries its
+        # quote and redline: a 4-page "their paper" NDA overran 4096 and stored no
+        # review. 8000 is settings.claude_max_tokens_ceiling.
+        max_tokens=8000,
     ),
     SkillSpec(
         name="privacy_incident_assessment",

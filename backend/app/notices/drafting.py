@@ -82,28 +82,16 @@ def draft_notice_response(db: Session, *, org_id: str, notice, document_text: st
     if settings.mock_claude:
         return {"draft": _skeleton(notice), "generated": False}
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
-    bundle = get_agent_prompt(db, agent_id="notice_response_agent", org_id=org_id)
     try:
-        resp = run_coro_blocking(lambda: claude_client.complete_text(
-            org_id=org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
+        # Feature "notice_response_agent" via the AI gateway. An empty answer
+        # raises into the except below, which keeps the skeleton fallback.
+        text = gateway_for(claude_client).text_sync(
+            db, "notice_response_agent", ctx=AICallContext(org_id=org_id, resource=("notice", notice.id)),
             user_prompt=_prompt(notice, document_text),
-            max_tokens=1200, temperature=0.2, model=bundle.model_name,
-        ))
-        log_agent_call(
-            db, org_id=org_id, agent_id="notice_response_agent", prompt_bundle=bundle,
-            input_payload={"notice_id": notice.id}, response=resp,
-        )
-        text = "".join(
-            b.get("text", "") for b in resp.content_blocks if b.get("type") == "text"
-        ).strip()
-        if not text:
-            return {"draft": _skeleton(notice), "generated": False}
+            log_input={"notice_id": notice.id},
+        ).data
         return {"draft": text, "generated": True}
     except Exception:
         logger.warning(

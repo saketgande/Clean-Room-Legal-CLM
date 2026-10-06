@@ -192,9 +192,6 @@ export function useRequestForms() {
 }
 
 /** The "What kind of agreement?" choices a form offers — what "Used for" can narrow to. */
-export function agreementTypeOptions(forms: RequestFormDef[] | undefined, formKey: string): string[] {
-  return forms?.find((f) => f.key === formKey)?.fields.find((f) => f.key === "agreement_type")?.options ?? [];
-}
 
 const blank = (v: Value | undefined) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
 
@@ -355,7 +352,6 @@ function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
     </div>
   );
 }
-
 
 // --------------------------------------------------------------- wizard ----
 

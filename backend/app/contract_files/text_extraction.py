@@ -6,7 +6,7 @@ from zipfile import BadZipFile, ZipFile
 from docx.oxml.ns import qn
 
 from app.core.config import settings
-from app.docstudio.parsing.docx import _paragraph_text
+from app.documents.reader.parsing.docx import _paragraph_text
 
 
 @dataclass(frozen=True)

@@ -85,7 +85,7 @@ validate  →  store bytes  →  extract text  →  persist rows  →  queue AI 
    delete them**; the orchestrator's `except` block does exactly this. Preserve
    that invariant.
 3. **Extract text.** New uploads are read first by the Documents reader
-   (`structure.read_with_documents_reader` → `app.docstudio` parsers +
+   (`structure.read_with_documents_reader` → `app.documents.reader` parsers +
    `structure.build`): page furniture (running headers, page numbers,
    e-signature stamps) dropped, Word numbering and tracked insertions kept,
    and elements arrive pre-placed with a clause tree (`parent_id`, `level` =
@@ -107,7 +107,7 @@ validate  →  store bytes  →  extract text  →  persist rows  →  queue AI 
 `POST /contracts/{id}/counterparty-revision` saves their returned file as a new
 version AND opens a `RevisionRound` against the version we sent
 (`app/contract_files/revisions.py`): clauses matched with the Documents clause
-matcher (`docstudio.versions.carry_ids`, ignoring clause numbers so renumbering
+matcher (`documents.reader.versions.carry_ids`, ignoring clause numbers so renumbering
 isn't a change), each change classed against what WE changed in the version we
 sent (changed / countered / reverted / ours / added / removed), and — from a
 Word file — flagged `unmarked` when it isn't one of their tracked changes.
@@ -129,8 +129,10 @@ their text. Editing during an open revision round makes that round's finish
 409 (their version is no longer current) — log their latest file first.
 
 Word text is read with the Documents reader's `_paragraph_text` (keeps tracked
-insertions) — `contract_files` now imports from `app.docstudio`, so removing
-Documents means moving `parsing/docx._paragraph_text` and `versions.carry_ids`.
+insertions, `app/documents/reader/parsing/docx.py`). The reader is all that is
+left of docstudio, the stand-alone editor prototype removed in AI-gateway
+Phase 5; `app/documents/hierarchy.py` (AI placement of undecided clauses,
+through the gateway) came with it but is not yet called from uploads.
 
 ### Drafting templates (our standard paper)
 

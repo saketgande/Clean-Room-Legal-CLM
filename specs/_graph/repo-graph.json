@@ -13,18 +13,6 @@
       "type": "calls"
     },
     {
-      "from": "endpoint_client_fn:aiApi.rerunClauses",
-      "matched": true,
-      "to": "endpoint:ai:POST:/ai/contracts/{contract_id}/clause-extraction",
-      "type": "calls"
-    },
-    {
-      "from": "endpoint_client_fn:aiApi.rerunMetadata",
-      "matched": true,
-      "to": "endpoint:ai:POST:/ai/contracts/{contract_id}/metadata-extraction",
-      "type": "calls"
-    },
-    {
       "from": "endpoint_client_fn:aiUsageApi.summary",
       "matched": false,
       "to": null,
@@ -190,6 +178,12 @@
       "from": "endpoint_client_fn:approvalsApi.tokenDecide",
       "matched": true,
       "to": "endpoint:approvals:POST:/approvals/token-decision",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:assistantApi.cancelRun",
+      "matched": true,
+      "to": "endpoint:assistant:POST:/assistant/runs/{assistant_run_id}/cancel",
       "type": "calls"
     },
     {
@@ -658,24 +652,6 @@
       "from": "endpoint_client_fn:externalShareApi.view",
       "matched": true,
       "to": "endpoint:contract_files:GET:/external-shares/{token}",
-      "type": "calls"
-    },
-    {
-      "from": "endpoint_client_fn:grantsApi.create",
-      "matched": true,
-      "to": "endpoint:grants:POST:/grants",
-      "type": "calls"
-    },
-    {
-      "from": "endpoint_client_fn:grantsApi.list",
-      "matched": false,
-      "to": null,
-      "type": "calls"
-    },
-    {
-      "from": "endpoint_client_fn:grantsApi.revoke",
-      "matched": true,
-      "to": "endpoint:grants:DELETE:/grants/{grant_id}",
       "type": "calls"
     },
     {
@@ -2012,6 +1988,11 @@
     },
     {
       "from": "domain:backend:assistant",
+      "to": "endpoint:assistant:GET:/assistant/runs/{assistant_run_id}/events",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:assistant",
       "to": "endpoint:assistant:GET:/assistant/sessions",
       "type": "contains"
     },
@@ -2048,6 +2029,11 @@
     {
       "from": "domain:backend:assistant",
       "to": "endpoint:assistant:POST:/assistant/confirmations/{confirmation_id}/reject",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:assistant",
+      "to": "endpoint:assistant:POST:/assistant/runs/{assistant_run_id}/cancel",
       "type": "contains"
     },
     {
@@ -2796,51 +2782,6 @@
       "type": "contains"
     },
     {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:GET:/ideal/runs",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:GET:/ideal/runs/{run_id}",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:GET:/ideal/runs/{run_id}/at/{seq}",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:GET:/ideal/workflows",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:POST:/ideal/intake",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:POST:/ideal/intake/{ref}/choose",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:POST:/ideal/intake/{ref}/reply",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:POST:/ideal/runs/{run_id}/change",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:ideal",
-      "to": "endpoint:ideal:POST:/ideal/runs/{run_id}/decide",
-      "type": "contains"
-    },
-    {
       "from": "domain:backend:intake",
       "to": "endpoint:intake:DELETE:/intake/drafts/{draft_id}",
       "type": "contains"
@@ -3138,6 +3079,11 @@
     {
       "from": "domain:backend:jobs",
       "to": "celery_task:run_ai_job",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:jobs",
+      "to": "celery_task:run_assistant_turn",
       "type": "contains"
     },
     {
@@ -5616,9 +5562,9 @@
       "type": "frontend_counterpart"
     },
     {
-      "confidence": "exact",
+      "confidence": "heuristic",
       "from": "domain:backend:ai",
-      "to": "endpoint_client_group:aiApi",
+      "to": "endpoint_client_group:approvalChainsApi",
       "type": "frontend_counterpart"
     },
     {
@@ -5676,9 +5622,9 @@
       "type": "frontend_counterpart"
     },
     {
-      "confidence": "exact",
+      "confidence": "heuristic",
       "from": "domain:backend:grants",
-      "to": "endpoint_client_group:grantsApi",
+      "to": "endpoint_client_group:roleGrantsApi",
       "type": "frontend_counterpart"
     },
     {
@@ -6167,35 +6113,44 @@
       "from": "migration:0068_drafting_templates",
       "to": "migration:0067_remove_trademarks_menu_item",
       "type": "migration_down"
+    },
+    {
+      "from": "migration:0069_pin_general_legal_question",
+      "to": "migration:0068_drafting_templates",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0070_ai_call_log_cache_tokens",
+      "to": "migration:0069_pin_general_legal_question",
+      "type": "migration_down"
     }
   ],
   "metadata": {
     "counts": {
-      "celery_task": 4,
-      "domain_backend": 39,
+      "celery_task": 5,
+      "domain_backend": 38,
       "domain_frontend": 27,
-      "edges_total": 1094,
-      "endpoint": 350,
-      "endpoint_client_fn": 295,
-      "endpoint_client_group": 38,
+      "edges_total": 1086,
+      "endpoint": 343,
+      "endpoint_client_fn": 291,
+      "endpoint_client_group": 36,
       "integration": 5,
-      "migration": 75,
+      "migration": 77,
       "model": 107,
       "page": 40,
-      "schema": 217,
-      "ts_interface": 224,
-      "ui_primitive": 30
+      "schema": 215,
+      "ts_interface": 226,
+      "ui_primitive": 28
     },
-    "generated_at": "2026-10-05T06:45:11Z",
-    "git_head": "b40f365bdabe09209826cccc8424b710b1f9f6f3",
+    "generated_at": "2026-10-06T09:48:58Z",
+    "git_head": "075c242242766b149ca25cf78d9f374d9580e7ee",
     "warnings": [
-      "44 frontend client call(s) did not match any backend endpoint by method+path",
+      "43 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'delegationsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'externalShareApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'orgUnitsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'promptsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "frontend Api group 'roleGrantsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'screenAccessApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'screensApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'usersApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6203,7 +6158,6 @@
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'docstudio' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'ideal' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'organizations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6238,6 +6192,13 @@
       "file": "backend/app/jobs/tasks.py",
       "id": "celery_task:run_ai_job",
       "name": "run_ai_job",
+      "type": "celery_task"
+    },
+    {
+      "autoretry": false,
+      "file": "backend/app/jobs/tasks.py",
+      "id": "celery_task:run_assistant_turn",
+      "name": "run_assistant_turn",
       "type": "celery_task"
     },
     {
@@ -6477,18 +6438,6 @@
         "db-engineer"
       ],
       "path": "backend/app/grants",
-      "type": "domain_backend"
-    },
-    {
-      "files": [
-        "routes.py"
-      ],
-      "id": "domain:backend:ideal",
-      "name": "ideal",
-      "owner_agents": [
-        "backend-dev"
-      ],
-      "path": "backend/app/ideal",
       "type": "domain_backend"
     },
     {
@@ -7367,6 +7316,17 @@
     {
       "domain": "assistant",
       "file": "backend/app/assistant/routes.py",
+      "id": "endpoint:assistant:GET:/assistant/runs/{assistant_run_id}/events",
+      "method": "GET",
+      "path": "/assistant/runs/{assistant_run_id}/events",
+      "permission": "assistant:use",
+      "request_model": "str | None",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "assistant",
+      "file": "backend/app/assistant/routes.py",
       "id": "endpoint:assistant:GET:/assistant/sessions",
       "method": "GET",
       "path": "/assistant/sessions",
@@ -7449,6 +7409,17 @@
       "path": "/assistant/confirmations/{confirmation_id}/reject",
       "permission": "assistant:use",
       "request_model": "ConfirmationRejectRequest",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "assistant",
+      "file": "backend/app/assistant/routes.py",
+      "id": "endpoint:assistant:POST:/assistant/runs/{assistant_run_id}/cancel",
+      "method": "POST",
+      "path": "/assistant/runs/{assistant_run_id}/cancel",
+      "permission": "assistant:use",
+      "request_model": null,
       "response_model": null,
       "type": "endpoint"
     },
@@ -8572,105 +8543,6 @@
       "permission": null,
       "request_model": "GrantCreate",
       "response_model": "GrantResponse",
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:GET:/ideal/runs",
-      "method": "GET",
-      "path": "/ideal/runs",
-      "permission": null,
-      "request_model": null,
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:GET:/ideal/runs/{run_id}",
-      "method": "GET",
-      "path": "/ideal/runs/{run_id}",
-      "permission": null,
-      "request_model": null,
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:GET:/ideal/runs/{run_id}/at/{seq}",
-      "method": "GET",
-      "path": "/ideal/runs/{run_id}/at/{seq}",
-      "permission": null,
-      "request_model": null,
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:GET:/ideal/workflows",
-      "method": "GET",
-      "path": "/ideal/workflows",
-      "permission": null,
-      "request_model": null,
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:POST:/ideal/intake",
-      "method": "POST",
-      "path": "/ideal/intake",
-      "permission": null,
-      "request_model": "Intake",
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:POST:/ideal/intake/{ref}/choose",
-      "method": "POST",
-      "path": "/ideal/intake/{ref}/choose",
-      "permission": null,
-      "request_model": "ChooseBody",
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:POST:/ideal/intake/{ref}/reply",
-      "method": "POST",
-      "path": "/ideal/intake/{ref}/reply",
-      "permission": null,
-      "request_model": "Reply",
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:POST:/ideal/runs/{run_id}/change",
-      "method": "POST",
-      "path": "/ideal/runs/{run_id}/change",
-      "permission": null,
-      "request_model": "ChangeBody",
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "ideal",
-      "file": "backend/app/ideal/routes.py",
-      "id": "endpoint:ideal:POST:/ideal/runs/{run_id}/decide",
-      "method": "POST",
-      "path": "/ideal/runs/{run_id}/decide",
-      "permission": null,
-      "request_model": "Decision",
-      "response_model": null,
       "type": "endpoint"
     },
     {
@@ -10853,28 +10725,6 @@
     },
     {
       "download": false,
-      "group": "aiApi",
-      "http_method": "POST",
-      "id": "endpoint_client_fn:aiApi.rerunClauses",
-      "method_name": "rerunClauses",
-      "path_normalized": "/ai/contracts/{param}/clause-extraction",
-      "path_template": "/ai/contracts/${contractId}/clause-extraction",
-      "response_type": null,
-      "type": "endpoint_client_fn"
-    },
-    {
-      "download": false,
-      "group": "aiApi",
-      "http_method": "POST",
-      "id": "endpoint_client_fn:aiApi.rerunMetadata",
-      "method_name": "rerunMetadata",
-      "path_normalized": "/ai/contracts/{param}/metadata-extraction",
-      "path_template": "/ai/contracts/${contractId}/metadata-extraction",
-      "response_type": null,
-      "type": "endpoint_client_fn"
-    },
-    {
-      "download": false,
       "group": "aiUsageApi",
       "http_method": "GET",
       "id": "endpoint_client_fn:aiUsageApi.summary",
@@ -11185,6 +11035,17 @@
       "download": false,
       "group": "assistantApi",
       "http_method": "POST",
+      "id": "endpoint_client_fn:assistantApi.cancelRun",
+      "method_name": "cancelRun",
+      "path_normalized": "/assistant/runs/{param}/cancel",
+      "path_template": "/assistant/runs/${runId}/cancel",
+      "response_type": "{ assistant_run_id: string; run_status: string; cancel_requested: boolean }",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "assistantApi",
+      "http_method": "POST",
       "id": "endpoint_client_fn:assistantApi.confirm",
       "method_name": "confirm",
       "path_normalized": "/assistant/confirmations/{param}/confirm",
@@ -11233,7 +11094,7 @@
       "method_name": "session",
       "path_normalized": "/assistant/sessions/{param}",
       "path_template": "/assistant/sessions/${id}",
-      "response_type": "{ session: AssistantSession; contract_handles: unknown[] }",
+      "response_type": "{\n      session: AssistantSession;\n      contract_handles: unknown[];\n      /** A still-actionable confirmation, so a reloaded chat can show its card. */\n      pending_confirmation: {\n        confirmation_id: string;\n        assistant_run_id: string;\n        tool_name: string;\n        details: Record<string, string>;\n        expires_at: string | null;\n      } | null;\n      /** The chat's most recent answer, so a reopened chat can watch it or explain it. */\n      latest_run: AssistantRunSummary | null;\n    }",
       "type": "endpoint_client_fn"
     },
     {
@@ -12037,39 +11898,6 @@
       "path_normalized": "/external-shares/{param}",
       "path_template": "/external-shares/${token}",
       "response_type": "ExternalShareView",
-      "type": "endpoint_client_fn"
-    },
-    {
-      "download": false,
-      "group": "grantsApi",
-      "http_method": "POST",
-      "id": "endpoint_client_fn:grantsApi.create",
-      "method_name": "create",
-      "path_normalized": "/grants",
-      "path_template": "/grants",
-      "response_type": "GrantResponse",
-      "type": "endpoint_client_fn"
-    },
-    {
-      "download": false,
-      "group": "grantsApi",
-      "http_method": "GET",
-      "id": "endpoint_client_fn:grantsApi.list",
-      "method_name": "list",
-      "path_normalized": "/grants?resource_type={param}&resource_id={param}",
-      "path_template": "/grants?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}",
-      "response_type": "GrantResponse[]",
-      "type": "endpoint_client_fn"
-    },
-    {
-      "download": false,
-      "group": "grantsApi",
-      "http_method": "DELETE",
-      "id": "endpoint_client_fn:grantsApi.revoke",
-      "method_name": "revoke",
-      "path_normalized": "/grants/{param}",
-      "path_template": "/grants/${id}",
-      "response_type": "void",
       "type": "endpoint_client_fn"
     },
     {
@@ -14083,13 +13911,6 @@
     },
     {
       "file": "frontend/src/lib/endpoints.ts",
-      "id": "endpoint_client_group:aiApi",
-      "method_count": 2,
-      "name": "aiApi",
-      "type": "endpoint_client_group"
-    },
-    {
-      "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:aiUsageApi",
       "method_count": 1,
       "name": "aiUsageApi",
@@ -14112,7 +13933,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:assistantApi",
-      "method_count": 7,
+      "method_count": 8,
       "name": "assistantApi",
       "type": "endpoint_client_group"
     },
@@ -14170,13 +13991,6 @@
       "id": "endpoint_client_group:externalShareApi",
       "method_count": 4,
       "name": "externalShareApi",
-      "type": "endpoint_client_group"
-    },
-    {
-      "file": "frontend/src/lib/endpoints.ts",
-      "id": "endpoint_client_group:grantsApi",
-      "method_count": 3,
-      "name": "grantsApi",
       "type": "endpoint_client_group"
     },
     {
@@ -15059,6 +14873,24 @@
       "file": "backend/alembic/versions/0068_drafting_templates.py",
       "id": "migration:0068_drafting_templates",
       "revision": "0068_drafting_templates",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0068_drafting_templates"
+      ],
+      "file": "backend/alembic/versions/0069_pin_general_legal_question.py",
+      "id": "migration:0069_pin_general_legal_question",
+      "revision": "0069_pin_general_legal_question",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0069_pin_general_legal_question"
+      ],
+      "file": "backend/alembic/versions/0070_ai_call_log_cache_tokens.py",
+      "id": "migration:0070_ai_call_log_cache_tokens",
+      "revision": "0070_ai_call_log_cache_tokens",
       "type": "migration"
     },
     {
@@ -17907,14 +17739,13 @@
     {
       "components": [
         "_agreement-forms.tsx",
-        "_counterparty-panel.tsx",
         "_governance-ladder.tsx",
         "_legal-intake.tsx",
+        "_legal-question-form.tsx",
         "_my-work.tsx",
         "_negotiation-panel.tsx",
         "_phase1.tsx",
-        "_request-overview.tsx",
-        "_workflow-panel.tsx"
+        "_request-overview.tsx"
       ],
       "domain": "intake",
       "file": "frontend/src/app/(app)/intake/page.tsx",
@@ -18184,13 +18015,6 @@
       "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:BrainAnswerOutput",
       "name": "BrainAnswerOutput",
-      "type": "schema"
-    },
-    {
-      "domain": "ai",
-      "file": "backend/app/ai/schemas.py",
-      "id": "schema:ai:BrainQueryParseOutput",
-      "name": "BrainQueryParseOutput",
       "type": "schema"
     },
     {
@@ -18779,13 +18603,6 @@
       "file": "backend/app/contract_files/schemas.py",
       "id": "schema:contract_files:ExternalShareResponse",
       "name": "ExternalShareResponse",
-      "type": "schema"
-    },
-    {
-      "domain": "contract_files",
-      "file": "backend/app/contract_files/schemas.py",
-      "id": "schema:contract_files:StorageObjectResponse",
-      "name": "StorageObjectResponse",
       "type": "schema"
     },
     {
@@ -19753,6 +19570,18 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:AssistantRun",
       "name": "AssistantRun",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AssistantRunStatus",
+      "name": "AssistantRunStatus",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AssistantRunSummary",
+      "name": "AssistantRunSummary",
       "type": "ts_interface"
     },
     {
@@ -21102,18 +20931,8 @@
       "type": "ui_primitive"
     },
     {
-      "id": "ui_primitive:Pagination",
-      "name": "Pagination",
-      "type": "ui_primitive"
-    },
-    {
       "id": "ui_primitive:Select",
       "name": "Select",
-      "type": "ui_primitive"
-    },
-    {
-      "id": "ui_primitive:Skeleton",
-      "name": "Skeleton",
       "type": "ui_primitive"
     },
     {

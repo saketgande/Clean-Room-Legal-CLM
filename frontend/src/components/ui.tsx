@@ -25,7 +25,6 @@ import Link from "next/link";
 import {
   AlertTriangle,
   CheckCircle2,
-  ChevronLeft,
   ChevronRight,
   Info,
   Loader2,
@@ -345,85 +344,6 @@ export function TD({
   );
 }
 
-// ---- Pagination ------------------------------------------------------------
-// Client-side page bar: caller owns the current page + slices its own
-// already-fetched rows; this just renders the numbered controls.
-function pageNumbers(current: number, total: number): (number | "…")[] {
-  const delta = 1;
-  const start = Math.max(2, current - delta);
-  const end = Math.min(total - 1, current + delta);
-  const range: (number | "…")[] = [1];
-  if (start > 2) range.push("…");
-  for (let i = start; i <= end; i++) range.push(i);
-  if (end < total - 1) range.push("…");
-  if (total > 1) range.push(total);
-  return range;
-}
-
-export function Pagination({
-  page,
-  pageCount,
-  onPageChange,
-  totalItems,
-  pageSize,
-}: {
-  page: number;
-  pageCount: number;
-  onPageChange: (page: number) => void;
-  totalItems?: number;
-  pageSize?: number;
-}) {
-  if (pageCount <= 1) return null;
-  return (
-    <div className="flex flex-col gap-2 border-t border-slate-100 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
-      {totalItems != null && pageSize != null && (
-        <div className="text-[11px] text-slate-400">
-          Showing {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, totalItems)} of {totalItems}
-        </div>
-      )}
-      <div className="flex items-center gap-1 sm:ml-auto">
-        <button
-          type="button"
-          disabled={page <= 1}
-          onClick={() => onPageChange(page - 1)}
-          aria-label="Previous page"
-          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-30"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        {pageNumbers(page, pageCount).map((p, i) =>
-          p === "…" ? (
-            <span key={`ellipsis-${i}`} className="px-1 text-[11px] text-slate-400">…</span>
-          ) : (
-            <button
-              key={p}
-              type="button"
-              onClick={() => onPageChange(p)}
-              className={cn(
-                "min-w-[1.75rem] rounded-md px-1.5 py-1 text-[11px] font-medium tabular-nums transition-colors",
-                p === page
-                  ? "bg-brand-50 text-brand-700 ring-1 ring-brand-200"
-                  : "text-slate-500 hover:bg-slate-100",
-              )}
-            >
-              {p}
-            </button>
-          ),
-        )}
-        <button
-          type="button"
-          disabled={page >= pageCount}
-          onClick={() => onPageChange(page + 1)}
-          aria-label="Next page"
-          className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:pointer-events-none disabled:opacity-30"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 // ---- Spinner / states ----------------------------------------------------
 export function Spinner({ className }: { className?: string }) {
   return (
@@ -563,7 +483,7 @@ export function NotFound({
   );
 }
 
-export function Skeleton({ className }: { className?: string }) {
+function Skeleton({ className }: { className?: string }) {
   return (
     <div
       className={cn(

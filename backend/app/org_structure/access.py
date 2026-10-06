@@ -10,7 +10,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.auth.models import User
 from app.org_structure.models import OrgUnit
 
 
@@ -42,17 +41,3 @@ def get_org_root(db: Session, org_id: str) -> OrgUnit:
     if root is None:
         raise HTTPException(404, "Org root unit not found")
     return root
-
-
-def ensure_same_org(actor: User, *entities: object) -> None:
-    """Guard against cross-org references slipping past a lookup that wasn't
-    itself org-filtered (e.g. a related row loaded via a FK). 404s — matching
-    the "not found" framing every other cross-org check in this domain uses
-    (AC-18) rather than leaking existence via a 403.
-    """
-    for entity in entities:
-        if entity is None:
-            continue
-        entity_org_id = getattr(entity, "org_id", None)
-        if entity_org_id is not None and entity_org_id != actor.org_id:
-            raise HTTPException(404, "Not found")

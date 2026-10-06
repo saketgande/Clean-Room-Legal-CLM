@@ -178,29 +178,18 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=
     if settings.mock_claude:
         return _heuristic(text)
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
-    bundle = get_agent_prompt(db, agent_id="notice_extraction_agent", org_id=org_id)
     user_prompt = _prompt(text)
     try:
-        resp = run_coro_blocking(lambda: claude_client.complete_structured(
-            org_id=org_id,
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
-            user_prompt=user_prompt,
-            tool_name="extract_notice_fields", input_schema=_SCHEMA,
-            max_tokens=700, temperature=0.0, model=bundle.model_name,
-        ))
-        log_agent_call(
-            db, org_id=org_id, agent_id="notice_extraction_agent", prompt_bundle=bundle,
-            input_payload={"chars": len(text)}, response=resp,
-        )
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = blocks[0].get("input") if blocks else None
-        if not isinstance(data, dict):
-            return _heuristic(text)
+        # Feature "notice_extraction_agent" via the AI gateway: prompt + guard, token cap, output
+        # check and ledger row in one place. Bad or cut-off output raises
+        # into the except below, which keeps this agent's fallback.
+        data = gateway_for(claude_client).structured_sync(
+            db, "notice_extraction_agent", ctx=AICallContext(org_id=org_id),
+            user_prompt=user_prompt, input_schema=_SCHEMA,
+            log_input={"chars": len(text)},
+        ).data
 
         notice_type = data.get("notice_type")
         if notice_type not in NOTICE_TYPES:
