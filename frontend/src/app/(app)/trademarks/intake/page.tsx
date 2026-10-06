@@ -153,7 +153,7 @@ export default function TrademarkIntakePage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="New trademark intake"
+        title="New Trademark intake"
         description="Capture a new mark, check for conflicts, and file it into your portfolio."
       />
 

@@ -21,7 +21,7 @@ function isActive(pathname: string, href: string): boolean {
   if (href === "/contracts") return pathname === "/contracts" || pathname.startsWith("/contracts/");
   if (href === "/workflow-builder") return pathname.startsWith("/workflow-builder");
   // "My trademarks" is /trademarks, the prefix of every sibling Trademark Suite
-  // route (/trademarks/dashboard, /intake, ...) — exact match keeps it from lighting up with them.
+  // route (/trademarks/dashboard, /intake, ...) â€” exact match keeps it from lighting up with them.
   if (href === "/trademarks") return pathname === "/trademarks";
   return pathname === href || pathname.startsWith(href + "/");
 }

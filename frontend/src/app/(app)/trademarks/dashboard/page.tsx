@@ -96,7 +96,7 @@ export default function TrademarkDashboardPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Trademark Suite Dashboard"
+        title="Trademark Dashboard"
         description="Portfolio health at a glance — status mix, upcoming renewals, and the latest activity."
         actions={
           <>
