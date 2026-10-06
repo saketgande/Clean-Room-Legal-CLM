@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { trademarksApi } from "@/lib/endpoints";
 import { Badge, Button, Card, MessageBar, Modal, Table, TD, TH, THead, TR } from "@/components/ui";
 import { useToast } from "@/components/toast";
@@ -9,6 +9,11 @@ import type {
   SearchSimilarResponse,
   TrademarkRiskLevel,
 } from "@/lib/types";
+
+interface ExplanationState {
+  loading: boolean;
+  text?: string;
+}
 
 const SOURCE_LABELS: Record<string, string> = {
   signa: "Signa",
@@ -136,6 +141,7 @@ export function SearchSimilarModal({
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [generatedAt] = useState(() => new Date());
+  const [explanations, setExplanations] = useState<Record<string, ExplanationState>>({});
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -224,6 +230,32 @@ export function SearchSimilarModal({
     }
   }
 
+  async function explainConflict(sourceKey: string, index: number, item: Record<string, unknown>) {
+    const key = `${sourceKey}-${index}`;
+    const desc = describeItem(sourceKey, item);
+    setExplanations((prev) => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const result = await trademarksApi.explainConflict({
+        trademark_name: request.trademark_name,
+        description: request.description,
+        source: sourceKey,
+        conflict_name: desc.title,
+        jurisdiction: (item.jurisdiction as string) ?? (item.office_code as string) ?? null,
+        status: (item.status as string) ?? null,
+        match_score: desc.score ?? null,
+        risk_level: desc.risk ?? null,
+      });
+      setExplanations((prev) => ({ ...prev, [key]: { loading: false, text: result.explanation } }));
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Explanation failed", "error");
+      setExplanations((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }
+  }
+
   const recommendation = response ? RECOMMENDATION_COPY[response.summary.recommendation] : undefined;
   const totalResults = response
     ? SOURCE_ORDER.reduce((sum, key) => {
@@ -298,20 +330,44 @@ export function SearchSimilarModal({
                         <TH>Detail</TH>
                         <TH>Score</TH>
                         <TH>Risk</TH>
+                        <TH></TH>
                       </tr>
                     </THead>
                     <tbody>
                       {source.results.map((item, i) => {
                         const desc = describeItem(sourceKey, item);
+                        const key = `${sourceKey}-${i}`;
+                        const explanation = explanations[key];
                         return (
-                          <TR key={i}>
-                            <TD className="font-medium text-slate-900">{desc.title || "—"}</TD>
-                            <TD>{desc.subtitle}</TD>
-                            <TD>{desc.score !== undefined ? `${Math.round(desc.score * 100)}%` : "—"}</TD>
-                            <TD>
-                              <Badge tone={riskTone(desc.risk)}>{(desc.risk ?? "context_only").replace("_", " ")}</Badge>
-                            </TD>
-                          </TR>
+                          <Fragment key={key}>
+                            <TR>
+                              <TD className="font-medium text-slate-900">{desc.title || "—"}</TD>
+                              <TD>{desc.subtitle}</TD>
+                              <TD>{desc.score !== undefined ? `${Math.round(desc.score * 100)}%` : "—"}</TD>
+                              <TD>
+                                <Badge tone={riskTone(desc.risk)}>{(desc.risk ?? "context_only").replace("_", " ")}</Badge>
+                              </TD>
+                              <TD>
+                                {sourceKey !== "web_search" && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    loading={explanation?.loading}
+                                    onClick={() => explainConflict(sourceKey, i, item)}
+                                  >
+                                    Explain
+                                  </Button>
+                                )}
+                              </TD>
+                            </TR>
+                            {explanation?.text && (
+                              <TR>
+                                <TD colSpan={5} className="bg-slate-50 text-[12.5px] text-slate-700">
+                                  {explanation.text}
+                                </TD>
+                              </TR>
+                            )}
+                          </Fragment>
                         );
                       })}
                     </tbody>

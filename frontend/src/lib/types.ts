@@ -1466,7 +1466,16 @@ export interface IntakeDocument {
 // Trademarks
 // ---------------------------------------------------------------------------
 
-export type TrademarkStatus = "draft" | "filed" | "registered" | "opposed" | "abandoned" | "renewed";
+export type TrademarkStatus =
+  | "draft"
+  | "filed"
+  | "prosecuting"
+  | "registered"
+  | "opposed"
+  | "renewal_pending"
+  | "abandoned"
+  | "lapsed"
+  | "renewed";
 export type TrademarkType = "word_mark" | "device_mark" | "combination" | "sound" | "collective";
 export type TrademarkWorkflowState = "intake" | "extraction" | "review" | "active";
 export type TrademarkSource = "intake" | "extraction";
@@ -1531,6 +1540,21 @@ export interface IntakeSubmitPayload {
   search_query_id?: string | null;
 }
 
+export interface TrademarkComment {
+  id: ID;
+  trademark_id: ID;
+  parent_comment_id: ID | null;
+  author_user_id: ID | null;
+  author_name: string;
+  body: string;
+  created_at: ISODateTime;
+}
+
+export interface TrademarkCommentCreate {
+  body: string;
+  parent_comment_id?: string | null;
+}
+
 export interface TrademarkDashboardMetrics {
   total_trademarks: number;
   active_prosecutions: number;
@@ -1543,7 +1567,27 @@ export interface RenewalCalendarEntry {
   name: string;
   status: TrademarkStatus;
   jurisdiction: string;
+  nice_class?: string | null;
+  filed_on?: ISODateTime | null;
+  description?: string | null;
+  source: TrademarkSource;
   renewal_due_on: ISODateTime;
+  overdue: boolean;
+}
+
+export interface PortfolioRenewalsResponse {
+  records: RenewalCalendarEntry[];
+  total_with_dates: number;
+  skipped_unparseable: number;
+  overdue_count: number;
+  due_next_90d: number;
+}
+
+export interface TrademarkSummary {
+  id: ID;
+  name: string;
+  status: TrademarkStatus;
+  jurisdiction: string;
 }
 
 // -- Search-similar --
@@ -1557,6 +1601,7 @@ export interface SearchSimilarRequest {
   trademark_type?: TrademarkType;
   jurisdictions?: string[];
   nice_class_hint?: string[];
+  min_match_score?: number;
 }
 
 export interface InternalPortfolioResult {
@@ -1692,6 +1737,64 @@ export interface IntegrationStatusResponse {
   signa: IntegrationStatusEntry;
   serper: IntegrationStatusEntry;
   postgres: IntegrationStatusEntry;
+}
+
+// -- NICE-class suggestion, conflict explanation, portfolio digest/stats --
+
+export interface ClassSuggestionRequest {
+  name: string;
+  description?: string;
+}
+
+export interface ClassSuggestionResponse {
+  nice_class: string;
+  heading: string;
+  reasoning: string;
+  cached: boolean;
+}
+
+export interface ExplainConflictRequest {
+  trademark_name: string;
+  description?: string | null;
+  source: string;
+  conflict_name: string;
+  jurisdiction?: string | null;
+  status?: string | null;
+  match_score?: number | null;
+  risk_level?: TrademarkRiskLevel | null;
+}
+
+export interface ExplainConflictResponse {
+  explanation: string;
+  cached: boolean;
+}
+
+export interface PortfolioDigestResponse {
+  digest_date: string;
+  summary: string;
+  stats: Record<string, unknown>;
+  generated: boolean;
+}
+
+export interface PortfolioStatsResponse {
+  total: number;
+  by_status: Record<string, number>;
+  by_jurisdiction: Record<string, number>;
+  by_nice_class: Record<string, number>;
+  filed_last_30d: number;
+  filed_last_90d: number;
+  upcoming_renewals_90d: number;
+  renewal_pending: number;
+  lapsed: number;
+}
+
+export interface TrademarkFromIntakeRequest {
+  trademark_type?: TrademarkType;
+  nice_class?: string | null;
+  goods_services?: string | null;
+  jurisdictions?: string[];
+  filing_context?: Record<string, unknown> | null;
+  renewal_due_on?: ISODateTime | null;
 }
 
 export interface IntegrationTestResponse {

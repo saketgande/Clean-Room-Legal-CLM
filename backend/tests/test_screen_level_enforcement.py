@@ -171,15 +171,12 @@ def org(db: Session) -> Org:
 # screen-dependency-attr-name-on-that-module).
 # ---------------------------------------------------------------------------
 
-# ``has_menu_node`` is False only for ``trademarks``: per plan.md's screen
-# catalog, the trademarks LIST screen (unlike its detail/calendar/etc.
-# sub-pages) has no menu_item row today — the current rail simply has no
-# "Trademarks" link — so its menu-tree presence cannot be asserted; the
-# /screen-access/me + API-enforcement two-way agreement is still checked.
+# ``has_menu_node`` is True for every domain: migration 0048_trademark_suite_menu
+# gives the trademarks list screen a "My trademarks" link in the menu tree.
 DOMAINS = [
     ("contracts", "contract:update", contracts_routes, "_CONTRACTS_EDIT", True),
     ("matters", "project:update", matters_routes, "_MATTERS_EDIT", True),
-    ("trademarks", "trademark:update", trademarks_routes, "_TRADEMARKS_EDIT", False),
+    ("trademarks", "trademark:update", trademarks_routes, "_TRADEMARKS_EDIT", True),
     ("notices", "notice:update", notices_routes, "_NOTICES_EDIT", True),
     ("intake", "intake:update", intake_routes, "_INTAKE_EDIT", True),
 ]

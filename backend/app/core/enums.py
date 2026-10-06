@@ -224,9 +224,12 @@ class RenewalDecision(StrEnum):
 class TrademarkStatus(StrEnum):
     DRAFT = "draft"
     FILED = "filed"
+    PROSECUTING = "prosecuting"
     REGISTERED = "registered"
     OPPOSED = "opposed"
+    RENEWAL_PENDING = "renewal_pending"
     ABANDONED = "abandoned"
+    LAPSED = "lapsed"
     RENEWED = "renewed"
 
 
