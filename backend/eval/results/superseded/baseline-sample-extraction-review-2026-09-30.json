@@ -1,0 +1,457 @@
+{
+ "summary": {
+  "model": "claude-sonnet-4-6",
+  "sample": true,
+  "date": "2026-09-30",
+  "review": {
+   "rules": 120,
+   "precision": 0.6923076923076923,
+   "recall": 0.75,
+   "f1": 0.7199999999999999,
+   "status_accuracy": 0.75
+  },
+  "extraction": {
+   "fields": 100,
+   "accuracy": 0.49
+  },
+  "qa": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "qa_answer_beyond_25k": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "routing": {
+   "requests": 0,
+   "workflow_accuracy": 0.0,
+   "escalation_accuracy": 0.0
+  },
+  "errors": {
+   "review": 0,
+   "extraction": 0,
+   "qa": 0,
+   "routing": 0
+  }
+ },
+ "results": {
+  "review": {
+   "review-nda-01": {
+    "predicted": {
+     "nda-2": "deviation",
+     "nda-1": "deviation",
+     "nda-11": "missing",
+     "nda-18": "missing",
+     "nda-19": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 9168,
+     "completion_tokens": 2046,
+     "total_tokens": 11214,
+     "cache_creation_input_tokens": 1026,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "review-nda-02": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-7": "deviation",
+     "nda-11": "missing",
+     "nda-12": "deviation",
+     "nda-19": "deviation",
+     "nda-20": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 9034,
+     "completion_tokens": 4096,
+     "total_tokens": 13130,
+     "cache_creation_input_tokens": 1026,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "review-nda-03": {
+    "predicted": {
+     "nda-2": "deviation",
+     "nda-1": "deviation",
+     "nda-3": "deviation",
+     "nda-12": "deviation",
+     "nda-13": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8701,
+     "completion_tokens": 3319,
+     "total_tokens": 12020,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-nda-04": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-7": "deviation",
+     "nda-8": "deviation",
+     "nda-10": "missing",
+     "nda-11": "missing",
+     "nda-12": "missing",
+     "nda-13": "missing",
+     "nda-15": "missing",
+     "nda-17": "missing",
+     "nda-20": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8758,
+     "completion_tokens": 3677,
+     "total_tokens": 12435,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-01": {
+    "predicted": {
+     "limitation_of_liability": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8696,
+     "completion_tokens": 1361,
+     "total_tokens": 10057,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-02": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 8697,
+     "completion_tokens": 814,
+     "total_tokens": 9511,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-03": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "ip_indemnity": "deviation",
+     "assignment": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8704,
+     "completion_tokens": 1268,
+     "total_tokens": 9972,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-01": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 6667,
+     "completion_tokens": 531,
+     "total_tokens": 7198,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-04": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "ip_indemnity": "deviation",
+     "termination_for_breach": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8595,
+     "completion_tokens": 1653,
+     "total_tokens": 10248,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-02": {
+    "predicted": {
+     "subprocessor_notice": "deviation",
+     "inquiry_notice": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 6654,
+     "completion_tokens": 1211,
+     "total_tokens": 7865,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   }
+  },
+  "extraction": {
+   "extraction-cuad-02": {
+    "predicted": {
+     "document_name": "Development and Option Agreement between Harpoon Therapeutics, Inc. and AbbVie Biotechnology Ltd",
+     "parties": "AbbVie Biotechnology Ltd",
+     "effective_date": "2019-11-20",
+     "expiration_date": null,
+     "governing_law": "Delaware, United States",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 7726,
+      "completion_tokens": 1047,
+      "total_tokens": 8773,
+      "cache_creation_input_tokens": 1065,
+      "cache_read_input_tokens": 0
+     },
+     {
+      "prompt_tokens": 8561,
+      "completion_tokens": 4096,
+      "total_tokens": 12657,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-01": {
+    "predicted": {
+     "document_name": "AIRSOPURE Franchise Agreement (Exhibit C)",
+     "parties": "Airsopure International Group, Inc.",
+     "effective_date": "2000-01-01",
+     "expiration_date": "2010-01-01",
+     "governing_law": "Texas",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6609,
+      "completion_tokens": 1218,
+      "total_tokens": 7827,
+      "cache_creation_input_tokens": 1065,
+      "cache_read_input_tokens": 0
+     },
+     {
+      "prompt_tokens": 7453,
+      "completion_tokens": 4096,
+      "total_tokens": 11549,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-03": {
+    "predicted": {
+     "document_name": "Outsourcing Agreement between Virtual Item Processing Systems, Inc. and Brokers National Life Assurance Company",
+     "parties": "Brokers National Life Assurance Company",
+     "effective_date": "2006-05-01",
+     "expiration_date": "2007-04-30",
+     "governing_law": "Oklahoma",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6436,
+      "completion_tokens": 1272,
+      "total_tokens": 7708,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7413,
+      "completion_tokens": 4096,
+      "total_tokens": 11509,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-04": {
+    "predicted": {
+     "document_name": "Joint Content License Agreement",
+     "parties": "Zynga Inc. / Zynga Game Ireland Limited",
+     "effective_date": "2018-02-01",
+     "expiration_date": "2021-02-01",
+     "governing_law": "California",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6880,
+      "completion_tokens": 1350,
+      "total_tokens": 8230,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7689,
+      "completion_tokens": 4096,
+      "total_tokens": 11785,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-05": {
+    "predicted": {
+     "document_name": "Distributorship Agreement between Signature Orthopaedics Pty Ltd and CPM Medical Consultants LLC",
+     "parties": "CPM Medical Consultants, LLC",
+     "effective_date": "2018-03-29",
+     "expiration_date": "2019-03-29",
+     "governing_law": "Ohio",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6861,
+      "completion_tokens": 1680,
+      "total_tokens": 8541,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7624,
+      "completion_tokens": 4096,
+      "total_tokens": 11720,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-06": {
+    "predicted": {
+     "document_name": "Outsourcing Agreement between International Business Machines Corporation and Manufacturers' Services Western U.S. Operations, Inc.",
+     "parties": "Manufacturers' Services Western US Operations, Inc.",
+     "effective_date": "1998-06-01",
+     "expiration_date": "2001-06-01",
+     "governing_law": "New York",
+     "agreement_date": null,
+     "liability_cap": "Section 15.0 is listed in the Table of Contents as 'INDEMNIFICATION AND LIMITATION OF LIABILITY' at Page 18. The full text of this section is not included in the extracted portion of the contract."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6635,
+      "completion_tokens": 1481,
+      "total_tokens": 8116,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7135,
+      "completion_tokens": 4096,
+      "total_tokens": 11231,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-07": {
+    "predicted": {
+     "document_name": "Corporate Sponsorship Agreement Between American Diabetes Association and Freeze Tag, Inc.",
+     "parties": "American Diabetes Association, Inc.",
+     "effective_date": "2018-03-22",
+     "expiration_date": "2020-03-14",
+     "governing_law": "Commonwealth of Virginia",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 5388,
+      "completion_tokens": 1184,
+      "total_tokens": 6572,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7006,
+      "completion_tokens": 4096,
+      "total_tokens": 11102,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-21": {
+    "predicted": {
+     "document_name": "Limited Power of Attorney \u2013 Federated Investment Management Company appointing Federated Advisory Services Company",
+     "parties": "Federated Advisory Services Company",
+     "effective_date": "2004-01-01",
+     "expiration_date": null,
+     "governing_law": "Commonwealth of Pennsylvania",
+     "agreement_date": null,
+     "liability_cap": "Any person, partnership, corporation or other legal entity dealing with FASC in its capacity as attorney-in-fact hereunder for the Adviser on behalf of any Fund is hereby expressly put on notice that FASC is acting solely in the capacity as an agent of the Adviser as agent for the Fund and that any such person, partnership, corporation or other legal entity must look solely to the Fund in question for enforcement of any claim against the Fund, as FASC assumes no personal liability whatsoever for obligations of the Fund entered into by FASC in its capacity as attorney-in-fact for the Adviser."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 3921,
+      "completion_tokens": 1097,
+      "total_tokens": 5018,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 4856,
+      "completion_tokens": 4096,
+      "total_tokens": 8952,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-22": {
+    "predicted": {
+     "document_name": "Consulting Agreement \u2013 Global Technologies, Ltd & Timothy Cabrera",
+     "parties": "Timothy Cabrera",
+     "effective_date": "2020-01-02",
+     "expiration_date": "2021-01-02",
+     "governing_law": "Florida, United States",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 5130,
+      "completion_tokens": 1019,
+      "total_tokens": 6149,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 6065,
+      "completion_tokens": 3764,
+      "total_tokens": 9829,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-23": {
+    "predicted": {
+     "document_name": "Consulting Agreement \u2013 Aduro Biotech, Inc. and IREYA B.V.",
+     "parties": "IREYA B.V.",
+     "effective_date": "2020-07-01",
+     "expiration_date": "2020-12-31",
+     "governing_law": "California, United States",
+     "agreement_date": null,
+     "liability_cap": "No limitation of liability clause was identified in this agreement."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 3407,
+      "completion_tokens": 1422,
+      "total_tokens": 4829,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 4342,
+      "completion_tokens": 3454,
+      "total_tokens": 7796,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   }
+  },
+  "qa": {},
+  "routing": {}
+ }
+}

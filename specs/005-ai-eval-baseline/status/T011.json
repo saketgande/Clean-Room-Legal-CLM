@@ -1,0 +1,7 @@
+{
+  "task": "T011",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "review fixes: term parse (words+digits), pair private nesting, failure reason code, delta direction-adjusted, content-fingerprint checks; 88 passed, ruff clean",
+  "updated": "2026-10-06T17:56:47Z"
+}

@@ -32,6 +32,7 @@ Owner agents: backend-dev, db-engineer
 - `POST /playbooks/deviations/{deviation_id}/decisions` -- permission: `playbook:run` -- request: PlaybookDecisionCreate -- response: PlaybookDecisionResponse
 - `POST /playbooks/generate` -- permission: `playbook:create` -- request: PlaybookGenerate -- response: PlaybookResponse
 - `POST /playbooks/generate-from-document` -- permission: `playbook:create` -- request: str | None -- response: PlaybookResponse
+- `POST /playbooks/seed-library` -- permission: `playbook:publish` -- request: ? -- response: ?
 - `POST /playbooks/{playbook_id}/expand` -- permission: `playbook:update` -- request: ? -- response: PlaybookVersionResponse
 - `POST /playbooks/{playbook_id}/insights` -- permission: `playbook:create` -- request: ? -- response: ?
 - `POST /playbooks/{playbook_id}/insights/apply` -- permission: `playbook:create` -- request: ApplyRecommendationRequest -- response: PlaybookVersionResponse

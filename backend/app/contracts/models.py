@@ -4,9 +4,9 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Text,
 )
@@ -44,9 +44,12 @@ class Contract(
     renewal_due = Column(Boolean, index=True, nullable=False, default=False)
     archived = Column(Boolean, index=True, nullable=False, default=False)
     owner_user_id = Column(String(36), ForeignKey("user.id"), index=True, nullable=False)
-    # A contract belongs to at most one matter (one matter -> many contracts).
-    matter_id = Column(String(36), ForeignKey("matter.id"), index=True, nullable=True)
     counterparty_name = Column(String(255), index=True, nullable=True)
+    # Register records this contract was drafted for (set from its intake
+    # request). The name above stays for display and for contracts that
+    # predate the register or arrive by plain upload.
+    counterparty_id = Column(String(36), ForeignKey("counterparty.id", ondelete="SET NULL"), index=True, nullable=True)
+    legal_entity_id = Column(String(36), ForeignKey("legal_entity.id", ondelete="SET NULL"), index=True, nullable=True)
     jurisdiction = Column(String(160), index=True, nullable=True)
     # Phase 3 (MAC): confidentiality classification. Ordered ladder
     #   public < internal < confidential < restricted
@@ -59,7 +62,7 @@ class Contract(
     risk_score = Column(Integer, nullable=True)
     risk_band = Column(String(40), nullable=True)
     risk_summary = Column(JSON, nullable=True)
-    value_amount = Column(Float, nullable=True)
+    value_amount = Column(Numeric(18, 2), nullable=True)  # exact money, not binary float
     currency = Column(String(3), nullable=True)
     effective_date = Column(Date, nullable=True)
     expiration_date = Column(Date, nullable=True)

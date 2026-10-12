@@ -76,3 +76,16 @@ def test_generator_places_paraphrased_deviation_on_the_right_clause():
     assert "forty-five (45)" in proposal
     assert proposal.index("forty-five") < proposal.index("Confidentiality")
     assert not proposal.rstrip().endswith(replacement)  # not appended at the end
+
+
+def test_a_redline_only_writes_real_contract_wording():
+    """No replacement must not become "delete the clause", and a rule sample
+    with a blank must not put "[State/Country]" into the contract — both were
+    proposed on drafts from our own templates. They stay review findings."""
+    from app.playbooks.service import is_document_wording
+
+    assert is_document_wording("This Agreement is governed by the laws of India.")
+    assert not is_document_wording("")
+    assert not is_document_wording(None)
+    assert not is_document_wording("governed by the laws of [State/Country], without regard to")
+    assert not is_document_wording("certify destruction within [10/30] days")

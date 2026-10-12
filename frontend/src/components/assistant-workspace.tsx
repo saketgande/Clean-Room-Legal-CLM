@@ -1,42 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Plus,
-  Send,
-  Bot,
-  User as UserIcon,
-  Wrench,
-  Quote,
-  ShieldAlert,
-  Check,
-  X,
-  Sparkles,
-  FolderKanban,
-  Wand2,
-  ChevronRight,
-  ChevronDown,
-  ArrowUp,
-  FileText,
-  ShieldCheck,
-  ListChecks,
-  PanelLeft,
-  Upload,
-  Search,
-  Pencil,
-} from "lucide-react";
+import { Plus, Wrench, Quote, ShieldAlert, Check, X, Sparkles, Wand2, ChevronRight, ChevronDown, ArrowUp, FileText, ShieldCheck, ListChecks, PanelLeft, Upload, Search, Pencil } from "lucide-react";
 import {
   assistantApi,
   contractsApi,
-  mattersApi,
   promptsApi,
   approvalsApi,
   renewalsApi,
 } from "@/lib/endpoints";
-import { apiStream } from "@/lib/api";
+import { apiStream, HttpError } from "@/lib/api";
+import { clearHandoff, LEGAL_QUESTION_SESSION_TYPE, readHandoff } from "@/lib/legal-question";
+import { runNoticeFor, type RunNotice } from "@/lib/assistant-run";
 import { Badge, Button, CenterSpinner, Input, Modal, Select, Spinner } from "@/components/ui";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
@@ -50,7 +28,6 @@ import type {
   Citation,
   ContractEditResponse,
   ContractResponse,
-  MatterResponse,
   Prompt,
 } from "@/lib/types";
 
@@ -105,6 +82,17 @@ interface PendingConfirmation {
   confirmationId: string;
   assistantRunId: string;
   toolName: string;
+  /** The action's arguments (server-sanitised), shown so nothing is approved blind. */
+  details: Record<string, string>;
+}
+
+function confirmationDetails(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(
+      (e): e is [string, string] => typeof e[1] === "string" && e[1].length > 0,
+    ),
+  );
 }
 interface PickerPlaybookVersion {
   playbook_version_id: string;
@@ -127,13 +115,23 @@ interface DocTab {
   kind: DocTabKind;
 }
 
+/** How a hand-off (e.g. Legal Intake) wants its new conversation created. */
+type ConversationOpts = {
+  sessionType: string;
+  title: string;
+  contractId: string | null;
+  /** sessionStorage hand-off to clear once the session exists. */
+  handoffKey?: string;
+};
+
 export function AssistantWorkspace() {
   const params = useSearchParams();
   const router = useRouter();
   const contractParam = params.get("contract");
-  const projectParam = params.get("project");
   const sessionParam = params.get("session");
   const workflowParam = params.get("workflow");
+  // Hand-off key from Legal Intake's "General legal question" form.
+  const legalQuestionParam = params.get("legal_question");
   const qc = useQueryClient();
   const { notify } = useToast();
   const { setForceCollapsed } = useLayout();
@@ -181,8 +179,6 @@ export function AssistantWorkspace() {
   const [workflow, setWorkflow] = useState<Prompt | null>(null);
   const [wfModalOpen, setWfModalOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
-  const [projPickerOpen, setProjPickerOpen] = useState(false);
-  const [newProjectId, setNewProjectId] = useState(projectParam ?? "");
   const [railOpen, setRailOpen] = useState(false);
   const [generatedDocs, setGeneratedDocs] = useState<
     { id: string; contractId: string; kind: "draft" | "redline" }[]
@@ -194,6 +190,17 @@ export function AssistantWorkspace() {
   >(null);
   const [citeHighlight, setCiteHighlight] = useState<string | null>(null);
   const abortRef = useRef<(() => void) | null>(null);
+  // The answer being watched. Answers are produced by a background worker, so
+  // the page only *watches* them: a dropped connection reconnects and carries
+  // on after the last event seen; leaving the page doesn't stop the answer.
+  const runRef = useRef<string | null>(null);
+  const lastEventIdRef = useRef<string | undefined>(undefined);
+  const endedRef = useRef(false);
+  const reconnectsRef = useRef(0);
+  const lastSentRef = useRef<string | null>(null);
+  const [stopping, setStopping] = useState(false);
+  // Shown under the chat when its latest answer didn't finish.
+  const [runNotice, setRunNotice] = useState<RunNotice | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessRef = useRef<string | null>(null);
@@ -210,9 +217,119 @@ export function AssistantWorkspace() {
     abortRef.current = null;
   }
 
+  // Read an answer's live events (sending, resuming, or watching one already
+  // running). On a dropped connection, reconnect a few times and continue
+  // after the last event received.
+  async function follow(path: string, body: unknown) {
+    abortActiveStream();
+    endedRef.current = false;
+    const sessionAtStart = sessRef.current;
+    let aborted = false;
+    const abort = await apiStream(path, body, {
+      onEvent: (event, data, id) => {
+        if (aborted || sessRef.current !== sessionAtStart) return;
+        if (id) lastEventIdRef.current = id;
+        handleEvent(event, data);
+      },
+      onError: (err) => {
+        if (!aborted && sessRef.current === sessionAtStart) handleStreamError(err);
+      },
+      onClose: () => {
+        if (aborted || sessRef.current !== sessionAtStart) return;
+        const runId = runRef.current;
+        if (!endedRef.current && runId && reconnectsRef.current < 5) {
+          reconnectsRef.current += 1;
+          const wait = 1000 * reconnectsRef.current;
+          setTimeout(() => {
+            if (sessRef.current !== sessionAtStart || endedRef.current) return;
+            void watchRun(runId, lastEventIdRef.current);
+          }, wait);
+          return;
+        }
+        setStreaming(false);
+        setStopping(false);
+      },
+    });
+    abortRef.current = () => {
+      aborted = true;
+      abort();
+    };
+  }
+
+  function watchRun(runId: string, after?: string) {
+    runRef.current = runId;
+    const q = after ? `?after=${encodeURIComponent(after)}` : "";
+    return follow(`/assistant/runs/${runId}/events${q}`, null);
+  }
+
+  // Before sending: forget the previous answer's stream position.
+  function beginTurn(text: string | null, runId: string | null = null) {
+    runRef.current = runId;
+    lastEventIdRef.current = undefined;
+    reconnectsRef.current = 0;
+    lastSentRef.current = text;
+    setRunNotice(null);
+    setStopping(false);
+  }
+
+  async function stopAnswer() {
+    const runId = runRef.current;
+    if (!runId || endedRef.current) {
+      abortActiveStream();
+      setStreaming(false);
+      return;
+    }
+    setStopping(true);
+    try {
+      // The worker stops at its next check, saves what it has and sends
+      // "done", which ends this stream as usual.
+      await assistantApi.cancelRun(runId);
+    } catch (e) {
+      setStopping(false);
+      notify(e instanceof Error ? e.message : "Couldn't stop the answer", "error");
+    }
+  }
+
+  // After a chat loads (or an answer ends): restore the confirmation card,
+  // keep watching an answer that is still being produced, or explain one that
+  // didn't finish.
+  async function restoreSessionState(
+    sessionId: string,
+    msgs: { id: string; role: string; content: string }[],
+    opts: { follow: boolean },
+  ) {
+    try {
+      const res = await assistantApi.session(sessionId);
+      if (sessRef.current !== sessionId) return; // switched chats meanwhile
+      const pc = res.pending_confirmation;
+      setPending(
+        pc
+          ? {
+              confirmationId: pc.confirmation_id,
+              assistantRunId: pc.assistant_run_id,
+              toolName: pc.tool_name,
+              details: confirmationDetails(pc.details),
+            }
+          : null,
+      );
+      const run = res.latest_run;
+      if (run?.status === "running" && opts.follow) {
+        beginTurn(null, run.id);
+        setStreaming(true);
+        startWatch(sessionId);
+        await watchRun(run.id);
+        return;
+      }
+      setRunNotice(runNoticeFor(run, msgs));
+    } catch {
+      /* the chat itself already loaded; these are conveniences */
+    }
+  }
+
   async function syncFromServer(sessionId: string) {
     try {
       const msgs = await assistantApi.messages(sessionId);
+      if (sessRef.current !== sessionId) return msgs;
       if (msgs.length) {
         setItems(
           msgs.map((m) => ({
@@ -227,8 +344,9 @@ export function AssistantWorkspace() {
           })),
         );
       }
+      return msgs;
     } catch {
-      /* ignore */
+      return null;
     }
   }
 
@@ -282,10 +400,9 @@ export function AssistantWorkspace() {
   }, [chatSearch]);
 
   const { data: sessions, isLoading } = useQuery({
-    queryKey: ["assistant-sessions", projectParam, debouncedChatSearch],
+    queryKey: ["assistant-sessions", debouncedChatSearch],
     queryFn: () =>
       assistantApi.sessions({
-        ...(projectParam ? { matter_id: projectParam } : {}),
         ...(debouncedChatSearch ? { q: debouncedChatSearch } : {}),
       }),
   });
@@ -300,10 +417,6 @@ export function AssistantWorkspace() {
     await assistantApi.updateSession(id, { title: value });
     qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
   }
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-  });
   const { data: allWorkflows } = useQuery({
     queryKey: ["workflows"],
     queryFn: promptsApi.list,
@@ -369,12 +482,6 @@ export function AssistantWorkspace() {
       /* ignore storage errors */
     }
   }, []);
-
-  const projectName = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of projects ?? []) m.set(p.id, p.name);
-    return (id?: string | null) => (id ? m.get(id) ?? "Matter" : null);
-  }, [projects]);
 
   const sessionContractId =
     activeSession?.contract_id ?? contractParam ?? null;
@@ -466,7 +573,12 @@ export function AssistantWorkspace() {
       else await contractsApi.rejectEdit(contractId, editId);
       qc.invalidateQueries({ queryKey: ["contract", contractId, "edits"] });
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
-      notify(accept ? "Edit accepted" : "Edit rejected", "success");
+      notify(
+        accept
+          ? "Edit accepted. The contract updates once every suggested change on it has been decided."
+          : "Edit rejected",
+        "success",
+      );
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed", "error");
     }
@@ -504,6 +616,7 @@ export function AssistantWorkspace() {
 
   useEffect(() => {
     return () => {
+      endedRef.current = true; // no reconnect after leaving the page
       stopWatch();
       abortActiveStream();
     };
@@ -523,7 +636,6 @@ export function AssistantWorkspace() {
         .createSession({
           session_type: "contract",
           contract_id: contractParam,
-          matter_id: projectParam ?? undefined,
           title: "Contract review",
         })
         .then((s) => {
@@ -535,19 +647,50 @@ export function AssistantWorkspace() {
         );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionParam, contractParam, projectParam]);
+  }, [sessionParam, contractParam]);
+
+  // Legal Intake hand-off: /assistant?legal_question=<key>. The question waits
+  // in sessionStorage under that key; start a NEW legal-question chat with it as
+  // the first message. The entry is only cleared once that chat exists, so a
+  // failed start keeps the question (see startConversation). The ref keeps React
+  // StrictMode's double effect run from starting two chats.
+  const handoffRef = useRef<string | null>(null);
+  // Hand-off settings to reuse when a failed start is retried from the composer.
+  const [pendingHandoff, setPendingHandoff] = useState<ConversationOpts | null>(null);
+  useEffect(() => {
+    if (!legalQuestionParam || activeSession || handoffRef.current === legalQuestionParam) return;
+    handoffRef.current = legalQuestionParam;
+    let h: ReturnType<typeof readHandoff> = null;
+    try {
+      h = readHandoff(legalQuestionParam);
+    } catch {
+      h = null; // storage blocked
+    }
+    if (!h) {
+      window.history.replaceState(null, "", "/assistant");
+      notify("This question link has expired or was already used. Start again from Legal Intake, or ask below.", "error");
+      return;
+    }
+    const opts: ConversationOpts = {
+      sessionType: LEGAL_QUESTION_SESSION_TYPE,
+      title: h.title,
+      contractId: h.contractId,
+      handoffKey: legalQuestionParam,
+    };
+    setPendingHandoff(opts);
+    void startConversation(h.message, opts);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [legalQuestionParam]);
 
   async function selectSession(s: AssistantSession) {
     stopWatch();
     abortActiveStream();
     sessRef.current = s.id;
     setActiveSession(s);
-    // Keep the URL in sync with the active session so project scope stays
-    // explicit and reload / back / share land on the same scoped chat.
+    // Keep the URL in sync with the active session so reload / back / share
+    // land on the same chat.
     const sp = new URLSearchParams();
-    const pid = s.matter_id ?? projectParam;
     const cid = s.contract_id ?? contractParam;
-    if (pid) sp.set("project", pid);
     if (cid) sp.set("contract", cid);
     sp.set("session", s.id);
     router.replace(`/assistant?${sp.toString()}`, { scroll: false });
@@ -559,8 +702,14 @@ export function AssistantWorkspace() {
     setActiveTabId(null);
     setPlaybookPicker(null);
     setCiteHighlight(null);
+    setRunNotice(null);
+    setStopping(false);
+    runRef.current = null;
+    endedRef.current = true; // cancels a pending reconnect to the previous chat
+    let msgs: Awaited<ReturnType<typeof assistantApi.messages>> = [];
     try {
-      const msgs = await assistantApi.messages(s.id);
+      msgs = await assistantApi.messages(s.id);
+      if (sessRef.current !== s.id) return;
       setItems(
         msgs.map((m) => ({
           id: m.id,
@@ -576,56 +725,79 @@ export function AssistantWorkspace() {
     } catch {
       /* ignore */
     }
+    // Only after the stored messages are shown: a replayed answer appends to them.
+    void restoreSessionState(s.id, msgs, { follow: true });
   }
 
   async function newSession() {
-    const pid = newProjectId || projectParam || undefined;
     const s = await assistantApi.createSession({
-      session_type: pid ? "project" : "general",
-      matter_id: pid,
+      session_type: "general",
       title: "New conversation",
     });
-    qc.invalidateQueries({ queryKey: ["assistant-sessions", projectParam] });
+    qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
     void selectSession(s);
   }
 
   // Legora-style: from the opening screen, type → spin up a session and stream.
-  async function startConversation(text: string) {
+  // `opts` is used by hand-offs (Legal Intake): they bring their own session
+  // type, title and contract, and pin the URL to the new session so a refresh
+  // reopens this chat instead of re-sending the question.
+  async function startConversation(text: string, opts?: ConversationOpts) {
     const t = text.trim();
     if (!t || streaming) return;
-    const pid = newProjectId || projectParam || undefined;
-    const cid = activeContractId ?? undefined;
+    const cid = opts ? (opts.contractId ?? undefined) : (activeContractId ?? undefined);
     setInput("");
     try {
-      const s = await assistantApi.createSession({
-        session_type: cid ? "contract" : pid ? "project" : "general",
-        contract_id: cid,
-        matter_id: pid,
-        title: t.slice(0, 60),
-      });
-      qc.invalidateQueries({ queryKey: ["assistant-sessions", projectParam] });
+      const s = await assistantApi.createSession(
+        opts
+          ? { session_type: opts.sessionType, title: opts.title }
+          : { session_type: cid ? "contract" : "general", contract_id: cid, title: t.slice(0, 60) },
+      );
+      qc.invalidateQueries({ queryKey: ["assistant-sessions"] });
+      // The chat now exists: the hand-off has done its job.
+      if (opts?.handoffKey) {
+        try {
+          clearHandoff(opts.handoffKey);
+        } catch {
+          /* storage blocked — the entry expires on its own */
+        }
+      }
+      setPendingHandoff(null);
       sessRef.current = s.id;
       setActiveSession(s);
+      // Pin the chat in the URL so a refresh mid-answer reopens it (and keeps
+      // watching the answer) instead of landing on the empty screen.
+      const sp = new URLSearchParams();
+      if (cid) sp.set("contract", cid);
+      sp.set("session", s.id);
+      window.history.replaceState(null, "", `/assistant?${sp.toString()}`);
       setItems([{ id: crypto.randomUUID(), role: "user", text: t }]);
       setStreaming(true);
       startWatch(s.id);
-      abortActiveStream();
-      abortRef.current = await apiStream(
-        `/assistant/sessions/${s.id}/stream`,
-        { message: t, contract_ids: cid ? [cid] : [] },
-        {
-          onEvent: handleEvent,
-          onError: handleStreamError,
-          onClose: () => setStreaming(false),
-        },
-      );
+      beginTurn(t);
+      await follow(`/assistant/sessions/${s.id}/stream`, {
+        message: t,
+        contract_ids: cid ? [cid] : [],
+      });
     } catch (e) {
-      notify(e instanceof Error ? e.message : "Could not start chat", "error");
+      // Only reached when the chat could not be created (streaming errors are
+      // reported through onError). Put the text back so nothing typed — or
+      // handed over from Legal Intake — is lost, and say how to retry.
+      setInput(t);
+      const reason = e instanceof Error ? e.message : "Could not start chat";
+      notify(
+        opts?.handoffKey
+          ? `Couldn't start the chat (${reason}). Your question is in the box below — press send to try again.`
+          : `Couldn't start the chat (${reason}). Your message is still in the box — try again.`,
+        "error",
+      );
     }
   }
 
   function handleEvent(event: string, data: Record<string, unknown>) {
-    if (event === "message_delta") {
+    if (event === "session_started") {
+      if (typeof data.assistant_run_id === "string") runRef.current = data.assistant_run_id;
+    } else if (event === "message_delta") {
       const text = String(data.text ?? "");
       setItems((prev) => {
         const last = prev[prev.length - 1];
@@ -711,6 +883,7 @@ export function AssistantWorkspace() {
         confirmationId: String(data.confirmation_id),
         assistantRunId: String(data.assistant_run_id),
         toolName: String(data.tool_name),
+        details: confirmationDetails(data.details),
       });
       setStreaming(false);
     } else if (event === "error") {
@@ -718,16 +891,35 @@ export function AssistantWorkspace() {
       notify(String(data.message ?? "Assistant error"), "error");
       setStreaming(false);
     } else if (event === "done") {
+      endedRef.current = true;
+      reconnectsRef.current = 0;
       stopWatch();
       setStreaming(false);
-      if (sessRef.current) void syncFromServer(sessRef.current);
+      setStopping(false);
+      const sid = sessRef.current;
+      if (sid)
+        void syncFromServer(sid).then((msgs) => {
+          if (msgs) void restoreSessionState(sid, msgs, { follow: false });
+        });
     }
   }
 
   function handleStreamError(err: Error) {
+    // A network drop mid-answer: the answer keeps going on the server and
+    // onClose reconnects. Only an error the server sent ends the turn here.
+    if (!(err instanceof HttpError) && runRef.current && !endedRef.current) return;
+    endedRef.current = true;
     stopWatch();
-    notify(err.message || "Assistant stream failed", "error");
     setStreaming(false);
+    setStopping(false);
+    notify(err.message || "Assistant stream failed", "error");
+    // Not started (e.g. still answering the last message, or rate-limited):
+    // show what the server really has and give the text back to edit/resend.
+    if (!runRef.current && lastSentRef.current) {
+      const text = lastSentRef.current;
+      setInput((cur) => cur || text);
+      if (sessRef.current) void syncFromServer(sessRef.current);
+    }
   }
 
   async function submitMessage(text: string, wf?: Prompt | null) {
@@ -745,22 +937,14 @@ export function AssistantWorkspace() {
     setStreaming(true);
     sessRef.current = activeSession.id;
     startWatch(activeSession.id);
-    abortActiveStream();
+    beginTurn(message);
     const wfBody = wf ? workflowPrompt(wf) : "";
     const wfPrompt = wf && wfBody ? `[Prompt: ${wf.name}]\n${wfBody}\n\n` : "";
-    abortRef.current = await apiStream(
-      `/assistant/sessions/${activeSession.id}/stream`,
-      {
-        message: wfPrompt + message,
-        contract_ids: activeContractId ? [activeContractId] : [],
-        ...(wf ? { workflow_id: wf.id } : {}),
-      },
-      {
-        onEvent: handleEvent,
-        onError: handleStreamError,
-        onClose: () => setStreaming(false),
-      },
-    );
+    await follow(`/assistant/sessions/${activeSession.id}/stream`, {
+      message: wfPrompt + message,
+      contract_ids: activeContractId ? [activeContractId] : [],
+      ...(wf ? { workflow_id: wf.id } : {}),
+    });
   }
 
   async function send() {
@@ -789,29 +973,22 @@ export function AssistantWorkspace() {
         ]);
         setStreaming(true);
         if (sessRef.current) startWatch(sessRef.current);
-        abortActiveStream();
-        abortRef.current = await apiStream(
+        beginTurn(null, p.assistantRunId);
+        await follow(
           `/assistant/runs/${p.assistantRunId}/resume?confirmation_id=${p.confirmationId}`,
           {},
-          {
-            onEvent: handleEvent,
-            onError: handleStreamError,
-            onClose: () => setStreaming(false),
-          },
         );
       } else {
         await assistantApi.reject(p.confirmationId, "Rejected by user");
-        setItems((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "system",
-            text: `Rejected ${titleCase(p.toolName)}.`,
-          },
-        ]);
+        // The server closes the turn with a "Cancelled — nothing was changed"
+        // reply; show the stored conversation so it matches what a reload shows.
+        if (sessRef.current) await syncFromServer(sessRef.current);
       }
     } catch (e) {
       notify(e instanceof Error ? e.message : "Confirmation failed", "error");
+      // e.g. it expired: the server has closed the turn with an explanation —
+      // show the stored conversation instead of leaving a request with no reply.
+      if (sessRef.current) await syncFromServer(sessRef.current);
     }
   }
 
@@ -905,7 +1082,7 @@ export function AssistantWorkspace() {
                     onKeyDown={(e) =>
                       e.key === "Enter" &&
                       !e.shiftKey &&
-                      (e.preventDefault(), startConversation(input))
+                      (e.preventDefault(), startConversation(input, pendingHandoff ?? undefined))
                     }
                     className="block max-h-44 w-full resize-none bg-transparent px-2 pb-2 pt-1.5 text-[16px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
                   />
@@ -924,19 +1101,12 @@ export function AssistantWorkspace() {
                       <Wand2 className="h-4 w-4" />
                       Prompts
                     </button>
-                    <button
-                      onClick={() => setProjPickerOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      <FolderKanban className="h-4 w-4" />
-                      Matters
-                    </button>
                     <span className="ml-auto mr-1.5 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
                       <span className="h-1.5 w-1.5 rounded-full bg-success" />
                       grounded in your portfolio
                     </span>
                     <button
-                      onClick={() => startConversation(input)}
+                      onClick={() => startConversation(input, pendingHandoff ?? undefined)}
                       disabled={!input.trim() || streaming}
                       className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-30"
                     >
@@ -1077,6 +1247,26 @@ export function AssistantWorkspace() {
                       />
                     );
                   })}
+                  {runNotice && !streaming && (
+                    <div
+                      role="status"
+                      className="flex items-center gap-3 rounded-md border border-warning/30 bg-warning-subtle px-4 py-3 text-[13.5px] text-slate-700"
+                    >
+                      <span className="min-w-0 flex-1">{runNotice.message}</span>
+                      {runNotice.retryText && (
+                        <button
+                          onClick={() => {
+                            const text = runNotice.retryText;
+                            setRunNotice(null);
+                            if (text) void submitMessage(text);
+                          }}
+                          className="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[12.5px] font-medium text-slate-700 transition hover:text-slate-900"
+                        >
+                          Try again
+                        </button>
+                      )}
+                    </div>
+                  )}
                   {/* The one live status for the whole turn — names the step in
                       flight (or "Thinking…") with a Stop. No competing spinners. */}
                   {streaming &&
@@ -1093,16 +1283,20 @@ export function AssistantWorkspace() {
                       ];
                       return (
                         <WorkingBeat
-                          label={running ? `${toolLabel(running, false)}…` : "Thinking…"}
+                          label={
+                            stopping
+                              ? "Stopping…"
+                              : running
+                                ? `${toolLabel(running, false)}…`
+                                : "Thinking…"
+                          }
                           hint={
-                            running && LONG_OPS.includes(running)
+                            !stopping && running && LONG_OPS.includes(running)
                               ? "this can take a minute or two"
                               : undefined
                           }
-                          onStop={() => {
-                            abortActiveStream();
-                            setStreaming(false);
-                          }}
+                          stopping={stopping}
+                          onStop={() => void stopAnswer()}
                         />
                       );
                     })()}
@@ -1139,6 +1333,16 @@ export function AssistantWorkspace() {
                       <p className="mt-1 text-sm text-warning">
                         {confirmCopy(pending.toolName).body}
                       </p>
+                      {Object.keys(pending.details).length > 0 && (
+                        <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 rounded border border-warning/20 bg-white/60 px-3 py-2 text-[12.5px]">
+                          {Object.entries(pending.details).map(([k, v]) => (
+                            <Fragment key={k}>
+                              <dt className="font-medium text-slate-600">{titleCase(k)}</dt>
+                              <dd className="whitespace-pre-line break-words text-slate-900">{v}</dd>
+                            </Fragment>
+                          ))}
+                        </dl>
+                      )}
                       <div className="mt-3 flex gap-2">
                         <Button
                           size="sm"
@@ -1217,7 +1421,11 @@ export function AssistantWorkspace() {
                     <textarea
                       rows={1}
                       aria-label="Ask Aegis about a contract, a clause, or your whole portfolio"
-                      placeholder="Ask about a contract, a clause, or your whole portfolio…"
+                      placeholder={
+                        activeSession?.session_type === LEGAL_QUESTION_SESSION_TYPE
+                          ? "Add detail, ask a follow-up, or say \u201csend it to Legal\u201d…"
+                          : "Ask about a contract, a clause, or your whole portfolio…"
+                      }
                       value={input}
                       onChange={(e) => setInput(e.target.value)}
                       onKeyDown={(e) =>
@@ -1244,14 +1452,6 @@ export function AssistantWorkspace() {
                       >
                         <Wand2 className="h-4 w-4" />
                         Prompts
-                      </button>
-                      <button
-                        onClick={() => setProjPickerOpen(true)}
-                        disabled={streaming || !!pending}
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 disabled:opacity-40"
-                      >
-                        <FolderKanban className="h-4 w-4" />
-                        Matters
                       </button>
                       <span className="ml-auto mr-1 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
                         <span className="h-1.5 w-1.5 rounded-full bg-success" />
@@ -1361,7 +1561,7 @@ export function AssistantWorkspace() {
           <aside className="relative z-10 flex h-full w-72 flex-col border-r border-slate-200 bg-slate-100 shadow-xl">
             <div className="flex items-center justify-between border-b border-slate-100 p-3">
               <span className="text-sm font-semibold text-slate-900">
-                {projectParam ? "Matter chats" : "Your chats"}
+                Your chats
               </span>
               <button
                 onClick={() => setRailOpen(false)}
@@ -1382,20 +1582,6 @@ export function AssistantWorkspace() {
                 <Plus className="h-3.5 w-3.5" />
                 New chat
               </Button>
-              {!projectParam && (
-                <Select
-                  value={newProjectId}
-                  onChange={(e) => setNewProjectId(e.target.value)}
-                  className="h-8 text-xs"
-                >
-                  <option value="">New chats: no matter</option>
-                  {(projects ?? []).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      New chats in: {p.name}
-                    </option>
-                  ))}
-                </Select>
-              )}
               <div className="relative">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                 <Input
@@ -1443,12 +1629,6 @@ export function AssistantWorkspace() {
                         <div className="mt-0.5 flex items-center gap-1.5">
                           {s.contract_id && (
                             <FileText className="h-3 w-3 text-slate-400" />
-                          )}
-                          {s.matter_id && (
-                            <span className="inline-flex items-center gap-1 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
-                              <FolderKanban className="h-3 w-3" />
-                              {projectName(s.matter_id)}
-                            </span>
                           )}
                           <span className="text-xs text-slate-400">
                             {fmtRelative(s.updated_at)}
@@ -1498,15 +1678,6 @@ export function AssistantWorkspace() {
           notify(`Attached "${c.title}" to this chat`, "success");
         }}
       />
-      <MatterPickerModal
-        open={projPickerOpen}
-        onClose={() => setProjPickerOpen(false)}
-        onPick={(p) => {
-          setNewProjectId(p.id);
-          setProjPickerOpen(false);
-          notify(`New chats will be scoped to "${p.name}"`, "success");
-        }}
-      />
     </div>
   );
 }
@@ -1532,20 +1703,19 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   ],
   read_contract: ["Reading the contract", "Read the contract"],
   find_in_contract: ["Searching the contract", "Searched the contract"],
+  list_contract_versions: ["Checking the versions", "Checked the versions"],
+  compare_contract_versions: ["Comparing the versions", "Compared the versions"],
   ask_contract_brain: [
     "Consulting Contract Brain",
     "Consulted Contract Brain",
   ],
+  query_contracts: ["Checking every contract", "Checked contracts"],
   extract_obligations: [
     "Extracting obligations",
     "Obligations extracted",
   ],
   list_playbooks: ["Looking up playbooks", "Found playbooks"],
   list_workflows: ["Looking up prompts", "Found prompts"],
-  list_project_contracts: [
-    "Listing project contracts",
-    "Listed project contracts",
-  ],
   get_contract_status: [
     "Checking contract status",
     "Checked contract status",
@@ -1560,10 +1730,6 @@ const TOOL_LABELS: Record<string, [string, string]> = {
     "Contract duplicated",
   ],
   run_workflow: ["Running the prompt", "Prompt complete"],
-  submit_for_approval: [
-    "Submitting for approval",
-    "Submitted for approval",
-  ],
   send_for_signature: ["Sending for signature", "Sent for signature"],
   create_intake_request: ["Raising the request", "Request raised"],
   get_intake_request: ["Looking up the request", "Found the request"],
@@ -1587,8 +1753,6 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   complete_obligation: ["Completing the obligation", "Obligation completed"],
   list_renewals: ["Looking up renewals", "Found renewals"],
   list_obligations: ["Looking up obligations", "Found obligations"],
-  list_projects: ["Looking up projects", "Found projects"],
-  read_project: ["Reading the project", "Read the project"],
   find_contracts: ["Searching contracts", "Found contracts"],
   my_attention_items: ["Checking what needs you", "Found your items"],
 };
@@ -1607,6 +1771,8 @@ const CONTRACT_OPEN_TOOLS = new Set([
   "read_contract",
   "find_in_contract",
   "get_contract_status",
+  "list_contract_versions",
+  "compare_contract_versions",
 ]);
 
 type OpenLink = { key: string; href: string; label: string };
@@ -1675,10 +1841,6 @@ function confirmCopy(name: string): { title: string; body: string } {
       title: "Send for e-signature?",
       body: "I'll send this contract to the recipients for signature.",
     },
-    submit_for_approval: {
-      title: "Submit for approval?",
-      body: "I'll submit this contract into the approval workflow.",
-    },
     run_workflow: {
       title: "Run this prompt?",
       body: "I'll run the selected prompt on this contract.",
@@ -1686,6 +1848,62 @@ function confirmCopy(name: string): { title: string; body: string } {
     replicate_contract_version: {
       title: "Duplicate this contract?",
       body: "I'll create a copy of this contract version.",
+    },
+    decide_approval: {
+      title: "Record this approval decision?",
+      body: "I'll approve or reject the pending approval on this request, as shown below.",
+    },
+    reassign_request: {
+      title: "Reassign this request?",
+      body: "I'll change who owns this request.",
+    },
+    send_for_negotiation: {
+      title: "Send to the counterparty?",
+      body: "I'll send this contract out for negotiation — this can create a link the counterparty can open.",
+    },
+    add_contract_comment: {
+      title: "Add this comment?",
+      body: "I'll add a comment to the contract. If it's shared, the counterparty will see it.",
+    },
+    advance_contract_stage: {
+      title: "Move the contract to another stage?",
+      body: "I'll move this contract forward in its lifecycle.",
+    },
+    start_intake_workflow: {
+      title: "Start a workflow on this request?",
+      body: "I'll start the workflow below on this request; its steps will be assigned to people.",
+    },
+    advance_intake_workflow: {
+      title: "Advance this request's workflow?",
+      body: "I'll complete the current step or re-check its approval or signature.",
+    },
+    create_workflow: {
+      title: "Create a new workflow?",
+      body: "I'll add a new governance workflow your team can use.",
+    },
+    create_intake_request: {
+      title: "Raise this legal request?",
+      body: "I'll create a new request for the legal team with the details below.",
+    },
+    create_notice: {
+      title: "Log this notice?",
+      body: "I'll add this notice to the notice register.",
+    },
+    draft_notice_response: {
+      title: "Draft a reply to this notice?",
+      body: "I'll write an AI draft reply and save it on the notice, replacing any earlier draft.",
+    },
+    complete_obligation: {
+      title: "Mark this obligation as done?",
+      body: "I'll mark the obligation below as completed. If it repeats, the next one is scheduled.",
+    },
+    complete_task: {
+      title: "Mark this task as done?",
+      body: "I'll mark the task below as done on its request.",
+    },
+    extract_obligations: {
+      title: "Re-read this contract's obligations?",
+      body: "I'll extract obligations from the contract again. Earlier AI-found obligations that are still open are replaced.",
     },
   };
   return (
@@ -2095,10 +2313,12 @@ function CitationList({
 function WorkingBeat({
   label,
   hint,
+  stopping = false,
   onStop,
 }: {
   label: string;
   hint?: string;
+  stopping?: boolean;
   onStop: () => void;
 }) {
   return (
@@ -2112,7 +2332,8 @@ function WorkingBeat({
       </span>
       <button
         onClick={onStop}
-        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-[12.5px] text-slate-600 transition hover:text-slate-900"
+        disabled={stopping}
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1.5 text-[12.5px] text-slate-600 transition hover:text-slate-900 disabled:opacity-50"
       >
         <span className="h-2 w-2 rounded-[2px] bg-slate-500" />
         Stop
@@ -2381,67 +2602,6 @@ function DocPickerModal({
       }}
     />
     </>
-  );
-}
-
-function MatterPickerModal({
-  open,
-  onClose,
-  onPick,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onPick: (p: MatterResponse) => void;
-}) {
-  const [q, setQ] = useState("");
-  const { data, isLoading } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-    enabled: open,
-  });
-  const items = uniqById(data).filter((p) =>
-    p.name.toLowerCase().includes(q.toLowerCase()),
-  );
-  return (
-    <Modal open={open} onClose={onClose} title="Scope this chat to a matter">
-      <div className="space-y-3">
-        <Input
-          autoFocus
-          placeholder="Search matters…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div className="max-h-80 space-y-1 overflow-y-auto">
-          {isLoading ? (
-            <CenterSpinner />
-          ) : items.length ? (
-            items.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => onPick(p)}
-                className="flex w-full items-center gap-2.5 rounded-lg border border-slate-200 px-3 py-2 text-left text-sm transition-colors hover:border-brand-300 hover:bg-brand-50/50"
-              >
-                <FolderKanban className="h-4 w-4 shrink-0 text-slate-400" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium text-slate-800">
-                    {p.name}
-                  </span>
-                  {p.description && (
-                    <span className="block truncate text-xs text-slate-400">
-                      {p.description}
-                    </span>
-                  )}
-                </span>
-              </button>
-            ))
-          ) : (
-            <p className="py-6 text-center text-sm text-slate-400">
-              No projects found.
-            </p>
-          )}
-        </div>
-      </div>
-    </Modal>
   );
 }
 

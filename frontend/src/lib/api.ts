@@ -1,5 +1,7 @@
 // Core HTTP + SSE client for the Legal CLM backend.
 import type { ApiError, TokenResponse } from "./types";
+import { ConnectionMonitor, PROBE_TIMEOUT_MS, SERVER_DOWN_MESSAGE, isNetworkFailure } from "./connection";
+import { plainErrorMessage } from "./plain-error";
 
 function defaultApiBase() {
   if (typeof window === "undefined") return "http://localhost:8000/api/v1";
@@ -49,6 +51,44 @@ export class HttpError extends Error implements ApiError {
   }
 }
 
+/** Status 0 means the request never got any reply from the server (it is down, or there is no network). */
+export const NO_REPLY_STATUS = 0;
+
+/** "Are you there?": any reply at all, even a 401, proves the server is up. Used only when a request is slow. */
+async function probeServer(): Promise<boolean> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
+  try {
+    await fetch(`${API_BASE}/auth/me`, { headers: authHeaders(), credentials: "include", signal: controller.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Watches every API call so the app can say "can't reach the server" instead of spinning silently. */
+export const connectionMonitor = new ConnectionMonitor({ probe: probeServer });
+
+/** `fetch`, plus: tell the connection monitor what happened, and turn "nothing answered" into a readable error. */
+async function trackedFetch(url: string, init: RequestInit): Promise<Response> {
+  const finished = connectionMonitor.requestStarted();
+  try {
+    const res = await fetch(url, init);
+    connectionMonitor.serverAnswered();
+    return res;
+  } catch (err) {
+    if (isNetworkFailure(err)) {
+      connectionMonitor.serverNotAnswering();
+      throw new HttpError(NO_REPLY_STATUS, SERVER_DOWN_MESSAGE);
+    }
+    throw err;
+  } finally {
+    finished();
+  }
+}
+
 function authHeaders(extra?: HeadersInit): HeadersInit {
   const headers: Record<string, string> = {};
   const token = tokenStore.access;
@@ -69,7 +109,8 @@ async function parseError(res: Response): Promise<HttpError> {
   } catch {
     /* non-JSON error body */
   }
-  return new HttpError(res.status, message, detail);
+  // `detail` keeps the server's own body for anyone debugging; only the text shown to the person is rewritten.
+  return new HttpError(res.status, plainErrorMessage(res.status, message), detail);
 }
 
 let refreshing: Promise<boolean> | null = null;
@@ -140,7 +181,7 @@ export async function apiFetch<T>(
     if (init.body !== undefined && !init.method) {
       init.method = "POST";
     }
-    return fetch(`${API_BASE}${path}`, init);
+    return trackedFetch(`${API_BASE}${path}`, init);
   };
 
   let res = await doFetch();
@@ -161,16 +202,34 @@ export async function apiFetch<T>(
   return (await res.text()) as unknown as T;
 }
 
-/** Trigger a browser download for binary endpoints (file download, XLSX export). */
-export async function apiDownload(path: string, fallbackName = "download") {
-  let res = await fetch(`${API_BASE}${path}`, {
+/** Fetch binary content to hold in memory (a document the page draws itself). */
+export async function apiBytes(path: string): Promise<ArrayBuffer> {
+  let res = await trackedFetch(`${API_BASE}${path}`, {
     headers: authHeaders(),
     credentials: "include",
   });
   if (res.status === 401) {
     const ok = await tryRefresh();
     if (ok)
-      res = await fetch(`${API_BASE}${path}`, {
+      res = await trackedFetch(`${API_BASE}${path}`, {
+        headers: authHeaders(),
+        credentials: "include",
+      });
+  }
+  if (!res.ok) throw await parseError(res);
+  return res.arrayBuffer();
+}
+
+/** Trigger a browser download for binary endpoints (file download, XLSX export). */
+export async function apiDownload(path: string, fallbackName = "download") {
+  let res = await trackedFetch(`${API_BASE}${path}`, {
+    headers: authHeaders(),
+    credentials: "include",
+  });
+  if (res.status === 401) {
+    const ok = await tryRefresh();
+    if (ok)
+      res = await trackedFetch(`${API_BASE}${path}`, {
         headers: authHeaders(),
         credentials: "include",
       });
@@ -191,14 +250,16 @@ export async function apiDownload(path: string, fallbackName = "download") {
 }
 
 export interface StreamCallbacks {
-  onEvent: (event: string, data: Record<string, unknown>) => void;
+  /** `id` is the server's event id (SSE `id:` line) when it sent one. */
+  onEvent: (event: string, data: Record<string, unknown>, id?: string) => void;
   onError?: (err: Error) => void;
   onClose?: () => void;
 }
 
 /**
- * POST a body and consume a text/event-stream response. Returns an abort fn.
- * Used by the assistant streaming + resume endpoints.
+ * Consume a text/event-stream response (POST with a JSON body, or GET when
+ * `body` is null). Returns an abort fn. Used by Ask Aegis: sending a message,
+ * resuming after a confirmation, and watching an answer in progress.
  */
 export async function apiStream(
   path: string,
@@ -206,25 +267,24 @@ export async function apiStream(
   cb: StreamCallbacks,
 ): Promise<() => void> {
   const controller = new AbortController();
+  const isGet = body === null;
+  const request = () =>
+    fetch(`${API_BASE}${path}`, {
+      method: isGet ? "GET" : "POST",
+      headers: isGet
+        ? authHeaders({ Accept: "text/event-stream" })
+        : authHeaders({ "Content-Type": "application/json" }),
+      body: isGet ? undefined : JSON.stringify(body ?? {}),
+      credentials: "include",
+      signal: controller.signal,
+    });
   (async () => {
     try {
-      let res = await fetch(`${API_BASE}${path}`, {
-        method: "POST",
-        headers: authHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(body ?? {}),
-        credentials: "include",
-        signal: controller.signal,
-      });
+      let res = await request();
+      connectionMonitor.serverAnswered();
       if (res.status === 401) {
         const ok = await tryRefresh();
-        if (ok)
-          res = await fetch(`${API_BASE}${path}`, {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body ?? {}),
-            credentials: "include",
-            signal: controller.signal,
-          });
+        if (ok) res = await request();
       }
       if (!res.ok || !res.body) {
         cb.onError?.(await parseError(res));
@@ -242,12 +302,14 @@ export async function apiStream(
         buffer = chunks.pop() ?? "";
         for (const chunk of chunks) {
           let eventName = "message";
+          let eventId: string | undefined;
           const dataLines: string[] = [];
           for (const line of chunk.split(/\r?\n/)) {
             if (line.startsWith("event:")) eventName = line.slice(6).trim();
+            else if (line.startsWith("id:")) eventId = line.slice(3).trim();
             else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
           }
-          if (!dataLines.length) continue;
+          if (!dataLines.length) continue; // e.g. ": keep-alive" comments
           const raw = dataLines.join("\n");
           let parsed: Record<string, unknown> = {};
           try {
@@ -255,11 +317,12 @@ export async function apiStream(
           } catch {
             parsed = { raw };
           }
-          cb.onEvent(eventName, parsed);
+          cb.onEvent(eventName, parsed, eventId);
         }
       }
       cb.onClose?.();
     } catch (err) {
+      if (isNetworkFailure(err)) connectionMonitor.serverNotAnswering();
       if ((err as Error).name !== "AbortError")
         cb.onError?.(err as Error);
       cb.onClose?.();

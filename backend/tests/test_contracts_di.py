@@ -151,8 +151,9 @@ def test_get_contract_route_uses_injected_service(client, db):
 
 
 def test_get_contract_risk_route_reads_from_injected_contract(client, db):
-    """/contracts/{id}/risk falls back to the contract's own risk fields when
-    no summary is stored yet — still true after the DI conversion."""
+    """/contracts/{id}/risk is computed fresh from the playbook rule (contracts.risk) for
+    the injected contract: with no review it says "unknown" and why, never a stale or
+    made-up level -- still through the injected service after the DI conversion."""
     fake_service = _FakeContractService()
     user = _seed_authorized_user(db, user_id="user-1", org_id="org-1", permission="contract:read")
 
@@ -164,5 +165,5 @@ def test_get_contract_risk_route_reads_from_injected_contract(client, db):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["note"] == "Not computed yet."
+    assert body["band"] == "unknown" and body["note"]
     assert fake_service.calls == [{"contract_id": "contract-1", "user_id": "user-1"}]

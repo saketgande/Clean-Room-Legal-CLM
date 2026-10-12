@@ -6,7 +6,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Models
 
-- `BrainQuery` (table `brain_query`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, matter_id->matter.id
+- `BrainQuery` (table `brain_query`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id
 - `ClauseExtraction` (table `clause_extraction`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, contract_version_id->contract_version.id, text_snapshot_id->contract_text_snapshot.id
 - `KnowledgeEdge` (table `knowledge_edge`, org_scoped=True, soft_delete=False) -- FKs: from_node_id->knowledge_node.id, to_node_id->knowledge_node.id, contract_id->contract.id, contract_version_id->contract_version.id, text_snapshot_id->contract_text_snapshot.id
 - `KnowledgeNode` (table `knowledge_node`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, contract_version_id->contract_version.id, text_snapshot_id->contract_text_snapshot.id
@@ -15,9 +15,10 @@ Owner agents: backend-dev, db-engineer
 
 - `GET /contract-brain/precedents` -- permission: `assistant:use` -- request: str | None -- response: ?
 - `GET /contract-brain/queries` -- permission: `assistant:use` -- request: str | None -- response: ?
+- `GET /contract-brain/queries/{query_id}/result` -- permission: `assistant:use` -- request: ? -- response: ?
 - `GET /contract-brain/search` -- permission: `contract:read` -- request: ? -- response: ?
 - `POST /contract-brain/ask` -- permission: `assistant:use` -- request: BrainAskRequest -- response: ?
-- `POST /contract-brain/ingest` -- permission: `contract:read` -- request: ? -- response: ?
+- `POST /contract-brain/ingest` -- permission: `contract:update` -- request: ? -- response: ?
 
 ## Schemas
 
@@ -32,4 +33,5 @@ Owner agents: backend-dev, db-engineer
 Api group: `brainApi` (confidence: heuristic)
 - `brainApi.ask()` -> `POST /contract-brain/ask`
 - `brainApi.queries()` -> `GET /contract-brain/queries${qs(params)}`
+- `brainApi.result()` -> `GET /contract-brain/queries/${id}/result`
 - `brainApi.search()` -> `GET /contract-brain/search?q=${encodeURIComponent(q)}&limit=${limit}`

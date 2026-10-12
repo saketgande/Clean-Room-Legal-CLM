@@ -8,9 +8,9 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Sparkles, Trash2, Upload } from "lucide-react";
+import { FileText, Sparkles, Trash2 } from "lucide-react";
 import { noticesApi } from "@/lib/endpoints";
 import {
   Badge,
@@ -29,18 +29,13 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import {
-  NOTICE_TYPES,
-  POSTURE_TONE,
-  REMINDER_LABEL,
-  STATUS_TONE,
-  deadlineLabel,
-  fmtDate,
-  typeLabel,
+  NEEDS_RECONFIRM, POSTURE_TONE, REMINDER_LABEL, STATUS_TONE, UNCONFIRMED, deadlineLabel, deadlineUnconfirmed, fmtDate,
+  recountText, typeLabel,
 } from "../shared";
+import type { Notice } from "@/lib/types";
 
 export default function NoticeDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const router = useRouter();
   const qc = useQueryClient();
   const { notify } = useToast();
 
@@ -256,6 +251,13 @@ export default function NoticeDetailPage({ params }: { params: Promise<{ id: str
                 <Detail label="Date on notice" value={fmtDate(n.notice_date)} />
                 <Detail label="Received" value={fmtDate(n.received_at)} />
                 <Detail label="Response due" value={fmtDate(n.response_due_date)} />
+                <div className="sm:col-span-2">
+                  <DeadlineEditor
+                    key={`${n.received_at}|${n.response_due_date}`}
+                    n={n}
+                    onSaved={() => { reload(); invalidateList(); }}
+                  />
+                </div>
                 <Detail label="Owner" value={n.owner_name || "Unassigned"} />
                 <Detail
                   label="Owner last chased"
@@ -425,6 +427,88 @@ export default function NoticeDetailPage({ params }: { params: Promise<{ id: str
             </CardBody>
           </Card>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** How the response date was worked out, a Confirm for a calculated one, and
+ *  the two dates a person may correct. Only fields actually changed are sent:
+ *  sending response_due_date (even blank) records it as set by a person. */
+function DeadlineEditor({ n, onSaved }: { n: Notice; onSaved: () => void }) {
+  const { notify } = useToast();
+  const [received, setReceived] = useState(n.received_at ?? "");
+  const [due, setDue] = useState(n.response_due_date ?? "");
+  const [busy, setBusy] = useState(false);
+  const basis = n.deadline_basis;
+  const recount = recountText(n);
+  // A recount waits beside the confirmed date; it is handled by its own block.
+  const unconfirmed = !recount && !!n.response_due_date && deadlineUnconfirmed(n);
+  const changes: Record<string, string | null> = {};
+  if (received !== (n.received_at ?? "")) changes.received_at = received || null;
+  if (due !== (n.response_due_date ?? "")) changes.response_due_date = due || null;
+
+  async function send(payload: Record<string, unknown>, done: string) {
+    setBusy(true);
+    try {
+      await noticesApi.update(n.id, payload);
+      notify(done, "success");
+      onSaved();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Could not update the deadline", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+      {basis?.formula && <p className="font-mono text-xs text-slate-700">{basis.formula}</p>}
+      {!n.response_due_date && basis?.reason && (
+        <p className={`text-xs font-medium ${basis.needs_person ? "text-warning" : "text-slate-600"}`}>{basis.reason}</p>
+      )}
+      {basis?.facts?.quote && <p className="text-xs italic text-slate-500">&ldquo;{basis.facts.quote}&rdquo;</p>}
+      {recount && (
+        <div className="space-y-1">
+          <Badge tone="amber">{NEEDS_RECONFIRM}</Badge>
+          <p className="font-mono text-xs text-slate-700">Re-counted: {recount}</p>
+          {basis?.recomputed?.due ? (
+            <Button
+              size="sm" variant="outline" loading={busy}
+              onClick={() => send({ confirm_deadline: true }, "New deadline confirmed")}
+            >
+              Confirm {fmtDate(basis.recomputed.due)}
+            </Button>
+          ) : (
+            <p className="text-xs text-warning">No date could be counted — set the response date below.</p>
+          )}
+        </div>
+      )}
+      {unconfirmed && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone="amber">
+            {basis?.needs_reconfirm ? NEEDS_RECONFIRM : UNCONFIRMED}
+          </Badge>
+          <Button size="sm" variant="outline" loading={busy} onClick={() => send({ confirm_deadline: true }, "Deadline confirmed")}>
+            Confirm deadline
+          </Button>
+        </div>
+      )}
+      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+        <Field label="Received on" hint="recounts a calculated deadline">
+          <Input type="date" value={received} onChange={(e) => setReceived(e.target.value)} />
+        </Field>
+        <Field label="Response due" hint="a date you set is never recounted">
+          <Input type="date" value={due} onChange={(e) => setDue(e.target.value)} />
+        </Field>
+        <Button
+          variant="outline"
+          loading={busy}
+          disabled={!Object.keys(changes).length}
+          onClick={() => send(changes, "Dates updated")}
+        >
+          Save dates
+        </Button>
       </div>
     </div>
   );

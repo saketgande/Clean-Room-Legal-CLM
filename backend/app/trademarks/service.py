@@ -6,8 +6,8 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
-from app.ai.cost_guard import enforce_daily_token_cap
 from app.ai.embeddings import embed_texts
+from app.ai.gateway import AICallContext, AIOutputInvalid, gateway_for
 from app.auth.models import User
 from app.core.audit import write_audit_log
 from app.core.config import Settings
@@ -26,7 +26,7 @@ from app.integrations.storage import StorageBackend, storage_service
 from app.trademarks.extraction.field_capture import extract_generic_records
 from app.trademarks.extraction.vision import extract_journal_page
 from app.trademarks.models import DocumentExtract, PortfolioDigest, Trademark
-from app.trademarks.nice_classes import NICE_CLASS_BY_NUMBER, NICE_CLASSES, VALID_NICE_CLASSES
+from app.trademarks.nice_classes import NICE_CLASS_BY_NUMBER, VALID_NICE_CLASSES
 from app.trademarks.providers.similarity import search_similar as _search_similar
 from app.trademarks.schemas import (
     ClassSuggestionRequest,
@@ -57,20 +57,11 @@ from app.trademarks.schemas import (
 
 # --- NICE-class suggestion / conflict explanation / portfolio digest -------
 # Ported from the standalone Trademark Suite module (see
-# backend/TRADEMARKS_INTEGRATION.md) — originally OpenAI (gpt-4o-mini),
-# now Claude via self.claude_client, same pattern as every other leaf
-# LLM call in this app.
-
-_CLASS_LIST_TEXT = "\n".join(f'{c["class"]}: {c["heading"]}' for c in NICE_CLASSES)
-
-_CLASSIFY_SYSTEM_PROMPT = (
-    "You classify a trademark's goods/services description into the single "
-    "best-fit class from WIPO's Nice Classification. Here is the full list "
-    f"of 45 classes:\n\n{_CLASS_LIST_TEXT}\n\n"
-    "Given a trademark name and description, propose exactly one class "
-    "number and a one-sentence reasoning grounded in the description given "
-    "— no preamble, no legal disclaimers."
-)
+# backend/TRADEMARKS_INTEGRATION.md) — originally OpenAI (gpt-4o-mini).
+# All three calls go through the AI gateway (features trademark_class_suggest,
+# trademark_conflict_explain, trademark_portfolio_digest), so they get the
+# prompt-table override, the untrusted-input guard, the per-org token cap and
+# an AI-ledger row. Their prompts live in app/ai/prompt_versions.py.
 
 _CLASSIFY_INPUT_SCHEMA = {
     "type": "object",
@@ -83,25 +74,6 @@ _CLASSIFY_INPUT_SCHEMA = {
     },
     "required": ["nice_class", "reasoning"],
 }
-
-_EXPLAIN_SYSTEM_PROMPT = (
-    "You are an IP paralegal assistant. Given the facts of one trademark "
-    "similarity-search conflict, explain in 1-2 plain-English sentences "
-    "whether it is a meaningful risk for someone about to file the searched "
-    "mark, and why. Be concrete and grounded only in the facts given — refer "
-    "to the match strength, status, and jurisdiction where relevant. No "
-    "legal disclaimers, no preamble, just the explanation."
-)
-
-_DIGEST_SYSTEM_PROMPT = (
-    "You write a short daily digest for in-house IP counsel, summarizing "
-    "new trademark records added to their portfolio in the last 24 hours. "
-    "Given the stats and sample marks below, write 2-4 plain-English "
-    "sentences: how much came in, from where, and call out anything worth "
-    "a human look (an unusual jurisdiction, a notably large batch, or a "
-    "mark name that looks close to a well-known brand). No headers, no "
-    "bullet points, no preamble."
-)
 
 _CLASSIFY_CACHE_TTL_SECONDS = 600  # 10 min — matches the typing-pause debounce reuse window
 _EXPLAIN_CACHE_TTL_SECONDS = 60 * 60 * 24  # 24h — the same facts always produce the same explanation
@@ -450,10 +422,10 @@ class TrademarksService:
 
     async def save_uploaded_document(self, *, user: User, file: UploadFile) -> UploadDocumentResponse:
         if not (file.filename or "").lower().endswith(".pdf"):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Only PDF files are supported")
-        content = await file.read()
-        if not content:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The uploaded file is empty")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Only PDF files are supported")
+        from app.contract_files.service import ingest_upload
+
+        content = (await ingest_upload(file)).content  # size limit, type check and antivirus scan
 
         from io import BytesIO
 
@@ -462,7 +434,7 @@ class TrademarksService:
         try:
             total_pages = len(PdfReader(BytesIO(content)).pages)
         except Exception as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Couldn't read that PDF") from exc
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Couldn't read that PDF") from exc
 
         stored = self.storage.save_bytes(
             org_id=user.org_id, filename=file.filename, mime_type="application/pdf", content=content
@@ -478,7 +450,9 @@ class TrademarksService:
             records: list[ExtractedRecord] = []
             for page_number in range(request.page_start, request.page_end + 1):
                 try:
-                    entries = await extract_journal_page(content, page_number, claude_client=self.claude_client)
+                    entries = await extract_journal_page(
+                        self.db, content, page_number, org_id=user.org_id, claude_client=self.claude_client
+                    )
                 except Exception as exc:
                     warnings.append(f"Page {page_number}: vision extraction failed ({exc})")
                     continue
@@ -647,9 +621,11 @@ class TrademarksService:
     # --- NICE-class suggestion, conflict explanation, portfolio digest/stats ---
 
     async def suggest_nice_class(
-        self, *, org_id: str, request: ClassSuggestionRequest
+        self, *, org_id: str, request: ClassSuggestionRequest, user_id: str | None = None
     ) -> ClassSuggestionResponse:
-        cache_key = _cache_key(request.name, request.description)
+        # Keyed by org: an org can override the prompt in the prompt table, so one
+        # org's answer must never be served to another.
+        cache_key = _cache_key(org_id, request.name, request.description)
         cached = _classify_cache.get(cache_key)
         if cached is not None:
             nice_class, reasoning = cached
@@ -657,18 +633,18 @@ class TrademarksService:
                 nice_class=nice_class, heading=NICE_CLASS_BY_NUMBER.get(nice_class, ""),
                 reasoning=reasoning, cached=True,
             )
-        enforce_daily_token_cap(org_id)
-        response = await self.claude_client.complete_structured(
-            system_prompt=_CLASSIFY_SYSTEM_PROMPT,
-            user_prompt=f'Trademark name: "{request.name}"\nDescription: "{request.description}"',
-            tool_name="suggest_nice_class",
-            input_schema=_CLASSIFY_INPUT_SCHEMA,
-            max_tokens=120,
-            temperature=0.1,
-        )
-        if not response.tool_use_blocks:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Classifier returned no result")
-        parsed = response.tool_use_blocks[0].get("input") or {}
+        try:
+            result = await gateway_for(self.claude_client).structured(
+                self.db,
+                "trademark_class_suggest",
+                ctx=AICallContext(org_id=org_id, user_id=user_id),
+                user_prompt=f'Trademark name: "{request.name}"\nDescription: "{request.description}"',
+                input_schema=_CLASSIFY_INPUT_SCHEMA,
+                log_input={"name_chars": len(request.name), "description_chars": len(request.description)},
+            )
+        except AIOutputInvalid as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Classifier returned no result") from exc
+        parsed = result.data
         nice_class = str(parsed.get("nice_class", "")).strip()
         reasoning = str(parsed.get("reasoning", "")).strip()
         if nice_class not in VALID_NICE_CLASSES:
@@ -682,16 +658,15 @@ class TrademarksService:
         )
 
     async def explain_conflict(
-        self, *, org_id: str, request: ExplainConflictRequest
+        self, *, org_id: str, request: ExplainConflictRequest, user_id: str | None = None
     ) -> ExplainConflictResponse:
         cache_key = _cache_key(
-            request.trademark_name, request.source, request.conflict_name,
+            org_id, request.trademark_name, request.source, request.conflict_name,
             str(request.jurisdiction), str(request.status), str(request.match_score), str(request.risk_level),
         )
         cached = _explain_cache.get(cache_key)
         if cached is not None:
             return ExplainConflictResponse(explanation=cached, cached=True)
-        enforce_daily_token_cap(org_id)
         lines = [
             f'Searched mark: "{request.trademark_name}"'
             + (f" — {request.description}" if request.description else ""),
@@ -705,12 +680,17 @@ class TrademarksService:
             lines.append(f"Status: {request.status}")
         if request.jurisdiction:
             lines.append(f"Jurisdiction: {request.jurisdiction}")
-        response = await self.claude_client.complete_text(
-            system_prompt=_EXPLAIN_SYSTEM_PROMPT, user_prompt="\n".join(lines), max_tokens=120, temperature=0.3,
-        )
-        explanation = "".join(
-            b.get("text", "") for b in response.content_blocks if b.get("type") == "text"
-        ).strip()
+        try:
+            result = await gateway_for(self.claude_client).text(
+                self.db,
+                "trademark_conflict_explain",
+                ctx=AICallContext(org_id=org_id, user_id=user_id),
+                user_prompt="\n".join(lines),
+                log_input={"source": request.source, "has_match_score": request.match_score is not None},
+            )
+        except AIOutputInvalid as exc:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Explainer returned no explanation") from exc
+        explanation = result.data
         _explain_cache.set(cache_key, explanation)
         return ExplainConflictResponse(explanation=explanation, cached=False)
 
@@ -763,7 +743,6 @@ class TrademarksService:
             # as the standalone module.
             summary = "No new trademark records were added in the last 24 hours — nothing to report today."
         else:
-            enforce_daily_token_cap(org_id)
             lines = [
                 f"New trademark records in the last {_DIGEST_LOOKBACK_HOURS}h: {stats['new_trademarks_count']}",
                 f"By jurisdiction: {stats['by_jurisdiction']}",
@@ -771,12 +750,17 @@ class TrademarksService:
             if samples:
                 lines.append("Sample of newly added marks:")
                 lines.extend(f"- {s['name']} ({s['jurisdiction']})" for s in samples)
-            response = await self.claude_client.complete_text(
-                system_prompt=_DIGEST_SYSTEM_PROMPT, user_prompt="\n".join(lines), max_tokens=200, temperature=0.4,
-            )
-            summary = "".join(
-                b.get("text", "") for b in response.content_blocks if b.get("type") == "text"
-            ).strip()
+            try:
+                result = await gateway_for(self.claude_client).text(
+                    db,
+                    "trademark_portfolio_digest",
+                    ctx=AICallContext(org_id=org_id, user_id=user.id),
+                    user_prompt="\n".join(lines),
+                    log_input={"new_trademarks": stats["new_trademarks_count"], "samples": len(samples)},
+                )
+            except AIOutputInvalid as exc:
+                raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Digest returned no summary") from exc
+            summary = result.data
 
         row = db.scalar(
             select(PortfolioDigest).where(PortfolioDigest.org_id == org_id, PortfolioDigest.digest_date == today)

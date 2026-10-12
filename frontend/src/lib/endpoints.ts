@@ -2,14 +2,17 @@
 import { apiFetch, apiDownload } from "./api";
 import type {
   AdminSetting,
+  DraftingTemplate,
+  DraftingTemplateSummary,
+  DraftingTemplateVersion,
   AiUsageSummary,
+  AiUsageTraffic,
   ApprovalChainStep,
   ApprovalRequest,
   ApprovalReviewContext,
-  ApprovalRoutingRule,
-  ApproverGroup,
   ApproverBrief,
   AssistantMessage,
+  AssistantRunSummary,
   AssistantRun,
   AssistantSession,
   BrainQuery,
@@ -18,6 +21,7 @@ import type {
   ClauseSearchResult,
   ConfigStatus,
   ContractActivityResponse,
+  ContractClause,
   ContractEditResponse,
   ContractComment,
   ContractParty,
@@ -28,9 +32,14 @@ import type {
   ExternalComment,
   Workflow,
   WorkflowRun,
+  LifecycleRow,
+  LifecycleStage,
   SignerOption,
   ExternalShareView,
   ContractDeviation,
+  DraftIssueFixesResponse,
+  IssueFixJob,
+  ReviewRetryResponse,
   ReviewStatusResponse,
   VersionDiffResponse,
   ContractShareCreateResponse,
@@ -41,7 +50,9 @@ import type {
   ContractUploadResponse,
   ContractVersionResponse,
   ContractLifecycleStage,
+  JobCounts,
   JobRun,
+  JobStatus,
   LifecycleOptionsResponse,
   Notification,
   Notice,
@@ -59,16 +70,9 @@ import type {
   PlaybookRunDetailResponse,
   PlaybookRunResponse,
   PlaybookVersionResponse,
-  MatterContractResponse,
-  MatterFolderResponse,
-  MatterMemberResponse,
-  MatterActivityItem,
-  MatterOverview,
-  MatterResponse,
-  MatterShareResponse,
-  UnfiledItem,
   RegistrationResponse,
   RenewalEvent,
+  RevisionRound,
   RenewalRecommendation,
   SignatureRecipient,
   SignatureRequest,
@@ -87,7 +91,6 @@ import type {
   PromptVersion,
   PromptUsage,
   IntakeRequest,
-  IntakeRequestType,
   IntakeApprovalRung,
   IntakeTask,
   IntakeHandoff,
@@ -96,16 +99,18 @@ import type {
   IntakeSlaLegs,
   IntakeSlaOps,
   IntakeTeam,
-  IntakeRule,
-  IntakeKbArticle,
-  IntakePoolOps,
   IntakeDocument,
-  CopilotTurn,
+  IntakeDraft,
+  RequestFormDef,
+  IntakeApprovalPreview,
+  LegalEntity,
+  Counterparty,
   Trademark,
   TrademarkCreatePayload,
   TrademarkUpdatePayload,
   IntakeSubmitPayload,
   TrademarkDashboardMetrics,
+  RenewalCalendarEntry,
   PortfolioRenewalsResponse,
   TrademarkSummary,
   TrademarkComment,
@@ -211,26 +216,6 @@ export const authApi = {
     }),
 };
 
-// ---- Users / org ---------------------------------------------------------
-// ---- Resource grants (object-level access) -------------------------------
-export const grantsApi = {
-  list: (resourceType: string, resourceId: string) =>
-    apiFetch<GrantResponse[]>(
-      `/grants?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}`,
-    ),
-  create: (payload: {
-    principal_type: string;
-    principal_id: string;
-    resource_type: string;
-    resource_id: string;
-    access_level: string;
-    valid_until?: string | null;
-    note?: string | null;
-  }) => apiFetch<GrantResponse>("/grants", { method: "POST", body: payload }),
-  revoke: (id: string) =>
-    apiFetch<void>(`/grants/${id}`, { method: "DELETE" }),
-};
-
 // ---- Roles (custom RBAC role management) ---------------------------------
 export const rolesApi = {
   list: () => apiFetch<RoleResponse[]>("/roles"),
@@ -296,7 +281,7 @@ export const wallsApi = {
   create: (payload: {
     name: string;
     reason?: string | null;
-    scope_type: "contract" | "project";
+    scope_type: "contract";
     scope_id: string;
     principals: { principal_type: "user" | "role"; principal_id: string }[];
   }) => apiFetch<WallResponse>("/ethical-walls", { method: "POST", body: payload }),
@@ -573,70 +558,6 @@ export const orgApi = {
     }),
 };
 
-// ---- Matters ------------------------------------------------------------
-export const mattersApi = {
-  list: () => apiFetch<MatterResponse[]>("/matters"),
-  create: (payload: {
-    name: string;
-    description?: string;
-    matter_type?: string;
-    client_name?: string;
-    status?: string;
-    metadata_json?: Record<string, unknown>;
-  }) => apiFetch<MatterResponse>("/matters", { method: "POST", body: payload }),
-  overview: (id: string) =>
-    apiFetch<MatterOverview>(`/matters/${id}/overview`),
-  activity: (id: string) =>
-    apiFetch<MatterActivityItem[]>(`/matters/${id}/activity`),
-  unfiled: (item_type?: "contract" | "intake") =>
-    apiFetch<UnfiledItem[]>(`/matters/unfiled${qs({ item_type })}`),
-  assign: (id: string, item_type: "contract" | "intake", item_id: string) =>
-    apiFetch<{ status: string }>(`/matters/${id}/items`, {
-      method: "POST",
-      body: { item_type, item_id },
-    }),
-  get: (id: string) => apiFetch<MatterResponse>(`/matters/${id}`),
-  folders: (id: string) =>
-    apiFetch<MatterFolderResponse[]>(`/matters/${id}/folders`),
-  createFolder: (id: string, name: string, parent_folder_id?: string) =>
-    apiFetch<MatterFolderResponse>(`/matters/${id}/folders`, {
-      method: "POST",
-      body: { name, parent_folder_id },
-    }),
-  members: (id: string) =>
-    apiFetch<MatterMemberResponse[]>(`/matters/${id}/members`),
-  upsertMember: (id: string, user_id: string, role = "member") =>
-    apiFetch<MatterMemberResponse>(`/matters/${id}/members`, {
-      method: "PUT",
-      body: { user_id, role },
-    }),
-  removeMember: (id: string, userId: string) =>
-    apiFetch<void>(`/matters/${id}/members/${userId}`, { method: "DELETE" }),
-  shares: (id: string) =>
-    apiFetch<MatterShareResponse[]>(`/matters/${id}/shares`),
-  createShare: (
-    id: string,
-    user_id: string,
-    access_level = "read",
-    expires_at?: string,
-  ) =>
-    apiFetch<MatterShareResponse>(`/matters/${id}/shares`, {
-      method: "POST",
-      body: { user_id, access_level, expires_at },
-    }),
-  contracts: (id: string) =>
-    apiFetch<MatterContractResponse[]>(`/matters/${id}/contracts`),
-  addContract: (id: string, contract_id: string, folder_id?: string) =>
-    apiFetch<MatterContractResponse>(`/matters/${id}/contracts`, {
-      method: "PUT",
-      body: { contract_id, folder_id },
-    }),
-  removeContract: (id: string, contractId: string) =>
-    apiFetch<void>(`/matters/${id}/contracts/${contractId}`, {
-      method: "DELETE",
-    }),
-};
-
 // ---- Contracts -----------------------------------------------------------
 export const contractsApi = {
   list: () => apiFetch<ContractResponse[]>("/contracts"),
@@ -647,14 +568,13 @@ export const contractsApi = {
     apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`, { method: "POST" }),
   upload: (
     file: File,
-    extra: { title?: string; counterparty_name?: string; matter_id?: string } = {},
+    extra: { title?: string; counterparty_name?: string } = {},
   ) => {
     const form = new FormData();
     form.append("file", file);
     if (extra.title) form.append("title", extra.title);
     if (extra.counterparty_name)
       form.append("counterparty_name", extra.counterparty_name);
-    if (extra.matter_id) form.append("matter_id", extra.matter_id);
     return apiFetch<ContractUploadResponse>("/contracts/upload", {
       method: "POST",
       form,
@@ -680,6 +600,9 @@ export const contractsApi = {
     apiFetch<ContractStageHistoryResponse[]>(`/contracts/${id}/stage-history`),
   reviewStatus: (id: string) =>
     apiFetch<ReviewStatusResponse>(`/contracts/${id}/review-status`),
+  // Run the AI review again when it was interrupted (safe to press twice: the server returns the one in progress).
+  retryReview: (id: string) =>
+    apiFetch<ReviewRetryResponse>(`/contracts/${id}/review/retry`, { method: "POST", body: {} }),
   deviations: (id: string) =>
     apiFetch<ContractDeviation[]>(`/contracts/${id}/deviations`),
   plainSummary: (id: string) =>
@@ -693,6 +616,20 @@ export const contractsApi = {
       form,
     });
   },
+  clauses: (id: string) =>
+    apiFetch<{ version_number: number | null; tree: boolean; clauses: ContractClause[] }>(`/contracts/${id}/clauses`),
+  editorConfig: (id: string) =>
+    apiFetch<{ enabled: boolean; server: string; config: Record<string, unknown>; version_number: number; original: boolean; read_only_reason?: string | null }>(
+      `/contracts/${id}/editor/config`),
+  revisionRound: (id: string) =>
+    apiFetch<RevisionRound | null>(`/contracts/${id}/revisions/current`),
+  decideRevisionChange: (id: string, roundId: string, changeId: string,
+    decision: "open" | "accepted" | "kept" | "countered", counter_text?: string) =>
+    apiFetch<RevisionRound>(`/contracts/${id}/revisions/${roundId}/changes/${changeId}`, {
+      method: "POST", body: { decision, counter_text },
+    }),
+  finishRevisionRound: (id: string, roundId: string) =>
+    apiFetch<RevisionRound>(`/contracts/${id}/revisions/${roundId}/finish`, { method: "POST" }),
   logNegotiationRevision: (
     id: string,
     file: File,
@@ -756,9 +693,11 @@ export const contractsApi = {
     apiFetch<ContractTextSnapshotResponse>(
       `/contracts/${id}/versions/${versionId}/text`,
     ),
-  versionDiff: (id: string, baseVersionId: string, targetVersionId: string) =>
+  // context: keep only that many unchanged lines around each change (the server collapses the rest into
+  // one "gap" line). Left out, every line comes back.
+  versionDiff: (id: string, baseVersionId: string, targetVersionId: string, context?: number) =>
     apiFetch<VersionDiffResponse>(
-      `/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}`,
+      `/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}${qs({ context })}`,
     ),
   downloadVersion: (id: string, versionId: string, name?: string) =>
     apiDownload(`/contracts/${id}/versions/${versionId}/download`, name),
@@ -775,11 +714,22 @@ export const contractsApi = {
       method: "POST",
       body: payload,
     }),
-  aiRedline: (id: string, instructions: string) =>
+  aiRedline: (id: string, instructions: string, playbookDeviationId?: string) =>
     apiFetch<{ edits: number; summary?: string | null }>(
       `/contracts/${id}/edits/ai-redline`,
-      { method: "POST", body: { instructions } },
+      {
+        method: "POST",
+        body: { instructions, playbook_deviation_id: playbookDeviationId },
+      },
     ),
+  /** Start writing a suggested change for every open issue that has none, in the background. */
+  draftIssueFixes: (id: string) =>
+    apiFetch<DraftIssueFixesResponse>(`/contracts/${id}/edits/draft-issue-fixes`, {
+      method: "POST",
+    }),
+  /** The latest such job (the one a review started, or one asked for by hand), or null. */
+  issueFixJob: (id: string) =>
+    apiFetch<IssueFixJob | null>(`/contracts/${id}/edits/draft-issue-fixes`),
   exportDocx: (id: string, name?: string) =>
     apiDownload(`/contracts/${id}/export-docx`, name),
   updateText: (
@@ -834,7 +784,6 @@ export const assistantApi = {
   createSession: (payload: {
     session_type?: string;
     title?: string;
-    matter_id?: string;
     contract_id?: string;
     tabular_review_id?: string;
   }) =>
@@ -843,9 +792,20 @@ export const assistantApi = {
       body: payload,
     }),
   session: (id: string) =>
-    apiFetch<{ session: AssistantSession; contract_handles: unknown[] }>(
-      `/assistant/sessions/${id}`,
-    ),
+    apiFetch<{
+      session: AssistantSession;
+      contract_handles: unknown[];
+      /** A still-actionable confirmation, so a reloaded chat can show its card. */
+      pending_confirmation: {
+        confirmation_id: string;
+        assistant_run_id: string;
+        tool_name: string;
+        details: Record<string, string>;
+        expires_at: string | null;
+      } | null;
+      /** The chat's most recent answer, so a reopened chat can watch it or explain it. */
+      latest_run: AssistantRunSummary | null;
+    }>(`/assistant/sessions/${id}`),
   updateSession: (id: string, payload: { title?: string; status?: string }) =>
     apiFetch<AssistantSession>(`/assistant/sessions/${id}`, {
       method: "PATCH",
@@ -854,6 +814,12 @@ export const assistantApi = {
   messages: (id: string, limit = 100) =>
     apiFetch<AssistantMessage[]>(
       `/assistant/sessions/${id}/messages${qs({ limit })}`,
+    ),
+  /** Stop button: the answer stops at its next check and keeps what it has. */
+  cancelRun: (runId: string) =>
+    apiFetch<{ assistant_run_id: string; run_status: string; cancel_requested: boolean }>(
+      `/assistant/runs/${runId}/cancel`,
+      { method: "POST" },
     ),
   confirm: (confirmationId: string) =>
     apiFetch<{
@@ -871,20 +837,6 @@ export const assistantApi = {
     }>(`/assistant/confirmations/${confirmationId}/reject`, {
       method: "POST",
       body: { reason },
-    }),
-};
-
-// ---- AI ------------------------------------------------------------------
-export const aiApi = {
-  rerunMetadata: (contractId: string) =>
-    apiFetch(`/ai/contracts/${contractId}/metadata-extraction`, {
-      method: "POST",
-      body: {},
-    }),
-  rerunClauses: (contractId: string) =>
-    apiFetch(`/ai/contracts/${contractId}/clause-extraction`, {
-      method: "POST",
-      body: {},
     }),
 };
 
@@ -956,13 +908,31 @@ export const workflowsApi = {
     apiFetch<WorkflowRun | null>(`/workflows/runs/by-request/${request_id}`),
   runForContract: (contract_id: string) =>
     apiFetch<WorkflowRun | null>(`/workflows/runs/by-contract/${contract_id}`),
-  completeStep: (run_id: string, note?: string, step_idx?: number) =>
+  startForContract: (contract_id: string, flow_id?: string) =>
+    apiFetch<WorkflowRun>("/workflows/start-for-contract", {
+      method: "POST",
+      body: flow_id ? { contract_id, flow_id } : { contract_id },
+    }),
+  lifecycle: (q: { request_id?: string; contract_id?: string }) =>
+    apiFetch<Partial<Record<LifecycleStage, LifecycleRow[]>>>(
+      `/workflows/lifecycle?${new URLSearchParams(q as Record<string, string>)}`),
+  completeStep: (run_id: string, note?: string, step_idx?: number, override_reason?: string, rework_reply?: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/complete-step`, {
       method: "POST",
-      body: { ...(note ? { note } : {}), ...(step_idx != null ? { step_idx } : {}) },
+      body: {
+        ...(note ? { note } : {}),
+        ...(step_idx != null ? { step_idx } : {}),
+        // Only sent to send a contract on with suggestions still open; the server checks the permission.
+        ...(override_reason ? { override_reason } : {}),
+        // The answer to a rejected approval; the server asks for it only while one is owed.
+        ...(rework_reply ? { rework_reply } : {}),
+      },
     }),
   refreshRun: (run_id: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/refresh`, { method: "POST", body: {} }),
+  // A review step that stopped because its AI review was interrupted: run the review again and set the step going.
+  retryReview: (run_id: string) =>
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/retry-review`, { method: "POST", body: {} }),
   counterparty: (run_id: string) =>
     apiFetch<CounterpartyState>(`/workflows/runs/${run_id}/counterparty`),
   sendToCounterparty: (
@@ -980,6 +950,19 @@ export const workflowsApi = {
 };
 
 // ---- Playbooks -----------------------------------------------------------
+// ---- Drafting templates (our standard paper, one per playbook) -------------
+export const draftingTemplatesApi = {
+  list: () => apiFetch<DraftingTemplateSummary[]>("/drafting-templates"),
+  get: (key: string) => apiFetch<DraftingTemplate>(`/drafting-templates/${key}`),
+  versions: (key: string) => apiFetch<DraftingTemplateVersion[]>(`/drafting-templates/${key}/versions`),
+  preview: (key: string, body: string) =>
+    apiFetch<{ text: string }>(`/drafting-templates/${key}/preview`, { method: "POST", body: { body } }),
+  save: (key: string, body: string, note?: string) =>
+    apiFetch<DraftingTemplate>(`/drafting-templates/${key}`, { method: "PUT", body: { body, note } }),
+  reset: (key: string, note?: string) =>
+    apiFetch<DraftingTemplate>(`/drafting-templates/${key}/reset`, { method: "POST", body: { note } }),
+};
+
 export const playbooksApi = {
   list: () => apiFetch<PlaybookResponse[]>("/playbooks"),
   create: (name: string, description?: string) =>
@@ -1093,30 +1076,6 @@ export const approvalsApi = {
       `/approvals/contracts/${contractId}/chain`,
     ),
   list: () => apiFetch<ApprovalRequest[]>("/approvals"),
-  routingRules: () =>
-    apiFetch<ApprovalRoutingRule[]>("/approvals/routing-rules"),
-  createRoutingRule: (payload: Record<string, unknown>) =>
-    apiFetch<ApprovalRoutingRule>("/approvals/routing-rules", {
-      method: "POST",
-      body: payload,
-    }),
-  updateRoutingRule: (id: string, payload: Record<string, unknown>) =>
-    apiFetch<ApprovalRoutingRule>(`/approvals/routing-rules/${id}`, {
-      method: "PATCH",
-      body: payload,
-    }),
-  deleteRoutingRule: (id: string) =>
-    apiFetch<void>(`/approvals/routing-rules/${id}`, { method: "DELETE" }),
-  submit: (payload: {
-    contract_id: string;
-    contract_version_id?: string;
-    approver_user_id?: string;
-    approver_role?: string;
-  }) =>
-    apiFetch<ApprovalRequest[]>("/approvals/requests", {
-      method: "POST",
-      body: payload,
-    }),
   decide: (
     id: string,
     decision: "approve" | "reject",
@@ -1139,19 +1098,10 @@ export const approvalsApi = {
       { method: "POST", body: { token, decision, comment }, noRetry: true },
     ),
 
-  // --- Approver groups (pools the routing-step dropdowns pick from) ---
-  groups: () => apiFetch<ApproverGroup[]>("/approvals/groups"),
-  createGroup: (payload: {
-    name: string;
-    description?: string;
-    is_active?: boolean;
-  }) => apiFetch<ApproverGroup>("/approvals/groups", { method: "POST", body: payload }),
-  setGroupMembers: (id: string, userIds: string[]) =>
-    apiFetch<ApproverGroup>(`/approvals/groups/${id}/members`, {
-      method: "PUT",
-      body: { user_ids: userIds },
-    }),
   eligibleApprovers: () => apiFetch<ApproverBrief[]>("/approvals/eligible-approvers"),
+  /** Only the people this approval can be handed to (the server refuses anyone else). */
+  reassignCandidates: (id: string, kind: "delegate" | "escalate") =>
+    apiFetch<ApproverBrief[]>(`/approvals/requests/${id}/reassign-candidates?kind=${kind}`),
 };
 
 // ---- Signatures ----------------------------------------------------------
@@ -1218,7 +1168,7 @@ export const noticesApi = {
 };
 
 export const obligationsApi = {
-  list: (params: { contract_id?: string; status_filter?: string } = {}) =>
+  list: (params: { contract_id?: string; status_filter?: string; limit?: number } = {}) =>
     apiFetch<Obligation[]>(`/obligations${qs(params)}`),
   update: (id: string, payload: Record<string, unknown>) =>
     apiFetch<Obligation>(`/obligations/${id}`, {
@@ -1260,6 +1210,14 @@ export const renewalsApi = {
     ),
   recommendation: (id: string) =>
     apiFetch<RenewalRecommendation>(`/renewals/${id}/recommendation`),
+  /** Empty body confirms the dates shown (the re-count, if it needs
+   *  re-confirming); a typed date replaces the calculated one; `no_end_date`
+   *  settles "the form's end date is wrong, it runs until terminated". */
+  confirmDates: (
+    id: string,
+    payload: { expiration_date?: string; notice_date?: string; no_end_date?: boolean } = {},
+  ) =>
+    apiFetch<RenewalEvent>(`/renewals/${id}/confirm-dates`, { method: "POST", body: payload }),
 };
 
 // ---- Trademarks -----------------------------------------------------------
@@ -1337,7 +1295,6 @@ export const brainApi = {
     question: string;
     query_scope?: BrainScope;
     contract_id?: string;
-    matter_id?: string;
   }) =>
     apiFetch<BrainQuery>("/contract-brain/ask", {
       method: "POST",
@@ -1345,6 +1302,9 @@ export const brainApi = {
     }),
   queries: (params: { contract_id?: string; limit?: number } = {}) =>
     apiFetch<BrainQuery[]>(`/contract-brain/queries${qs(params)}`),
+  // A which/how-many answer, recomputed from the AI's reading so far.
+  result: (id: string) =>
+    apiFetch<BrainQuery>(`/contract-brain/queries/${id}/result`),
 };
 
 // ---- Tabular review ------------------------------------------------------
@@ -1352,7 +1312,6 @@ export const tabularApi = {
   list: () => apiFetch<TabularReview[]>("/tabular-reviews"),
   create: (payload: {
     name: string;
-    matter_id?: string;
     contract_ids?: string[];
     columns: { name: string; prompt: string }[];
   }) =>
@@ -1394,12 +1353,10 @@ export const tabularApi = {
 export const searchApi = {
   contracts: (params: Record<string, unknown>) =>
     apiFetch<ContractResponse[]>(`/search/contracts${qs(params)}`),
-  text: (params: { q: string; contract_id?: string; matter_id?: string; limit?: number }) =>
+  text: (params: { q: string; contract_id?: string; limit?: number }) =>
     apiFetch<ContractTextSearchResult[]>(`/search/contract-text${qs(params)}`),
   clauses: (params: Record<string, unknown>) =>
     apiFetch<ClauseSearchResult[]>(`/search/clauses${qs(params)}`),
-  projects: (params: Record<string, unknown>) =>
-    apiFetch<MatterResponse[]>(`/search/projects${qs(params)}`),
 };
 
 // ---- Notifications / jobs / admin / debug --------------------------------
@@ -1413,15 +1370,19 @@ export const notificationsApi = {
 };
 
 export const jobsApi = {
-  list: () => apiFetch<JobRun[]>("/jobs"),
+  /** Newest first. `limit`/`offset` page through every job; `status` narrows the list. */
+  list: (params: { status?: JobStatus; limit?: number; offset?: number } = {}) =>
+    apiFetch<JobRun[]>(`/jobs${qs(params)}`),
+  /** Counts by status over ALL jobs (the list is only one page). */
+  summary: () => apiFetch<JobCounts>("/jobs/summary"),
   cancel: (id: string) =>
     apiFetch<JobRun>(`/jobs/${id}/cancel`, { method: "POST" }),
   run: (id: string) => apiFetch<JobRun>(`/jobs/${id}/run`, { method: "POST" }),
 };
 
 export const aiUsageApi = {
-  summary: (days = 30) =>
-    apiFetch<AiUsageSummary>(`/analytics/ai-usage${qs({ days })}`),
+  summary: (days = 30, traffic: AiUsageTraffic = "real") =>
+    apiFetch<AiUsageSummary>(`/analytics/ai-usage${qs({ days, traffic })}`),
 };
 
 export const adminApi = {
@@ -1438,33 +1399,38 @@ export const debugApi = {
 };
 
 // ---- External share (public, counterparty — no account) ------------------
-function shareQs(passcode?: string) {
-  return passcode ? `?passcode=${encodeURIComponent(passcode)}` : "";
+// The passcode travels in a header, never the URL, so it can't end up in server or proxy logs.
+function sharePasscode(passcode?: string): Record<string, string> {
+  return passcode ? { "X-Share-Passcode": passcode } : {};
 }
 export const externalShareApi = {
   view: (token: string, passcode?: string) =>
-    apiFetch<ExternalShareView>(`/external-shares/${token}${shareQs(passcode)}`, {
+    apiFetch<ExternalShareView>(`/external-shares/${token}`, {
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
   comments: (token: string, passcode?: string) =>
-    apiFetch<ExternalComment[]>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+    apiFetch<ExternalComment[]>(`/external-shares/${token}/comments`, {
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
   addComment: (
     token: string,
     payload: { author_name?: string; body: string },
     passcode?: string,
   ) =>
-    apiFetch<ExternalComment>(`/external-shares/${token}/comments${shareQs(passcode)}`, {
+    apiFetch<ExternalComment>(`/external-shares/${token}/comments`, {
       method: "POST",
       body: payload,
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
   submit: (token: string, passcode?: string) =>
-    apiFetch<{ submitted: boolean }>(`/external-shares/${token}/submit${shareQs(passcode)}`, {
+    apiFetch<{ submitted: boolean }>(`/external-shares/${token}/submit`, {
       method: "POST",
       body: {},
       noRetry: true,
+      headers: sharePasscode(passcode),
     }),
 };
 
@@ -1474,15 +1440,33 @@ const intakeQs = (o: Record<string, string | undefined>) => {
   return p.length ? `?${p.join("&")}` : "";
 };
 
+// Legal entities (ours) and counterparties (theirs) — the party register.
+export const partiesApi = {
+  entities: (q = "", includeInactive = false) =>
+    apiFetch<LegalEntity[]>(`/legal-entities?q=${encodeURIComponent(q)}${includeInactive ? "&include_inactive=true" : ""}`),
+  createEntity: (payload: Record<string, unknown>) =>
+    apiFetch<LegalEntity>("/legal-entities", { method: "POST", body: payload }),
+  updateEntity: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<LegalEntity>(`/legal-entities/${id}`, { method: "PATCH", body: payload }),
+  counterparties: (q = "", includeInactive = false, limit = 20) =>
+    apiFetch<Counterparty[]>(`/counterparties?q=${encodeURIComponent(q)}&limit=${limit}${includeInactive ? "&include_inactive=true" : ""}`),
+  createCounterparty: (payload: Record<string, unknown>) =>
+    apiFetch<Counterparty>("/counterparties", { method: "POST", body: payload }),
+  updateCounterparty: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<Counterparty>(`/counterparties/${id}`, { method: "PATCH", body: payload }),
+};
+
 export const intakeApi = {
-  // request types
-  listTypes: (includeInactive = false) =>
-    apiFetch<IntakeRequestType[]>(`/intake/request-types${includeInactive ? "?include_inactive=true" : ""}`),
-  createType: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequestType>("/intake/request-types", { method: "POST", body: payload }),
-  updateType: (id: string, payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequestType>(`/intake/request-types/${id}`, { method: "PATCH", body: payload }),
-  deleteType: (id: string) => apiFetch<void>(`/intake/request-types/${id}`, { method: "DELETE" }),
+  // the request forms' questions (labels, options, show-when rules)
+  forms: () => apiFetch<RequestFormDef[]>("/intake/forms"),
+
+  // agreement-wizard drafts (private to the current user)
+  listDrafts: () => apiFetch<IntakeDraft[]>("/intake/drafts"),
+  createDraft: (payload: Record<string, unknown>) =>
+    apiFetch<IntakeDraft>("/intake/drafts", { method: "POST", body: payload }),
+  updateDraft: (id: string, payload: Record<string, unknown>) =>
+    apiFetch<IntakeDraft>(`/intake/drafts/${id}`, { method: "PUT", body: payload }),
+  deleteDraft: (id: string) => apiFetch<void>(`/intake/drafts/${id}`, { method: "DELETE" }),
 
   // requests
   list: (statusFilter?: string) =>
@@ -1520,14 +1504,11 @@ export const intakeApi = {
   myWork: () => apiFetch<IntakeMyWork>("/intake/my-work"),
   assignees: () => apiFetch<IntakeAssignee[]>("/intake/assignees"),
 
-  // approval ladder + Tier-0 gates
+  // approval ladder
+  approvalPreview: (body: Record<string, unknown>) =>
+    apiFetch<IntakeApprovalPreview>("/intake/approval-preview", { method: "POST", body }),
   approvalChain: (id: string) =>
     apiFetch<IntakeApprovalRung[]>(`/intake/requests/${id}/approval-chain`),
-  submitForApproval: (id: string, body?: { approver_user_id?: string; approver_role?: string }) =>
-    apiFetch<{ request: IntakeRequest; chain: IntakeApprovalRung[] }>(
-      `/intake/requests/${id}/submit-for-approval`, { method: "POST", body: body ?? {} }),
-  overrideGate: (id: string, body: { gate_key: string; action: "add" | "remove"; reason?: string }) =>
-    apiFetch<IntakeRequest>(`/intake/requests/${id}/gates`, { method: "POST", body }),
 
   // channel sync — Gmail intake polling (email → request)
   gmailSync: () =>
@@ -1535,7 +1516,7 @@ export const intakeApi = {
       "/intake/gmail-sync", { method: "POST" }),
 
   // promote
-  promote: (id: string, target: "project" | "contract", targetId: string) =>
+  promote: (id: string, target: "contract", targetId: string) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/promote`, {
       method: "POST", body: { target, target_id: targetId } }),
   draftContract: (id: string) =>
@@ -1548,32 +1529,17 @@ export const intakeApi = {
   pause: (id: string, paused: boolean) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/pause?paused=${paused}`, { method: "POST" }),
   slaOps: () => apiFetch<IntakeSlaOps>("/intake/sla-ops"),
-  slaScan: () => apiFetch<{ escalated: number; breached: number; downgraded: number }>(
+  slaScan: () => apiFetch<{ escalated: number; breached: number; downgraded: number; completed: number }>(
     "/intake/sla-scan", { method: "POST" }),
 
-  // teams + rules
+  // teams
   teams: () => apiFetch<IntakeTeam[]>("/intake/teams"),
   createTeam: (payload: Record<string, unknown>) =>
     apiFetch<IntakeTeam>("/intake/teams", { method: "POST", body: payload }),
   updateTeam: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeTeam>(`/intake/teams/${id}`, { method: "PATCH", body: payload }),
   deleteTeam: (id: string) => apiFetch<void>(`/intake/teams/${id}`, { method: "DELETE" }),
-  rules: () => apiFetch<IntakeRule[]>("/intake/routing-rules"),
-  createRule: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRule>("/intake/routing-rules", { method: "POST", body: payload }),
-  updateRule: (id: string, payload: Record<string, unknown>) =>
-    apiFetch<IntakeRule>(`/intake/routing-rules/${id}`, { method: "PATCH", body: payload }),
-  deleteRule: (id: string) => apiFetch<void>(`/intake/routing-rules/${id}`, { method: "DELETE" }),
 
-  // knowledge base + pool ops + copilot (Phase 2)
-  kb: () => apiFetch<IntakeKbArticle[]>("/intake/kb"),
-  kbAll: () => apiFetch<IntakeKbArticle[]>("/intake/kb/all"),
-  createKb: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeKbArticle>("/intake/kb", { method: "POST", body: payload }),
-  updateKb: (id: string, payload: Record<string, unknown>) =>
-    apiFetch<IntakeKbArticle>(`/intake/kb/${id}`, { method: "PATCH", body: payload }),
-  deleteKb: (id: string) => apiFetch<void>(`/intake/kb/${id}`, { method: "DELETE" }),
-  poolOps: (days = 30) => apiFetch<IntakePoolOps>(`/intake/pool-ops?days=${days}`),
   screen: (id: string) =>
     apiFetch<Record<string, unknown>>(`/intake/requests/${id}/screen`, { method: "POST" }),
   documents: (id: string) =>
@@ -1582,10 +1548,4 @@ export const intakeApi = {
     apiFetch<IntakeDocument>(`/intake/requests/${id}/documents`, { method: "POST", body: payload }),
   setParties: (id: string, parties: { name: string; role: string; is_person?: boolean }[]) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/parties`, { method: "PUT", body: { parties } }),
-  sanctionsRefresh: () =>
-    apiFetch<Record<string, unknown>>("/intake/sanctions/refresh", { method: "POST" }),
-  copilotTurn: (messages: { role: string; content: string }[], userMessage: string) =>
-    apiFetch<CopilotTurn>("/intake/copilot/turn", { method: "POST", body: { messages, user_message: userMessage } }),
-  copilotFile: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequest>("/intake/copilot/file", { method: "POST", body: payload }),
 };

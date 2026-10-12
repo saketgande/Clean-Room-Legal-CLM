@@ -7,13 +7,16 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import Link from "next/link";
-import { Mail, MessageSquare, FileText, Search, ChevronDown, Clock, Inbox, CheckSquare, ClipboardCheck, PenLine, ListChecks, Moon } from "lucide-react";
+
+import { Mail, MessageSquare, FileText, Search, ChevronDown, Clock, Moon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { intakeApi } from "@/lib/endpoints";
-import { useAuth } from "@/lib/auth";
+
 import { useToast } from "@/components/toast";
-import { initials } from "@/lib/utils";
+import { CenterSpinner, LoadError } from "@/components/ui";
+
+import { isAwaitingTriage, isOpenRequest } from "@/lib/request-status";
+import { plural } from "@/lib/utils";
 import type { IntakeRequest, WorkflowSuggestion } from "@/lib/types";
 
 // Refetch on window focus rather than poll — see the note on LIVE_POLL in
@@ -27,7 +30,7 @@ function useNow(ms = 30_000): number {
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(id); }, [ms]);
   return now;
 }
-const isOpenReq = (r: IntakeRequest) => r.status !== "closed" && r.status !== "approved";
+const isOpenReq = isOpenRequest;
 function channelOf(r: IntakeRequest): { key: string; label: string; Icon: LucideIcon } {
   const s = (r.source ?? "").toLowerCase();
   if (/mail|gmail|email|imap/.test(s)) return { key: "email", label: "Email", Icon: Mail };
@@ -66,7 +69,7 @@ const isMsa = (s: string) => /msa|master|service/i.test(s);
 // status filter tokens
 function statusMatch(r: IntakeRequest, token: string): boolean {
   switch (token) {
-    case "new": return r.status === "open";
+    case "new": return isAwaitingTriage(r);
     case "running": return isOpenReq(r) && (r.workflow ?? []).some((s) => s.active);
     case "stuck": return r.sla_status === "overdue";
     case "at_risk": return r.sla_status === "at_risk";
@@ -91,7 +94,6 @@ function rowFlags(r: IntakeRequest): { label: string; cls: string }[] {
   else if (r.sla_status === "at_risk") f.push({ label: "at risk", cls: "low" });
   if (isOpenReq(r) && !r.assigned_to_user_id) f.push({ label: "unassigned", cls: "dupe" });
   if (lowConfidence(r)) f.push({ label: "low confidence", cls: "low" });
-  if ((r.gates?.effective_keys?.length ?? 0) > 0) f.push({ label: "gated", cls: "new" });
   return f;
 }
 
@@ -136,8 +138,8 @@ function StageCell({ r }: { r: IntakeRequest }) {
       <div className="stagewrap">
         <div className="stagehead">
           <span className={`sdot ${stuck ? "stuck" : "ok"}`} />
-          <span className="stagenm">{active?.label ?? "In progress"}</span>
-          <span className="stepno">{done}/{steps.length}</span>
+          <span className="stagenm">{active?.label ?? (done === steps.length ? "Complete" : "In progress")}</span>
+          <span className="stepno" title={`${done} of ${steps.length} stages finished`}>stage {Math.min(done + 1, steps.length)} of {steps.length}</span>
         </div>
         <div className="stepbar">
           {steps.map((s, k) => {
@@ -169,7 +171,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   const now = useNow(30_000);
   const qc = useQueryClient();
   const { notify } = useToast();
-  const { data } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: mode === "pool" ? ["intake-pool"] : ["intake-list"],
     queryFn: () => (mode === "pool" ? intakeApi.pool() : intakeApi.list()),
     ...POLL,
@@ -208,7 +210,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   const overdue = openRows.filter((r) => r.sla_status === "overdue");
   const atRisk = openRows.filter((r) => r.sla_status === "at_risk");
   const unassigned = openRows.filter((r) => !r.assigned_to_user_id);
-  const awaiting = openRows.filter((r) => r.status === "open");
+  const awaiting = openRows.filter(isAwaitingTriage);
   const inWorkflow = openRows.filter((r) => (r.workflow ?? []).some((s) => s.active));
   const confs = openRows.map((r) => flowSuggestion(r)?.confidence).filter((c): c is number => typeof c === "number");
   const avgConf = confs.length ? Math.round((confs.reduce((a, b) => a + b, 0) / confs.length) * 100) : null;
@@ -249,6 +251,11 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   });
   const anyFilter = !!(q || channelSel.size || typeSel.size || statusSel.size);
 
+  // A queue that could not be loaded is not an empty queue: the zeros and "everything's assigned" below
+  // would be a confident answer to a question nobody got an answer to.
+  if (isLoading) return <div className="li-board"><CenterSpinner label="Loading requests…" /></div>;
+  if (error && !data) return <div className="li-board" style={{ padding: "14px 0" }}><LoadError error={error} what="the request queue" onRetry={() => void refetch()} /></div>;
+
   return (
     <div className="li-board">
       <style dangerouslySetInnerHTML={{ __html: LI_CSS }} />
@@ -282,7 +289,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
         <div className="oneline"><b>{awaiting.length}</b> to triage · <b>{inWorkflow.length}</b> in workflow · <b style={{ color: "var(--crit)" }}>{overdue.length} overdue</b></div>
         <div className="briefbody">
           <p className="summary">
-            <b>{openRows.length} open requests.</b> {atRisk.length} at risk{overdue.length ? <>, <span className="c">{overdue.length} overdue</span></> : null}.{" "}
+            <b>{plural(openRows.length, "open request")}.</b> {atRisk.length} at risk{overdue.length ? <>, <span className="c">{overdue.length} overdue</span></> : null}.{" "}
             {worst ? <>Start with <b>{worst.ref}</b> — {worst.subject || worst.type_label}, {worst.sla_status === "overdue" ? "overdue" : "at risk"}. </> : null}
             {unassigned.length ? <>{unassigned.length} still unassigned.</> : "Everything's assigned."}
           </p>
@@ -339,7 +346,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
               const cp = counterpartyOf(r);
               const flags = rowFlags(r);
               const fs = flowSuggestion(r);
-              const isNew = !(r.workflow ?? []).some((s) => s.active) && !!fs;
+              const isNew = !(r.workflow ?? []).length && !!fs;
               return (
                 <tr key={r.id} onClick={() => onOpen(r.id)} style={{ cursor: "pointer" }}>
                   <td className="c-check"><input type="checkbox" className="cbx" checked={sel.has(r.id)} onClick={(e) => e.stopPropagation()} onChange={() => { const n = new Set(sel); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); setSel(n); }} /></td>
@@ -390,31 +397,12 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   );
 }
 
-// ---------- full mockup shell (sidebar + topbar) ----------
-const NAV_MAIN: { key: string; label: string; href: string; icon: LucideIcon }[] = [
-  { key: "intake", label: "Legal Intake", href: "/intake", icon: Inbox },
-  { key: "mywork", label: "My Work", href: "/my-work", icon: CheckSquare },
-  { key: "contracts", label: "Contracts", href: "/contracts", icon: FileText },
-  { key: "search", label: "Search", href: "/search", icon: Search },
-];
-const NAV_LIFE: { key: string; label: string; href: string; icon: LucideIcon }[] = [
-  { key: "approvals", label: "Approvals", href: "/approvals", icon: ClipboardCheck },
-  { key: "signatures", label: "Signatures", href: "/signatures", icon: PenLine },
-  { key: "obligations", label: "Obligations", href: "/obligations", icon: ListChecks },
-];
-
-export function MockupShell({ active, title, subtitle, stats, actions, onMyWork, children }: {
-  active: string; title: string; subtitle?: string; stats?: ReactNode; actions?: ReactNode; onMyWork?: () => void; children: ReactNode;
+// The page header + content frame for the intake screens. Navigation lives in
+// the app shell's sidebar (this used to draw its own, hence the old
+// `active`/`onMyWork` props, now removed).
+export function MockupShell({ title, subtitle, stats, actions, children }: {
+  title: string; subtitle?: string; stats?: ReactNode; actions?: ReactNode; children: ReactNode;
 }) {
-  const { user } = useAuth();
-  const name = user?.full_name ?? user?.email ?? "You";
-  const role = user?.active_role_name ?? "Legal";
-  const navItem = (n: { key: string; label: string; href: string; icon: LucideIcon }) => {
-    const Icon = n.icon;
-    const cls = active === n.key ? "on" : "";
-    void onMyWork;
-    return <Link key={n.key} href={n.href} className={cls}><Icon className="ic" />{n.label}</Link>;
-  };
   return (
     <div className="li-board li-shell">
       <style dangerouslySetInnerHTML={{ __html: LI_CSS }} />
@@ -456,7 +444,12 @@ const LI_CSS = `
   --shadow:0 1px 2px rgba(0,0,0,.4),0 12px 30px rgba(0,0,0,.4);--pop:0 14px 34px rgba(0,0,0,.55);
 }
 .li-board *{box-sizing:border-box}
-.li-board button{cursor:pointer;border:0;background:none;color:inherit;font:inherit}
+/* :where() keeps this reset at element specificity (0,0,1): it still strips the
+   browser's default button chrome, but any class (Tailwind utilities on shared
+   <Button>s, the shell's own .btn/.primary) now wins. As .li-board button it
+   beat single-class utilities, so primary Buttons inside the shell rendered as
+   plain text. */
+:where(.li-board) button{cursor:pointer;border:0;background:none;color:inherit;font:inherit}
 .li-board .num{font-variant-numeric:tabular-nums} .li-board .dim{color:var(--ink-3)}
 .li-board .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .li-board .sp{flex:1}

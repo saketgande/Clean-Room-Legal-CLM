@@ -141,7 +141,7 @@ def list_org_units(db: Session, *, actor: User, include_deleted: bool = False) -
 def create_org_unit(db: Session, *, actor: User, payload) -> dict:
     name = payload.name.strip()
     if not name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Org unit name is required")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Org unit name is required")
 
     resolved = None
     if payload.parent_id is None:
@@ -207,7 +207,7 @@ def update_org_unit(db: Session, *, actor: User, org_unit_id: str, payload) -> d
     if "name" in fields_set and payload.name is not None:
         new_name = payload.name.strip()
         if not new_name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Org unit name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Org unit name is required")
         if new_name != unit.name:
             rename_before = {"name": unit.name}
             unit.name = new_name
@@ -417,7 +417,7 @@ def create_role_grant(db: Session, *, actor: User, payload) -> dict:
     unit = get_org_unit_or_404(db, actor.org_id, payload.org_unit_id, include_deleted=True)
     if unit.deleted_at is not None:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Cannot grant a role scoped to a deleted org unit",
         )
     if (
@@ -426,7 +426,7 @@ def create_role_grant(db: Session, *, actor: User, payload) -> dict:
         and payload.valid_to < payload.valid_from
     ):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "valid_to must not be before valid_from"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "valid_to must not be before valid_from"
         )
 
     RoleService(db)._assert_actor_can_grant(actor, [role])
@@ -558,7 +558,7 @@ def _serialize_delegation(db: Session, delegation: Delegation, actor: User) -> d
 
 def list_delegations(db: Session, *, actor: User, direction: str = "mine") -> list[dict]:
     if direction not in _DELEGATION_DIRECTIONS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid direction")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid direction")
     if direction == "all" and not _is_org_admin_now(db, actor):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "admin_panel:access required to view all delegations"
@@ -642,10 +642,10 @@ def create_delegation(db: Session, *, actor: User, payload) -> dict:
     if delegate is None or delegate.org_id != actor.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Delegate not found")
     if delegator.id == delegate.id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Cannot delegate to yourself")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Cannot delegate to yourself")
     if payload.end_date < payload.start_date:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, "end_date must not be before start_date"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "end_date must not be before start_date"
         )
 
     if payload.role_id is not None:

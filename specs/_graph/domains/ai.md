@@ -22,15 +22,36 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, BrainQueryParseOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseOutput, ClauseRiskOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, ContractRiskOutput, ObligationExtractionOutput, ObligationOutput, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, SkillInfo, TabularCellOutput, TabularChatOutput
+AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseLabel, ClauseLabelingOutput, ClauseOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, DateRange, InitialTerm, ObligationExtractionOutput, ObligationOutput, ObligationTiming, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PortfolioFilter, PortfolioFilterOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, RenewalNoticeTerm, SkillInfo, TabularCellOutput, TabularChatOutput, TabularRowAnswer, TabularRowOutput, TermLength
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
 - `0002_ai_architecture_spine` (backend/alembic/versions/0002_ai_architecture_spine.py)
 - `0006_audit_hash_chain` (backend/alembic/versions/0006_audit_hash_chain.py)
+- `0044_approval_chains` (backend/alembic/versions/0044_approval_chains.py)
+- `0070_ai_call_log_cache_tokens` (backend/alembic/versions/0070_ai_call_log_cache_tokens.py)
+- `0071_ai_call_log_eval_run` (backend/alembic/versions/0071_ai_call_log_eval_run.py)
 
 ## Frontend counterpart
 
-Api group: `aiApi` (confidence: exact)
-- `aiApi.rerunClauses()` -> `POST /ai/contracts/${contractId}/clause-extraction`
-- `aiApi.rerunMetadata()` -> `POST /ai/contracts/${contractId}/metadata-extraction`
+Api group: `approvalChainsApi` (confidence: heuristic)
+- `approvalChainsApi.blocked()` -> `GET /approval-chains/instances/${id}/blocked`
+- `approvalChainsApi.createDefinition()` -> `POST /approval-chains/definitions`
+- `approvalChainsApi.createInstance()` -> `POST /approval-chains/instances`
+- `approvalChainsApi.createRule()` -> `POST /approval-chains/steps/${stepId}/rules`
+- `approvalChainsApi.createStep()` -> `POST /approval-chains/definitions/${definitionId}/steps`
+- `approvalChainsApi.decide()` -> `POST /approval-chains/instances/${instanceId}/requirements/${requirementId}/decision`
+- `approvalChainsApi.definitions()` -> `GET /approval-chains/definitions${qs(params ?? {})}`
+- `approvalChainsApi.deleteDefinition()` -> `DELETE /approval-chains/definitions/${id}`
+- `approvalChainsApi.deleteRule()` -> `DELETE /approval-chains/rules/${ruleId}`
+- `approvalChainsApi.deleteStep()` -> `DELETE /approval-chains/steps/${stepId}`
+- `approvalChainsApi.fields()` -> `GET /approval-chains/fields${qs({ module })}`
+- `approvalChainsApi.history()` -> `GET /approval-chains/instances/${id}/history`
+- `approvalChainsApi.instance()` -> `GET /approval-chains/instances/${id}`
+- `approvalChainsApi.instances()` -> `GET /approval-chains/instances${qs(params ?? {})}`
+- `approvalChainsApi.recalculate()` -> `POST /approval-chains/instances/${instanceId}/recalculate`
+- `approvalChainsApi.rules()` -> `GET /approval-chains/definitions${qs({ include_inactive: true })}`
+- `approvalChainsApi.steps()` -> `GET /approval-chains/definitions${qs({ include_inactive: true })}`
+- `approvalChainsApi.updateDefinition()` -> `PATCH /approval-chains/definitions/${id}`
+- `approvalChainsApi.updateRule()` -> `PATCH /approval-chains/rules/${ruleId}`
+- `approvalChainsApi.updateStep()` -> `PATCH /approval-chains/steps/${stepId}`

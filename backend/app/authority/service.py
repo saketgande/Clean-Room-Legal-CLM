@@ -24,6 +24,7 @@ from app.auth.models import Role, User
 from app.authority.models import AuthorityGrant
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
+from app.core.money import to_money
 
 # Business actions the gate governs (decoupled from the RBAC permission strings).
 ACTIONS = {"contract:approve", "contract:sign"}
@@ -71,17 +72,37 @@ class AuthorityDecision:
     matched_grant_id: str | None = None
 
 
-def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
-    """Does one policy's limits cover this contract? Returns (ok, miss_reason)."""
-    value = contract.value_amount or 0.0
+def _current_risk_band(db: Session, subject) -> str:
+    """The contract's risk band computed now, never the cached column (which a missed
+    refresh could leave stale) nor the hand-settable risk_level. A subject with no
+    contract behind it (an intake request) has no review, so its risk is unknown."""
+    from app.contracts.models import Contract
+    from app.contracts.risk import contract_risk
+
+    contract = getattr(subject, "contract", subject)
+    if not isinstance(contract, Contract):
+        return "unknown"
+    return contract_risk(db, contract)["band"]
+
+
+def _grant_covers(
+    grant: AuthorityGrant, contract, *, risk_band: str = "unknown"
+) -> tuple[bool, str | None]:
+    """Does one policy's limits cover this contract? Returns (ok, miss_reason).
+    ``risk_band`` is contracts.risk.contract_risk's band ('unknown' when nothing
+    reviewed the current text)."""
+    value = to_money(contract.value_amount)
     if grant.max_value is not None:
+        # Unknown value fails closed: counting it as 0 let any limit cover it.
+        if contract.value_amount is None:
+            return False, "the value is unknown, so it can't be confirmed within this authority's limit"
         # If both carry a currency and they differ, the limit can't be compared —
         # treat as not covering (a $-limit doesn't authorise a €-contract).
         if grant.currency and contract.currency and grant.currency != contract.currency:
             return False, (
                 f"authority is in {grant.currency} but the contract is in {contract.currency}"
             )
-        if value > grant.max_value:
+        if value > to_money(grant.max_value):
             cur = contract.currency or grant.currency or ""
             return False, (
                 f"contract value {cur}{value:,.0f} exceeds the authority limit "
@@ -102,10 +123,16 @@ def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
                 f"jurisdiction “{contract.jurisdiction or 'unspecified'}” is outside this authority"
             )
     if grant.max_risk_band:
-        band = contract.risk_band or contract.risk_level
-        if _risk_rank(band) > _risk_rank(grant.max_risk_band):
+        # Unknown risk fails closed, like an unknown value: ranking it with "low" let
+        # a low-risk ceiling cover a contract nobody had reviewed.
+        if risk_band == "unknown":
             return False, (
-                f"risk band “{band}” exceeds the authorised ceiling “{grant.max_risk_band}”"
+                "the risk isn't confirmed for this text (no playbook review of it), so it "
+                "can't be confirmed within this authority's risk ceiling"
+            )
+        if _risk_rank(risk_band) > _risk_rank(grant.max_risk_band):
+            return False, (
+                f"risk band “{risk_band}” exceeds the authorised ceiling “{grant.max_risk_band}”"
             )
     return True, None
 
@@ -153,9 +180,13 @@ class AuthorityService:
                 gated=True,
                 reason="you hold no delegated authority for this action",
             )
+        # Computed once, and only when some ceiling needs it (it costs a few queries).
+        band = (
+            _current_risk_band(db, contract) if any(g.max_risk_band for g in grants) else "unknown"
+        )
         closest_miss: str | None = None
         for g in grants:
-            ok, miss = _grant_covers(g, contract)
+            ok, miss = _grant_covers(g, contract, risk_band=band)
             if ok:
                 return AuthorityDecision(allowed=True, gated=True, matched_grant_id=g.id)
             closest_miss = closest_miss or miss
@@ -175,7 +206,9 @@ class AuthorityService:
     ) -> AuthorityDecision:
         """Raise 403 (+ Method-8 deny log) when authority is lacking; else return the
         decision. A no-op when the gate is dormant."""
-        decision = self.evaluate_authority(user=user, action=action, contract=contract)
+        # Through the module-level name so a stubbed evaluate_authority (tests of
+        # the approval entry points) governs this gate too.
+        decision = evaluate_authority(self.db, user=user, action=action, contract=contract)
         if not decision.allowed:
             from app.core.authz import record_decision
 
@@ -273,7 +306,7 @@ class AuthorityService:
     def _validate_principal(self, *, org_id: str, principal_type: str, principal_id: str) -> None:
         db = self.db
         if principal_type not in PRINCIPAL_TYPES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid principal_type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid principal_type")
         if principal_type == "user":
             u = db.get(User, principal_id)
             ok = u is not None and u.org_id == org_id
@@ -286,11 +319,11 @@ class AuthorityService:
     def _validate_payload(self, *, org_id: str, payload) -> None:
         db = self.db
         if payload.action not in ACTIONS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported action")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported action")
         if payload.max_risk_band and payload.max_risk_band not in RISK_BANDS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid max_risk_band")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid max_risk_band")
         if payload.max_value is not None and payload.max_value < 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "max_value cannot be negative")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "max_value cannot be negative")
         self._validate_principal(
             org_id=org_id, principal_type=payload.principal_type, principal_id=payload.principal_id
         )
@@ -349,9 +382,9 @@ class AuthorityService:
         db = self.db
         g = self._get(actor.org_id, grant_id)
         if payload.max_value is not None and payload.max_value < 0:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "max_value cannot be negative")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "max_value cannot be negative")
         if payload.max_risk_band and payload.max_risk_band not in RISK_BANDS:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid max_risk_band")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid max_risk_band")
         for field in (
             "max_value",
             "currency",
@@ -424,6 +457,69 @@ def enforce_authority(
         resource_id=resource_id,
         request_id=request_id,
     )
+
+
+# --- plain-words summaries (Teams page, workflow steps) -----------------------
+
+def _gate_live(db: Session, *, org_id: str, action: str) -> bool:
+    return db.scalar(
+        select(AuthorityGrant.id).where(
+            AuthorityGrant.org_id == org_id, AuthorityGrant.action == action, _active_clause()
+        ).limit(1)
+    ) is not None
+
+
+def _money_label(value, currency: str | None) -> str:
+    return f"{currency + ' ' if currency else ''}{to_money(value):,.0f}"
+
+
+def authority_limits(
+    db: Session, *, org_id: str, user_ids, action: str = "contract:approve"
+) -> dict[str, str] | None:
+    """Each user's limit for ``action`` in plain words ("up to INR 5,00,00,000",
+    "no value limit", "no authority"). None while no policy exists for the action:
+    the gate is dormant, so nobody is limited and there is nothing to show."""
+    ids = [u for u in set(user_ids) if u]
+    if not ids or not _gate_live(db, org_id=org_id, action=action):
+        return None
+    out: dict[str, str] = {}
+    for user in db.scalars(select(User).where(User.org_id == org_id, User.id.in_(ids))).all():
+        grants = db.scalars(select(AuthorityGrant).where(
+            AuthorityGrant.org_id == org_id, AuthorityGrant.action == action,
+            _principal_clause(user), _active_clause(),
+        )).all()
+        if not grants:
+            out[user.id] = "no authority"
+            continue
+        if any(g.max_value is None for g in grants):
+            label = "no value limit"
+        else:
+            top = max(grants, key=lambda g: to_money(g.max_value))
+            label = f"up to {_money_label(top.max_value, top.currency)}"
+        if any(g.allowed_contract_types or g.allowed_jurisdictions or g.max_risk_band for g in grants):
+            label += " · some types/regions only"
+        out[user.id] = label
+    return out
+
+
+def approval_authority_note(
+    db: Session, *, org_id: str, user_ids, contract, action: str = "contract:approve"
+) -> str | None:
+    """What an approval step needs, and how many of its approvers have it — the
+    same check the decision itself runs (``evaluate_authority``). None while the
+    gate is dormant."""
+    ids = [u for u in dict.fromkeys(user_ids) if u]
+    if not ids or not _gate_live(db, org_id=org_id, action=action):
+        return None
+    users = db.scalars(select(User).where(User.org_id == org_id, User.id.in_(ids))).all()
+    if contract is None:
+        limits = authority_limits(db, org_id=org_id, user_ids=ids, action=action) or {}
+        have = sum(1 for u in users if limits.get(u.id) != "no authority")
+        return f"Needs approval authority · {have} of {len(users)} can approve"
+    have = sum(1 for u in users if evaluate_authority(db, user=u, action=action, contract=contract).allowed)
+    need = ("for " + _money_label(contract.value_amount, contract.currency)
+            if contract.value_amount is not None else "(value unknown — only no-limit authority covers it)")
+    return f"Needs authority {need} · {have} of {len(users)} can approve"
 
 
 def serialize_grant(db: Session, g: AuthorityGrant) -> dict:

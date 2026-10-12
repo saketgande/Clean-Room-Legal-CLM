@@ -4,12 +4,28 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
+from app.notices.extraction import PERIOD_UNITS, RUNS_FROM
 from app.notices.models import DIRECTIONS, NOTICE_TYPES, PRIORITIES, STATUSES
 
 _DIRECTION_RE = "^(" + "|".join(DIRECTIONS) + ")$"
 _TYPE_RE = "^(" + "|".join(NOTICE_TYPES) + ")$"
 _STATUS_RE = "^(" + "|".join(STATUSES) + ")$"
 _PRIORITY_RE = "^(" + "|".join(PRIORITIES) + ")$"
+
+
+class NoticeDeadlineFacts(BaseModel):
+    """The notice's deadline wording as /notices/extract returned it. The server
+    counts the date from these itself; a client-computed date is never trusted."""
+
+    stated: bool = False
+    explicit_date: date | None = None
+    period_count: int | None = Field(default=None, ge=0, le=3650)
+    period_unit: str | None = Field(default=None, pattern="^(" + "|".join(PERIOD_UNITS) + ")$")
+    # "clear days": one day earlier than the plain count (app.core.deadlines.shift).
+    clear_days: bool = False
+    runs_from: str | None = Field(default=None, pattern="^(" + "|".join(RUNS_FROM) + ")$")
+    runs_from_text: str | None = Field(default=None, max_length=300)
+    quote: str | None = Field(default=None, max_length=1000)
 
 
 class NoticeCreate(BaseModel):
@@ -26,7 +42,14 @@ class NoticeCreate(BaseModel):
     # Outbound notices normally start as 'draft'; inbound ones as 'open'.
     status: str | None = Field(default=None, pattern=_STATUS_RE)
     priority: str = Field(default="Medium", pattern=_PRIORITY_RE)
+    # None on a received notice means "the filer", so the reminder sweep always
+    # has someone to chase.
     owner_user_id: str | None = None
+    # Deadline wording from /notices/extract. With it, response_due_date is the
+    # code-computed date; a different response_due_date is a person's override.
+    deadline_basis: NoticeDeadlineFacts | None = None
+    # The filer ticked "I've checked the received date and deadline".
+    deadline_confirmed: bool = False
 
 
 class NoticeUpdate(BaseModel):
@@ -39,9 +62,13 @@ class NoticeUpdate(BaseModel):
     contract_id: str | None = None
     notice_date: date | None = None
     received_at: date | None = None
+    # Sent (even as null) = a person sets the deadline; null means "no deadline
+    # applies". Omitted = untouched. Same for the other nullable dates/refs.
     response_due_date: date | None = None
     priority: str | None = Field(default=None, pattern=_PRIORITY_RE)
     owner_user_id: str | None = None
+    # A person confirms the code-computed deadline as it stands.
+    confirm_deadline: bool = False
 
 
 class NoticeStatusUpdate(BaseModel):
@@ -98,7 +125,13 @@ class NoticeResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     # Derived on read, never stored — see service.deadline_posture.
-    deadline_posture: str  # none|on_track|at_risk|overdue|met
+    deadline_posture: str  # none|needs_date|on_track|at_risk|overdue|met
+    # How response_due_date was worked out: {facts, due, formula, reason,
+    # needs_person, set_by: document|person, confirmed_by, confirmed_at,
+    # needs_reconfirm, recomputed}. `recomputed` is code's recount after a
+    # notice/received date moved under a confirmed date, which it never
+    # overwrites; confirming accepts it. None when no deadline was ever recorded.
+    deadline_basis: dict | None = None
     days_to_due: int | None = None
     # Most urgent reminder already sent to the owner (t7|t3|due|overdue).
     last_reminder_stage: str | None = None
@@ -138,6 +171,11 @@ class NoticeExtractionResponse(BaseModel):
     mis-read statutory deadline can never enter the register unreviewed."""
 
     suggestions: dict = Field(default_factory=dict)
+    # The deadline wording read from the notice (send it back on create), and the
+    # date code counts from it with today as the received date — a preview; the
+    # saved date is recounted from the form's own dates.
+    deadline_basis: dict | None = None
+    deadline_preview: dict | None = None
     confidence: float = 0.0
     source: str = "llm"  # llm | heuristic | empty
     extraction_quality: float | None = None
@@ -155,3 +193,6 @@ class NoticeSummary(BaseModel):
     escalated: int = 0
     closed: int = 0
     draft: int = 0
+    # Live notices whose deadline a person must set (no period stated, or one
+    # code can't count).
+    needs_date: int = 0

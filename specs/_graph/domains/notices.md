@@ -29,7 +29,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-NoticeCreate, NoticeDetailResponse, NoticeDocumentResponse, NoticeDraftResponse, NoticeEscalate, NoticeEventResponse, NoticeExtractionResponse, NoticeNoteCreate, NoticeResponse, NoticeStatusUpdate, NoticeSummary, NoticeUpdate
+NoticeCreate, NoticeDeadlineFacts, NoticeDetailResponse, NoticeDocumentResponse, NoticeDraftResponse, NoticeEscalate, NoticeEventResponse, NoticeExtractionResponse, NoticeNoteCreate, NoticeResponse, NoticeStatusUpdate, NoticeSummary, NoticeUpdate
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -37,6 +37,7 @@ NoticeCreate, NoticeDetailResponse, NoticeDocumentResponse, NoticeDraftResponse,
 - `0033_notice_documents` (backend/alembic/versions/0033_notice_documents.py)
 - `0034_notice_reminders` (backend/alembic/versions/0034_notice_reminders.py)
 - `0035_notice_response_escalation` (backend/alembic/versions/0035_notice_response_escalation.py)
+- `0072_notice_deadline_basis` (backend/alembic/versions/0072_notice_deadline_basis.py)
 
 ## Frontend counterpart
 

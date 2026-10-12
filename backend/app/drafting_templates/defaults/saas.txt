@@ -1,0 +1,204 @@
+SOFTWARE AS A SERVICE SUBSCRIPTION AGREEMENT
+
+This Software as a Service Subscription Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} (the "Customer") and {counterparty} (the "Provider"). The Customer and the Provider are each a "Party" and together the "Parties".
+
+BACKGROUND
+
+The Provider makes available a hosted software service, and the Customer wishes to subscribe to that service on the terms of this Agreement.
+
+1. DEFINITIONS AND INTERPRETATION
+
+1.1 In this Agreement:
+"Affiliate" means any entity that directly or indirectly controls, is controlled by, or is under common control with a Party, where "control" means ownership of more than fifty percent (50%) of the voting interests;
+"Applicable Law" means all laws, regulations and binding regulatory requirements that apply to a Party or to the Service;
+"Authorised Users" means the Customer's and its Affiliates' employees, contractors and agents whom the Customer permits to use the Service;
+"Confidential Information" means all non-public information disclosed by or on behalf of a Party (the "Disclosing Party") to the other Party (the "Receiving Party") in connection with this Agreement, in any form, that is marked or identified as confidential or that a reasonable person would understand to be confidential, and in the case of the Customer includes all Customer Data;
+"Customer Data" means all data, content and materials, including personal data, that the Customer or its Authorised Users upload to, store in or process through the Service, and all output derived from them;
+"Data Protection Laws" means all Applicable Law relating to the processing of personal data, including the Digital Personal Data Protection Act, 2023 (India) and the rules made under it, and, where it applies, the EU General Data Protection Regulation (EU) 2016/679;
+"Documentation" means the Provider's user guides, specifications and technical documentation for the Service, as updated from time to time provided that no update materially reduces the functionality or security of the Service;
+"Fees" means the subscription and other fees set out in the Order Form;
+"Order Form" means an ordering document signed by both Parties that refers to this Agreement and specifies the subscription, the number of Authorised Users, the Subscription Term and the Fees;
+"Security Incident" means any actual or reasonably suspected unauthorised access to, or acquisition, use, loss, disclosure, alteration or destruction of, Customer Data;
+"Service" means the Provider's software-as-a-service offering described in the Order Form, together with the Documentation, support and any related software made available by the Provider;
+"Subscription Term" means the period of the subscription set out in the Order Form, including any renewal.
+
+1.2 Headings are for convenience only. The words "including" and "include" mean "including without limitation". In the event of a conflict between this Agreement and an Order Form, this Agreement prevails unless the Order Form expressly states that a specific provision of this Agreement is varied for that Order Form only. No click-through, shrink-wrap or online terms presented by the Provider apply, even if an Authorised User accepts them.
+
+2. SUBSCRIPTION AND ACCESS
+
+2.1 Subject to this Agreement, the Provider grants the Customer and its Affiliates a non-exclusive, non-transferable (except as permitted under clause 17) right during the Subscription Term for Authorised Users to access and use the Service for the internal business purposes of the Customer and its Affiliates.
+
+2.2 The Provider shall provide the Service in accordance with the Documentation and Applicable Law, with the reasonable skill and care of a competent provider of similar services, and shall not materially reduce the functionality, performance or security of the Service during the Subscription Term.
+
+2.3 The Customer shall not knowingly (a) resell or sublicense the Service to third parties other than its Affiliates; (b) reverse engineer the Service except to the extent permitted by law; or (c) use the Service in breach of Applicable Law.
+
+2.4 The Provider shall provide implementation, onboarding and support services as described in the Order Form, including support during business hours by email and telephone, and round-the-clock support for critical incidents.
+
+3. SERVICE LEVELS
+
+3.1 The Provider shall make the Service available at least 99.5% of the time in each calendar month, measured over the month and excluding only scheduled maintenance notified to the Customer at least five (5) business days in advance and carried out outside the Customer's business hours, not exceeding eight (8) hours a month (the "Availability Commitment"). These service levels, together with any additional service levels in the Order Form, are binding on the Provider.
+
+3.2 If the Provider fails to meet the Availability Commitment in any month, the Customer is entitled to service credits as follows: availability below 99.5% but at least 99.0%, ten percent (10%) of the monthly Fees; below 99.0% but at least 98.0%, twenty-five percent (25%) of the monthly Fees; below 98.0%, fifty percent (50%) of the monthly Fees. The Provider shall apply service credits automatically against the next invoice, or refund them where no further invoice is due.
+
+3.3 The Provider shall provide the Customer with a monthly report of availability and incident response performance, and shall respond to and resolve incidents within the response and resolution times set out in the Order Form or the Documentation.
+
+3.4 If the Provider fails to meet the Availability Commitment in any three (3) months within a rolling twelve (12) month period, or in any two (2) consecutive months, the Customer may terminate this Agreement and any Order Form by written notice without liability and shall receive a pro-rata refund of any prepaid Fees for the period after termination.
+
+3.5 Service credits are a price adjustment reflecting the reduced value of the Service and are without prejudice to the Customer's other rights and remedies.
+
+4. FEES, INVOICING AND PAYMENT
+
+4.1 The Customer shall pay the Fees set out in the applicable Order Form. The Fees are fixed for the initial Subscription Term and exclude applicable goods and services tax or equivalent indirect taxes, which shall be shown separately on each valid tax invoice.{value_sentence}
+
+4.2 The Provider shall invoice the Fees periodically in arrears, or at the start of each billing period where the Order Form so provides, provided that no amount invoiced before the relevant period begins shall exceed twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a signed Order Form. Each invoice must quote the Order Form reference.
+
+4.3 The Customer shall pay undisputed invoices within {payment_days} days of receipt of a valid, undisputed invoice. The Customer may withhold, in good faith, any amount it disputes, and shall notify the Provider of the dispute and its reasons. The Parties shall work in good faith to resolve the dispute promptly, and the undisputed portion shall be paid in accordance with this clause. The Provider shall not suspend the Service while an amount is disputed in good faith.
+
+4.4 The Customer may deduct withholding taxes required by Applicable Law and shall provide the Provider with the corresponding tax certificate.
+
+5. PRICE INCREASES
+
+5.1 The Fees may not be increased during the initial Subscription Term.
+
+5.2 The Provider may increase the Fees with effect from a renewal of the Subscription Term only by giving the Customer written notice of the increase at least ninety (90) days before the renewal date, and any increase shall not exceed five percent (5%) of the Fees for the preceding twelve (12) months. No increase may take effect more than once in any twelve (12) month period. An increase notified late, or above that cap, is of no effect.
+
+6. TERM AND RENEWAL
+
+6.1 This Agreement commences on the Effective Date and {agreement_term}. Each Order Form continues for its stated Subscription Term unless terminated earlier in accordance with this Agreement.
+
+6.2 A Subscription Term renews only where the Order Form provides for renewal, and the Customer may cancel any renewal by giving written notice at least sixty (60) days before the end of the then-current Subscription Term.
+
+6.3 The Provider shall send the Customer a written renewal reminder, stating the renewal date, the cancellation deadline and the Fees that will apply on renewal, at least thirty (30) days before the cancellation deadline. If the Provider fails to send that reminder, the Subscription Term shall not renew without the Customer's express written confirmation.
+
+7. CUSTOMER DATA
+
+7.1 As between the Parties, the Customer owns all right, title and interest in Customer Data. The Customer grants the Provider a limited, non-exclusive licence during the Subscription Term to process Customer Data solely to provide the Service to the Customer and in accordance with the Customer's documented instructions.
+
+7.2 The Provider shall not use Customer Data for any other purpose, including to train, develop or improve any artificial intelligence or machine learning model, to benchmark, or to create aggregated or anonymised data sets for the benefit of the Provider or any third party, without the Customer's prior written consent.
+
+8. DATA SECURITY AND DATA PROTECTION
+
+8.1 The Provider shall hold and maintain throughout the Subscription Term a current ISO/IEC 27001 certification or a SOC 2 Type II report covering the Service, issued by an independent auditor, and shall provide the Customer with a copy of the current certificate or report annually and on request.
+
+8.2 The Provider shall implement and maintain appropriate technical and organisational security measures to protect Customer Data, consistent with industry standards, including encryption of Customer Data in transit using TLS 1.2 or higher and at rest using AES-256 or equivalent, access controls on a least-privilege basis, multi-factor authentication for administrative access, logging and monitoring, vulnerability management and regular penetration testing.
+
+8.3 The Provider shall notify the Customer of any Security Incident without undue delay, and in any event within seventy-two (72) hours after becoming aware of it. The notice shall describe the nature of the incident, the Customer Data affected, the likely consequences and the measures taken or proposed, and the Provider shall provide such further information and assistance as the Customer reasonably requires to investigate, mitigate and report the Security Incident. The Provider shall bear the costs of remediation, notification to affected individuals and regulators, and credit monitoring arising from a Security Incident caused by its breach of this Agreement.
+
+8.4 Each Party shall comply with Data Protection Laws. Where the Provider processes personal data on behalf of the Customer, it shall do so only on the Customer's documented instructions, and the Parties shall enter into a data processing agreement on the Customer's standard template, which is incorporated into and forms part of this Agreement. The data protection obligations in this clause and in that data processing agreement apply in addition to the security obligations above.
+
+8.5 The Provider shall ensure that all personnel with access to Customer Data are bound by confidentiality obligations and have received appropriate data protection and security training.
+
+9. DATA LOCATION AND TRANSFERS
+
+9.1 The Provider shall host, store and process Customer Data only in data centres located in India, or, where the Order Form expressly so provides, in the European Union.
+
+9.2 The Provider shall not transfer, or permit access to, Customer Data from any location outside India (or the European Union, where so agreed) without the Customer's prior written approval, given after review by the Customer's privacy function, and only where Standard Contractual Clauses or an equivalent safeguard recognised by Data Protection Laws are in place.
+
+9.3 The Provider shall maintain and make available to the Customer a current list of its sub-processors and their processing locations, and shall give the Customer at least thirty (30) days' prior written notice of any new sub-processor, during which the Customer may object on reasonable grounds.
+
+10. EXIT AND DATA RETURN
+
+10.1 On expiry or termination of this Agreement or any Order Form for any reason, the Provider shall, for a period of thirty (30) days (the "Exit Period"), continue to allow the Customer to access the Service and export all Customer Data in a standard, machine-readable format such as CSV, JSON or XML, without additional charge.
+
+10.2 During the Exit Period the Provider shall provide reasonable assistance to enable an orderly transition of Customer Data to the Customer or a replacement provider.
+
+10.3 Within thirty (30) days after the end of the Exit Period, the Provider shall securely delete all Customer Data from its systems and those of its sub-processors, including backups as they expire in the ordinary course, and shall certify the deletion in writing to the Customer, save for copies it is required by Applicable Law to retain, which remain subject to this Agreement.
+
+11. CONFIDENTIALITY
+
+11.1 The Receiving Party shall keep the Disclosing Party's Confidential Information confidential, use it only to perform or receive the benefit of this Agreement, and protect it with at least the degree of care it uses for its own confidential information of a similar nature, and in no event less than reasonable care.
+
+11.2 The Receiving Party may disclose Confidential Information only to its and its Affiliates' employees, officers, professional advisers and permitted subcontractors who need to know it for the purposes of this Agreement and who are bound by confidentiality obligations no less protective than those in this clause. The Receiving Party is responsible for any breach of this clause by such persons.
+
+11.3 These obligations do not apply to information that the Receiving Party can show (a) is or becomes publicly available other than through its breach; (b) was lawfully in its possession before disclosure without a duty of confidence; (c) is lawfully received from a third party without a duty of confidence; or (d) is independently developed without use of the Disclosing Party's Confidential Information. Exceptions (b) and (d) do not apply to Customer Data.
+
+11.4 If the Receiving Party is required by law, court order or a regulator to disclose Confidential Information, it shall, to the extent legally permitted, give the Disclosing Party prompt notice and disclose only the minimum information legally required.
+
+11.5 This clause survives termination or expiry of this Agreement for five (5) years, and indefinitely for trade secrets, personal data and Customer Data.
+
+12. INTELLECTUAL PROPERTY
+
+12.1 The Provider retains all intellectual property rights in the Service. The Customer retains all intellectual property rights in Customer Data. Nothing in this Agreement transfers ownership of either Party's intellectual property to the other.
+
+12.2 The Customer may, but is not obliged to, provide feedback on the Service. The Provider may use such feedback to improve the Service, provided that it does not disclose the Customer's Confidential Information or identify the Customer.
+
+13. WARRANTIES
+
+13.1 The Provider warrants that (a) the Service will perform materially in accordance with the Documentation and the Order Form; (b) it will provide the Service with the reasonable skill and care of a competent provider of similar services; (c) the Service will not contain any virus, malware, time bomb or other harmful code; (d) it has and will maintain all rights, licences and consents necessary to provide the Service; and (e) it will comply with Applicable Law in providing the Service.
+
+13.2 If the Service does not conform to the warranty in clause 13.1(a), the Provider shall promptly correct the non-conformity at its own cost, without prejudice to the Customer's other rights and remedies.
+
+14. INDEMNIFICATION
+
+14.1 The Provider shall defend, indemnify and hold harmless the Customer, its Affiliates and their respective officers, directors and employees from and against all losses, damages, liabilities, costs and expenses (including reasonable legal fees) arising out of any third-party claim to the extent arising from (a) any allegation that the Service, or its use by the Customer in accordance with this Agreement, infringes the intellectual property rights of a third party; (b) the Provider's breach of Data Protection Laws or of clause 8 (Data Security and Data Protection); or (c) the negligence, wilful misconduct or fraud of the Provider or its personnel or subcontractors.
+
+14.2 The Customer shall notify the Provider promptly of any claim, provide reasonable cooperation at the Provider's cost, and not settle the claim without the Provider's consent (not to be unreasonably withheld). The Provider shall not settle any claim in a way that imposes any obligation or admission on the Customer without the Customer's prior written consent. The Customer may participate in the defence with counsel of its choice.
+
+14.3 If the Service becomes, or in the Provider's reasonable opinion is likely to become, the subject of an infringement claim, the Provider shall at its cost procure the right for the Customer to continue using it or modify or replace it so it is non-infringing without material loss of functionality, failing which the Customer may terminate the affected Order Form and receive a refund of any prepaid Fees for the remainder of the Subscription Term.
+
+15. LIMITATION OF LIABILITY
+
+15.1 Subject to clauses 15.2, 15.4 and 15.5, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim.
+
+15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability arising out of or in connection with any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws shall not exceed three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This amount is separate from and in addition to the amount in clause 15.1.
+
+15.3 Subject to clauses 15.4 and 15.5, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential. The following are recoverable as direct losses: the costs of restoring or recreating lost or corrupted Customer Data, the costs of notification and remediation following a Security Incident, regulatory fines and penalties to the extent permitted by law, and the reasonable costs of procuring a replacement service.
+
+15.4 This limitation of liability does not limit or exclude either Party's liability for (a) breach of clause 11 (Confidentiality); (b) its indemnification obligations, including the Provider's obligations under clause 14 (Indemnification), which are not subject to any cap; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
+
+15.5 Nothing in this clause limits the Customer's obligation to pay undisputed Fees properly due.
+
+16. TERMINATION
+
+16.1 Either Party may terminate this Agreement or any Order Form by written notice if the other Party commits a material breach and, where the breach is capable of remedy, fails to remedy it within thirty (30) days of written notice requiring it to do so.
+
+16.2 Either Party may terminate this Agreement immediately by written notice if the other Party becomes insolvent, makes an arrangement with its creditors, has a receiver, administrator or liquidator appointed, or is subject to any analogous event in any jurisdiction.
+
+16.3 The Customer may also terminate in accordance with clause 3.4 (repeated service-level failure) and clause 14.3 (infringement).
+
+16.4 On any termination other than by the Provider for the Customer's uncured material breach, the Provider shall refund to the Customer any prepaid Fees for the period after the termination date.
+
+16.5 Termination or expiry does not affect accrued rights. Clauses that by their nature are intended to survive shall survive, including clauses 7, 8, 9, 10, 11, 14, 15, 18, 19 and 20.
+
+17. SUBCONTRACTING AND ASSIGNMENT
+
+17.1 The Provider shall not subcontract any material part of the Service, or engage any sub-processor of Customer Data, except in accordance with clause 9.3. The Provider remains fully responsible for the acts and omissions of its subcontractors and sub-processors as if they were its own.
+
+17.2 Neither Party may assign or transfer this Agreement without the other Party's prior written consent, except that the Customer may assign this Agreement to any of its Affiliates or to a successor to all or substantially all of the relevant business on written notice to the Provider.
+
+18. AUDIT
+
+18.1 The Provider shall keep complete and accurate records relating to this Agreement. The Customer, or an independent auditor appointed by it and bound by confidentiality, may on reasonable notice, and not more than once a year except following a Security Incident or where required by a regulator, audit the Provider's compliance with clauses 8, 9 and 10. The Provider shall cooperate fully with any such audit, and may satisfy it in the first instance by providing its current ISO/IEC 27001 certificate or SOC 2 Type II report.
+
+19. NOTICES
+
+19.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in the applicable Order Form or as notified in writing from time to time. A notice is deemed received on delivery by hand or courier, or on the next business day after sending by email, provided no notice of delivery failure is received.
+
+20. GOVERNING LAW AND DISPUTE RESOLUTION
+
+20.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
+
+20.2 The Parties shall first try to resolve any dispute through good-faith negotiation between senior representatives within thirty (30) days of written notice of the dispute. If the dispute is not resolved, it shall be submitted to the exclusive jurisdiction of the competent courts of {governing_law}. Nothing in this clause prevents either Party from seeking urgent injunctive or interim relief.
+
+21. GENERAL
+
+21.1 Entire agreement. This Agreement, together with each Order Form and any data processing agreement entered into under it, constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior agreements, understandings and representations.
+
+21.2 Amendment and waiver. This Agreement may be amended only in writing signed by authorised representatives of both Parties. No failure or delay in exercising any right is a waiver of it.
+
+21.3 Force majeure. Neither Party is liable for any delay or failure to perform caused by events beyond its reasonable control that could not have been prevented by reasonable precautions, provided it notifies the other Party promptly and uses all reasonable efforts to mitigate the effect. A force majeure event does not excuse the Provider from its business continuity, disaster recovery or security obligations. If such an event continues for more than thirty (30) days, the Customer may terminate the affected Order Form by written notice and receive a refund of prepaid Fees for the unused period.
+
+21.4 Independent contractors. The Parties are independent contractors. Nothing in this Agreement creates a partnership, joint venture, agency or employment relationship.
+
+21.5 Severability. If any provision is held invalid or unenforceable, it shall be modified to the minimum extent necessary to make it enforceable, and the remaining provisions continue in full force.
+
+21.6 Counterparts. This Agreement may be executed in counterparts, including by electronic signature, each of which is an original and which together constitute one instrument.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

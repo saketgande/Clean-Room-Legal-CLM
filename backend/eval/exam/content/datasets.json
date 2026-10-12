@@ -1,0 +1,70 @@
+[
+ {
+  "key": "cuad",
+  "name": "CUAD",
+  "version": "v1",
+  "licence": "CC BY 4.0",
+  "url": "https://github.com/TheAtticusProject/cuad",
+  "files": [
+   {
+    "path": "cuad/CUADv1.json",
+    "sha256": "ed0b77d85bdf4014d7495800e8e4a70565b48ee6f8a2e5dca9cf8655dbf10eae"
+   }
+  ],
+  "available": true
+ },
+ {
+  "key": "contractnli",
+  "name": "ContractNLI",
+  "version": "1.0",
+  "licence": "CC BY 4.0",
+  "url": "https://stanfordnlp.github.io/contract-nli/",
+  "files": [
+   {
+    "path": "cnli/contract-nli/test.json",
+    "sha256": "460267b56052a2dc5aead98eb35eadef9e6734d5723d37b4a9790e410f812387"
+   },
+   {
+    "path": "cnli/contract-nli/LICENSE",
+    "sha256": "9e5f1b3c610b9c2da5c313bf81d577a7d1acec686bdb0384edefa6df0f90cd94"
+   }
+  ],
+  "available": true
+ },
+ {
+  "key": "legalbench_rag",
+  "name": "LegalBench-RAG",
+  "version": "release sha256:8e0405b15fb8",
+  "licence": "MIT (built on CC BY 4.0 sources)",
+  "url": "https://github.com/zeroentropy-ai/legalbenchrag",
+  "files": [
+   {
+    "path": "lbr/benchmarks/cuad.json",
+    "sha256": "8e0405b15fb8869c631da424372b488e274f253a81634b78803b21c72c0601f9"
+   }
+  ],
+  "available": true
+ },
+ {
+  "key": "commonpaper",
+  "name": "Common Paper standard agreements",
+  "version": "CSA 3.0; DPA 1.0; Mutual NDA 1.0",
+  "licence": "CC BY 4.0",
+  "url": "https://commonpaper.com/standards/",
+  "files": [
+   {
+    "path": "commonpaper/CSA.md",
+    "sha256": "cd8015f5f0a2030b424acd5f3efbaef12ffc0a6e269d57db6b8aad42bb1d5e28"
+   },
+   {
+    "path": "commonpaper/DPA.md",
+    "sha256": "b4aa93c94bcb4da763fc2338406d3aec2ac1f0a6e32612f114121d609dece05a"
+   },
+   {
+    "path": "commonpaper/Mutual-NDA.md",
+    "sha256": "51accb97035821280371ff3088871e3866927ef0ce60e64ed5244883f11b6cfe"
+   }
+  ],
+  "available": true
+ }
+]

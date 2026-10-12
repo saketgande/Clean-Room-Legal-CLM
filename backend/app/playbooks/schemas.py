@@ -149,6 +149,9 @@ class PlaybookDecisionCreate(BaseModel):
         "rejected",
         "waived",
         "escalated",
+        # Our wording was put in (the Review tab's "Close issue"). Not offered on the run
+        # page's dropdown: that applies no text, so it could record a fix that never happened.
+        "fixed",
     ]
     rationale: str | None = Field(default=None, max_length=4000)
 

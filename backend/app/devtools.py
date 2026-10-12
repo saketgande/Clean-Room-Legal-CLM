@@ -4,7 +4,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 import app.models  # noqa: F401
-from app.approvals.service import ensure_default_approver_groups
 from app.auth.models import Role, User
 from app.auth.schemas import SetupAdminRequest
 from app.auth.service import create_first_admin
@@ -77,23 +76,25 @@ def seed() -> None:
         except HTTPException as exc:
             # Seeding is a one-time bootstrap. Re-running it once the org/admin
             # exists is a no-op, not a failure — report it cleanly and continue
-            # so we still top up the approver groups below (also idempotent).
+            # so we still top up the default teams below (also idempotent).
             if exc.status_code != 409:
                 raise
             print(
                 f"Admin/org already set up — log in as {settings.dev_seed_admin_email}."
             )
 
-        # Ensure the default approver groups exist (idempotent), so the routing
-        # form has real options whether the org is new or pre-existing.
+        # Ensure the default teams exist (idempotent), so workflow steps have
+        # real teams to name whether the org is new or pre-existing.
         org = db.scalar(select(Organization))
         if org is not None:
-            created = ensure_default_approver_groups(db, org_id=org.id)
+            from app.intake.teams import ensure_default_teams
+
+            created = ensure_default_teams(db, org_id=org.id)
             db.commit()
             if created:
-                print("Seeded approver groups: " + ", ".join(g.name for g in created))
+                print("Seeded teams: " + ", ".join(t.name for t in created))
             else:
-                print("Approver groups already present.")
+                print("Default teams already present.")
 
             # Demo users per role — local/dev only, never where real accounts live.
             if settings.environment in {"local", "development", "test"}:
@@ -102,6 +103,11 @@ def seed() -> None:
                     print("Seeded dev users: " + ", ".join(e for e, _ in dev_users))
                 else:
                     print("Dev users already present.")
+                # Their role grants and screen access (see menu_security/bootstrap.py).
+                from app.menu_security.bootstrap import ensure_org_access
+
+                print(f"Access: {ensure_org_access(db, org_id=org.id)}")
+                db.commit()
 
                 # Legal intake demo data (request types, KB, sample requests).
                 from app.auth.models import Role as _Role
@@ -122,6 +128,11 @@ def seed() -> None:
                         print("Seeded legal intake demo data.")
                     else:
                         print("Intake demo data already present.")
+                    from app.playbooks.library import seed_playbook_library
+
+                    added = seed_playbook_library(db, org_id=org.id, actor_id=admin_user.id)
+                    db.commit()
+                    print(f"Seeded playbooks: {', '.join(added)}" if added else "Starter playbooks already present.")
     finally:
         db.close()
 
@@ -214,9 +225,25 @@ def reset_database() -> None:
     print("Local database reset complete")
 
 
+def bootstrap_access() -> None:
+    """Repair an install whose organisation was created after the access
+    migrations ran (every fresh install before this fix): add the root org
+    unit, each user's role grant and every role's default screen access.
+    Idempotent — run it as often as you like."""
+    from app.menu_security.bootstrap import ensure_org_access
+
+    db = SessionLocal()
+    try:
+        for org in db.scalars(select(Organization)).all():
+            print(f"{org.name}: {ensure_org_access(db, org_id=org.id)}")
+        db.commit()
+    finally:
+        db.close()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Local backend development helpers")
-    parser.add_argument("command", choices=["seed", "reset-db", "backfill-brain"])
+    parser.add_argument("command", choices=["seed", "reset-db", "backfill-brain", "bootstrap-access"])
     args = parser.parse_args()
     if args.command == "seed":
         seed()
@@ -224,6 +251,8 @@ def main() -> None:
         reset_database()
     if args.command == "backfill-brain":
         backfill_contract_brain()
+    if args.command == "bootstrap-access":
+        bootstrap_access()
 
 
 if __name__ == "__main__":

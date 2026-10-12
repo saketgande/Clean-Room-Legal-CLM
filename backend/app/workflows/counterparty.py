@@ -138,7 +138,7 @@ async def send_to_counterparty(
 ) -> dict:
     email = (recipient_email or "").strip()
     if not _EMAIL_RE.match(email):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A valid recipient email is required")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A valid recipient email is required")
     contract = _contract_for_run(db, run)
     sr = _current_counterparty_step(db, run)
     _authorize(db, run=run, sr=sr, actor=actor, contract=contract)
@@ -232,7 +232,7 @@ def submit_share(db: Session, *, share: ContractShare, request_id: str | None = 
     """Called by the public Submit route once the share has been validated as
     live: expire the link, stamp the step, and queue the reviewer notice."""
     if not share.workflow_step_run_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "This link does not support submitting")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "This link does not support submitting")
     now = utcnow()
     share.submitted_at = now
     share.revoked_at = now

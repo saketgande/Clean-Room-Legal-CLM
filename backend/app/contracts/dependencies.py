@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.contracts.access import ContractAccessService
 from app.contracts.comments_service import ContractCommentService
 from app.contracts.lifecycle import ContractLifecycleService
-from app.contracts.risk import ContractRiskService
 from app.contracts.service import ContractService
 from app.core.deps import get_db
 
@@ -29,10 +28,6 @@ def get_contract_service(db: Session = Depends(get_db)) -> ContractService:
 
 def get_contract_lifecycle_service(db: Session = Depends(get_db)) -> ContractLifecycleService:
     return ContractLifecycleService(db)
-
-
-def get_contract_risk_service(db: Session = Depends(get_db)) -> ContractRiskService:
-    return ContractRiskService(db)
 
 
 def get_contract_comment_service(db: Session = Depends(get_db)) -> ContractCommentService:

@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 
+from app.core.config import settings
+
 CONTRACT_PERMISSIONS = {
     "contract:read",
     "contract:create",
@@ -18,14 +20,6 @@ CONTRACT_FILE_PERMISSIONS = {
     "contract_file:update",
     "contract_file:delete",
     "contract_file:share",
-}
-
-PROJECT_PERMISSIONS = {
-    "project:read",
-    "project:create",
-    "project:update",
-    "project:delete",
-    "project:share",
 }
 
 ASSISTANT_PERMISSIONS = {"assistant:use", "assistant:use_ai_tools"}
@@ -140,7 +134,6 @@ APPROVAL_CHAIN_PERMISSIONS = {
 ALL_PERMISSIONS = (
     CONTRACT_PERMISSIONS
     | CONTRACT_FILE_PERMISSIONS
-    | PROJECT_PERMISSIONS
     | ASSISTANT_PERMISSIONS
     | WORKFLOW_PERMISSIONS
     | PLAYBOOK_PERMISSIONS
@@ -169,7 +162,6 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract:update",
         "contract_file:read",
         "contract_file:create",
-        "project:read",
         "assistant:use",
         "workflow:read",
         "obligation:read",
@@ -188,7 +180,6 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "contract:lifecycle_override",
         "contract_file:read",
         "contract_file:create",
-        "project:read",
         "assistant:use",
         "assistant:use_ai_tools",
         "playbook:read",
@@ -234,5 +225,19 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
 
 
 def has_permission(user_permissions: Iterable[str], required_permission: str) -> bool:
+    # DISABLE_RBAC turns every check into a pass so local dev can walk every
+    # screen without seeding roles. It is not a dev-only accident waiting to
+    # ship: validate_runtime_settings() refuses to boot a staging/production
+    # environment while it is set, because is_org_admin() in core/access.py
+    # consults this function, which would make every authenticated user an org
+    # admin and silently void the ~22 admin shortcuts -- including
+    # clearance_permits() in contracts/access.py, so confidentiality/MAC
+    # classification would read as enforced while letting everything through.
+    #
+    # Unaffected either way (never routed through here): org_id tenant
+    # isolation, ethical walls (walls/service.py, which bind admins too), and
+    # delegation-of-authority (authority/service.py).
+    if settings.disable_rbac:
+        return True
     permissions = set(user_permissions)
     return required_permission in permissions or "*" in permissions

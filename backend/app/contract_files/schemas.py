@@ -1,19 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
+from app.contract_files import redline_edits
 from app.core.enums import ShareAccessMode
-
-
-class StorageObjectResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    filename: str
-    mime_type: str
-    size_bytes: int
-    sha256_hash: str
-    storage_backend: str
 
 
 class ContractVersionResponse(BaseModel):
@@ -53,6 +43,37 @@ class ContractTextSnapshotResponse(BaseModel):
     text: str = ""
 
 
+class IssueFixJobResponse(BaseModel):
+    """Progress of the job that drafts a suggested change for each playbook issue that has none.
+
+    ``status`` is queued | running | succeeded | failed | cancelled. ``total`` is how many
+    issues the job took on (at most the configured cap) and ``done`` how many it has finished;
+    ``left_for_later`` is how many more were over the cap. ``drafted`` got a change,
+    ``no_change`` is where the model found no wording to change, and ``failed`` hit an error.
+    """
+
+    job_id: str
+    status: str
+    trigger: str | None = None
+    total: int
+    done: int
+    drafted: int
+    no_change: int
+    failed: int
+    left_for_later: int
+    stopped_early: bool
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class DraftIssueFixesResponse(BaseModel):
+    """What asking for the fixes did. ``job`` is None when no issue needed one (``reason``
+    says why: nothing_to_draft)."""
+
+    job: IssueFixJobResponse | None = None
+    reason: str | None = None
+
+
 class ContractEditResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -65,6 +86,25 @@ class ContractEditResponse(BaseModel):
     replacement_text: str | None
     rationale: str | None
     citation: list | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def playbook_deviation_id(self) -> str | None:
+        """The playbook issue this change fixes; deciding it also decides the issue."""
+        return redline_edits.paired_deviation_id(self.citation)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def locatable(self) -> bool:
+        """False when the change was never placed in the text, so it can only be rejected."""
+        return redline_edits.is_locatable(self.edit_type, self.citation, self.replacement_text)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def blank(self) -> str | None:
+        """A fill-in blank this change would write into the contract ("[INSERT DATE]"), if any: it can
+        only be rejected. A person's own typed change is theirs to word, so it is never flagged."""
+        return redline_edits.blank_in(self.edit_type, self.replacement_text)
 
 
 class ContractEditDecisionRequest(BaseModel):

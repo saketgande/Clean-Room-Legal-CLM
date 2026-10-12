@@ -18,9 +18,9 @@ from app.tabular_review.routes import _get_review_for_user, list_reviews, rerun_
 def test_phase6_9_assistant_tools_are_enabled_with_expected_policies():
     expected = {
         "ask_contract_brain": ("assistant:use", False),
-        "submit_for_approval": ("contract:approve", True),
         "send_for_signature": ("contract:sign", True),
-        "extract_obligations": ("obligation:update", False),
+        # Asks first: re-extraction replaces earlier AI-extracted obligations.
+        "extract_obligations": ("obligation:update", True),
         "create_tabular_review": ("assistant:use_ai_tools", False),
         "read_table_cells": ("assistant:use", False),
         "external_share": ("contract_file:share", True),
@@ -41,7 +41,6 @@ def test_tool_runtime_wires_phase6_9_tools_and_supports_async_providers():
     assert inspect.iscoroutinefunction(ToolRuntime.execute_confirmed)
     for method_name in [
         "_ask_contract_brain",
-        "_submit_for_approval",
         "_send_for_signature",
         "_extract_obligations",
         "_create_tabular_review",
@@ -71,7 +70,7 @@ def test_later_phase_routes_reuse_contract_and_project_access_checks():
     assert "get_contract_for_user" in combined
     assert "accessible_contract_filter(current_user)" in combined
     assert "_review_is_accessible" in combined
-    assert "_can_view_brain_query" in combined
+    assert "_visible_brain_queries" in combined
 
 
 def test_approval_decisions_are_assignment_limited():

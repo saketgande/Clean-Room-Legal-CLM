@@ -18,7 +18,8 @@ def test_contract_context_manifest_carries_the_real_deal_facts():
         id="c1", org_id="org1", title="Mutual MSA", contract_type="msa",
         counterparty_name="Acme Corp", jurisdiction="Delaware",
         value_amount=250000.0, currency="USD", risk_band="medium",
-        risk_summary={"summary": "Balanced mutual obligations, moderate liability exposure."},
+        risk_summary={"band": "medium", "counts": {"critical": 0, "high": 0, "medium": 2, "low": 1},
+                      "note": None, "playbook_run_ids": ["run-1"]},
         owner_user_id="u1",
     )
 
@@ -26,13 +27,13 @@ def test_contract_context_manifest_carries_the_real_deal_facts():
         def get(self, model, obj_id):
             return contract if model is Contract else None
 
-    ctx = build_contract_context(_FakeDB(), org_id="org1", contract_id="c1")
+    ctx = build_contract_context(_FakeDB(), user=None, org_id="org1", contract_id="c1")
 
     assert ctx.manifest["counterparty_name"] == "Acme Corp"
     assert ctx.manifest["jurisdiction"] == "Delaware"
     assert ctx.manifest["value_amount"] == 250000.0
     assert ctx.manifest["risk_band"] == "medium"
-    assert ctx.manifest["risk_summary"] == "Balanced mutual obligations, moderate liability exposure."
+    assert ctx.manifest["risk_counts"]["medium"] == 2
 
 
 def test_contract_edit_suggestions_demands_grounded_asymmetric_reasoning():
@@ -53,3 +54,11 @@ def test_playbook_generation_requires_pointing_to_real_source_language():
     prompt = DEFAULT_SKILL_PROMPTS["playbook_generation"]
     assert "confirm you can point to the specific source language" in prompt
     assert "not a generic explanation" in prompt
+
+
+def test_playbook_recommendations_counts_fixed_as_held():
+    """Guards: an issue closed by putting our wording in ("fixed") read by the
+    recommendations model as an unknown value, or as a concession that argues for
+    loosening the very rule the lawyers enforced."""
+    prompt = DEFAULT_SKILL_PROMPTS["playbook_recommendations"]
+    assert "HELD (rejected / escalated / fixed — our wording was put in)" in prompt

@@ -48,7 +48,6 @@ class PromptVersion(
 
 class PromptRun(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
     workflow_id = Column(String(36), ForeignKey("prompt.id"), index=True, nullable=False)
-    matter_id = Column(String(36), ForeignKey("matter.id"), nullable=True)
     status = Column(String(80), index=True, nullable=False, default="queued")
     input_contract_ids = Column(JSON, nullable=False, default=list)
     input_prompt = Column(Text, nullable=True)

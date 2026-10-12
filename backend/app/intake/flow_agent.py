@@ -1,10 +1,10 @@
 """Workflow Router agent — reads an intake request and suggests which governance
 workflow (Workflow) it should ride, grounded on the org's live flow catalog.
 
-Suggest-only itself: it never starts a flow — that's
-app.intake.service._maybe_autostart_workflow's call, gated on this module's
-own confidence score. A reviewer can also accept the suggestion manually on
-the ticket (one click → flows/start). Two layers by design:
+Suggest-only: it never starts a flow, and neither does its confidence score.
+app.intake.service._maybe_autostart_workflow starts only an admin's "Used for"
+pick (``used_for_suggestion``); this router's pick waits for a person to accept
+it on the ticket (one click → workflows/start). Two layers by design:
 
   * deterministic baseline — `select_flow`'s criteria match, always available
     and used verbatim when mocks are on or the model call fails, so there is
@@ -110,6 +110,20 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def used_for_suggestion(db: Session, request: IntakeRequest) -> dict | None:
+    """The workflow an admin set up ("Used for") for this request's type. It is
+    a decision, not a guess, so neither the word match nor the model overrides it."""
+    from app.workflows.service import flow_used_for
+
+    flow = flow_used_for(db, request=request)
+    if flow is None:
+        return None
+    met = " and its conditions are met" if (flow.criteria or {}).get("conditions") else ""
+    return {"flow_id": flow.id, "flow_name": flow.name, "confidence": 1.0,
+            "reasoning": f"“{flow.name}” is set up for {request.type_label} requests{met}.",
+            "alternatives": [], "needs_human": False, "source": "used_for"}
+
+
 def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> dict:
     """Best-fit flow for a request. Always returns a dict (never raises)."""
     from app.core.config import settings
@@ -120,36 +134,29 @@ def suggest_flow(db: Session, request: IntakeRequest, *, claude_client=None) -> 
                 "reasoning": "No workflows are configured yet.", "alternatives": [],
                 "needs_human": True, "source": "deterministic", "steps": []}
 
+    set_up = used_for_suggestion(db, request)
+    if set_up:
+        return set_up
     baseline = _baseline(db, request, catalog)
 
     if settings.mock_claude:
         return baseline
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD, get_agent_prompt, log_agent_call
-    from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
     ids = {c["id"] for c in catalog}
     names = {c["id"]: c["name"] for c in catalog}
     steps_by_id = {c["id"]: c["steps"] for c in catalog}
-    bundle = get_agent_prompt(db, agent_id="flow_router", org_id=request.org_id)
     user_prompt = _prompt_for(request, catalog)
     try:
-        enforce_daily_token_cap(request.org_id)
-        resp = run_coro_blocking(lambda: claude_client.complete_structured(
-            system_prompt=bundle.skill_prompt + "\n\n" + UNTRUSTED_INPUT_GUARD,
-            user_prompt=user_prompt,
-            tool_name="suggest_flow", input_schema=_SCHEMA,
-            max_tokens=600, temperature=0.0, model=bundle.model_name,
-        ))
-        log_agent_call(db, org_id=request.org_id, agent_id="flow_router", prompt_bundle=bundle,
-                        input_payload={"user_prompt": user_prompt}, response=resp)
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = (blocks[0].get("input") if blocks else None)
-        if not isinstance(data, dict):
-            return {**baseline, "source": "degraded"}
+        # Feature "flow_router" via the AI gateway: prompt + guard, token cap, output
+        # check and ledger row in one place. Bad or cut-off output raises
+        # into the except below, which keeps this agent's fallback.
+        data = gateway_for(claude_client).structured_sync(
+            db, "flow_router", ctx=AICallContext(org_id=request.org_id, resource=("intake_request", request.id)),
+            user_prompt=user_prompt, input_schema=_SCHEMA,
+            log_input={"user_prompt": user_prompt},
+        ).data
 
         fid = data.get("flow_id")
         if fid not in ids:  # ungrounded / null → hand to a human, keep baseline pick visible

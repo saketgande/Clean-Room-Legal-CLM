@@ -32,6 +32,10 @@ def _a_contract_with_clauses(db):
     return row  # (contract_id, org_id)
 
 
+def _org_contract_ids(db, org):
+    return {cid for (cid,) in db.execute(text("SELECT id FROM contract WHERE org_id=:o"), {"o": org})}
+
+
 def test_matches_are_same_type_only(db):
     """A match must be between clauses of the SAME type — an indemnity clause
     never matches a governing-law clause, however the fuzzy score falls."""
@@ -44,37 +48,37 @@ def test_matches_are_same_type_only(db):
             )
         )
     }
-    for m in clause_language_matches(db, org_id=org, contract_ids=[cid]):
+    for m in clause_language_matches(db, org_id=org, contract_ids=[cid], accessible_ids=_org_contract_ids(db, org)):
         assert m["clause_type"] in my_types
 
 
 def test_every_match_clears_the_threshold(db):
     cid, org = _a_contract_with_clauses(db)
-    for m in clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=85):
+    for m in clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=85, accessible_ids=_org_contract_ids(db, org)):
         assert m["similarity"] >= 85
 
 
 def test_higher_threshold_never_yields_more(db):
     """Tightening the threshold can only remove matches, never add them."""
     cid, org = _a_contract_with_clauses(db)
-    loose = clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=75)
-    tight = clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=95)
+    loose = clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=75, accessible_ids=_org_contract_ids(db, org))
+    tight = clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=95, accessible_ids=_org_contract_ids(db, org))
     assert len(tight) <= len(loose)
 
 
 def test_impossible_threshold_returns_nothing(db):
     cid, org = _a_contract_with_clauses(db)
-    assert clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=101) == []
+    assert clause_language_matches(db, org_id=org, contract_ids=[cid], threshold=101, accessible_ids=_org_contract_ids(db, org)) == []
 
 
 def test_empty_scope_returns_nothing(db):
     _, org = _a_contract_with_clauses(db)
-    assert clause_language_matches(db, org_id=org, contract_ids=[]) == []
+    assert clause_language_matches(db, org_id=org, contract_ids=[], accessible_ids=set()) == []
 
 
 def test_a_match_names_a_different_contract(db):
     """Reuse is cross-contract — a clause never matches itself."""
     cid, org = _a_contract_with_clauses(db)
     own_title = db.execute(text("SELECT title FROM contract WHERE id=:i"), {"i": cid}).scalar()
-    for m in clause_language_matches(db, org_id=org, contract_ids=[cid]):
+    for m in clause_language_matches(db, org_id=org, contract_ids=[cid], accessible_ids=_org_contract_ids(db, org)):
         assert own_title not in m["fact"] or "reused" in m["fact"]  # names another contract

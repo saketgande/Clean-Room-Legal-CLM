@@ -15,6 +15,8 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
+from app.core.database import utcnow
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = {
@@ -35,10 +37,17 @@ _SCHEMA = {
 }
 
 
+def _cached_band(contract) -> str | None:
+    """The playbook rule's cached band, or None. A summary without playbook_run_ids was
+    written by the deleted AI risk score, which the rule replaced: it is not a band now."""
+    rs = contract.risk_summary or {}
+    return contract.risk_band if "playbook_run_ids" in rs else None
+
+
 def _days_until(d: date | None) -> int | None:
     if not d:
         return None
-    return (d - date.today()).days
+    return (d - utcnow().date()).days
 
 
 def _facts(renewal, contract) -> list[str]:
@@ -49,11 +58,13 @@ def _facts(renewal, contract) -> list[str]:
         facts.append(f"Counterparty: {contract.counterparty_name}")
     if contract.value_amount is not None:
         facts.append(f"Annual/contract value: {contract.value_amount:,.0f}")
-    if contract.risk_band or contract.risk_score is not None:
-        facts.append(
-            f"Risk: {contract.risk_band or 'unknown'}"
-            + (f" (score {contract.risk_score})" if contract.risk_score is not None else "")
-        )
+    # Always stated: leaving risk out when it is unknown let the model read "no risk
+    # on file" as "nothing wrong". risk_band is the cached playbook band (advisory
+    # here, so the cache is enough); NULL means nothing reviewed the current text.
+    band = _cached_band(contract)
+    facts.append(
+        f"Risk: {band}" if band else "Risk: unknown (the current text has no playbook review)"
+    )
     dn = _days_until(renewal.notice_date)
     de = _days_until(renewal.expiration_date)
     if de is not None:
@@ -64,6 +75,22 @@ def _facts(renewal, contract) -> list[str]:
             if dn >= 0
             else f"Notice deadline passed {-dn} days ago"
         )
+    # The typed renewal facts (Step 3d). Without them the model guessed whether a
+    # contract renews at all, and recommended "renew" for NDAs that simply end.
+    dates = (getattr(renewal, "metadata_json", None) or {}).get("dates") or {}
+    terms = dates.get("facts") or {}
+    if terms.get("term_kind") == "evergreen":
+        facts.append("No end date - continues until terminated")
+    if terms.get("auto_renews") is True:
+        term = terms.get("renewal_term") or {}
+        unit = (term.get("unit") or "").replace("_", " ")
+        unit = unit[:-1] if term.get("number") == 1 else unit
+        length = f" for {term['number']} {unit}" if term.get("number") else ""
+        facts.append(f"Renews automatically{length} unless notice is given")
+    elif terms.get("auto_renews") is False:
+        facts.append("Does not renew automatically - it ends at expiry unless extended")
+    if dates and not dates.get("confirmed_by"):
+        facts.append("These dates were calculated from the contract wording and not yet confirmed by a person")
     return facts
 
 
@@ -71,7 +98,7 @@ def _fallback(renewal, contract) -> dict:
     """Deterministic, defensible default when the model is unavailable: flag
     high-risk agreements for renegotiation, otherwise recommend renewal. Kept
     honest with low confidence — a heuristic is a starting point, not a verdict."""
-    band = (contract.risk_band or "").lower()
+    band = (_cached_band(contract) or "").lower()
     if band in {"high", "critical"}:
         return {
             "decision": "renegotiate",
@@ -82,11 +109,22 @@ def _fallback(renewal, contract) -> dict:
             "confidence": "low",
             "generated": False,
         }
+    if not band:
+        # Unknown is not "no adverse signals": nothing reviewed the current text.
+        return {
+            "decision": "renew",
+            "rationale": (
+                "Risk is unknown — the current text has no playbook review. Run the "
+                "review before the notice deadline; renewal is only a default until then."
+            ),
+            "confidence": "low",
+            "generated": False,
+        }
     return {
         "decision": "renew",
         "rationale": (
-            "No adverse signals on file — default to renewal, and confirm the "
-            "commercial terms before the notice deadline."
+            f"The playbook review found {band} risk at most — default to renewal, and "
+            "confirm the commercial terms before the notice deadline."
         ),
         "confidence": "low",
         "generated": False,
@@ -94,49 +132,36 @@ def _fallback(renewal, contract) -> dict:
 
 
 def recommend_renewal(db: Session, *, org_id: str, renewal, contract, claude_client=None) -> dict:
-    """Return {decision, rationale, confidence, generated}. Advisory only."""
+    """Return {decision, rationale, confidence, generated}. Advisory only.
+
+    Runs through the AI gateway (feature "renewal_recommendation"): the prompt
+    comes from the prompt table, and every call — success, bad answer or
+    failure — is recorded in the AI ledger (on its own session)."""
     from app.core.config import settings
 
     if settings.mock_claude:
         return _fallback(renewal, contract)
 
-    from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
-    from app.ai.cost_guard import enforce_daily_token_cap
-    from app.integrations.claude import run_coro_blocking
-    from app.integrations.dependencies import get_claude_client
+    from app.ai.gateway import AICallContext, gateway_for
 
-    claude_client = claude_client or get_claude_client()
-    system = (
-        "You are senior in-house counsel advising on a contract renewal. Recommend "
-        "exactly one action — renew, renegotiate, or terminate — grounded only in the "
-        "facts provided. Be decisive, give a one-to-two sentence rationale specific to "
-        "those facts, and set confidence honestly (low when the facts are thin). Never "
-        "invent terms, amounts, or risks that are not stated."
-    )
-    user = "Recommend a renewal action for this contract:\n\n" + "\n".join(
-        _facts(renewal, contract)
-    )
+    facts = _facts(renewal, contract)
+    user = "Recommend a renewal action for this contract:\n\n" + "\n".join(facts)
     try:
-        enforce_daily_token_cap(org_id)
-        resp = run_coro_blocking(
-            lambda: claude_client.complete_structured(
-                system_prompt=system + "\n\n" + UNTRUSTED_INPUT_GUARD,
-                user_prompt=user,
-                tool_name="recommend_renewal",
-                input_schema=_SCHEMA,
-                max_tokens=400,
-                temperature=0.2,
-                model=settings.claude_model,
-            )
+        result = gateway_for(claude_client).structured_sync(
+            db,
+            "renewal_recommendation",
+            ctx=AICallContext(org_id=org_id, resource=("renewal_event", renewal.id)),
+            user_prompt=user,
+            input_schema=_SCHEMA,
+            log_input={"renewal_id": renewal.id, "contract_id": contract.id, "facts": len(facts)},
         )
-        blocks = getattr(resp, "tool_use_blocks", None) or []
-        data = blocks[0].get("input") if blocks else None
-        if not isinstance(data, dict) or "decision" not in data:
-            return _fallback(renewal, contract)
-        data["generated"] = True
-        return data
     except Exception:
         logger.warning(
             "renewal recommendation failed for %s — using heuristic", renewal.id, exc_info=True
         )
         return _fallback(renewal, contract)
+    data = dict(result.data)
+    if "decision" not in data:
+        return _fallback(renewal, contract)
+    data["generated"] = True
+    return data

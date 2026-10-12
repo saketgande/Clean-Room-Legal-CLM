@@ -80,10 +80,10 @@ class ContractCommentService:
     ) -> dict:
         db = self.db
         if not body or not body.strip():
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Comment body is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Comment body is required")
         if visibility not in _VISIBILITIES:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "visibility must be 'internal' or 'shared'"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "visibility must be 'internal' or 'shared'"
             )
         # Keep only mentions that belong to this org.
         valid_mentions: list[str] = []
@@ -171,7 +171,7 @@ class ContractCommentService:
         'shared'; notifies the contract owner in-app."""
         db = self.db
         if not body or not body.strip():
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Comment body is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Comment body is required")
         comment = ContractComment(
             org_id=contract.org_id,
             contract_id=contract.id,

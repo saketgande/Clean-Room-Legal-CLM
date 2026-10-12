@@ -22,6 +22,9 @@ class SkillSpec:
     max_tokens: int = 2048
     temperature: float = 0.0
     timeout_seconds: int = 120
+    # Append the contract's full text to the prompt. Off for a skill whose input
+    # already carries exactly what it needs (clause_labeling sends segments).
+    include_contract_text: bool = True
 
     @property
     def return_tool_name(self) -> str:

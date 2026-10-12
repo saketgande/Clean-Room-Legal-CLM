@@ -10,7 +10,6 @@ from app.approval_chains.models import (
 from app.approvals.models import (
     ApprovalDecision,
     ApprovalRequest,
-    ApprovalRoutingRule,
     ApprovalToken,
 )
 from app.assistant.models import (
@@ -40,8 +39,11 @@ from app.contract_files.models import (
     ContractShare,
     ContractTextSnapshot,
     ContractVersion,
+    RevisionChange,
+    RevisionRound,
     StorageObject,
 )
+from app.contracts.comments_models import ContractComment
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
 from app.core.models import (
     AdminSetting,
@@ -51,35 +53,25 @@ from app.core.models import (
     ResourceTimelineEvent,
     UsageRecord,
 )
+from app.drafting_templates.models import DraftingTemplateVersion
 from app.grants.models import ResourceGrant
 from app.intake.models import (
     IntakeDocument,
+    IntakeDraft,
     IntakeHandoff,
-    IntakeKbArticle,
     IntakeRequest,
-    IntakeRequestField,
-    IntakeRequestType,
-    IntakeRoutingRule,
     IntakeTask,
     IntakeTeam,
     IntakeTeamMember,
-    SanctionsListEntry,
 )
 from app.jobs.models import JobRun
-from app.matters.models import (
-    Matter,
-    MatterActivity,
-    MatterContract,
-    MatterFolder,
-    MatterMember,
-    MatterShare,
-)
 from app.menu_security.models import ActionLevel, MenuItem, RoleScreenAccess, Screen
 from app.notices.models import Notice, NoticeDocument, NoticeEvent
 from app.notifications.models import Notification
 from app.obligations.models import Obligation, ObligationReminder
 from app.org_structure.models import Delegation, OrgUnit
 from app.organizations.models import Organization
+from app.parties.models import Counterparty, LegalEntity
 from app.playbooks.models import (
     Playbook,
     PlaybookDecision,
@@ -97,6 +89,7 @@ from app.tabular_review.models import (
     TabularReviewChat,
     TabularReviewColumn,
 )
+from app.trademarks.models import DocumentExtract, Trademark
 from app.walls.models import EthicalWall, EthicalWallPrincipal
 from app.workflows.models import Workflow, WorkflowRun, WorkflowStepRun
 
@@ -117,7 +110,6 @@ __all__ = [
     "ApprovalChainStepRule",
     "ApprovalDecision",
     "ApprovalRequest",
-    "ApprovalRoutingRule",
     "ApprovalToken",
     "AssistantContractHandle",
     "AssistantMessage",
@@ -129,6 +121,7 @@ __all__ = [
     "BrainQuery",
     "ClauseExtraction",
     "Contract",
+    "ContractComment",
     "ContractEdit",
     "ContractEmbedding",
     "ContractFile",
@@ -137,28 +130,23 @@ __all__ = [
     "ContractStageHistory",
     "ContractTextSnapshot",
     "ContractVersion",
+    "Counterparty",
     "Delegation",
+    "DocumentExtract",
+    "DraftingTemplateVersion",
     "EthicalWall",
     "EthicalWallPrincipal",
     "IntakeDocument",
+    "IntakeDraft",
     "IntakeHandoff",
-    "IntakeKbArticle",
     "IntakeRequest",
-    "IntakeRequestField",
-    "IntakeRequestType",
-    "IntakeRoutingRule",
     "IntakeTask",
     "IntakeTeam",
     "IntakeTeamMember",
     "JobRun",
     "KnowledgeEdge",
     "KnowledgeNode",
-    "Matter",
-    "MatterActivity",
-    "MatterContract",
-    "MatterFolder",
-    "MatterMember",
-    "MatterShare",
+    "LegalEntity",
     "MenuItem",
     "Notice",
     "NoticeDocument",
@@ -183,9 +171,10 @@ __all__ = [
     "RequestLog",
     "ResourceGrant",
     "ResourceTimelineEvent",
+    "RevisionChange",
+    "RevisionRound",
     "Role",
     "RoleScreenAccess",
-    "SanctionsListEntry",
     "Screen",
     "SignatureEvent",
     "SignatureRecipient",
@@ -195,6 +184,7 @@ __all__ = [
     "TabularReviewCell",
     "TabularReviewChat",
     "TabularReviewColumn",
+    "Trademark",
     "UsageRecord",
     "User",
     "UserApprovalDecision",

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   CheckCircle2,
@@ -26,39 +26,65 @@ import {
   THead,
   TR,
 } from "@/components/ui";
+import { jobProgressPercent } from "@/lib/job-progress";
 import { fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { JobRun, JobStatus } from "@/lib/types";
+
+const PAGE_SIZE = 100;
+const FILTERS: { id: JobStatus | "all"; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "queued", label: "Queued" },
+  { id: "running", label: "Running" },
+  { id: "succeeded", label: "Succeeded" },
+  { id: "failed", label: "Failed" },
+  { id: "cancelled", label: "Cancelled" },
+];
 
 export default function JobsPage() {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["jobs"],
-    queryFn: jobsApi.list,
+  const [filter, setFilter] = useState<JobStatus | "all">("all");
+
+  // The cards come from the server's own count over every job. Counting the rows on screen
+  // (only the newest page) made them wrong whenever more than a page of jobs existed.
+  const summary = useQuery({
+    queryKey: ["jobs", "summary"],
+    queryFn: jobsApi.summary,
     refetchInterval: 5000,
   });
+  const counts = summary.data;
 
-  const counts = useMemo(() => {
-    const c: Record<JobStatus, number> = {
-      queued: 0,
-      running: 0,
-      succeeded: 0,
-      failed: 0,
-      cancelled: 0,
-    };
-    for (const j of data ?? []) c[j.status] += 1;
-    return c;
-  }, [data]);
+  const {
+    data: pages,
+    isLoading,
+    error,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
+    queryKey: ["jobs", "list", filter],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      jobsApi.list({
+        status: filter === "all" ? undefined : filter,
+        limit: PAGE_SIZE,
+        offset: pageParam,
+      }),
+    getNextPageParam: (last, all) =>
+      last.length < PAGE_SIZE ? undefined : all.reduce((n, p) => n + p.length, 0),
+    refetchInterval: 5000,
+  });
+  const data = pages?.pages.flat() ?? [];
 
   async function act(job: JobRun, kind: "cancel" | "run") {
     setBusyId(job.id);
     try {
       if (kind === "cancel") await jobsApi.cancel(job.id);
       else await jobsApi.run(job.id);
-      qc.invalidateQueries({ queryKey: ["jobs"] });
+      qc.invalidateQueries({ queryKey: ["jobs"] }); // the cards and every list
       notify(kind === "cancel" ? "Job cancelled" : "Job re-queued", "success");
     } catch (e) {
       notify(e instanceof Error ? e.message : "Action failed", "error");
@@ -77,45 +103,63 @@ export default function JobsPage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard
           label="Queued"
-          value={counts.queued}
+          value={counts ? counts.queued : "—"}
           tone="amber"
           icon={<Clock className="h-5 w-5" />}
         />
         <StatCard
           label="Running"
-          value={counts.running}
+          value={counts ? counts.running : "—"}
           tone="blue"
           icon={<Loader2 className="h-5 w-5" />}
         />
         <StatCard
           label="Succeeded"
-          value={counts.succeeded}
+          value={counts ? counts.succeeded : "—"}
           tone="green"
           icon={<CheckCircle2 className="h-5 w-5" />}
         />
         <StatCard
           label="Failed"
-          value={counts.failed}
+          value={counts ? counts.failed : "—"}
           tone="red"
           icon={<XCircle className="h-5 w-5" />}
         />
         <StatCard
           label="Cancelled"
-          value={counts.cancelled}
+          value={counts ? counts.cancelled : "—"}
           tone="slate"
           icon={<XCircle className="h-5 w-5" />}
         />
+      </div>
+
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter jobs by status">
+        {FILTERS.map((f) => (
+          <Button
+            key={f.id}
+            size="sm"
+            variant={filter === f.id ? "primary" : "outline"}
+            aria-pressed={filter === f.id}
+            onClick={() => setFilter(f.id)}
+          >
+            {f.label}
+          </Button>
+        ))}
       </div>
 
       {isLoading ? (
         <CenterSpinner label="Loading jobs…" />
       ) : error ? (
         <ErrorState error={error} />
-      ) : (data ?? []).length === 0 ? (
+      ) : data.length === 0 ? (
         <EmptyState
           icon={<Activity className="h-6 w-6" />}
-          title="No background jobs"
-          description="Jobs appear here when contracts are uploaded or AI tasks run."
+          title={filter === "all" ? "No background jobs" : `No ${filter} jobs`}
+          description={
+            filter === "all"
+              ? "Jobs appear here when contracts are uploaded or AI tasks run."
+              : "Choose All to see every job."
+          }
         />
       ) : (
         <Card>
@@ -132,10 +176,8 @@ export default function JobsPage() {
               </tr>
             </THead>
             <tbody>
-              {(data ?? []).map((job) => {
-                const pct = Math.round(
-                  Math.max(0, Math.min(1, job.progress)) * 100,
-                );
+              {data.map((job) => {
+                const pct = jobProgressPercent(job.progress);
                 const canCancel =
                   job.status === "queued" || job.status === "running";
                 const canRerun =
@@ -215,6 +257,18 @@ export default function JobsPage() {
               })}
             </tbody>
           </Table>
+          {hasNextPage && (
+            <div className="flex justify-center border-t border-slate-100 p-3">
+              <Button
+                size="sm"
+                variant="outline"
+                loading={isFetchingNextPage}
+                onClick={() => fetchNextPage()}
+              >
+                Show older jobs
+              </Button>
+            </div>
+          )}
         </Card>
       )}
     </div>

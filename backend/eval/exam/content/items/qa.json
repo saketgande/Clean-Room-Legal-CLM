@@ -1,0 +1,1149 @@
+[
+ {
+  "item_id": "qa-001",
+  "doc_id": "cuad-001",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Construction and Maintenance Agreement for TAT-14 Cable Network between Deutsche Telekom AG and Multiple Telecommunications Companies; What are the insurance requirements under this contract?",
+  "answer": "Should the Managing Group agree to jointly          insure against such risks, the cost of such insurance will form part of          the capital costs referred to in Subparagraph 13.1.",
+  "passages": [
+   "Should the Managing Group agree to jointly          insure against such risks, the cost of such insurance will form part of          the capital costs referred to in Subparagraph 13.1."
+  ]
+ },
+ {
+  "item_id": "qa-002",
+  "doc_id": "cuad-001",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Construction and Maintenance Agreement for TAT-14 Cable Network between Deutsche Telekom AG and Multiple Telecommunications Companies; What happens in the event of a change of control of one of the parties in this contract?",
+  "answer": "A Party may assign the whole of its rights  under this  Agreement  to a          successor  by  law,  Subsidiary  or  Affiliate  of  such  Party,  or  a          corporation or an entity  jointly  controlling or under the same common          control as such Party,  provided that the assigning  Party shall remain          jointly and severally  liable with the assignee for the  performance of          this  Agreement for the duration of the  Agreement.",
+  "passages": [
+   "A Party may assign the whole of its rights  under this  Agreement  to a          successor  by  law,  Subsidiary  or  Affiliate  of  such  Party,  or  a          corporation or an entity  jointly  controlling or under the same common          control as such Party,  provided that the assigning  Party shall remain          jointly and severally  liable with the assignee for the  performance of          this  Agreement for the duration of the  Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-003",
+  "doc_id": "cuad-003",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between F. Hoffmann-La Roche Ltd, Hoffmann-La Roche Inc., and Foundation Medicine, Inc. for Genomic Testing Platforms; Is there a most favored nation clause in this contract?",
+  "answer": "FMI agrees that the pricing terms for Products and Services provided by FMI to Roche herein, and services provided under the Molecular Information Platform Program, are, and will be, at least as favorable as the pricing terms granted by FMI to any existing customer or collaborator for such (or substantially similar) products or services. If FMI enters into any subsequent agreement with another customer or collaborator which provides for pricing terms for substantially the same product or services at substantially the same (or a lesser) scale, which pricing terms are more favorable than those contained herein, then FMI shall notify Roche and Roche will have the right to modify this agreement to provide Roche with those more favorable pricing terms. […***…].",
+  "passages": [
+   "FMI agrees that the pricing terms for Products and Services provided by FMI to Roche herein, and services provided under the Molecular Information Platform Program, are, and will be, at least as favorable as the pricing terms granted by FMI to any existing customer or collaborator for such (or substantially similar) products or services. If FMI enters into any subsequent agreement with another customer or collaborator which provides for pricing terms for substantially the same product or services at substantially the same (or a lesser) scale, which pricing terms are more favorable than those contained herein, then FMI shall notify Roche and Roche will have the right to modify this agreement to provide Roche with those more favorable pricing terms. […***…]."
+  ]
+ },
+ {
+  "item_id": "qa-004",
+  "doc_id": "cuad-003",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between F. Hoffmann-La Roche Ltd, Hoffmann-La Roche Inc., and Foundation Medicine, Inc. for Genomic Testing Platforms; Is there a cap on liability under this contract?",
+  "answer": "IN NO EVENT SHALL EITHER FMI OR ROCHE BE LIABLE FOR SPECIAL, INDIRECT, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THIS AGREEMENT BASED ON CONTRACT, TORT OR ANY OTHER LEGAL THEORY.",
+  "passages": [
+   "IN NO EVENT SHALL EITHER FMI OR ROCHE BE LIABLE FOR SPECIAL, INDIRECT, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THIS AGREEMENT BASED ON CONTRACT, TORT OR ANY OTHER LEGAL THEORY."
+  ]
+ },
+ {
+  "item_id": "qa-005",
+  "doc_id": "cuad-003",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between F. Hoffmann-La Roche Ltd, Hoffmann-La Roche Inc., and Foundation Medicine, Inc. for Genomic Testing Platforms; What is the governing law for this contract?",
+  "answer": "This Agreement shall be governed by and construed in accordance with the laws of New York, US, without reference to its conflict of laws principles, and shall not be governed by the United Nations Convention of International Contracts on the Sale of Goods (the Vienna Convention).",
+  "passages": [
+   "This Agreement shall be governed by and construed in accordance with the laws of New York, US, without reference to its conflict of laws principles, and shall not be governed by the United Nations Convention of International Contracts on the Sale of Goods (the Vienna Convention)."
+  ]
+ },
+ {
+  "item_id": "qa-006",
+  "doc_id": "cuad-004",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Goosehead Insurance Agency, LLC and Franchisee; What is the expiration date of this contract?",
+  "answer": "The term of this Agreement starts on the Effective Date and, unless this Agreement is earlier terminated in accordance with its provisions, will expire ten (10) years from the Effective Date.",
+  "passages": [
+   "The term of this Agreement starts on the Effective Date and, unless this Agreement is earlier terminated in accordance with its provisions, will expire ten (10) years from the Effective Date."
+  ]
+ },
+ {
+  "item_id": "qa-007",
+  "doc_id": "cuad-004",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Goosehead Insurance Agency, LLC and Franchisee; What is the renewal term for this contract?",
+  "answer": "You will have the right to renew your rights to operate the Franchise Business for two (2) additional successor terms of five (5) years, so long as you have satisfied all of the conditions specified in Sections 2.2.1 through 2.2.10 before each such renewal: 2.2.1 You agree to give us written notice of your choice to renew at least six (6) months before the end of the term of this Agreement (but not more than nine (9) months before the term expires).",
+  "passages": [
+   "You will have the right to renew your rights to operate the Franchise Business for two (2) additional successor terms of five (5) years, so long as you have satisfied all of the conditions specified in Sections 2.2.1 through 2.2.10 before each such renewal: 2.2.1 You agree to give us written notice of your choice to renew at least six (6) months before the end of the term of this Agreement (but not more than nine (9) months before the term expires)."
+  ]
+ },
+ {
+  "item_id": "qa-008",
+  "doc_id": "cuad-004",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Goosehead Insurance Agency, LLC and Franchisee; Are any of the licenses granted under this contract irrevocable or perpetual?",
+  "answer": "You hereby grant to us (and agree to obtain from your affiliates, owners, employees, and/or contractors), a perpetual, non-exclusive, and worldwide right to use any such ideas, concepts, methods, techniques and products in any businesses that we and/or our affiliates, franchisees and designees operate. We will have the right to use those ideas, concepts, methods, techniques, and/or products without making payment to you. You agree not to use or allow any other person or entity to use any such concept, method, technique or product without obtaining our prior written approval.",
+  "passages": [
+   "You hereby grant to us (and agree to obtain from your affiliates, owners, employees, and/or contractors), a perpetual, non-exclusive, and worldwide right to use any such ideas, concepts, methods, techniques and products in any businesses that we and/or our affiliates, franchisees and designees operate. We will have the right to use those ideas, concepts, methods, techniques, and/or products without making payment to you. You agree not to use or allow any other person or entity to use any such concept, method, technique or product without obtaining our prior written approval."
+  ]
+ },
+ {
+  "item_id": "qa-009",
+  "doc_id": "cuad-005",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License and Hosting Agreement between Corio Inc. and Changepoint, Inc.; Does this contract include any volume restrictions?",
+  "answer": "Corio shall not demonstrate the Software to any          one Customer for more than sixty (60) days from the start of that          Customer demonstration, and Corio shall not demonstrate the Software to          more than ten (10) Software Users at any one time.",
+  "passages": [
+   "Corio shall not demonstrate the Software to any          one Customer for more than sixty (60) days from the start of that          Customer demonstration, and Corio shall not demonstrate the Software to          more than ten (10) Software Users at any one time."
+  ]
+ },
+ {
+  "item_id": "qa-010",
+  "doc_id": "cuad-005",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License and Hosting Agreement between Corio Inc. and Changepoint, Inc.; Are there any services to be provided after the termination of this contract?",
+  "answer": "Subject to Corio's payment of the Software support and          maintenance fee as set forth in this Section 2.5, Changepoint's          Software Support and Maintenance obligation with respect to Software          distributed by Corio pursuant to this Section 2.5 shall continue after          termination or expiration of this Agreement with respect to all          Software Users granted access to the Software prior to termination or          expiration of this Agreement, for the remaining duration of each such          Software Users' rights to use the Software pursuant to agreements          between Corio and its Customers. … Subject to          Corio's payment of the Software revenue sharing fees as set forth in          EXHIBIT B hereto and the Software Support and Maintenance fee as          provided in Section 2.5 of this Agreement, Changepoint's Software          Support and Maintenance obligation shall continue after termination or          expiration of this Agreement with respect to all Software Users granted          access to the Software prior to termination or expiration of this          Agreement for the remaining duration of each such Software Users'          rights to use the Software pursuant to agreements between Corio and its          Customers.",
+  "passages": [
+   "Subject to Corio's payment of the Software support and          maintenance fee as set forth in this Section 2.5, Changepoint's          Software Support and Maintenance obligation with respect to Software          distributed by Corio pursuant to this Section 2.5 shall continue after          termination or expiration of this Agreement with respect to all          Software Users granted access to the Software prior to termination or          expiration of this Agreement, for the remaining duration of each such          Software Users' rights to use the Software pursuant to agreements          between Corio and its Customers.",
+   "Subject to          Corio's payment of the Software revenue sharing fees as set forth in          EXHIBIT B hereto and the Software Support and Maintenance fee as          provided in Section 2.5 of this Agreement, Changepoint's Software          Support and Maintenance obligation shall continue after termination or          expiration of this Agreement with respect to all Software Users granted          access to the Software prior to termination or expiration of this          Agreement for the remaining duration of each such Software Users'          rights to use the Software pursuant to agreements between Corio and its          Customers."
+  ]
+ },
+ {
+  "item_id": "qa-011",
+  "doc_id": "cuad-005",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License and Hosting Agreement between Corio Inc. and Changepoint, Inc.; Is there a non-compete clause in this contract?",
+  "answer": "During the term of this Agreement, Corio agrees not          to provide the Software in connection with Corio Services or distribute          the Software under Section 2.5 of this Agreement to the following          companies or their subsidiaries: ***. Corio and Changepoint agree that          on an semi-annual basis, this list of companies will be reviewed by          the parties and each party agrees that its consent to the other          party's request for changes to this list (additions and deletions)          will not be unreasonably withheld or delayed.",
+  "passages": [
+   "During the term of this Agreement, Corio agrees not          to provide the Software in connection with Corio Services or distribute          the Software under Section 2.5 of this Agreement to the following          companies or their subsidiaries: ***. Corio and Changepoint agree that          on an semi-annual basis, this list of companies will be reviewed by          the parties and each party agrees that its consent to the other          party's request for changes to this list (additions and deletions)          will not be unreasonably withheld or delayed."
+  ]
+ },
+ {
+  "item_id": "qa-012",
+  "doc_id": "cuad-006",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pretzel Time, Inc. and Franchisee; What is the expiration date of this contract?",
+  "answer": "The term of this Agreement shall commence on the Effective Date of this Agreement  and shall expire  twenty (20) years from the  effective  date of this Agreement.",
+  "passages": [
+   "The term of this Agreement shall commence on the Effective Date of this Agreement  and shall expire  twenty (20) years from the  effective  date of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-013",
+  "doc_id": "cuad-006",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pretzel Time, Inc. and Franchisee; How is intellectual property ownership assigned in this contract?",
+  "answer": "Franchisee assigns to Pretzel  Time or its designee all of  Franchisee's  right,  title and interest  in and to any and  all  such  Promotional  Allowances  and  authorizes Pretzel  Time or its  designee to collect any such  Promotional  Allowances  for remission to the general operating funds of Pretzel Time. … If incorporated into the Pretzel Time System for the development and/or operation of Pretzel Time Units, such ideas, recipes, formulas, concepts, methods and techniques  shall become the sole and exclusive  property of Pretzel Time without any further consideration to Franchisee.",
+  "passages": [
+   "Franchisee assigns to Pretzel  Time or its designee all of  Franchisee's  right,  title and interest  in and to any and  all  such  Promotional  Allowances  and  authorizes Pretzel  Time or its  designee to collect any such  Promotional  Allowances  for remission to the general operating funds of Pretzel Time.",
+   "If incorporated into the Pretzel Time System for the development and/or operation of Pretzel Time Units, such ideas, recipes, formulas, concepts, methods and techniques  shall become the sole and exclusive  property of Pretzel Time without any further consideration to Franchisee."
+  ]
+ },
+ {
+  "item_id": "qa-014",
+  "doc_id": "cuad-006",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pretzel Time, Inc. and Franchisee; Is there a clause preventing the solicitation of customers in this contract?",
+  "answer": "Neither  Franchisee  nor any of its Owners shall divert or attempt to divert any business or any customers of any Pretzel Time Unit to any  Competitive  Business or employ or seek to employ any  person who is  employed  by Pretzel  Time,  its Affiliates  or a franchisee  of Pretzel Time nor induce or attempt to induce any such person to leave said  employment  without the prior written consent of such person's employer.",
+  "passages": [
+   "Neither  Franchisee  nor any of its Owners shall divert or attempt to divert any business or any customers of any Pretzel Time Unit to any  Competitive  Business or employ or seek to employ any  person who is  employed  by Pretzel  Time,  its Affiliates  or a franchisee  of Pretzel Time nor induce or attempt to induce any such person to leave said  employment  without the prior written consent of such person's employer."
+  ]
+ },
+ {
+  "item_id": "qa-015",
+  "doc_id": "cuad-007",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Ginkgo Bioworks, Inc. and Berkeley Lights, Inc. for Workflow Development on the Beacon Platform; Does this contract include any volume restrictions?",
+  "answer": "BLI shall not be obligated to supply in any [***] (i) a quantity of the [***] in excess of the amount designated in such [***] in the binding portion of the Rolling Forecast or (ii) a quantity of [***] that is greater than [***] percent ([***]%) of the amount designated for such item or service in such [***] in the binding portion of the Rolling Forecast (such amount, the \"Maximum Amount\"); provided that notwithstanding the provisions set forth in this Section 5.3.1 (Issuance) or Section 5.3.2 (Acceptance and Rejection) to the contrary, BLI shall use [***] to accept and fulfill Purchase Orders for quantities of [***] in excess of the Maximum Amount in any [***]. … [***] shall designate up to [***] ([***]) BLI employees or personnel as key persons (individually, a \"Key Person\" and collectively, \"Key Persons\"). … BLI shall allocate Beacon Optofluidic Machines (including related Hardware and Software), Consumables and Services in short supply to Ginkgo [***], with such [***] allocation applicable only up to the number of units of such item set forth in the binding portions of the then-current Rolling Forecast.",
+  "passages": [
+   "BLI shall not be obligated to supply in any [***] (i) a quantity of the [***] in excess of the amount designated in such [***] in the binding portion of the Rolling Forecast or (ii) a quantity of [***] that is greater than [***] percent ([***]%) of the amount designated for such item or service in such [***] in the binding portion of the Rolling Forecast (such amount, the \"Maximum Amount\"); provided that notwithstanding the provisions set forth in this Section 5.3.1 (Issuance) or Section 5.3.2 (Acceptance and Rejection) to the contrary, BLI shall use [***] to accept and fulfill Purchase Orders for quantities of [***] in excess of the Maximum Amount in any [***].",
+   "[***] shall designate up to [***] ([***]) BLI employees or personnel as key persons (individually, a \"Key Person\" and collectively, \"Key Persons\").",
+   "BLI shall allocate Beacon Optofluidic Machines (including related Hardware and Software), Consumables and Services in short supply to Ginkgo [***], with such [***] allocation applicable only up to the number of units of such item set forth in the binding portions of the then-current Rolling Forecast."
+  ]
+ },
+ {
+  "item_id": "qa-016",
+  "doc_id": "cuad-007",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Ginkgo Bioworks, Inc. and Berkeley Lights, Inc. for Workflow Development on the Beacon Platform; What are the insurance requirements under this contract?",
+  "answer": "Each Party will obtain and carry in full force and effect the minimum insurance requirements set forth below. Such insurance (i) will be primary insurance with respect to each Party's own participation under this Agreement and (ii) will be issued by a recognized insurer rated by A.M. Best \"A-VII\" (or its equivalent) or better, or an insurer pre-approved in writing by the other Party. … The types of insurance, and minimum limits will be: (i) any insurance policy that is required by any Applicable Law, including [***] and [***] policies where applicable; and (ii) [***] insurance with a minimum limit of [***] Dollars ($[***]) per occurrence and [***] Dollars ($[***]) in the aggregate. For clarity, [***]. … Upon request by a Party, the other Party will provide Certificates of Insurance evidencing compliance with this Section 12.4 (Insurance). The insurance policies will be under an occurrence form, but if only a claims-made form is available to a Party, then such Party will continue to maintain such insurance after Expiration or the termination of this Agreement for a period of [***] ([***]) years following the end of the Term.",
+  "passages": [
+   "Each Party will obtain and carry in full force and effect the minimum insurance requirements set forth below. Such insurance (i) will be primary insurance with respect to each Party's own participation under this Agreement and (ii) will be issued by a recognized insurer rated by A.M. Best \"A-VII\" (or its equivalent) or better, or an insurer pre-approved in writing by the other Party.",
+   "The types of insurance, and minimum limits will be: (i) any insurance policy that is required by any Applicable Law, including [***] and [***] policies where applicable; and (ii) [***] insurance with a minimum limit of [***] Dollars ($[***]) per occurrence and [***] Dollars ($[***]) in the aggregate. For clarity, [***].",
+   "Upon request by a Party, the other Party will provide Certificates of Insurance evidencing compliance with this Section 12.4 (Insurance). The insurance policies will be under an occurrence form, but if only a claims-made form is available to a Party, then such Party will continue to maintain such insurance after Expiration or the termination of this Agreement for a period of [***] ([***]) years following the end of the Term."
+  ]
+ },
+ {
+  "item_id": "qa-017",
+  "doc_id": "cuad-008",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Homewood Suites Franchise LLC and Franchisee for Homewood Suites Hotel; What licenses are granted under this contract?",
+  "answer": "We grant to you and you accept a limited, non-exclusive License to use the Marks and the System during the Term at, and in connection with, the operation of the Hotel in accordance with the terms of this Agreement.",
+  "passages": [
+   "We grant to you and you accept a limited, non-exclusive License to use the Marks and the System during the Term at, and in connection with, the operation of the Hotel in accordance with the terms of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-018",
+  "doc_id": "cuad-008",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Homewood Suites Franchise LLC and Franchisee for Homewood Suites Hotel; Is there a cap on liability under this contract?",
+  "answer": "THE PARTIES ACKNOWLEDGE THAT LIQUIDATED DAMAGES PAYABLE BY YOU UNDER THIS AGREEMENT (WHETHER PRE-OPENING LIQUIDATED DAMAGES OR LIQUIDATED DAMAGES FOR EARLY TERMINATION) ARE NOT PUNITIVE OR EXEMPLARY DAMAGES.",
+  "passages": [
+   "THE PARTIES ACKNOWLEDGE THAT LIQUIDATED DAMAGES PAYABLE BY YOU UNDER THIS AGREEMENT (WHETHER PRE-OPENING LIQUIDATED DAMAGES OR LIQUIDATED DAMAGES FOR EARLY TERMINATION) ARE NOT PUNITIVE OR EXEMPLARY DAMAGES."
+  ]
+ },
+ {
+  "item_id": "qa-019",
+  "doc_id": "cuad-008",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Homewood Suites Franchise LLC and Franchisee for Homewood Suites Hotel; Does this contract include any revenue or profit-sharing arrangements?",
+  "answer": "Monthly Program Fee: Four percent (4%) of the Hotel's Gross Rooms Revenue for the preceding calendar month. … Any change may be established in the Standards, but the rate will not exceed the standard Monthly Program Fee as of the Effective Date plus one percent (1%) of the Hotel's Gross Rooms Revenue during the Term … Monthly Royalty Fee: Five percent (5%) of the Hotel's Gross Rooms   Revenue for the preceding calendar month",
+  "passages": [
+   "Monthly Program Fee: Four percent (4%) of the Hotel's Gross Rooms Revenue for the preceding calendar month.",
+   "Any change may be established in the Standards, but the rate will not exceed the standard Monthly Program Fee as of the Effective Date plus one percent (1%) of the Hotel's Gross Rooms Revenue during the Term",
+   "Monthly Royalty Fee: Five percent (5%) of the Hotel's Gross Rooms   Revenue for the preceding calendar month"
+  ]
+ },
+ {
+  "item_id": "qa-020",
+  "doc_id": "cuad-009",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributorship Agreement between Zogenix Inc. and Nippon Shinyaku Company Ltd. for Fintepla®; Is there a non-compete clause in this contract?",
+  "answer": "During the Term, without the prior written approval of Zogenix, Distributor shall not, and shall cause its Affiliates not to, either directly or indirectly, file for Regulatory Approval of, promote, market, offer for sale, sell, import or distribute in the Territory any product containing fenfluramine or any salt, enantiomer, or polymorph of fenfluramine, or any product for [***].",
+  "passages": [
+   "During the Term, without the prior written approval of Zogenix, Distributor shall not, and shall cause its Affiliates not to, either directly or indirectly, file for Regulatory Approval of, promote, market, offer for sale, sell, import or distribute in the Territory any product containing fenfluramine or any salt, enantiomer, or polymorph of fenfluramine, or any product for [***]."
+  ]
+ },
+ {
+  "item_id": "qa-021",
+  "doc_id": "cuad-009",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributorship Agreement between Zogenix Inc. and Nippon Shinyaku Company Ltd. for Fintepla®; Is there a cap on liability under this contract?",
+  "answer": "Neither Party will be liable to the other for Indirect Losses in connection with any recall or withdrawal pursuant to this Section. … NEITHER PARTY SHALL BE ENTITLED TO RECOVER FROM THE OTHER PARTY ANY SPECIAL, INCIDENTAL, CONSEQUENTIAL OR PUNITIVE DAMAGES IN CONNECTION WITH THIS AGREEMENT; provided however, that this Section 10.5 shall not be construed to limit (a) either Party's right to special, incidental or consequential damages for the other Party's breach of Article 8 or (b) either Party's indemnification rights or obligations under Article 11.",
+  "passages": [
+   "Neither Party will be liable to the other for Indirect Losses in connection with any recall or withdrawal pursuant to this Section.",
+   "NEITHER PARTY SHALL BE ENTITLED TO RECOVER FROM THE OTHER PARTY ANY SPECIAL, INCIDENTAL, CONSEQUENTIAL OR PUNITIVE DAMAGES IN CONNECTION WITH THIS AGREEMENT; provided however, that this Section 10.5 shall not be construed to limit (a) either Party's right to special, incidental or consequential damages for the other Party's breach of Article 8 or (b) either Party's indemnification rights or obligations under Article 11."
+  ]
+ },
+ {
+  "item_id": "qa-022",
+  "doc_id": "cuad-009",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributorship Agreement between Zogenix Inc. and Nippon Shinyaku Company Ltd. for Fintepla®; What are the insurance requirements under this contract?",
+  "answer": "Each Party, at its own expense, shall maintain product liability and other appropriate insurance (or self- insure) in an amount consistent with industry standards during the Term. Each Party shall provide a certificate of insurance (or evidence of self-insurance) evidencing such coverage to the other Party upon written request.",
+  "passages": [
+   "Each Party, at its own expense, shall maintain product liability and other appropriate insurance (or self- insure) in an amount consistent with industry standards during the Term. Each Party shall provide a certificate of insurance (or evidence of self-insurance) evidencing such coverage to the other Party upon written request."
+  ]
+ },
+ {
+  "item_id": "qa-023",
+  "doc_id": "cuad-010",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between MacroGenics, Inc. and Green Cross Corp. for Development of MGAH22; What are the audit rights under this contract?",
+  "answer": "Upon the written request of a Party (\"Requesting Party\") with reasonable advance notice and not more than once in each Calendar Year, the other Party shall permit an independent certified public accounting firm of nationally recognized standing selected by Requesting Party and reasonably acceptable to the other Party, at its own expense, to have access during normal business hours to such of the records as may be reasonably necessary to verify the accuracy of the reports under Section 8 for any Calendar Year ending not more than thirty-six (36) months prior to the date of such request. The accounting firm shall disclose to the Requesting Party only whether the reports are correct or incorrect and the specific details concerning any discrepancies. No other information shall be provided to Requesting Party in connection with this audit right. This right to audit shall remain in effect throughout the life of this Agreement and for a period of three (3) years after the termination of this Agreement.",
+  "passages": [
+   "Upon the written request of a Party (\"Requesting Party\") with reasonable advance notice and not more than once in each Calendar Year, the other Party shall permit an independent certified public accounting firm of nationally recognized standing selected by Requesting Party and reasonably acceptable to the other Party, at its own expense, to have access during normal business hours to such of the records as may be reasonably necessary to verify the accuracy of the reports under Section 8 for any Calendar Year ending not more than thirty-six (36) months prior to the date of such request. The accounting firm shall disclose to the Requesting Party only whether the reports are correct or incorrect and the specific details concerning any discrepancies. No other information shall be provided to Requesting Party in connection with this audit right. This right to audit shall remain in effect throughout the life of this Agreement and for a period of three (3) years after the termination of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-024",
+  "doc_id": "cuad-011",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Array BioPharma Inc. and Ono Pharmaceutical Co., Ltd.; Is there a minimum commitment required under this contract?",
+  "answer": "Notwithstanding Sections 6.4, 6.5, and 6.6, the Royalty Payment to Array shall not be reduced in any calendar quarter (a) during the Initial Royalty Term to less than [ * ] of the amount due under Section 6.3(a)(i), and (b) during the Secondary Royalty Term to less than [ * ] of the amount due under Section 6.3(a) (ii) (provided that any amounts in excess of the permitted deduction shall be carried forward to the subsequent calendar quarters until exhausted), unless 6.4(b) applies in which case royalty shall be as set forth therein.",
+  "passages": [
+   "Notwithstanding Sections 6.4, 6.5, and 6.6, the Royalty Payment to Array shall not be reduced in any calendar quarter (a) during the Initial Royalty Term to less than [ * ] of the amount due under Section 6.3(a)(i), and (b) during the Secondary Royalty Term to less than [ * ] of the amount due under Section 6.3(a) (ii) (provided that any amounts in excess of the permitted deduction shall be carried forward to the subsequent calendar quarters until exhausted), unless 6.4(b) applies in which case royalty shall be as set forth therein."
+  ]
+ },
+ {
+  "item_id": "qa-025",
+  "doc_id": "cuad-011",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Array BioPharma Inc. and Ono Pharmaceutical Co., Ltd.; What is the duration of any warranties provided in this contract?",
+  "answer": "In the event that Array reasonably objects to a proposed usage of the Product Trademark(s), it shall give written notice of such objection to Ono within sixty (60) days of receipt of such sample, specifying the way in which such usage of its Product Trademark(s) fails to meet the style, usage or quality standards for the Product or Product Trademark set forth in the first two sentences of this Section 12.4(c).",
+  "passages": [
+   "In the event that Array reasonably objects to a proposed usage of the Product Trademark(s), it shall give written notice of such objection to Ono within sixty (60) days of receipt of such sample, specifying the way in which such usage of its Product Trademark(s) fails to meet the style, usage or quality standards for the Product or Product Trademark set forth in the first two sentences of this Section 12.4(c)."
+  ]
+ },
+ {
+  "item_id": "qa-026",
+  "doc_id": "cuad-011",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Array BioPharma Inc. and Ono Pharmaceutical Co., Ltd.; Is there an anti-assignment clause in this contract?",
+  "answer": "This Agreement may not be assigned by either Party to any Third Party without the written consent of the other Party hereto; except either Party may assign this Agreement without the other Party's consent to an entity that acquires substantially all of the business or assets of the assigning Party, whether by merger, acquisition or otherwise; provided that the acquiring party agrees in a writing delivered to the non-assigning Party to assume all of the rights and obligations of the assigning Party under this Agreement. … Any assignment of this Agreement in contravention of this Section 18.9 shall be null and void.",
+  "passages": [
+   "This Agreement may not be assigned by either Party to any Third Party without the written consent of the other Party hereto; except either Party may assign this Agreement without the other Party's consent to an entity that acquires substantially all of the business or assets of the assigning Party, whether by merger, acquisition or otherwise; provided that the acquiring party agrees in a writing delivered to the non-assigning Party to assume all of the rights and obligations of the assigning Party under this Agreement.",
+   "Any assignment of this Agreement in contravention of this Section 18.9 shall be null and void."
+  ]
+ },
+ {
+  "item_id": "qa-027",
+  "doc_id": "cuad-012",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License and Development Agreement between Bioeq IP AG and Coherus BioSciences, Inc. for Ranibizumab Biosimilar; Is there a cap on liability under this contract?",
+  "answer": "Except for a breach of Section 11 (\"Confidentiality\"), and without limiting a Party's indemnification obligations hereunder, in no event shall either Party be liable to the other Party in any manner for any special, non- compensatory, consequential, indirect, incidental, statutory or punitive damages of any kind, including lost profits and lost revenue, regardless of the form of action, whether in contract, tort, product liability or otherwise, even if informed of or aware of the possibility of any such damages in advance, except to the extent that such limitation of liability is contrary to the Applicable Law or any such special, non-compensatory, consequential, indirect, incidental, statutory or punitive damages have been awarded to a Third Party under a Third Party Claim.",
+  "passages": [
+   "Except for a breach of Section 11 (\"Confidentiality\"), and without limiting a Party's indemnification obligations hereunder, in no event shall either Party be liable to the other Party in any manner for any special, non- compensatory, consequential, indirect, incidental, statutory or punitive damages of any kind, including lost profits and lost revenue, regardless of the form of action, whether in contract, tort, product liability or otherwise, even if informed of or aware of the possibility of any such damages in advance, except to the extent that such limitation of liability is contrary to the Applicable Law or any such special, non-compensatory, consequential, indirect, incidental, statutory or punitive damages have been awarded to a Third Party under a Third Party Claim."
+  ]
+ },
+ {
+  "item_id": "qa-028",
+  "doc_id": "cuad-012",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License and Development Agreement between Bioeq IP AG and Coherus BioSciences, Inc. for Ranibizumab Biosimilar; Is there uncapped liability under this contract?",
+  "answer": "Except for a breach of Section 11 (\"Confidentiality\"), and without limiting a Party's indemnification obligations hereunder, in no event shall either Party be liable to the other Party in any manner for any special, non- compensatory, consequential, indirect, incidental, statutory or punitive damages of any kind, including lost profits and lost revenue, regardless of the form of action, whether in contract, tort, product liability or otherwise, even if informed of or aware of the possibility of any such damages in advance, except to the extent that such limitation of liability is contrary to the Applicable Law or any such special, non-compensatory, consequential, indirect, incidental, statutory or punitive damages have been awarded to a Third Party under a Third Party Claim.",
+  "passages": [
+   "Except for a breach of Section 11 (\"Confidentiality\"), and without limiting a Party's indemnification obligations hereunder, in no event shall either Party be liable to the other Party in any manner for any special, non- compensatory, consequential, indirect, incidental, statutory or punitive damages of any kind, including lost profits and lost revenue, regardless of the form of action, whether in contract, tort, product liability or otherwise, even if informed of or aware of the possibility of any such damages in advance, except to the extent that such limitation of liability is contrary to the Applicable Law or any such special, non-compensatory, consequential, indirect, incidental, statutory or punitive damages have been awarded to a Third Party under a Third Party Claim."
+  ]
+ },
+ {
+  "item_id": "qa-029",
+  "doc_id": "cuad-013",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Commercialization and License Agreement between Vyera Pharmaceuticals, LLC and CytoDyn Inc. for Leronlimab; What are the audit rights under this contract?",
+  "answer": "To the extent permitted under Applicable Law and, if applicable, its relevant Third Party agreements, (a) CytoDyn shall provide Vyera with reasonable advance notice of any scheduled regulatory inspection of CytoDyn or Third Party Manufacturing facilities used for supply of the Licensed Product as contemplated by Article 6, and (b) Vyera shall be allowed to participate in any pre-approval readiness activities and audits for CytoDyn or its Third Party Manufacturing facilities. … Upon reasonable prior notice, but not more than once per Calendar Year, such records of Vyera and its Affiliates shall be available during Vyera's and its Affiliates regular business hours for a period of three (3) years from the end of the Calendar Year to which they pertain for examination at the expense of CytoDyn by an independent certified public accountant selected by CytoDyn and reasonably acceptable to Vyera, for the sole purpose of verifying the accuracy of the financial reports and correctness of the payments furnished by Vyera pursuant to this Agreement.",
+  "passages": [
+   "To the extent permitted under Applicable Law and, if applicable, its relevant Third Party agreements, (a) CytoDyn shall provide Vyera with reasonable advance notice of any scheduled regulatory inspection of CytoDyn or Third Party Manufacturing facilities used for supply of the Licensed Product as contemplated by Article 6, and (b) Vyera shall be allowed to participate in any pre-approval readiness activities and audits for CytoDyn or its Third Party Manufacturing facilities.",
+   "Upon reasonable prior notice, but not more than once per Calendar Year, such records of Vyera and its Affiliates shall be available during Vyera's and its Affiliates regular business hours for a period of three (3) years from the end of the Calendar Year to which they pertain for examination at the expense of CytoDyn by an independent certified public accountant selected by CytoDyn and reasonably acceptable to Vyera, for the sole purpose of verifying the accuracy of the financial reports and correctness of the payments furnished by Vyera pursuant to this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-030",
+  "doc_id": "cuad-013",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Commercialization and License Agreement between Vyera Pharmaceuticals, LLC and CytoDyn Inc. for Leronlimab; What is the expiration date of this contract?",
+  "answer": "The term of this Agreement (\"Term\") shall commence upon the Effective Date and, unless earlier terminated pursuant to this Article 11, shall expire on the last day of the Royalty Term.",
+  "passages": [
+   "The term of this Agreement (\"Term\") shall commence upon the Effective Date and, unless earlier terminated pursuant to this Article 11, shall expire on the last day of the Royalty Term."
+  ]
+ },
+ {
+  "item_id": "qa-031",
+  "doc_id": "cuad-013",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Commercialization and License Agreement between Vyera Pharmaceuticals, LLC and CytoDyn Inc. for Leronlimab; What is the governing law for this contract?",
+  "answer": "This Agreement and all disputes arising out of or related to this Agreement or any breach hereof shall be governed by and construed in accordance with the laws of the State of New York, without giving effect to any choice of law principles that would result in the application of the laws of any other jurisdiction.",
+  "passages": [
+   "This Agreement and all disputes arising out of or related to this Agreement or any breach hereof shall be governed by and construed in accordance with the laws of the State of New York, without giving effect to any choice of law principles that would result in the application of the laws of any other jurisdiction."
+  ]
+ },
+ {
+  "item_id": "qa-032",
+  "doc_id": "cuad-014",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Manufacturing and Supply Agreement between Pfizer Inc. and Upjohn Inc.; Does the licensor's affiliates have any licensing rights under this contract?",
+  "answer": "\"Customer Property\" means all Intellectual Property, together with all materials, data, writings and other property in any form whatsoever, which is (a) owned or controlled by Customer or its Affiliates as of and following the Effective Date and (b) provided to Manufacturer by or on behalf of Customer or its Personnel under this Agreement. … Customer hereby grants to Manufacturer a non-exclusive license during the Term to use any Customer Property and Customer-Owned Improvements and Developments solely in connection with Manufacturer performing its obligations under this Agreement or the Facility Addendum in accordance with the terms hereof or thereof, as applicable",
+  "passages": [
+   "\"Customer Property\" means all Intellectual Property, together with all materials, data, writings and other property in any form whatsoever, which is (a) owned or controlled by Customer or its Affiliates as of and following the Effective Date and (b) provided to Manufacturer by or on behalf of Customer or its Personnel under this Agreement.",
+   "Customer hereby grants to Manufacturer a non-exclusive license during the Term to use any Customer Property and Customer-Owned Improvements and Developments solely in connection with Manufacturer performing its obligations under this Agreement or the Facility Addendum in accordance with the terms hereof or thereof, as applicable"
+  ]
+ },
+ {
+  "item_id": "qa-033",
+  "doc_id": "cuad-014",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Manufacturing and Supply Agreement between Pfizer Inc. and Upjohn Inc.; What is the notice period required to terminate the renewal?",
+  "answer": "A Facility Addendum may be extended for up to three (3) additional periods of twelve (12) months (each, an \"Extension Period\") by written notice given by Customer to Manufacturer not less than twelve (12) months prior to the expiration of the Initial Term or the applicable Extension Period, as the case may be.",
+  "passages": [
+   "A Facility Addendum may be extended for up to three (3) additional periods of twelve (12) months (each, an \"Extension Period\") by written notice given by Customer to Manufacturer not less than twelve (12) months prior to the expiration of the Initial Term or the applicable Extension Period, as the case may be."
+  ]
+ },
+ {
+  "item_id": "qa-034",
+  "doc_id": "cuad-015",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Intellectual Property Agreement between The Babcock & Wilcox Company and Babcock & Wilcox Enterprises, Inc.; How is intellectual property ownership assigned in this contract?",
+  "answer": "SpinCo and RemainCo agree and acknowledge that, although RemainCo was responsible for publishing the current forty-second (42nd) edition of the Steam Book, as of the Distribution Date, all rights, responsibilities, duties and obligations related to the publication, distribution and sale of this edition shall be transferred to SpinCo.",
+  "passages": [
+   "SpinCo and RemainCo agree and acknowledge that, although RemainCo was responsible for publishing the current forty-second (42nd) edition of the Steam Book, as of the Distribution Date, all rights, responsibilities, duties and obligations related to the publication, distribution and sale of this edition shall be transferred to SpinCo."
+  ]
+ },
+ {
+  "item_id": "qa-035",
+  "doc_id": "cuad-015",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Intellectual Property Agreement between The Babcock & Wilcox Company and Babcock & Wilcox Enterprises, Inc.; Does this contract include any right of first refusal, right of first offer, or right of first negotiation?",
+  "answer": "SpinCo shall have the sole right to determine the content contained in future editions of the Steam Book, provided, however, that SpinCo will provide RemainCo with a right of first refusal to collaborate with SpinCo to provide content related to nuclear subject matter in the forty-third (43rd) edition of the Steam Book, with allocation of costs and revenues and any attribution and Copyright ownership with respect to RemainCo contributed content to be negotiated in good faith by the Parties. The foregoing right of first refusal shall cease in the event of a Change of Control of either RemainCo or SpinCo, provided, however, that the Parties will discuss the feasibility of future collaboration, specifically related to the contribution of nuclear related subject matter by RemainCo, in good faith in the event of a Change of Control.",
+  "passages": [
+   "SpinCo shall have the sole right to determine the content contained in future editions of the Steam Book, provided, however, that SpinCo will provide RemainCo with a right of first refusal to collaborate with SpinCo to provide content related to nuclear subject matter in the forty-third (43rd) edition of the Steam Book, with allocation of costs and revenues and any attribution and Copyright ownership with respect to RemainCo contributed content to be negotiated in good faith by the Parties. The foregoing right of first refusal shall cease in the event of a Change of Control of either RemainCo or SpinCo, provided, however, that the Parties will discuss the feasibility of future collaboration, specifically related to the contribution of nuclear related subject matter by RemainCo, in good faith in the event of a Change of Control."
+  ]
+ },
+ {
+  "item_id": "qa-036",
+  "doc_id": "cuad-015",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Intellectual Property Agreement between The Babcock & Wilcox Company and Babcock & Wilcox Enterprises, Inc.; What happens in the event of a change of control of one of the parties in this contract?",
+  "answer": "The foregoing right of first refusal shall cease in the event of a Change of Control of either RemainCo or SpinCo, provided, however, that the Parties will discuss the feasibility of future collaboration, specifically related to the contribution of nuclear related subject matter by RemainCo, in good faith in the event of a Change of Control. … Notwithstanding the foregoing provisions of this Section 3.2, in no event shall any of the members of the RemainCo Group continue to use the SpinCo House Marks (whether in any of the materials referenced in the immediately preceding sentence or otherwise) following a Change of Control of RemainCo.",
+  "passages": [
+   "The foregoing right of first refusal shall cease in the event of a Change of Control of either RemainCo or SpinCo, provided, however, that the Parties will discuss the feasibility of future collaboration, specifically related to the contribution of nuclear related subject matter by RemainCo, in good faith in the event of a Change of Control.",
+   "Notwithstanding the foregoing provisions of this Section 3.2, in no event shall any of the members of the RemainCo Group continue to use the SpinCo House Marks (whether in any of the materials referenced in the immediately preceding sentence or otherwise) following a Change of Control of RemainCo."
+  ]
+ },
+ {
+  "item_id": "qa-037",
+  "doc_id": "cuad-017",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Development and Option Agreement between Harpoon Therapeutics, Inc. and AbbVie Biotechnology Ltd.; Is there a covenant not to sue included in this contract?",
+  "answer": "Harpoon shall not, and shall not permit its Affiliates to, attack, dispute, or contest the validity of or ownership of such Product Trademark anywhere in the Territory or any registrations issued or issuing with respect thereto or use in their respective businesses, any Trademark that is confusingly similar to, misleading or deceptive with respect to or that dilutes any (or any part) of the Product Trademarks.",
+  "passages": [
+   "Harpoon shall not, and shall not permit its Affiliates to, attack, dispute, or contest the validity of or ownership of such Product Trademark anywhere in the Territory or any registrations issued or issuing with respect thereto or use in their respective businesses, any Trademark that is confusingly similar to, misleading or deceptive with respect to or that dilutes any (or any part) of the Product Trademarks."
+  ]
+ },
+ {
+  "item_id": "qa-038",
+  "doc_id": "cuad-017",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Development and Option Agreement between Harpoon Therapeutics, Inc. and AbbVie Biotechnology Ltd.; Is there an anti-assignment clause in this contract?",
+  "answer": "Without the prior written consent of the other Party, such consent not to be unreasonably withheld, conditioned, or delayed, neither Party shall sell, transfer, assign, delegate, pledge, or otherwise dispose of, whether voluntarily, involuntarily, by operation of law or otherwise, this Agreement or any of its rights or duties hereunder; provided that either Party may make such an assignment without the other Party's consent to its Affiliate or to a successor, whether in a merger, sale of stock, sale of assets or any other transaction, of the business to which this Agreement relates. … Any attempted assignment or delegation in violation of this Section 13.4 shall be void and of no effect. … AbbVie may use one (1) or more of its Affiliates to perform its obligations and duties hereunder and such AbbVie Affiliates are expressly granted certain rights herein; provided that each such Affiliate shall be bound by the corresponding obligations of AbbVie and, subject to an assignment to such Affiliate pursuant to Section 13.4, AbbVie shall remain liable hereunder for the prompt payment and performance of all their respective obligations hereunder.",
+  "passages": [
+   "Without the prior written consent of the other Party, such consent not to be unreasonably withheld, conditioned, or delayed, neither Party shall sell, transfer, assign, delegate, pledge, or otherwise dispose of, whether voluntarily, involuntarily, by operation of law or otherwise, this Agreement or any of its rights or duties hereunder; provided that either Party may make such an assignment without the other Party's consent to its Affiliate or to a successor, whether in a merger, sale of stock, sale of assets or any other transaction, of the business to which this Agreement relates.",
+   "Any attempted assignment or delegation in violation of this Section 13.4 shall be void and of no effect.",
+   "AbbVie may use one (1) or more of its Affiliates to perform its obligations and duties hereunder and such AbbVie Affiliates are expressly granted certain rights herein; provided that each such Affiliate shall be bound by the corresponding obligations of AbbVie and, subject to an assignment to such Affiliate pursuant to Section 13.4, AbbVie shall remain liable hereunder for the prompt payment and performance of all their respective obligations hereunder."
+  ]
+ },
+ {
+  "item_id": "qa-039",
+  "doc_id": "cuad-018",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between Allscripts Healthcare, LLC and Phreesia, Inc.; Is there a clause preventing the solicitation of employees in this contract?",
+  "answer": "During the term of this Agreement and for a period of [***] thereafter, neither Party nor its controlled Affiliates will, without the prior written consent of the other Party, directly or indirectly solicit for employment any then-current employee of the other Party or its controlled Affiliates; [***].",
+  "passages": [
+   "During the term of this Agreement and for a period of [***] thereafter, neither Party nor its controlled Affiliates will, without the prior written consent of the other Party, directly or indirectly solicit for employment any then-current employee of the other Party or its controlled Affiliates; [***]."
+  ]
+ },
+ {
+  "item_id": "qa-040",
+  "doc_id": "cuad-018",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between Allscripts Healthcare, LLC and Phreesia, Inc.; What is the governing law for this contract?",
+  "answer": "This Agreement will be governed by and construed in accordance with the Laws of the State of Illinois applicable to agreements made and to be performed wholly within that State without regard to its conflicts of laws provisions.",
+  "passages": [
+   "This Agreement will be governed by and construed in accordance with the Laws of the State of Illinois applicable to agreements made and to be performed wholly within that State without regard to its conflicts of laws provisions."
+  ]
+ },
+ {
+  "item_id": "qa-041",
+  "doc_id": "cuad-019",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement for Vehicle Leasing Services between Didi Chuxing Technology Co., Ltd. and Hunan Ruixi Financial Leasing Co., Ltd.; Is there a most favored nation clause in this contract?",
+  "answer": "Party B shall provide the Driver User with long-term and stable rental sources and the most favorable financial leasing scheme, complete the vehicle leasing transactions with the Driver User through the Platform, and provide the Driver User with high-quality financial leasing services. … Party B guarantees that the Driver User will enjoy the most favorable treatment in accordance with the terms and conditions stipulated in This Agreement during the Period of Cooperation. In case that the price and other substantive terms offered by Party B to such entity are more favorable than those enjoyed by the Driver User in any commercial cooperative relationship signed or formed between Party B and any entity, the Driver User and Party B shall amend the provisions in the Financial Leasing Agreement signed by both parties to enable the Driver User to enjoy the same or more favorable provisions as those enjoyed by such other entities, such modifications shall include but not limit to the modifications of the monthly rent terms.",
+  "passages": [
+   "Party B shall provide the Driver User with long-term and stable rental sources and the most favorable financial leasing scheme, complete the vehicle leasing transactions with the Driver User through the Platform, and provide the Driver User with high-quality financial leasing services.",
+   "Party B guarantees that the Driver User will enjoy the most favorable treatment in accordance with the terms and conditions stipulated in This Agreement during the Period of Cooperation. In case that the price and other substantive terms offered by Party B to such entity are more favorable than those enjoyed by the Driver User in any commercial cooperative relationship signed or formed between Party B and any entity, the Driver User and Party B shall amend the provisions in the Financial Leasing Agreement signed by both parties to enable the Driver User to enjoy the same or more favorable provisions as those enjoyed by such other entities, such modifications shall include but not limit to the modifications of the monthly rent terms."
+  ]
+ },
+ {
+  "item_id": "qa-042",
+  "doc_id": "cuad-019",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement for Vehicle Leasing Services between Didi Chuxing Technology Co., Ltd. and Hunan Ruixi Financial Leasing Co., Ltd.; Can this contract be terminated for convenience, and under what conditions?",
+  "answer": "In the case of a written notice 15 days in advance from either party to the other Party And a payment of the liquidated damages of RMB10,000 (RMB TEN THOUSAND), this Agreement shall terminate as of the date of termination stated in the notice of termination. … Party A is entitled to unilaterally terminate this Agreement within three natural months from the signing date of this Agreement.",
+  "passages": [
+   "In the case of a written notice 15 days in advance from either party to the other Party And a payment of the liquidated damages of RMB10,000 (RMB TEN THOUSAND), this Agreement shall terminate as of the date of termination stated in the notice of termination.",
+   "Party A is entitled to unilaterally terminate this Agreement within three natural months from the signing date of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-043",
+  "doc_id": "cuad-019",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement for Vehicle Leasing Services between Didi Chuxing Technology Co., Ltd. and Hunan Ruixi Financial Leasing Co., Ltd.; Is there a cap on liability under this contract?",
+  "answer": "Unless any party is in violation of the confidentiality clause, in any case, neither party shall be liable for any indirect, punitive claims, or claims for losses of commercial profits, or damages for business losses of the company or any third Party Arising from this Agreement, or for any loss or inaccuracy of data of any form, whether based on Agreement, tort or any other legal principle, even though the party has been informed of the possibility of such damage. … Party B has fully understood the functions and characteristics of services of the Platform prior to the use of the Platform and agrees that Party A shall not be liable to Party B for any defect in software, insufficiency of function or any necessary improvement. … Party B's use of the Platform and the acquisition of any information by using the Platform are solely at Party B's independent judgment and is at Party B's own risk (including but not limited to the losses caused by damage to Party B's computer system or mobile phone system or loss of data.)",
+  "passages": [
+   "Unless any party is in violation of the confidentiality clause, in any case, neither party shall be liable for any indirect, punitive claims, or claims for losses of commercial profits, or damages for business losses of the company or any third Party Arising from this Agreement, or for any loss or inaccuracy of data of any form, whether based on Agreement, tort or any other legal principle, even though the party has been informed of the possibility of such damage.",
+   "Party B has fully understood the functions and characteristics of services of the Platform prior to the use of the Platform and agrees that Party A shall not be liable to Party B for any defect in software, insufficiency of function or any necessary improvement.",
+   "Party B's use of the Platform and the acquisition of any information by using the Platform are solely at Party B's independent judgment and is at Party B's own risk (including but not limited to the losses caused by damage to Party B's computer system or mobile phone system or loss of data.)"
+  ]
+ },
+ {
+  "item_id": "qa-044",
+  "doc_id": "cuad-020",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between The University of Texas M. D. Anderson Cancer Center and Adaptimmune LLC & Adaptimmune Limited for Cancer Research; Is there a minimum commitment required under this contract?",
+  "answer": "Adaptimmune agrees to commit funding in an amount of at least nineteen million six hundred and forty four thousand Dollars US ($19,644,000) for the performance of the Studies as set out in Exhibit I during the term (\"Alliance Funding\").",
+  "passages": [
+   "Adaptimmune agrees to commit funding in an amount of at least nineteen million six hundred and forty four thousand Dollars US ($19,644,000) for the performance of the Studies as set out in Exhibit I during the term (\"Alliance Funding\")."
+  ]
+ },
+ {
+  "item_id": "qa-045",
+  "doc_id": "cuad-020",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between The University of Texas M. D. Anderson Cancer Center and Adaptimmune LLC & Adaptimmune Limited for Cancer Research; Is there an anti-assignment clause in this contract?",
+  "answer": "MD Anderson shall not subcontract any of its or the Principal Investigator's responsibilities under this Agreement without the prior written consent of Adaptimmune. … This Agreement and/or any Study Order may not be assigned by either Party except as agreed upon in writing by the other Party. Any assignment or attempt to assign, or any delegation or attempt to delegate, not in accordance with this Section shall be void and without effect.",
+  "passages": [
+   "MD Anderson shall not subcontract any of its or the Principal Investigator's responsibilities under this Agreement without the prior written consent of Adaptimmune.",
+   "This Agreement and/or any Study Order may not be assigned by either Party except as agreed upon in writing by the other Party. Any assignment or attempt to assign, or any delegation or attempt to delegate, not in accordance with this Section shall be void and without effect."
+  ]
+ },
+ {
+  "item_id": "qa-046",
+  "doc_id": "cuad-020",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between The University of Texas M. D. Anderson Cancer Center and Adaptimmune LLC & Adaptimmune Limited for Cancer Research; Are there any services to be provided after the termination of this contract?",
+  "answer": "In the event of expiration or early termination of this Agreement, the terms and conditions of this Agreement shall remain binding with respect to any ongoing Studies (including any new studies to which any remaining Alliance Funding is allocated under Section 1.3) until completion of the Studies or termination of the respective Study Order/s. … The Parties agree that any termination of a Study Order shall allow for: (i) the wind down of the Study to ensure the safety of Study subjects; and (ii) Adaptimmune's final reconciliation of Data related to the Study in addition to Adaptimmune's final monitoring visit. All reasonable fees associated with the wind-down activities and final monitoring visit shall be paid by Adaptimmune, to the extent not covered by Alliance Funding. Termination of one or more Study Orders will not automatically result in the termination of this Agreement or termination of any other Study Orders. … Should MD Anderson terminate this Agreement in accordance with this Section 8.6 then the Parties will use reasonable efforts to ensure that any Clinical Study in relation to which any patient has been screened or enrolled shall continue under a separate clinical trial agreement to be entered into between the Parties as soon as possible after receipt of notice of termination by Adaptimmune.",
+  "passages": [
+   "In the event of expiration or early termination of this Agreement, the terms and conditions of this Agreement shall remain binding with respect to any ongoing Studies (including any new studies to which any remaining Alliance Funding is allocated under Section 1.3) until completion of the Studies or termination of the respective Study Order/s.",
+   "The Parties agree that any termination of a Study Order shall allow for: (i) the wind down of the Study to ensure the safety of Study subjects; and (ii) Adaptimmune's final reconciliation of Data related to the Study in addition to Adaptimmune's final monitoring visit. All reasonable fees associated with the wind-down activities and final monitoring visit shall be paid by Adaptimmune, to the extent not covered by Alliance Funding. Termination of one or more Study Orders will not automatically result in the termination of this Agreement or termination of any other Study Orders.",
+   "Should MD Anderson terminate this Agreement in accordance with this Section 8.6 then the Parties will use reasonable efforts to ensure that any Clinical Study in relation to which any patient has been screened or enrolled shall continue under a separate clinical trial agreement to be entered into between the Parties as soon as possible after receipt of notice of termination by Adaptimmune."
+  ]
+ },
+ {
+  "item_id": "qa-047",
+  "doc_id": "cuad-021",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Airspan Networks Inc. and GLS LLC; Does this contract include an exclusivity agreement?",
+  "answer": "Subject to the provisions of this Agreement, Airspan hereby appoints Distributor as an independent, exclusive distributor to assist Airspan in marketing the Airspan Products to customers in the Territory, and Distributor hereby accepts such appointment as of the Effective Date of this Agreement.",
+  "passages": [
+   "Subject to the provisions of this Agreement, Airspan hereby appoints Distributor as an independent, exclusive distributor to assist Airspan in marketing the Airspan Products to customers in the Territory, and Distributor hereby accepts such appointment as of the Effective Date of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-048",
+  "doc_id": "cuad-021",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Airspan Networks Inc. and GLS LLC; What are the audit rights under this contract?",
+  "answer": "For at least two (2) years after termination of this Agreement,      Distributor will maintain its records, contracts, and accounts relating to      distribution of Airspan Products, and will permit examination thereof by      authorized representatives of Airspan at all reasonable times.",
+  "passages": [
+   "For at least two (2) years after termination of this Agreement,      Distributor will maintain its records, contracts, and accounts relating to      distribution of Airspan Products, and will permit examination thereof by      authorized representatives of Airspan at all reasonable times."
+  ]
+ },
+ {
+  "item_id": "qa-049",
+  "doc_id": "cuad-021",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Airspan Networks Inc. and GLS LLC; Is there a most favored nation clause in this contract?",
+  "answer": "Airspan warrants that during the term of this Agreement, the prices at      which Airspan sells to Distributor products supplied under this Agreement      shall be no less favorable to the Distributor than those prices at which      Airspan sells, at substantially the same time in the United States, similar      products and pursuant to similar terms and conditions as those by which      Airspan sells Products to the Distributor under this Agreement.",
+  "passages": [
+   "Airspan warrants that during the term of this Agreement, the prices at      which Airspan sells to Distributor products supplied under this Agreement      shall be no less favorable to the Distributor than those prices at which      Airspan sells, at substantially the same time in the United States, similar      products and pursuant to similar terms and conditions as those by which      Airspan sells Products to the Distributor under this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-050",
+  "doc_id": "cuad-022",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Network Affiliate Agreement between National CineMedia, LLC and Digital Cinema Destinations Corp. for Advertising Services; Does this contract include any revenue or profit-sharing arrangements?",
+  "answer": "Each Party shall receive 50% of all Net Revenue derived from the sale of advertising Inventory that is  exhibited in the Theatres (the \"Advertising Revenue Share\").",
+  "passages": [
+   "Each Party shall receive 50% of all Net Revenue derived from the sale of advertising Inventory that is  exhibited in the Theatres (the \"Advertising Revenue Share\")."
+  ]
+ },
+ {
+  "item_id": "qa-051",
+  "doc_id": "cuad-022",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Network Affiliate Agreement between National CineMedia, LLC and Digital Cinema Destinations Corp. for Advertising Services; Is there a minimum commitment required under this contract?",
+  "answer": "For each twelve-month period following the Effective Date during the Term, and as long as Network Affiliate's  attendance base in the Theatres for the twelve (12) month period is equal to or greater than 400,000 patrons (the \"Base Amount\"), the amount paid  by NCM pursuant to Section 7.1(b) shall be not less than $ .17 per Theatre patron during such period with such amount increasing by 5% on each  anniversary of the Effective Date (the \"Minimum Fee\"). The Minimum Fee shall be prorated to account for (i) any periods during which Network  Affiliate's annual attendance base in the Theatres is lower than the Base Amount, and (ii) reductions in revenue associated with Network  Affiliate's rejection of content as permitted under Section 3.4. Any payments made in order to satisfy the \"Minimum Fee\" which can be  characterized as an advance of amounts due from advertising clients which is \"earned but not yet paid\" shall be deducted from the following  year's payments when such amounts have in fact been collected.",
+  "passages": [
+   "For each twelve-month period following the Effective Date during the Term, and as long as Network Affiliate's  attendance base in the Theatres for the twelve (12) month period is equal to or greater than 400,000 patrons (the \"Base Amount\"), the amount paid  by NCM pursuant to Section 7.1(b) shall be not less than $ .17 per Theatre patron during such period with such amount increasing by 5% on each  anniversary of the Effective Date (the \"Minimum Fee\"). The Minimum Fee shall be prorated to account for (i) any periods during which Network  Affiliate's annual attendance base in the Theatres is lower than the Base Amount, and (ii) reductions in revenue associated with Network  Affiliate's rejection of content as permitted under Section 3.4. Any payments made in order to satisfy the \"Minimum Fee\" which can be  characterized as an advance of amounts due from advertising clients which is \"earned but not yet paid\" shall be deducted from the following  year's payments when such amounts have in fact been collected."
+  ]
+ },
+ {
+  "item_id": "qa-052",
+  "doc_id": "cuad-022",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Network Affiliate Agreement between National CineMedia, LLC and Digital Cinema Destinations Corp. for Advertising Services; How is intellectual property ownership assigned in this contract?",
+  "answer": "Any and all data, information, and material created, conceived, reduced to practice, or developed by or on  behalf of either Party, whether alone, in connection with the other Party or any third party, including, without limitation, written works, processes,  methods, inventions, discoveries, software, works of visual art, audio works, look-and-feel attributes, and multimedia works, based on, using, or  derived from, in whole or in part, any NCM Property, whether or not done on NCM's facilities, with NCM's equipment, or by NCM personnel, and  any and all right, title, and interest therein and thereto (including, but not limited to, the right to sue for past infringement) (collectively, \"Derived  Works\"), shall be owned solely and exclusively by NCM, and Network Affiliate agrees to and hereby does assign, transfer, and convey to NCM  (and will ensure than any third party acting with or on behalf of Network Affiliate assigns, transfers, and conveys to NCM any and all right, title, or  interest in or to any Derived Work which it may at any time acquire by operation of law or otherwise.",
+  "passages": [
+   "Any and all data, information, and material created, conceived, reduced to practice, or developed by or on  behalf of either Party, whether alone, in connection with the other Party or any third party, including, without limitation, written works, processes,  methods, inventions, discoveries, software, works of visual art, audio works, look-and-feel attributes, and multimedia works, based on, using, or  derived from, in whole or in part, any NCM Property, whether or not done on NCM's facilities, with NCM's equipment, or by NCM personnel, and  any and all right, title, and interest therein and thereto (including, but not limited to, the right to sue for past infringement) (collectively, \"Derived  Works\"), shall be owned solely and exclusively by NCM, and Network Affiliate agrees to and hereby does assign, transfer, and convey to NCM  (and will ensure than any third party acting with or on behalf of Network Affiliate assigns, transfers, and conveys to NCM any and all right, title, or  interest in or to any Derived Work which it may at any time acquire by operation of law or otherwise."
+  ]
+ },
+ {
+  "item_id": "qa-053",
+  "doc_id": "cuad-023",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and PaperExchange.com, LLC; What is the expiration date of this contract?",
+  "answer": "Initial Term shall mean the Effective Date through the day prior to the fourth anniversary of the Effective Date, unless earlier terminated pursuant to Section 8",
+  "passages": [
+   "Initial Term shall mean the Effective Date through the day prior to the fourth anniversary of the Effective Date, unless earlier terminated pursuant to Section 8"
+  ]
+ },
+ {
+  "item_id": "qa-054",
+  "doc_id": "cuad-023",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and PaperExchange.com, LLC; Are the licenses granted under this contract non-transferable?",
+  "answer": "VerticalNet hereby grants to PaperExchange a non-exclusive, non-transferable license to use, reproduce, display and transmit the VerticalNet Content, solely in connection with the development, maintenance and operation of the PaperExchange Site, subject to and in accordance with the terms, conditions and provisions of this Agreement. … VerticalNet hereby grants to PaperExchange a non-exclusive, non-transferable, royalty-free, right and license to link to Pulp and Paper Online through a VerticalNet Link … PaperExchange hereby grants VerticalNet a non-exclusive, non-transferable, royalty-free, right and license to link to the PaperExchange Site through a PaperExchange Link",
+  "passages": [
+   "VerticalNet hereby grants to PaperExchange a non-exclusive, non-transferable license to use, reproduce, display and transmit the VerticalNet Content, solely in connection with the development, maintenance and operation of the PaperExchange Site, subject to and in accordance with the terms, conditions and provisions of this Agreement.",
+   "VerticalNet hereby grants to PaperExchange a non-exclusive, non-transferable, royalty-free, right and license to link to Pulp and Paper Online through a VerticalNet Link",
+   "PaperExchange hereby grants VerticalNet a non-exclusive, non-transferable, royalty-free, right and license to link to the PaperExchange Site through a PaperExchange Link"
+  ]
+ },
+ {
+  "item_id": "qa-055",
+  "doc_id": "cuad-023",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and PaperExchange.com, LLC; Is there a minimum commitment required under this contract?",
+  "answer": "During the Term, VerticalNet shall have the exclusive right to arrange for the sale of ***** of the third party advertising inventory (which shall consist of a minimum of one advertisement per page on each of the \"Co-Branded Equipment,\" \"Co-Branded Careers,\" \"Resources\" and \"Home Page\" sections or successor, replacement or substitute sections) of the PaperExchange Site and shall be consistent with the amount of advertising on other business to business vertical sites on the PaperExchange Site (the \"Third Party Advertising Allocation\").",
+  "passages": [
+   "During the Term, VerticalNet shall have the exclusive right to arrange for the sale of ***** of the third party advertising inventory (which shall consist of a minimum of one advertisement per page on each of the \"Co-Branded Equipment,\" \"Co-Branded Careers,\" \"Resources\" and \"Home Page\" sections or successor, replacement or substitute sections) of the PaperExchange Site and shall be consistent with the amount of advertising on other business to business vertical sites on the PaperExchange Site (the \"Third Party Advertising Allocation\")."
+  ]
+ },
+ {
+  "item_id": "qa-056",
+  "doc_id": "cuad-025",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Outsourcing Agreement between International Business Machines Corporation and Manufacturers' Services Western U.S. Operations, Inc.; What is the expiration date of this contract?",
+  "answer": "This Agreement shall become effective on the Effective Date and shall       continue for a period of three (3) years unless terminated as provided in       Section 5.0. … This Attachment and its Product Attachments shall become effective on the       Effective Date and shall continue for a period of three (3) years unless       terminated as provided in Section 5.0 of the Base Agreement.",
+  "passages": [
+   "This Agreement shall become effective on the Effective Date and shall       continue for a period of three (3) years unless terminated as provided in       Section 5.0.",
+   "This Attachment and its Product Attachments shall become effective on the       Effective Date and shall continue for a period of three (3) years unless       terminated as provided in Section 5.0 of the Base Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-057",
+  "doc_id": "cuad-025",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Outsourcing Agreement between International Business Machines Corporation and Manufacturers' Services Western U.S. Operations, Inc.; What is the notice period required to terminate the renewal?",
+  "answer": "This Agreement will automatically be renewed for periods of       twelve (12) months unless either Party gives six (6) months written       notice of its intent to terminate this Agreement. … This       Attachment will automatically be renewed for periods of six (6) months       unless either party gives twelve (12) months written notice of its intent       to terminate this Agreement.",
+  "passages": [
+   "This Agreement will automatically be renewed for periods of       twelve (12) months unless either Party gives six (6) months written       notice of its intent to terminate this Agreement.",
+   "This       Attachment will automatically be renewed for periods of six (6) months       unless either party gives twelve (12) months written notice of its intent       to terminate this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-058",
+  "doc_id": "cuad-025",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Outsourcing Agreement between International Business Machines Corporation and Manufacturers' Services Western U.S. Operations, Inc.; What is the renewal term for this contract?",
+  "answer": "This Agreement will automatically be renewed for periods of       twelve (12) months unless either Party gives six (6) months written       notice of its intent to terminate this Agreement. … This       Attachment will automatically be renewed for periods of six (6) months       unless either party gives twelve (12) months written notice of its intent       to terminate this Agreement.",
+  "passages": [
+   "This Agreement will automatically be renewed for periods of       twelve (12) months unless either Party gives six (6) months written       notice of its intent to terminate this Agreement.",
+   "This       Attachment will automatically be renewed for periods of six (6) months       unless either party gives twelve (12) months written notice of its intent       to terminate this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-059",
+  "doc_id": "cuad-026",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and Neoforma.com, Inc. for Medical and Healthcare Services; What is the expiration date of this contract?",
+  "answer": "INITIAL TERM shall mean the Effective Date through the day prior to the second anniversary of the Effective Date, unless earlier terminated pursuant to Section 11.",
+  "passages": [
+   "INITIAL TERM shall mean the Effective Date through the day prior to the second anniversary of the Effective Date, unless earlier terminated pursuant to Section 11."
+  ]
+ },
+ {
+  "item_id": "qa-060",
+  "doc_id": "cuad-026",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and Neoforma.com, Inc. for Medical and Healthcare Services; Are there any exceptions to competitive restrictions in this contract?",
+  "answer": "Notwithstanding the foregoing, VerticalNet's activities in connection with its \"Storefronts\" and \"E-Commerce Centers\" (as conducted today, in a fashion substantially similar to the manner in which such activities are conducted today or as otherwise mutually agreed upon by the parties, which agreement shall not be unreasonably withheld or delayed) shall not be considered to be a breach of Section 2.1  [MEDICAL PRODUCTS], 2.2  [MEDICAL PRODUCTS] or 2.3  [MEDICAL PRODUCTS]. … Notwithstanding the foregoing, the provisions of Sections 3.1  [LABORATORY PRODUCTS] through 3.8  [LABORATORY PRODUCTS] shall not apply to any Laboratory Product sold through live (non-virtual) auctions conducted by Neoforma (through Neoforma GAR or otherwise) for which no Product Listing is made; provided, however, that Neoforma shall use commercially reasonable efforts to acquire Product Listings for all such Laboratory Products. If Neoforma receives a set of Product Listings packaged as a \"lot,\" Neoforma shall use commercially reasonable efforts to provide all Laboratory Product Listings contained in such \"lot\" to VerticalNet in accordance with this Agreement.",
+  "passages": [
+   "Notwithstanding the foregoing, VerticalNet's activities in connection with its \"Storefronts\" and \"E-Commerce Centers\" (as conducted today, in a fashion substantially similar to the manner in which such activities are conducted today or as otherwise mutually agreed upon by the parties, which agreement shall not be unreasonably withheld or delayed) shall not be considered to be a breach of Section 2.1  [MEDICAL PRODUCTS], 2.2  [MEDICAL PRODUCTS] or 2.3  [MEDICAL PRODUCTS].",
+   "Notwithstanding the foregoing, the provisions of Sections 3.1  [LABORATORY PRODUCTS] through 3.8  [LABORATORY PRODUCTS] shall not apply to any Laboratory Product sold through live (non-virtual) auctions conducted by Neoforma (through Neoforma GAR or otherwise) for which no Product Listing is made; provided, however, that Neoforma shall use commercially reasonable efforts to acquire Product Listings for all such Laboratory Products. If Neoforma receives a set of Product Listings packaged as a \"lot,\" Neoforma shall use commercially reasonable efforts to provide all Laboratory Product Listings contained in such \"lot\" to VerticalNet in accordance with this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-061",
+  "doc_id": "cuad-026",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and Neoforma.com, Inc. for Medical and Healthcare Services; How is intellectual property ownership assigned in this contract?",
+  "answer": "VerticalNet shall register and own the domain name and the URL used in connection with the Co-Branded Career Center, subject, however, to Neoforma's agreement on the name to be used for the URL, which domain name and URL shall be mutually agreed upon by the Parties. … VerticalNet shall register and own the domain name and the URL used in connection with the Co-Branded Training and Education Center, subject, however, to Neoforma's agreement on the name to be used for the URL, which domain name and URL shall be mutually agreed upon by the Parties.",
+  "passages": [
+   "VerticalNet shall register and own the domain name and the URL used in connection with the Co-Branded Career Center, subject, however, to Neoforma's agreement on the name to be used for the URL, which domain name and URL shall be mutually agreed upon by the Parties.",
+   "VerticalNet shall register and own the domain name and the URL used in connection with the Co-Branded Training and Education Center, subject, however, to Neoforma's agreement on the name to be used for the URL, which domain name and URL shall be mutually agreed upon by the Parties."
+  ]
+ },
+ {
+  "item_id": "qa-062",
+  "doc_id": "cuad-027",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Xencor, Inc. and Aimmune Therapeutics, Inc. for AIMab7195; What are the audit rights under this contract?",
+  "answer": "Xencor shall have the right, upon [***] ([***]) days' prior written notice to Aimmune, to cause an independent, certified international public accounting firm reasonably acceptable to Aimmune or reasonably acceptable to its Affiliates or Sublicensees, as applicable, to audit such records during Aimmune's, or its Affiliate's or Sublicensees', as applicable, normal business hours to confirm the number of Product units sold, the gross sales and Net Sales of Product, the royalties payable, the method used to calculate the royalties payable, and the exchange rates used in accordance with Section 8.2 … The audit shall be limited to pertinent records kept by Aimmune and its Affiliates and Sublicensees for any year ending not more than [***] ([***]) months prior to the date of the written notice. An audit under this Section 8.4 shall not occur more than [***] in any Calendar Year, except in the case of any subsequent \"for cause\" audit. … Prompt adjustments shall be made by the Parties to reflect the results of such audit. Xencor shall bear the full cost of such audit unless such audit discloses an underpayment of more than [***] percent ([***]%) of the payments due under this Agreement, in which case, [***].",
+  "passages": [
+   "Xencor shall have the right, upon [***] ([***]) days' prior written notice to Aimmune, to cause an independent, certified international public accounting firm reasonably acceptable to Aimmune or reasonably acceptable to its Affiliates or Sublicensees, as applicable, to audit such records during Aimmune's, or its Affiliate's or Sublicensees', as applicable, normal business hours to confirm the number of Product units sold, the gross sales and Net Sales of Product, the royalties payable, the method used to calculate the royalties payable, and the exchange rates used in accordance with Section 8.2",
+   "The audit shall be limited to pertinent records kept by Aimmune and its Affiliates and Sublicensees for any year ending not more than [***] ([***]) months prior to the date of the written notice. An audit under this Section 8.4 shall not occur more than [***] in any Calendar Year, except in the case of any subsequent \"for cause\" audit.",
+   "Prompt adjustments shall be made by the Parties to reflect the results of such audit. Xencor shall bear the full cost of such audit unless such audit discloses an underpayment of more than [***] percent ([***]%) of the payments due under this Agreement, in which case, [***]."
+  ]
+ },
+ {
+  "item_id": "qa-063",
+  "doc_id": "cuad-027",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Xencor, Inc. and Aimmune Therapeutics, Inc. for AIMab7195; Does this contract provide for joint intellectual property ownership?",
+  "answer": "All Joint Inventions shall be jointly owned by the Parties, and Patents Covering Joint Inventions shall be referred to as \"Joint Collaboration Patents\".",
+  "passages": [
+   "All Joint Inventions shall be jointly owned by the Parties, and Patents Covering Joint Inventions shall be referred to as \"Joint Collaboration Patents\"."
+  ]
+ },
+ {
+  "item_id": "qa-064",
+  "doc_id": "cuad-027",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the License, Development, and Commercialization Agreement between Xencor, Inc. and Aimmune Therapeutics, Inc. for AIMab7195; Is there a cap on liability under this contract?",
+  "answer": "NEITHER PARTY SHALL BE LIABLE TO THE OTHER PARTY FOR ANY LOST PROFITS, OR ANY SPECIAL, CONSEQUENTIAL, INCIDENTAL, OR INDIRECT DAMAGES ARISING FROM OR RELATING TO ANY BREACH OF THIS AGREEMENT, REGARDLESS OF ANY NOTICE OF THE POSSIBILITY OF SUCH DAMAGES. NOTWITHSTANDING THE FOREGOING, NOTHING IN THIS SECTION 11.4 IS INTENDED TO OR SHALL LIMIT OR RESTRICT THE INDEMNIFICATION RIGHTS OR OBLIGATIONS OF ANY PARTY UNDER SECTION 11.1 or 11.2, OR DAMAGES AVAILABLE FOR A PARTY'S BREACH OF CONFIDENTIALITY OBLIGATIONS UNDER ARTICLE 12.",
+  "passages": [
+   "NEITHER PARTY SHALL BE LIABLE TO THE OTHER PARTY FOR ANY LOST PROFITS, OR ANY SPECIAL, CONSEQUENTIAL, INCIDENTAL, OR INDIRECT DAMAGES ARISING FROM OR RELATING TO ANY BREACH OF THIS AGREEMENT, REGARDLESS OF ANY NOTICE OF THE POSSIBILITY OF SUCH DAMAGES. NOTWITHSTANDING THE FOREGOING, NOTHING IN THIS SECTION 11.4 IS INTENDED TO OR SHALL LIMIT OR RESTRICT THE INDEMNIFICATION RIGHTS OR OBLIGATIONS OF ANY PARTY UNDER SECTION 11.1 or 11.2, OR DAMAGES AVAILABLE FOR A PARTY'S BREACH OF CONFIDENTIALITY OBLIGATIONS UNDER ARTICLE 12."
+  ]
+ },
+ {
+  "item_id": "qa-065",
+  "doc_id": "cuad-028",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Supply Agreement between Miltenyi Biotec GmbH and Bellicum Pharmaceuticals, Inc.; Is there an anti-assignment clause in this contract?",
+  "answer": "Except as expressly provided in this Agreement, Bellicum specifically agrees not to, and agrees not to cause any Third Party to, sell, market, export, transfer, or re-export Miltenyi Products without Miltenyi's express prior written consent. … This Agreement shall not be assignable, pledged or otherwise transferred, nor may any right or obligations hereunder be assigned, pledged or transferred, by either Party to any Third Party without the prior written consent of the other Party, which consent, in the event of a financing transaction by the Party asking for consent, shall not be unreasonably withheld, conditioned or delayed by the other Party; except either Party may assign or otherwise transfer this Agreement without the consent of the other Party to an entity that acquires all or substantially all of the business or assets of the assigning Party relating to the subject matter of this Agreement, whether by merger, acquisition or otherwise; provided that intellectual property rights that are owned or held by the acquiring entity or person to such transaction (if other than one of the Parties to this Agreement) shall not be included in the technology licensed hereunder … Any assignment of this Agreement in contravention of this Article 17 shall be null and void.",
+  "passages": [
+   "Except as expressly provided in this Agreement, Bellicum specifically agrees not to, and agrees not to cause any Third Party to, sell, market, export, transfer, or re-export Miltenyi Products without Miltenyi's express prior written consent.",
+   "This Agreement shall not be assignable, pledged or otherwise transferred, nor may any right or obligations hereunder be assigned, pledged or transferred, by either Party to any Third Party without the prior written consent of the other Party, which consent, in the event of a financing transaction by the Party asking for consent, shall not be unreasonably withheld, conditioned or delayed by the other Party; except either Party may assign or otherwise transfer this Agreement without the consent of the other Party to an entity that acquires all or substantially all of the business or assets of the assigning Party relating to the subject matter of this Agreement, whether by merger, acquisition or otherwise; provided that intellectual property rights that are owned or held by the acquiring entity or person to such transaction (if other than one of the Parties to this Agreement) shall not be included in the technology licensed hereunder",
+   "Any assignment of this Agreement in contravention of this Article 17 shall be null and void."
+  ]
+ },
+ {
+  "item_id": "qa-066",
+  "doc_id": "cuad-028",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Supply Agreement between Miltenyi Biotec GmbH and Bellicum Pharmaceuticals, Inc.; What are the audit rights under this contract?",
+  "answer": "Upon commercially reasonable notice (to be provided not less than [...***...] days in advance) and during Miltenyi's normal business hours, but not more often than once every [...***...] months, except for cause, during the Term of this Agreement, Bellicum or Bellicum's Licensees duly authorized agents, representatives or designees may inspect those portions of Miltenyi's Facilities that are used to manufacture, store or conduct testing of Miltenyi Products to determine compliance with Agreed Standards, Applicable Laws and the applicable Quality Agreement. … All audits shall be conducted in a manner that is intended to minimize disruption to the operations at such Facilities. … If Bellicum or or Bellicum's Licensees conduct a Facility audit or inspection more than [...***...] in a [...***...] month period, and such additional audits are not \"for cause\" audits, then Bellicum and its Licensees (as applicable) shall reimburse Miltenyi for all reasonable out-of-pocket expenses reasonably incurred by Miltenyi as a direct result of Facility audits and/or inspections pursuant to Sections 9.1and 9.3 solely to the extent that they relate to the review of a Bellicum Produc",
+  "passages": [
+   "Upon commercially reasonable notice (to be provided not less than [...***...] days in advance) and during Miltenyi's normal business hours, but not more often than once every [...***...] months, except for cause, during the Term of this Agreement, Bellicum or Bellicum's Licensees duly authorized agents, representatives or designees may inspect those portions of Miltenyi's Facilities that are used to manufacture, store or conduct testing of Miltenyi Products to determine compliance with Agreed Standards, Applicable Laws and the applicable Quality Agreement.",
+   "All audits shall be conducted in a manner that is intended to minimize disruption to the operations at such Facilities.",
+   "If Bellicum or or Bellicum's Licensees conduct a Facility audit or inspection more than [...***...] in a [...***...] month period, and such additional audits are not \"for cause\" audits, then Bellicum and its Licensees (as applicable) shall reimburse Miltenyi for all reasonable out-of-pocket expenses reasonably incurred by Miltenyi as a direct result of Facility audits and/or inspections pursuant to Sections 9.1and 9.3 solely to the extent that they relate to the review of a Bellicum Produc"
+  ]
+ },
+ {
+  "item_id": "qa-067",
+  "doc_id": "cuad-028",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Supply Agreement between Miltenyi Biotec GmbH and Bellicum Pharmaceuticals, Inc.; What are the insurance requirements under this contract?",
+  "answer": "Each Party will maintain at its sole cost and expense, an adequate amount of commercial general liability and product liability insurance throughout the Term and for a period of five (5) years thereafter, to protect against potential liabilities and risk arising out of products supplied or activities to be performed under this Agreement and any Quality Agreement related hereto upon such terms (including coverages, deductible limits and self-insured retentions) as are customary in the industry for the products supplied or activities to be conducted by such Party under this Agreement. Subject to the preceding sentence, such Bellicum liability insurance or self-insurance program will insure against personal injury, physical injury or property damage arising out of the pre-clinical, clinical and commercial manufacture, sale, use, distribution or marketing of Bellicum Product, and such Miltenyi liability insurance or self-insurance program will insure against personal injury, physical injury or property damage arising out of use of a Miltenyi Product in the manufacture of a Bellicum Product … In addition, from time to time during the Term, each Party shall increase their levels of insurance coverage if reasonably deemed prudent by such Party in light of the overall products supplied and/or activities performed under this Agreement. Each Party shall provide the other Party with written proof of the existence of such insurance upon reasonable written request.",
+  "passages": [
+   "Each Party will maintain at its sole cost and expense, an adequate amount of commercial general liability and product liability insurance throughout the Term and for a period of five (5) years thereafter, to protect against potential liabilities and risk arising out of products supplied or activities to be performed under this Agreement and any Quality Agreement related hereto upon such terms (including coverages, deductible limits and self-insured retentions) as are customary in the industry for the products supplied or activities to be conducted by such Party under this Agreement. Subject to the preceding sentence, such Bellicum liability insurance or self-insurance program will insure against personal injury, physical injury or property damage arising out of the pre-clinical, clinical and commercial manufacture, sale, use, distribution or marketing of Bellicum Product, and such Miltenyi liability insurance or self-insurance program will insure against personal injury, physical injury or property damage arising out of use of a Miltenyi Product in the manufacture of a Bellicum Product",
+   "In addition, from time to time during the Term, each Party shall increase their levels of insurance coverage if reasonably deemed prudent by such Party in light of the overall products supplied and/or activities performed under this Agreement. Each Party shall provide the other Party with written proof of the existence of such insurance upon reasonable written request."
+  ]
+ },
+ {
+  "item_id": "qa-068",
+  "doc_id": "cuad-029",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between Dialog Semiconductor (UK) Ltd and Energous Corporation; Are any of the licenses granted under this contract irrevocable or perpetual?",
+  "answer": "Subject to the restrictions set out in Section 2.2, ENERGOUS hereby grants to DIALOG a non-exclusive (subject to Section 2.5), irrevocable, worldwide, sub-licensable (solely in accordance with Section 2.4), royalty-bearing license during the Term under all Product IP to:",
+  "passages": [
+   "Subject to the restrictions set out in Section 2.2, ENERGOUS hereby grants to DIALOG a non-exclusive (subject to Section 2.5), irrevocable, worldwide, sub-licensable (solely in accordance with Section 2.4), royalty-bearing license during the Term under all Product IP to:"
+  ]
+ },
+ {
+  "item_id": "qa-069",
+  "doc_id": "cuad-029",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between Dialog Semiconductor (UK) Ltd and Energous Corporation; Does the licensee's affiliates have any licensing rights under this contract?",
+  "answer": "DIALOG may sublicense the foregoing license rights to any of its Affiliates. … IALOG's license to possess and use the Deposit Materials does not include any right to disclose, market, sublicense or distribute the Deposit Materials to any third party other than its Affiliates and Manufacturing Subcontractors.",
+  "passages": [
+   "DIALOG may sublicense the foregoing license rights to any of its Affiliates.",
+   "IALOG's license to possess and use the Deposit Materials does not include any right to disclose, market, sublicense or distribute the Deposit Materials to any third party other than its Affiliates and Manufacturing Subcontractors."
+  ]
+ },
+ {
+  "item_id": "qa-070",
+  "doc_id": "cuad-029",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Strategic Alliance Agreement between Dialog Semiconductor (UK) Ltd and Energous Corporation; Does this contract include an exclusivity agreement?",
+  "answer": "Subject to paragraph (b) of this Section 2.5, ENERGOUS will not, and will not enable any Semiconductor Supplier, to manufacture, have manufactured, offer for sale, sell, import or export the Products or Product Die in commercial volumes, except a Semiconductor Supplier to the Key Customer for use in the Excluded Applications. … If DIALOG decides to discontinue Sales of any Product, it will notify ENERGOUS at least [***] prior to such discontinuance, and following such notification, the exclusivity rights, if any, associated with that Product will cease; provided, however, this provision will not apply in the event that DIALOG continues Sales of Product Updates, repackaged Product Dies or MCMs.",
+  "passages": [
+   "Subject to paragraph (b) of this Section 2.5, ENERGOUS will not, and will not enable any Semiconductor Supplier, to manufacture, have manufactured, offer for sale, sell, import or export the Products or Product Die in commercial volumes, except a Semiconductor Supplier to the Key Customer for use in the Excluded Applications.",
+   "If DIALOG decides to discontinue Sales of any Product, it will notify ENERGOUS at least [***] prior to such discontinuance, and following such notification, the exclusivity rights, if any, associated with that Product will cease; provided, however, this provision will not apply in the event that DIALOG continues Sales of Product Updates, repackaged Product Dies or MCMs."
+  ]
+ },
+ {
+  "item_id": "qa-071",
+  "doc_id": "cuad-030",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Theravance, Inc. and Glaxo Group Limited for Development of Long-Acting β2 Adrenoceptor Agonists; What happens in the event of a change of control of one of the parties in this contract?",
+  "answer": "GSK may sublicense or subcontract its rights to Develop, Manufacture or Commercialize the Collaboration Products in whole or in part to one or more of its Affiliates, provided that the rights sublicensed or subcontracted to such Affiliate shall automatically terminate upon a change of control of such Affiliate in connection with which such Affiliate ceases to be an Affiliate of GSK.",
+  "passages": [
+   "GSK may sublicense or subcontract its rights to Develop, Manufacture or Commercialize the Collaboration Products in whole or in part to one or more of its Affiliates, provided that the rights sublicensed or subcontracted to such Affiliate shall automatically terminate upon a change of control of such Affiliate in connection with which such Affiliate ceases to be an Affiliate of GSK."
+  ]
+ },
+ {
+  "item_id": "qa-072",
+  "doc_id": "cuad-030",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Theravance, Inc. and Glaxo Group Limited for Development of Long-Acting β2 Adrenoceptor Agonists; Is there a cap on liability under this contract?",
+  "answer": "The Party subject to the Force Majeure Event shall not be liable to the other Party for any direct, indirect, consequential, incidental, special, punitive, exemplary or other damages arising out of or relating to the suspension or termination of any of its obligations or duties under this Agreement by reason of the occurrence of a Force Majeure Event, provided such Party complies in all material respects with its obligations under this Section 16.3.",
+  "passages": [
+   "The Party subject to the Force Majeure Event shall not be liable to the other Party for any direct, indirect, consequential, incidental, special, punitive, exemplary or other damages arising out of or relating to the suspension or termination of any of its obligations or duties under this Agreement by reason of the occurrence of a Force Majeure Event, provided such Party complies in all material respects with its obligations under this Section 16.3."
+  ]
+ },
+ {
+  "item_id": "qa-073",
+  "doc_id": "cuad-031",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaborative Development and Commercialization Agreement between Microgenics Corporation and Achaogen, Inc. for Plazomicin Assay; Is there an anti-assignment clause in this contract?",
+  "answer": "Neither Party may assign this Agreement to a Third Party unless both Parties have agreed to such assignment in a writing signed by an authorized representative of each Party hereto; provided, however, that upon providing written notice, (i) either Party may, without the other Party's consent, assign this Agreement to an Affiliate or to any Third Party entity that acquires all or substantially all of its assets to which this Agreement relates and (ii) Achaogen may, without Microgenics' consent, assign this Agreement (in whole or in part) to a Third Party licensee of Achaogen's rights with respect to Plazomicin. … Any assignment not in accordance with this Section 13.2 (Assignment) shall be void.",
+  "passages": [
+   "Neither Party may assign this Agreement to a Third Party unless both Parties have agreed to such assignment in a writing signed by an authorized representative of each Party hereto; provided, however, that upon providing written notice, (i) either Party may, without the other Party's consent, assign this Agreement to an Affiliate or to any Third Party entity that acquires all or substantially all of its assets to which this Agreement relates and (ii) Achaogen may, without Microgenics' consent, assign this Agreement (in whole or in part) to a Third Party licensee of Achaogen's rights with respect to Plazomicin.",
+   "Any assignment not in accordance with this Section 13.2 (Assignment) shall be void."
+  ]
+ },
+ {
+  "item_id": "qa-074",
+  "doc_id": "cuad-031",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaborative Development and Commercialization Agreement between Microgenics Corporation and Achaogen, Inc. for Plazomicin Assay; What is the governing law for this contract?",
+  "answer": "This Agreement is subject to and governed by the laws of the State of Delaware, U.S.A. (without regard to conflict of law principles).",
+  "passages": [
+   "This Agreement is subject to and governed by the laws of the State of Delaware, U.S.A. (without regard to conflict of law principles)."
+  ]
+ },
+ {
+  "item_id": "qa-075",
+  "doc_id": "cuad-032",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Manufacturing Outsourcing Agreement between Nice Systems Ltd. and Flextronics Israel Ltd.; Are any of the licenses granted under this contract irrevocable or perpetual?",
+  "answer": "Notwithstanding the aforesaid, it is agreed that any           manufacturing methods applied by Contractor, which are Contractor's           Proprietary Information, may be used by NICE itself (including its           Affiliates) (but may not be transferred/disclosed to any third party)           and by signing this Agreement Contractor hereby grants NICE a           personal, non exclusive, non transferable, perpetual license to use           such manufacturing methods.",
+  "passages": [
+   "Notwithstanding the aforesaid, it is agreed that any           manufacturing methods applied by Contractor, which are Contractor's           Proprietary Information, may be used by NICE itself (including its           Affiliates) (but may not be transferred/disclosed to any third party)           and by signing this Agreement Contractor hereby grants NICE a           personal, non exclusive, non transferable, perpetual license to use           such manufacturing methods."
+  ]
+ },
+ {
+  "item_id": "qa-076",
+  "doc_id": "cuad-032",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Manufacturing Outsourcing Agreement between Nice Systems Ltd. and Flextronics Israel Ltd.; What is the renewal term for this contract?",
+  "answer": "The initial term of this Agreement shall           commence on the Effective Date and extend for three (3) years           thereafter (\"INITIAL TERM\"), with an automatic renewal for an           indefinite period of time (\"EXTENDED TERM\"), unless terminated by the           parties according to Sections 16.2. or 16.3. herein.",
+  "passages": [
+   "The initial term of this Agreement shall           commence on the Effective Date and extend for three (3) years           thereafter (\"INITIAL TERM\"), with an automatic renewal for an           indefinite period of time (\"EXTENDED TERM\"), unless terminated by the           parties according to Sections 16.2. or 16.3. herein."
+  ]
+ },
+ {
+  "item_id": "qa-077",
+  "doc_id": "cuad-032",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Manufacturing Outsourcing Agreement between Nice Systems Ltd. and Flextronics Israel Ltd.; Is there an anti-assignment clause in this contract?",
+  "answer": "Neither party shall in any way sell, transfer, assign,           sub-contract or otherwise dispose of any of the rights, privileges,           duties and obligations granted or imposed upon it under this           Agreement. However, NICE may, at its discretion, transfer and/or           assign any of its rights, privileges, duties and obligations granted           or imposed upon it under this Agreement to any NICE Affiliate,           provided that NICE remains responsible towards Contractor, jointly and           severally with the Affiliate, for all of its obligations hereunder so           assigned, and provided further that the assignee signs this Agreement.",
+  "passages": [
+   "Neither party shall in any way sell, transfer, assign,           sub-contract or otherwise dispose of any of the rights, privileges,           duties and obligations granted or imposed upon it under this           Agreement. However, NICE may, at its discretion, transfer and/or           assign any of its rights, privileges, duties and obligations granted           or imposed upon it under this Agreement to any NICE Affiliate,           provided that NICE remains responsible towards Contractor, jointly and           severally with the Affiliate, for all of its obligations hereunder so           assigned, and provided further that the assignee signs this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-078",
+  "doc_id": "cuad-033",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Technology Outsourcing Agreement between Oriental Financial Group Inc. and Metavante Corporation; What is the expiration date of this contract?",
+  "answer": "The term of this Agreement shall commence on the Effective Date and end on November 30, 2014 (the \"Initial Term\").",
+  "passages": [
+   "The term of this Agreement shall commence on the Effective Date and end on November 30, 2014 (the \"Initial Term\")."
+  ]
+ },
+ {
+  "item_id": "qa-079",
+  "doc_id": "cuad-033",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Technology Outsourcing Agreement between Oriental Financial Group Inc. and Metavante Corporation; What is the notice period required to terminate the renewal?",
+  "answer": "Unless Customer notifies Metavante of its intent not to renew this Agreement in writing within a period of three (3) months following the Renewal Notice, this Agreement shall automatically renew at the end of the Initial Term on the same terms (including pricing terms) for one (1) twelve-month period.",
+  "passages": [
+   "Unless Customer notifies Metavante of its intent not to renew this Agreement in writing within a period of three (3) months following the Renewal Notice, this Agreement shall automatically renew at the end of the Initial Term on the same terms (including pricing terms) for one (1) twelve-month period."
+  ]
+ },
+ {
+  "item_id": "qa-080",
+  "doc_id": "cuad-033",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Technology Outsourcing Agreement between Oriental Financial Group Inc. and Metavante Corporation; Are the licenses granted under this contract non-transferable?",
+  "answer": "Metavante hereby grants to Customer a personal, nonexclusive, and nontransferable license and right, for the duration of this Agreement, to use the Incidental Software solely in accordance with the applicable Documentation and for no other purposes. … The Licensed Software is a copyrighted software product developed and owned by Metavante. All rights are reserved worldwide. Customer is granted a nonexclusive, nontransferable (except to permitted assigns of this Agreement) limited license to use the Licensed Software during the term of this Agreement. Customer shall not sell, lease, copy, distribute, transfer, assign or sublicense the Licensed Software to any third party.",
+  "passages": [
+   "Metavante hereby grants to Customer a personal, nonexclusive, and nontransferable license and right, for the duration of this Agreement, to use the Incidental Software solely in accordance with the applicable Documentation and for no other purposes.",
+   "The Licensed Software is a copyrighted software product developed and owned by Metavante. All rights are reserved worldwide. Customer is granted a nonexclusive, nontransferable (except to permitted assigns of this Agreement) limited license to use the Licensed Software during the term of this Agreement. Customer shall not sell, lease, copy, distribute, transfer, assign or sublicense the Licensed Software to any third party."
+  ]
+ },
+ {
+  "item_id": "qa-081",
+  "doc_id": "cuad-034",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pizza Fusion Holdings, Inc. and Franchisee; Are the licenses granted under this contract non-transferable?",
+  "answer": "You have no right to sublicense either the Proprietary Marks or the System to anyone else;",
+  "passages": [
+   "You have no right to sublicense either the Proprietary Marks or the System to anyone else;"
+  ]
+ },
+ {
+  "item_id": "qa-082",
+  "doc_id": "cuad-034",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pizza Fusion Holdings, Inc. and Franchisee; What is the expiration date of this contract?",
+  "answer": "This Agreement expires ten (10) years from the Agreement Date (the \"Term\"), unless it is terminated sooner as provided in other sections of this Agreement.",
+  "passages": [
+   "This Agreement expires ten (10) years from the Agreement Date (the \"Term\"), unless it is terminated sooner as provided in other sections of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-083",
+  "doc_id": "cuad-034",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Franchise Agreement between Pizza Fusion Holdings, Inc. and Franchisee; What is the renewal term for this contract?",
+  "answer": "When this Agreement expires, you will have the option to continue the franchise relationship with us for two (2) additional terms of ten (10) years each.",
+  "passages": [
+   "When this Agreement expires, you will have the option to continue the franchise relationship with us for two (2) additional terms of ten (10) years each."
+  ]
+ },
+ {
+  "item_id": "qa-084",
+  "doc_id": "cuad-035",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaborative Research, Development and Commercialization Agreement between Revolution Medicines, Inc. and Aventis, Inc. (Sanofi); Is there a non-compete clause in this contract?",
+  "answer": "Except pursuant to or as expressly permitted by this Agreement, RevMed shall not, shall cause its Affiliates not to, conduct or agree to conduct, outside of the Collaboration, on its own or together with one or more Third Parties, the Research, Development or Commercialization of any product that contains a SHP2 Inhibitor, including any SHP1-SHP2 Dual Inhibitor that [***]. For purposes of this Section, [***]. … If after [***]: (i) Sanofi or its Affiliates, alone or with or through a Third Party, develop, manufacture or commercialize a Competing Product and (ii) Sanofi or its Affiliates have not commenced a Registrational Clinical Trial for a Product prior to commencing the activities in Section 12.2(d)(i), RevMed may terminate this Agreement effective [***] after it delivers written notice to Sanofi that it is exercising its rights under this Section 12.2(d) unless Sanofi elects in writing within such [***] period to [***].",
+  "passages": [
+   "Except pursuant to or as expressly permitted by this Agreement, RevMed shall not, shall cause its Affiliates not to, conduct or agree to conduct, outside of the Collaboration, on its own or together with one or more Third Parties, the Research, Development or Commercialization of any product that contains a SHP2 Inhibitor, including any SHP1-SHP2 Dual Inhibitor that [***]. For purposes of this Section, [***].",
+   "If after [***]: (i) Sanofi or its Affiliates, alone or with or through a Third Party, develop, manufacture or commercialize a Competing Product and (ii) Sanofi or its Affiliates have not commenced a Registrational Clinical Trial for a Product prior to commencing the activities in Section 12.2(d)(i), RevMed may terminate this Agreement effective [***] after it delivers written notice to Sanofi that it is exercising its rights under this Section 12.2(d) unless Sanofi elects in writing within such [***] period to [***]."
+  ]
+ },
+ {
+  "item_id": "qa-085",
+  "doc_id": "cuad-035",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaborative Research, Development and Commercialization Agreement between Revolution Medicines, Inc. and Aventis, Inc. (Sanofi); What happens in the event of a change of control of one of the parties in this contract?",
+  "answer": "RevMed will notify Sanofi in writing as soon as possible after RevMed announces publicly any information regarding any proposed Change of Control of RevMed (or if the Change of Control will not be publicly announced, then no later than [***] after the signing of the Change of Control). Sanofi will have the option to either (A) terminate this Agreement in its entirety upon written notice to RevMed provided to RevMed within [***] of the effective date of such Change of Control; or (B) [***]. … RevMed shall pay Sanofi such royalties until the earlier of (x) expiration of the Post-Termination Royalty Term therefor and (y) a Change of Control of Sanofi.",
+  "passages": [
+   "RevMed will notify Sanofi in writing as soon as possible after RevMed announces publicly any information regarding any proposed Change of Control of RevMed (or if the Change of Control will not be publicly announced, then no later than [***] after the signing of the Change of Control). Sanofi will have the option to either (A) terminate this Agreement in its entirety upon written notice to RevMed provided to RevMed within [***] of the effective date of such Change of Control; or (B) [***].",
+   "RevMed shall pay Sanofi such royalties until the earlier of (x) expiration of the Post-Termination Royalty Term therefor and (y) a Change of Control of Sanofi."
+  ]
+ },
+ {
+  "item_id": "qa-086",
+  "doc_id": "cuad-035",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaborative Research, Development and Commercialization Agreement between Revolution Medicines, Inc. and Aventis, Inc. (Sanofi); What is the governing law for this contract?",
+  "answer": "This Agreement shall be governed by and construed in accordance with the laws of the State of New York without reference to any rules of conflict of laws. … This Letter shall be governed by and construed in accordance with the laws of the State of New York without reference to any rules of conflict of laws.",
+  "passages": [
+   "This Agreement shall be governed by and construed in accordance with the laws of the State of New York without reference to any rules of conflict of laws.",
+   "This Letter shall be governed by and construed in accordance with the laws of the State of New York without reference to any rules of conflict of laws."
+  ]
+ },
+ {
+  "item_id": "qa-087",
+  "doc_id": "cuad-036",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement for Development and Supply of Biosuperior Monoclonal Antibodies between Xencor, Inc. and Boehringer Ingelheim International GmbH; Does this contract include an exclusivity agreement?",
+  "answer": "Subject to XENCOR's adherence to the obligations under this Agreement, BII hereby grants XENCOR a worldwide, irrevocable, exclusive, sublicensable and royalty free license to use the Process and all reasonably necessary related BII Confidential Information and Know- How, BII Technology and BII Intellectual Property for the sole purpose of making and having made the Product; provided that such license shall become effective only upon complete payment of the Technology Access Fee, as applicable.",
+  "passages": [
+   "Subject to XENCOR's adherence to the obligations under this Agreement, BII hereby grants XENCOR a worldwide, irrevocable, exclusive, sublicensable and royalty free license to use the Process and all reasonably necessary related BII Confidential Information and Know- How, BII Technology and BII Intellectual Property for the sole purpose of making and having made the Product; provided that such license shall become effective only upon complete payment of the Technology Access Fee, as applicable."
+  ]
+ },
+ {
+  "item_id": "qa-088",
+  "doc_id": "cuad-036",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement for Development and Supply of Biosuperior Monoclonal Antibodies between Xencor, Inc. and Boehringer Ingelheim International GmbH; Are there any exceptions to competitive restrictions in this contract?",
+  "answer": "The Parties acknowledge that nothing in this Agreement shall limit or restrict XENCOR, itself or with or through any third party, from developing and using any process (except for the Process) for the manufacture of any of its products, including the Product, provided that no BII Confidential Information and Know-How is used and XENCOR adheres to its confidentiality and non-use obligations hereunder and complies with the ownership of intellectual property and Improvements as set forth in Section 8 below.",
+  "passages": [
+   "The Parties acknowledge that nothing in this Agreement shall limit or restrict XENCOR, itself or with or through any third party, from developing and using any process (except for the Process) for the manufacture of any of its products, including the Product, provided that no BII Confidential Information and Know-How is used and XENCOR adheres to its confidentiality and non-use obligations hereunder and complies with the ownership of intellectual property and Improvements as set forth in Section 8 below."
+  ]
+ },
+ {
+  "item_id": "qa-089",
+  "doc_id": "cuad-037",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Astellas Pharma Inc. and FibroGen, Inc. for Development of Anemia Treatments; Are there any exceptions to competitive restrictions in this contract?",
+  "answer": "Subject to Section 8.3.5 hereof, nothing herein is intended to preclude FG from granting rights to supply or supplying (a) any Lead Compound outside of the Astellas Territory to any third party for use within or outside the Field, or (b) any compound Controlled by FG within the Astellas Territory except for a Lead Compound for the duration of its designation in compliance with the terms and conditions of this Agreement.",
+  "passages": [
+   "Subject to Section 8.3.5 hereof, nothing herein is intended to preclude FG from granting rights to supply or supplying (a) any Lead Compound outside of the Astellas Territory to any third party for use within or outside the Field, or (b) any compound Controlled by FG within the Astellas Territory except for a Lead Compound for the duration of its designation in compliance with the terms and conditions of this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-090",
+  "doc_id": "cuad-037",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Astellas Pharma Inc. and FibroGen, Inc. for Development of Anemia Treatments; Is there a cap on liability under this contract?",
+  "answer": "FG's sole obligation and Astellas' sole remedy with respect to Lead Compound which does not meet the warranty contained herein is limited to replacement of such Lead Compound and reimbursement of Astellas' out of pocket expenses for shipping to FG at the address designated by FG.",
+  "passages": [
+   "FG's sole obligation and Astellas' sole remedy with respect to Lead Compound which does not meet the warranty contained herein is limited to replacement of such Lead Compound and reimbursement of Astellas' out of pocket expenses for shipping to FG at the address designated by FG."
+  ]
+ },
+ {
+  "item_id": "qa-091",
+  "doc_id": "cuad-037",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Collaboration Agreement between Astellas Pharma Inc. and FibroGen, Inc. for Development of Anemia Treatments; Can this contract be terminated for convenience, and under what conditions?",
+  "answer": "Subject to Section 18.7.2, Astellas may terminate this Agreement upon six (6) months notice to FG for any reason or no reason.",
+  "passages": [
+   "Subject to Section 18.7.2, Astellas may terminate this Agreement upon six (6) months notice to FG for any reason or no reason."
+  ]
+ },
+ {
+  "item_id": "qa-092",
+  "doc_id": "cuad-038",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and LeadersOnline, Inc.; What is the expiration date of this contract?",
+  "answer": "Term shall mean the Effective Date through June 15, 2001 and any Renewal Term (as defined in paragraph 7.4 herein.)",
+  "passages": [
+   "Term shall mean the Effective Date through June 15, 2001 and any Renewal Term (as defined in paragraph 7.4 herein.)"
+  ]
+ },
+ {
+  "item_id": "qa-093",
+  "doc_id": "cuad-038",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and LeadersOnline, Inc.; Does this contract include any volume restrictions?",
+  "answer": "In addition, as part of the purchase commitment set forth in Section 3.1  [Purchase Commitment], VerticalNet shall provide LeadersOnline up to $*** worth of Banner placements on the Home Page of other VerticalNet Sites of LeadersOnline's choice.",
+  "passages": [
+   "In addition, as part of the purchase commitment set forth in Section 3.1  [Purchase Commitment], VerticalNet shall provide LeadersOnline up to $*** worth of Banner placements on the Home Page of other VerticalNet Sites of LeadersOnline's choice."
+  ]
+ },
+ {
+  "item_id": "qa-094",
+  "doc_id": "cuad-038",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Co-Branding Agreement between VerticalNet, Inc. and LeadersOnline, Inc.; What are the audit rights under this contract?",
+  "answer": "During the 12 month period following the payment of any amount due under this Article 6, VerticalNet or its representative shall have the right to audit LeadersOnline's financial and other pertinent records relating to such payment in order to verify the amount of the payments owed and/or paid. … VerticalNet shall give reasonable advance notice to LeadersOnline of such audit and each audit shall be conducted in a manner that does not cause unreasonable disruption to the conduct of business by LeadersOnline.",
+  "passages": [
+   "During the 12 month period following the payment of any amount due under this Article 6, VerticalNet or its representative shall have the right to audit LeadersOnline's financial and other pertinent records relating to such payment in order to verify the amount of the payments owed and/or paid.",
+   "VerticalNet shall give reasonable advance notice to LeadersOnline of such audit and each audit shall be conducted in a manner that does not cause unreasonable disruption to the conduct of business by LeadersOnline."
+  ]
+ },
+ {
+  "item_id": "qa-095",
+  "doc_id": "cuad-039",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Ingram Micro and NETGEAR; Does this contract include an exclusivity agreement?",
+  "answer": "Distributor shall be the only distributor appointed by NETGEAR in the Territory, subject to Distributor conducting mutually agreed to marketing activities as described in the Marketing Plan to be developed and agreed to by and between the parties and which shall be attached to and made a part of this Agreement as Exhibit 4. … NETGEAR's agreement not to appoint additional distributors of NETGEAR Products in the Territory during the [*] of this Agreement is predicated upon Distributor performing the mutually agreed upon activities included in the Marketing Plan attached as Exhibit 4.",
+  "passages": [
+   "Distributor shall be the only distributor appointed by NETGEAR in the Territory, subject to Distributor conducting mutually agreed to marketing activities as described in the Marketing Plan to be developed and agreed to by and between the parties and which shall be attached to and made a part of this Agreement as Exhibit 4.",
+   "NETGEAR's agreement not to appoint additional distributors of NETGEAR Products in the Territory during the [*] of this Agreement is predicated upon Distributor performing the mutually agreed upon activities included in the Marketing Plan attached as Exhibit 4."
+  ]
+ },
+ {
+  "item_id": "qa-096",
+  "doc_id": "cuad-039",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Ingram Micro and NETGEAR; Is there a minimum commitment required under this contract?",
+  "answer": "Products must be ordered in the minimum and/or standard lot size quantities specified in the Price Schedule. Orders for less than minimum or non-standard lot size quantities of any Product may, at NETGEAR's discretion, be rejected.",
+  "passages": [
+   "Products must be ordered in the minimum and/or standard lot size quantities specified in the Price Schedule. Orders for less than minimum or non-standard lot size quantities of any Product may, at NETGEAR's discretion, be rejected."
+  ]
+ },
+ {
+  "item_id": "qa-097",
+  "doc_id": "cuad-039",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Distributor Agreement between Ingram Micro and NETGEAR; What are the audit rights under this contract?",
+  "answer": "From time to time, but not more than twice per year, NETGEAR may request access to information about the Distributor's business reasonably required to insure that Distributor is in compliance with the terms of this Agreement and the Distributor will grant the right for a NETGEAR representative to visit the Distributor's place of business during normal business hours at a mutually agreed upon time to examine such information. … NETGEAR or its representative, at NETGEAR's cost may review these records during normal business hours for the sole purpose of determining Distributor's compliance with this Agreement.",
+  "passages": [
+   "From time to time, but not more than twice per year, NETGEAR may request access to information about the Distributor's business reasonably required to insure that Distributor is in compliance with the terms of this Agreement and the Distributor will grant the right for a NETGEAR representative to visit the Distributor's place of business during normal business hours at a mutually agreed upon time to examine such information.",
+   "NETGEAR or its representative, at NETGEAR's cost may review these records during normal business hours for the sole purpose of determining Distributor's compliance with this Agreement."
+  ]
+ },
+ {
+  "item_id": "qa-098",
+  "doc_id": "cuad-040",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Nonexclusive Value Added Distributor Agreement between ScanSource, Inc. and Cisco Systems, Inc.; What licenses are granted under this contract?",
+  "answer": "By this Agreement, Cisco makes, and Distributor accepts, the appointment of Distributor as an authorized, non-exclusive distributor of Products and Services to Resellers located in the Territory. … Cisco grants to Distributor the right to use the name, logo, trademarks, and other marks of Cisco (collectively, the \"Marks\") for all proper purposes in the sale of Cisco Products and Services to End Users and the performance of Distributor's duties hereunder only so long as this Agreement is in effect.",
+  "passages": [
+   "By this Agreement, Cisco makes, and Distributor accepts, the appointment of Distributor as an authorized, non-exclusive distributor of Products and Services to Resellers located in the Territory.",
+   "Cisco grants to Distributor the right to use the name, logo, trademarks, and other marks of Cisco (collectively, the \"Marks\") for all proper purposes in the sale of Cisco Products and Services to End Users and the performance of Distributor's duties hereunder only so long as this Agreement is in effect."
+  ]
+ },
+ {
+  "item_id": "qa-099",
+  "doc_id": "cuad-040",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Nonexclusive Value Added Distributor Agreement between ScanSource, Inc. and Cisco Systems, Inc.; What is the renewal term for this contract?",
+  "answer": "Without prejudice to either party's right to terminate this Agreement as set forth in sub​ sections 18.2 to 18.5 below, Cisco may, by written notice to Distributor, given at least thirty (30) days prior to the end of the then-current term of the Agreement, extend the term of the Agreement for the period set forth in such notice, up to a maximum of one (1) year beyond the then- current expiration date.",
+  "passages": [
+   "Without prejudice to either party's right to terminate this Agreement as set forth in sub​ sections 18.2 to 18.5 below, Cisco may, by written notice to Distributor, given at least thirty (30) days prior to the end of the then-current term of the Agreement, extend the term of the Agreement for the period set forth in such notice, up to a maximum of one (1) year beyond the then- current expiration date."
+  ]
+ },
+ {
+  "item_id": "qa-100",
+  "doc_id": "cuad-040",
+  "category": "public",
+  "source": "LegalBench-RAG release sha256:8e0405b15fb8 / cuad",
+  "question": "Consider the Nonexclusive Value Added Distributor Agreement between ScanSource, Inc. and Cisco Systems, Inc.; Does the licensee's affiliates have any licensing rights under this contract?",
+  "answer": "An entity may transfer its right to use a certain piece of Software to its Affiliate.",
+  "passages": [
+   "An entity may transfer its right to use a certain piece of Software to its Affiliate."
+  ]
+ }
+]

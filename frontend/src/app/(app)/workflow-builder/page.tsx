@@ -12,6 +12,8 @@ import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import { can } from "@/lib/intake";
 import type { Workflow } from "@/lib/types";
+import { useRequestForms } from "../intake/_agreement-forms";
+import { questionsFor, typeKey, typeOptions, whenText } from "@/lib/workflow-types";
 
 const STEP_SHORT: Record<string, string> = {
   start: "Start", ai_task: "AI", human_task: "Human", clm_draft: "Draft",
@@ -43,6 +45,27 @@ export default function WorkflowBuilderPage() {
 
   const { data, isLoading, error } = useQuery({ queryKey: ["flows"], queryFn: workflowsApi.listFlows, enabled: isAdmin });
   const flows = data ?? [];
+  const { data: forms } = useRequestForms();
+  // Workflows sit under the agreement type they are for; untyped ones only serve
+  // email and chat requests.
+  const groups = typeOptions(forms).map((t) => {
+    const labels = Object.fromEntries(questionsFor(forms, t.form, t.agreement_type).map((q) => [q.field, q.label]));
+    return { ...t, labels, flows: flows.filter((f) => typeKey(f) === t.key) };
+  });
+  const untyped = flows.filter((f) => !typeKey(f) || !groups.some((g) => g.key === typeKey(f)));
+
+  const renderCard = (f: Workflow, when: string | null) => (
+            <button key={f.id} className="wcard" onClick={() => router.push(`/workflow-builder/${f.id}`)}>
+              <div className="wch">
+                <span className="wnm">{f.name}</span>
+                {f.is_builtin && <span className="tag">Built-in</span>}
+                <span className={`en ${f.enabled ? "on" : "off"}`}>{f.enabled ? "Enabled" : "Disabled"}</span>
+              </div>
+              {when ? <div className="when"><b>Chosen when</b> {when}</div> : f.description && <div className="wd">{f.description}</div>}
+              <Ladder steps={f.steps} />
+              <div className="wmeta"><span>{f.steps.length} step{f.steps.length === 1 ? "" : "s"}</span><span className="edit">Open →</span></div>
+            </button>
+          );
 
   async function seed() {
     setSeeding(true);
@@ -79,19 +102,28 @@ export default function WorkflowBuilderPage() {
           <div style={{ marginTop: 12 }}><button className="btn pri" disabled={seeding} onClick={seed}>Seed defaults</button></div>
         </div>
       ) : (
-        <div className="grid">
-          {flows.map((f) => (
-            <button key={f.id} className="wcard" onClick={() => router.push(`/workflow-builder/${f.id}`)}>
-              <div className="wch">
-                <span className="wnm">{f.name}</span>
-                {f.is_builtin && <span className="tag">Built-in</span>}
-                <span className={`en ${f.enabled ? "on" : "off"}`}>{f.enabled ? "Enabled" : "Disabled"}</span>
+        <div className="groups">
+          {groups.map((g) => (
+            <section key={g.key} className={`grp${g.flows.length ? "" : " nowf"}`}>
+              <div className="gh">
+                <h2>{g.label}</h2>
+                <span className="dim">{g.flows.length ? `${g.flows.length} workflow${g.flows.length === 1 ? "" : "s"}` : "None yet: requests of this type wait for a person to pick"}</span>
+                <span className="gl" />
+                <button className="btn" onClick={() => router.push(`/workflow-builder/new?type=${encodeURIComponent(g.key)}`)}>+ New {g.short} workflow</button>
               </div>
-              {f.description && <div className="wd">{f.description}</div>}
-              <Ladder steps={f.steps} />
-              <div className="wmeta"><span>{f.steps.length} step{f.steps.length === 1 ? "" : "s"}</span><span className="edit">Open →</span></div>
-            </button>
+              {g.flows.length > 0 && <div className="grid">{g.flows.map((f) => renderCard(f, whenText(f.criteria.conditions, g.labels)))}</div>}
+            </section>
           ))}
+          {untyped.length > 0 && (
+            <section className="grp">
+              <div className="gh">
+                <h2>No agreement type</h2>
+                <span className="dim">Email and chat requests only: the AI suggests one and a person confirms. Give one a type to use it for form requests.</span>
+                <span className="gl" />
+              </div>
+              <div className="grid">{untyped.map((f) => renderCard(f, null))}</div>
+            </section>
+          )}
         </div>
       )}
     </div>
@@ -106,6 +138,10 @@ const WFL_CSS = `
 .wfl .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em} .wfl .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
 .wfl .acts{margin-left:auto;display:flex;gap:8px}
     
+.wfl .groups{display:flex;flex-direction:column;gap:22px}
+.wfl .grp .gh{display:flex;align-items:center;gap:10px;margin-bottom:10px} .wfl .grp h2{margin:0;font-size:14px;font-weight:650}
+.wfl .grp .gl{flex:1;height:1px;background:var(--border)} .wfl .grp.nowf .gh{margin-bottom:0}
+.wfl .when{padding:7px 10px;border-radius:8px;background:var(--accent-soft);color:var(--accent);font-size:12px;line-height:1.45} .wfl .when b{font-weight:600}
 .wfl .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
 .wfl .wcard{text-align:left;border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow);padding:15px 16px;cursor:pointer;transition:.12s;display:flex;flex-direction:column;gap:10px;font:inherit;color:inherit;min-height:120px}
 .wfl .wcard:hover{border-color:var(--accent);transform:translateY(-1px)}

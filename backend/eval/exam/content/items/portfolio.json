@@ -1,0 +1,134 @@
+[
+ {
+  "item_id": "pq-01",
+  "question": "Which contracts renew automatically?",
+  "fact": "auto_renewal",
+  "expected_doc_ids": [
+   "ae-msa-01",
+   "ae-consultancy-01",
+   "ae-vendor-02",
+   "ae-vendor-03",
+   "ae-saas-02",
+   "ae-sow-04",
+   "ae-long-03",
+   "pf-05"
+  ]
+ },
+ {
+  "item_id": "pq-02",
+  "question": "Which contracts are governed by the laws of England and Wales?",
+  "fact": "governing_law",
+  "expected_doc_ids": [
+   "pf-02",
+   "pf-05",
+   "pf-08",
+   "pf-11"
+  ]
+ },
+ {
+  "item_id": "pq-03",
+  "question": "Which contracts are governed by the laws of Singapore?",
+  "fact": "governing_law",
+  "expected_doc_ids": [
+   "pf-03",
+   "pf-06",
+   "pf-10"
+  ]
+ },
+ {
+  "item_id": "pq-04",
+  "question": "Which contracts expire in 2027?",
+  "fact": "expiry_year",
+  "expected_doc_ids": [
+   "ae-consultancy-04",
+   "ae-vendor-01",
+   "ae-sow-01",
+   "ae-dpa-01",
+   "pf-06",
+   "pf-12"
+  ]
+ },
+ {
+  "item_id": "pq-05",
+  "question": "Which contracts have a total value above INR 1,00,00,000 (one crore)?",
+  "fact": "value",
+  "expected_doc_ids": [
+   "ae-consultancy-02",
+   "ae-vendor-03",
+   "ae-saas-04",
+   "ae-sow-04",
+   "pf-09"
+  ]
+ },
+ {
+  "item_id": "pq-06",
+  "question": "Which contracts need at least 90 days' notice to stop them renewing?",
+  "fact": "renewal_notice",
+  "expected_doc_ids": [
+   "ae-msa-01",
+   "ae-vendor-03",
+   "ae-long-03",
+   "pf-05"
+  ]
+ },
+ {
+  "item_id": "pq-07",
+  "question": "Which contracts are with Kestrel Components Private Limited?",
+  "fact": "counterparty",
+  "expected_doc_ids": [
+   "ae-vendor-02",
+   "ae-saas-04",
+   "pf-04"
+  ]
+ },
+ {
+  "item_id": "pq-08",
+  "question": "Which contracts are non-disclosure agreements?",
+  "fact": "agreement_type",
+  "expected_doc_ids": [
+   "pf-01",
+   "pf-07",
+   "pf-11"
+  ]
+ },
+ {
+  "item_id": "pq-09",
+  "question": "Which contracts are governed by Indian law?",
+  "fact": "governing_law",
+  "expected_doc_ids": [
+   "ae-msa-01",
+   "ae-msa-02",
+   "ae-msa-03",
+   "ae-msa-04",
+   "ae-consultancy-01",
+   "ae-consultancy-02",
+   "ae-consultancy-03",
+   "ae-consultancy-04",
+   "ae-vendor-01",
+   "ae-vendor-02",
+   "ae-vendor-03",
+   "ae-vendor-04",
+   "ae-saas-01",
+   "ae-saas-02",
+   "ae-saas-03",
+   "ae-saas-04",
+   "ae-sow-01",
+   "ae-sow-02",
+   "ae-sow-03",
+   "ae-sow-04",
+   "ae-dpa-01",
+   "ae-dpa-02",
+   "ae-dpa-03",
+   "ae-dpa-04",
+   "ae-long-01",
+   "ae-long-02",
+   "ae-long-03",
+   "ae-long-04",
+   "pf-01",
+   "pf-04",
+   "pf-07",
+   "pf-09",
+   "pf-12"
+  ]
+ }
+]

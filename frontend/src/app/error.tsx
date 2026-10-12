@@ -38,6 +38,9 @@ export default function Error({
         >
           Try again
         </button>
+        {/* A full page load on purpose: after a crash it resets whatever client
+            state broke, which a client-side <Link> navigation would keep. */}
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
         <a
           href="/"
           className="rounded-lg border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"

@@ -1,0 +1,1 @@
+{"task": "T008", "agent": "backend-dev", "status": "done", "detail": "review fixes: notice_period key left out where a termination/renewal clause exists (21 of 29 None keys), 'Party B' role labels dropped, bad/empty archive no longer stuck; extraction.json regenerated (275 -> 254 fields); 114 passed, ruff clean", "updated": "2026-10-06T18:00:50Z"}

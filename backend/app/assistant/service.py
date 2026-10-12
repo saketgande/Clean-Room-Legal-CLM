@@ -14,7 +14,6 @@ from app.assistant.models import (
 )
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.service import get_contract_for_user
-from app.matters.access import get_project_for_user
 
 
 class AssistantService:
@@ -245,7 +244,6 @@ class AssistantService:
         self,
         *,
         current_user,
-        matter_id: str | None = None,
         contract_id: str | None = None,
         status_filter: str = "active",
         q: str | None = None,
@@ -258,9 +256,6 @@ class AssistantService:
         )
         if status_filter:
             query = query.where(AssistantSession.status == status_filter)
-        if matter_id:
-            get_project_for_user(db, matter_id=matter_id, user=current_user)
-            query = query.where(AssistantSession.matter_id == matter_id)
         if contract_id:
             get_contract_for_user(db, contract_id=contract_id, user=current_user)
             query = query.where(AssistantSession.contract_id == contract_id)
@@ -281,15 +276,12 @@ class AssistantService:
 
     def create_session(self, *, payload, current_user) -> AssistantSession:
         db = self.db
-        if payload.matter_id:
-            get_project_for_user(db, matter_id=payload.matter_id, user=current_user)
         if payload.contract_id:
             get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
         session = AssistantSession(
             org_id=current_user.org_id,
             session_type=payload.session_type,
             title=payload.title,
-            matter_id=payload.matter_id,
             contract_id=payload.contract_id,
             tabular_review_id=payload.tabular_review_id,
             created_by_user_id=current_user.id,
@@ -314,10 +306,39 @@ class AssistantService:
 
     def get_session(self, *, session_id: str, current_user) -> dict:
         session = self.get_session_for_user(session_id=session_id, current_user=current_user)
+        from app.ai.confirmations import pending_confirmation_for_session
+
         handles = self.db.scalars(
             select(AssistantContractHandle).where(AssistantContractHandle.session_id == session.id)
         ).all()
-        return {"session": session, "contract_handles": handles}
+        return {
+            "session": session,
+            "contract_handles": handles,
+            # A still-actionable confirmation card to restore after a reload.
+            "pending_confirmation": pending_confirmation_for_session(
+                self.db, session_id=session.id, org_id=session.org_id
+            ),
+            # So a reopened chat can watch an answer still being produced, or
+            # explain one that didn't finish.
+            "latest_run": self.latest_run_summary(session_id=session.id, org_id=session.org_id),
+        }
+
+    def latest_run_summary(self, *, session_id: str, org_id: str) -> dict | None:
+        run = self.db.scalar(
+            select(AssistantRun)
+            .where(AssistantRun.org_id == org_id, AssistantRun.session_id == session_id)
+            .order_by(AssistantRun.created_at.desc())
+            .limit(1)
+        )
+        if run is None:
+            return None
+        return {
+            "id": run.id,
+            "status": run.status,
+            "error_message": run.error_message,
+            "user_message_id": run.user_message_id,
+            "has_answer": run.assistant_message_id is not None,
+        }
 
     def update_session(self, *, session_id: str, payload, current_user) -> AssistantSession:
         db = self.db

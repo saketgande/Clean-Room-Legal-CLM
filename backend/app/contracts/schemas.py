@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,6 +18,8 @@ class ContractResponse(BaseModel):
     archived: bool = False
     owner_user_id: str
     counterparty_name: str | None
+    counterparty_id: str | None = None
+    legal_entity_id: str | None = None
     jurisdiction: str | None
     confidentiality: str = "internal"
     risk_level: str | None
@@ -53,7 +56,7 @@ class ContractUpdate(BaseModel):
     confidentiality: str | None = Field(
         default=None, pattern="^(public|internal|confidential|restricted)$"
     )
-    risk_level: str | None = None
+    risk_level: Literal["low", "medium", "high"] | None = None
     value_amount: float | None = None
     currency: str | None = Field(default=None, max_length=3)
     effective_date: date | None = None
@@ -112,6 +115,34 @@ class ReviewChecklistItem(BaseModel):
     detail: str | None = None
 
 
+class LastReview(BaseModel):
+    status: str  # "succeeded" | "keyword_only" | ...
+    source: str  # "ai" | "keyword"
+    contract_version_id: str
+    # True when that version's text is the current version's (same_text_version_ids).
+    on_current_text: bool = False
+
+
+class AutoReviewState(BaseModel):
+    """A requested AI review that has not finished (contracts.auto_review.review_state)."""
+
+    state: str  # "running" | "interrupted"
+    reason: str | None = None  # why it counts as interrupted: "failed" | "stalled" | "no_job"
+    since: datetime | None = None
+    job_id: str | None = None
+    # "accepted_edits" when this is the re-check of text the person just changed by accepting
+    # suggestions (it lists findings but proposes no changes); None for any other review.
+    after: str | None = None
+
+
+class ReviewRetryResponse(BaseModel):
+    # "queued" | "already_running" | "not_needed" | "no_playbook" (contracts.auto_review.retry_review)
+    status: str
+    job_id: str | None = None
+    # True when the contract's workflow was waiting on this review and was set going again.
+    workflow_resumed: bool = False
+
+
 class ReviewStatusResponse(BaseModel):
     contract_id: str
     lifecycle_stage: str
@@ -120,11 +151,21 @@ class ReviewStatusResponse(BaseModel):
     high_severity_issues: int
     pending_redlines: int
     open_comments: int
+    # Fill-in blanks ("[INSERT DATE]") still in the text: advice before approval, a stop before signing.
+    blanks: list[str] = []
+    # Where approval stands for the version on screen: none (never needed), approved, pending, rejected,
+    # or changed (approved once, edited since: that version was never approved).
+    version_approval: str = "none"
     counterparty_active: bool
     ready_for_approval: bool
     next_step: str
     next_action: str | None = None
     checklist: list[ReviewChecklistItem]
+    # The newest playbook run (None = never reviewed). The page says "reviewed" only
+    # for an AI run that succeeded on the current version.
+    last_review: LastReview | None = None
+    # A requested AI review still in progress, or one that stopped (None = nothing pending).
+    auto_review: AutoReviewState | None = None
 
 
 class ContractPartyResponse(BaseModel):
@@ -158,7 +199,7 @@ class SignerOption(BaseModel):
 
 
 class DiffLine(BaseModel):
-    type: str  # context | add | remove
+    type: str  # context | add | remove | gap (a run of unchanged lines left out; text says how many)
     text: str
 
 

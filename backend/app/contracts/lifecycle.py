@@ -1,4 +1,7 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
@@ -8,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.contract_files.models import ContractEdit, ContractVersion
 from app.contracts.models import Contract, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
-from app.core.enums import ContractLifecycleStage, ContractVersionSource
+from app.core.enums import ApprovalStatus, ContractLifecycleStage, ContractVersionSource
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +25,13 @@ _PRE_APPROVAL_STAGES = {
 }
 
 _DISPATCH_DELAY_SECONDS = 4
+# Entering these stages means approvals were requested or decided, or signing
+# finished; leaving them back to Review means a rejection or pull-back.
+_GRAPH_REFRESH_STAGES = {
+    ContractLifecycleStage.APPROVAL,
+    ContractLifecycleStage.SIGNATURE,
+    ContractLifecycleStage.ACTIVE,
+}
 
 # Lean 7-stage flow. Most forward hops are auto-advanced by events (approval
 # completing → SIGNATURE, signing completing → ACTIVE), so users rarely drive
@@ -56,6 +66,26 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+# The reason a permitted user gave for sending a contract past Review with open
+# redlines, held while a workflow step is completed on their behalf. The workflow
+# engine makes that move, so the override can't be passed to the transition as an
+# argument; the route that completes the step sets it for the length of the call.
+_redline_override_reason: ContextVar[str | None] = ContextVar("redline_override_reason", default=None)
+
+
+@contextmanager
+def redline_override(reason: str | None) -> Iterator[None]:
+    """Within the block, leaving Review with open redlines is allowed and recorded
+    with this reason on the stage history. Only the redline gate is affected. The
+    caller must already have checked that the user holds contract:lifecycle_override
+    and gave a reason: this does not."""
+    token = _redline_override_reason.set(reason.strip() if reason and reason.strip() else None)
+    try:
+        yield
+    finally:
+        _redline_override_reason.reset(token)
+
+
 def parse_stage_slas(raw: str) -> dict[str, int]:
     """Parse the "stage:days,stage:days" SLA setting; malformed entries are
     skipped so a bad env value degrades to fewer SLAs, never a crash."""
@@ -69,6 +99,82 @@ def parse_stage_slas(raw: str) -> dict[str, int]:
         except ValueError:
             continue
     return out
+
+
+def current_approval_chain(db: Session, contract: Contract, version_id: str | None = None) -> list:
+    """The approval rows of a version's LATEST submission (the contract's current version by default).
+
+    A rejected submission is never cancelled, so it stays behind as history; anything that
+    asks where approval stands (the gate, the request page's chain) must look at the latest
+    submission only, or an old rejected row would speak for an approval that has since
+    succeeded. Empty when the version has not been submitted."""
+    from app.approvals.models import ApprovalRequest
+    from app.approvals.submissions import latest_submission
+
+    rows = db.scalars(
+        select(ApprovalRequest).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.contract_version_id == (version_id or contract.current_authoritative_version_id),
+            ApprovalRequest.status != ApprovalStatus.CANCELLED,
+        )
+    ).all()
+    return latest_submission(rows)
+
+
+def version_approval_state(db: Session, contract: Contract, version_id: str | None = None) -> str:
+    """Where approval stands for ONE version of the contract.
+
+    Approval belongs to a version: an edit makes a new version that nobody has approved. States:
+
+    * ``"none"``     — the contract never went through approval (a fast-lane NDA, or an override),
+                       so there is no approval to be out of date;
+    * ``"approved"`` — the version's latest submission is approved on every rung;
+    * ``"pending"``  — it is with the approvers;
+    * ``"rejected"`` — a rung rejected it;
+    * ``"changed"``  — the contract has been through approval but this version never was:
+                       it was edited (or replaced) afterwards.
+    """
+    from app.approvals.models import ApprovalRequest
+
+    ever_submitted = db.scalar(
+        select(ApprovalRequest.id).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.status != ApprovalStatus.CANCELLED,
+        ).limit(1)
+    )
+    if ever_submitted is None:
+        return "none"
+    chain = current_approval_chain(db, contract, version_id)
+    if not chain:
+        return "changed"
+    if any(row.status == ApprovalStatus.REJECTED for row in chain):
+        return "rejected"
+    if all(row.status == ApprovalStatus.APPROVED for row in chain):
+        return "approved"
+    return "pending"
+
+
+def _current_version_approved(db: Session, contract: Contract) -> bool:
+    """True when the current version's LATEST approval submission has every live rung approved.
+
+    Counting an old rejected submission would veto an approval that has since succeeded
+    (reject, resubmit the same version, approve) and strand the contract in Approval."""
+    current = current_approval_chain(db, contract)
+    return bool(current) and all(row.status == ApprovalStatus.APPROVED for row in current)
+
+
+def open_redline_count(db: Session, contract_id: str) -> int:
+    """Suggested changes on this contract that nobody has accepted or rejected yet.
+    The one number the Review gate, the readiness check and the chat all go by."""
+    return (
+        db.scalar(
+            select(func.count(ContractEdit.id)).where(
+                ContractEdit.contract_id == contract_id,
+                ContractEdit.status == "proposed",
+            )
+        )
+        or 0
+    )
 
 
 def allowed_transitions_for(stage: str) -> list[str]:
@@ -119,9 +225,25 @@ class ContractLifecycleService:
             if not override_authorized:
                 raise HTTPException(
                     status.HTTP_403_FORBIDDEN,
-                    "Lifecycle override requires the contract:lifecycle_override permission",
+                    "Your role can't override this rule. Ask an administrator, or follow the normal steps.",
                 )
         authorized_override = override and override_authorized
+
+        # "Approved before signature". The approval engine moves Approval → Signature
+        # with an authorized override once the chain completes; every other caller
+        # (workflow steps, the assistant, manual moves) is held to the chain here
+        # instead of being able to walk around it.
+        if (
+            from_stage == ContractLifecycleStage.APPROVAL
+            and to_stage == ContractLifecycleStage.SIGNATURE
+            and not authorized_override
+            and not _current_version_approved(db, contract)
+        ):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This contract can't move to Signature until the approval chain for its "
+                "current version is approved.",
+            )
 
         # The ONE real gate on leaving Review: every proposed redline must be
         # accepted or rejected first. The workspace already tells the user this
@@ -130,33 +252,30 @@ class ContractLifecycleService:
         # contract:lifecycle_override permission AND a stated reason — the
         # reason is what actually lands on the stage-history audit row.
         if from_stage in _PRE_APPROVAL_STAGES and to_stage not in _PRE_APPROVAL_STAGES:
-            pending_redlines = (
-                db.scalar(
-                    select(func.count(ContractEdit.id)).where(
-                        ContractEdit.contract_id == contract.id,
-                        ContractEdit.status == "proposed",
-                    )
-                )
-                or 0
-            )
+            pending_redlines = open_redline_count(db, contract.id)
             if pending_redlines > 0:
+                routed_reason = _redline_override_reason.get()
+                if routed_reason and not authorized_override:
+                    # Approved by the route that completed the workflow step.
+                    override = override_authorized = authorized_override = True
+                    reason = reason if reason and reason.strip() else routed_reason
                 if not authorized_override:
                     raise HTTPException(
                         status.HTTP_409_CONFLICT,
                         f"{pending_redlines} open redline(s) must be accepted or rejected before "
-                        "advancing past Review, or override with the contract:lifecycle_override "
-                        "permission.",
+                        "the contract can leave Review. Someone with override rights can send it "
+                        "on with a reason.",
                     )
                 if not reason or not reason.strip():
                     raise HTTPException(
-                        status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        status.HTTP_422_UNPROCESSABLE_CONTENT,
                         "Overriding open redlines requires a reason.",
                     )
 
         if to_stage == ContractLifecycleStage.ACTIVE and signed_confirmation and not authorized_override:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                "Signed confirmation activation requires contract:lifecycle_override",
+                "Marking a contract active without a signed copy needs override rights.",
             )
         if to_stage == ContractLifecycleStage.ACTIVE and not authorized_override:
             has_signed_version = (
@@ -259,6 +378,12 @@ class ContractLifecycleService:
                 self._on_enter_signature(contract=contract, actor_user_id=actor_user_id)
             elif to_stage == ContractLifecycleStage.ACTIVE:
                 self._on_enter_active(contract=contract, actor_user_id=actor_user_id)
+            if to_stage in _GRAPH_REFRESH_STAGES or (
+                to_stage == ContractLifecycleStage.REVIEW and from_stage in _GRAPH_REFRESH_STAGES
+            ):
+                self._schedule_graph_refresh(
+                    contract=contract, actor_user_id=actor_user_id, to_stage=to_stage
+                )
             # Auto-resume any workflow run waiting on this contract's stage.
             from app.workflows.service import advance_flow_for_contract
             advance_flow_for_contract(db, contract=contract, actor_user_id=actor_user_id)
@@ -320,9 +445,44 @@ class ContractLifecycleService:
                 # (which also queues these jobs with the same idempotency key). The
                 # celery_task_id guard prevents a second dispatch of the same job.
                 continue
-            run_ai_job.apply_async(args=[job.id], countdown=_DISPATCH_DELAY_SECONDS)
+            job.celery_task_id = run_ai_job.apply_async(
+                args=[job.id], countdown=_DISPATCH_DELAY_SECONDS
+            ).id
             scheduled.append(job_type)
         return scheduled
+
+    def _schedule_graph_refresh(
+        self, *, contract: Contract, actor_user_id: str | None, to_stage: str
+    ) -> None:
+        """Rebuild the knowledge graph after approvals, rejections and signatures, not
+        only after extraction jobs, so it never keeps asserting an outdated outcome."""
+        from app.core.database import utcnow
+        from app.jobs.service import create_job
+        from app.jobs.tasks import run_ai_job
+
+        version, snapshot = self._authoritative_artifacts(contract)
+        if version is None:
+            return
+        job = create_job(
+            self.db,
+            org_id=contract.org_id,
+            job_type="contract_brain_ingestion",
+            resource_type="contract",
+            resource_id=contract.id,
+            created_by_user_id=actor_user_id,
+            idempotency_key=(
+                f"contract_brain_ingestion:{version.id}:stage:{to_stage}:{utcnow().timestamp()}"
+            ),
+            metadata={
+                "contract_version_id": version.id,
+                "text_snapshot_id": snapshot.id if snapshot else None,
+                "trigger_reason": f"entered_{to_stage}",
+            },
+        )
+        self.db.flush()
+        job.celery_task_id = run_ai_job.apply_async(
+            args=[job.id], countdown=_DISPATCH_DELAY_SECONDS
+        ).id
 
     def _notify_owner(
         self,

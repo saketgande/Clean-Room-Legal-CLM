@@ -2,8 +2,8 @@
 
 // Standalone SLA dashboard — indigo mockup style (scoped `.slad`), matching the
 // pattern set by workflow-builder/page.tsx. The SLA view used to be a tab inside
-// Legal Intake; it now has its own screen so queue-health / custody / workload /
-// routing effectiveness read as a first-class operations surface. Body is the
+// Legal Intake; it now has its own screen so queue-health / custody / workload
+// read as a first-class operations surface. Body is the
 // existing SlaDashboardTab (in ../intake/_phase1), reused as-is — only its
 // presentation was reskinned, not its logic/queries/props.
 
@@ -24,7 +24,7 @@ export default function SlaPage() {
           <h1>SLA</h1>
           <p className="sub">
             {isStaff
-              ? "Queue health, custody legs, attorney workload, and routing-rule effectiveness."
+              ? "Queue health, custody legs and attorney workload."
               : "Service-level tracking for the legal intake queue."}
           </p>
         </div>

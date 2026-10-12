@@ -2,7 +2,8 @@ import asyncio
 import inspect
 
 from app.ai import confirmations
-from app.ai.controller import INTERNAL_RESULT_KEYS, _clamp_max_tokens, ai_controller
+from app.ai.controller import INTERNAL_RESULT_KEYS, ai_controller
+from app.ai.gateway.gateway import _clamp as _clamp_max_tokens
 from app.ai.redaction import redact_ai_payload
 from app.ai.tool_registry import ExternalShareInput, tool_registry
 from app.ai.tool_runtime import tool_runtime
@@ -11,6 +12,7 @@ from app.assistant.routes import (
     _events_from_tool_result,
     confirm_assistant_action,
     reject_assistant_action,
+    stream_session,
 )
 from app.contract_files.routes import _decision_summary
 from app.contract_files.service import INITIAL_CONTRACT_AI_JOB_TYPES
@@ -33,6 +35,7 @@ def test_mock_assistant_tool_loop_requests_contract_read_tool():
     settings.mock_claude = True
     response = asyncio.run(
         claude_client.complete_with_tools(
+            org_id="org-test",
             system_prompt="system",
             messages=[{"role": "user", "content": "summarize this contract"}],
             tools=[
@@ -71,6 +74,7 @@ def test_mock_assistant_tool_loop_requests_edit_tool_for_redlines():
     settings.mock_claude = True
     response = asyncio.run(
         claude_client.complete_with_tools(
+            org_id="org-test",
             system_prompt="system",
             messages=[{"role": "user", "content": "please redline this contract"}],
             tools=[
@@ -149,8 +153,13 @@ def test_confirmation_reject_and_expiry_paths_are_explicit():
 
     assert "AIConfirmationStatus.REJECTED" in reject_source
     assert "AssistantToolCallStatus.REJECTED" in reject_source
-    assert "AIConfirmationStatus.EXPIRED" in pending_source
+    expire_source = inspect.getsource(confirmations.expire_confirmation)
+    assert "AIConfirmationStatus.EXPIRED" in expire_source
     assert "Confirmation expired" in pending_source
+    # The expiry is committed BEFORE the 409 is raised: get_db rolls back on the
+    # exception, which used to discard it and leave the run waiting forever.
+    expire_at = pending_source.index("expire_confirmation(db, confirmation)")
+    assert expire_at < pending_source.index("db.commit()") < pending_source.index('"Confirmation expired"')
 
 
 def test_resume_requires_confirmed_confirmation_before_execution():
@@ -171,10 +180,8 @@ def test_confirmation_decisions_require_ai_tool_permission():
 
 def test_assistant_prompt_uses_handles_not_internal_ids():
     contract_id = "11111111-1111-1111-1111-111111111111"
-    matter_id = "22222222-2222-2222-2222-222222222222"
     prompt = ai_controller._assistant_user_prompt(
         message="Summarize this contract",
-        matter_id=matter_id,
         contract_id=contract_id,
         contract_ids=[contract_id],
         handles=[{"handle": "contract-0", "contract_id": contract_id, "metadata": {}}],
@@ -182,13 +189,11 @@ def test_assistant_prompt_uses_handles_not_internal_ids():
 
     assert "contract-0" in prompt
     assert contract_id not in prompt
-    assert matter_id not in prompt
 
 
 def test_model_safe_result_strips_internal_identifier_keys():
     assert "current_authoritative_version_id" in INTERNAL_RESULT_KEYS
     assert "contract_version_id" in INTERNAL_RESULT_KEYS
-    assert "matter_id" in INTERNAL_RESULT_KEYS
 
 
 def test_phase3_tool_results_emit_frontend_artifact_events():
@@ -283,8 +288,11 @@ def test_tool_call_arguments_and_result_are_redacted_before_persist():
 
     assert "arguments=redact_ai_payload(validated_args)" in source
     assert "call.result = redact_ai_payload(result)" in source
-    # idempotency must hash the raw args, not the redacted copy.
-    assert "_idempotency_key(tool_name, session_id, validated_args)" in source
+    # idempotency must hash the raw args, not the redacted copy. (A stage move adds the
+    # contract's current state to them, so the same words after it moved again are a new call.)
+    assert "key_args, card = validated_args, None" in source
+    assert "_idempotency_key(tool_name, session_id, key_args)" in source
+    assert "_idempotency_key(tool_name, session_id, redact" not in source
 
 
 def test_confirmed_tool_result_is_redacted_and_actor_stamped():
@@ -307,11 +315,10 @@ def test_skill_run_input_payload_uses_strengthened_redaction():
 
 def test_raw_ai_output_only_persisted_when_flag_enabled():
     """raw_ai_output must be gated on settings.ai_store_raw_outputs (defaults off)."""
-    structured = inspect.getsource(ai_controller._log_ai_call)
-    assistant = inspect.getsource(ai_controller._log_assistant_ai_call)
+    from app.ai.gateway import ledger
 
-    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in structured
-    assert "raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None" in assistant
+    # Skills and the assistant both write through the gateway's single ledger writer.
+    assert "if (response is not None and settings.ai_store_raw_outputs) else None" in inspect.getsource(ledger.record_call)
 
 
 def test_max_tokens_clamped_to_ceiling_before_claude():
@@ -320,91 +327,94 @@ def test_max_tokens_clamped_to_ceiling_before_claude():
     assert _clamp_max_tokens(settings.claude_max_tokens_ceiling + 100000) == settings.claude_max_tokens_ceiling
     assert _clamp_max_tokens(123) == 123
     # Every Claude call site clamps its max_tokens.
-    for fn in (
-        ai_controller.run_structured_skill,
-        ai_controller.stream_assistant_run,
-        ai_controller.resume_assistant_run,
-    ):
-        assert "_clamp_max_tokens(spec.max_tokens)" in inspect.getsource(fn)
+    # Skills and the assistant go through the AI gateway, which clamps every
+    # feature's budget.
+    from app.ai.gateway import gateway as gateway_module
+
+    assert "max_tokens=_clamp(feature.max_tokens)" in inspect.getsource(gateway_module.AIGateway._plan)
 
 
-def test_cost_cap_enforced_before_every_claude_call():
-    """Each Claude call site calls enforce_daily_token_cap first, and usage is
-    recorded back into the daily counter."""
-    for fn in (
-        ai_controller.run_structured_skill,
-        ai_controller.stream_assistant_run,
-        ai_controller.resume_assistant_run,
-    ):
-        assert "enforce_daily_token_cap(" in inspect.getsource(fn)
-    assert "record_token_usage(" in inspect.getsource(ai_controller._record_usage)
+def test_every_claude_request_is_metered_inside_the_client():
+    """LLM-06: the Claude client reserves against the daily cap before each request
+    and settles afterwards, so no call site can skip it; every call names its org."""
+    import pathlib
+    import re
+
+    from app.integrations import claude
+
+    for name in ("complete_structured", "complete_vision_structured", "complete_text", "complete_with_tools", "stream_with_tools"):
+        param = inspect.signature(getattr(claude.ClaudeClient, name)).parameters["org_id"]
+        assert param.default is inspect.Parameter.empty
+    for fn in (claude.ClaudeClient._post_messages, claude.ClaudeClient.stream_with_tools):
+        source = inspect.getsource(fn)
+        assert "reserve_tokens(" in source and "settle_tokens(" in source
+
+    call = re.compile(r"\.(complete_structured|complete_vision_structured|complete_text|complete_with_tools|stream_with_tools)\(")
+    app_root = pathlib.Path(claude.__file__).parents[1]
+    missing = []
+    for path in app_root.rglob("*.py"):
+        text = path.read_text()
+        for match in call.finditer(text):
+            depth, end = 1, match.end()
+            while depth:
+                depth += {"(": 1, ")": -1}.get(text[end], 0)
+                end += 1
+            if "org_id=" not in text[match.end():end]:
+                missing.append(f"{path.relative_to(app_root)}: {match.group(1)}")
+    assert not missing, missing
 
 
-def test_cost_cap_fails_open_and_is_noop_when_unset():
+def test_cost_cap_fails_open_and_is_noop_when_unset(monkeypatch):
     """Cap <= 0 is a no-op (no Redis touched) and any Redis error fails open."""
     from app.ai import cost_guard
     from app.core.config import settings
 
-    original_cap = settings.claude_daily_token_cap_per_org
-    original_client = cost_guard._redis_client
-    try:
-        # cap <= 0 → unlimited; Redis must not even be constructed.
-        settings.claude_daily_token_cap_per_org = 0
+    def _explode():
+        raise AssertionError("Redis must not be touched when cap <= 0")
 
-        def _explode():
-            raise AssertionError("Redis must not be touched when cap <= 0")
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 0)
+    monkeypatch.setattr(cost_guard, "_redis_client", _explode)
+    assert cost_guard.reserve_tokens("org-A", 5000) is None
+    cost_guard.settle_tokens(None, 5000)  # nothing reserved, nothing to settle
 
-        cost_guard._redis_client = _explode
-        cost_guard.enforce_daily_token_cap("org-A")  # no raise
-        cost_guard.record_token_usage("org-A", 5000)  # no raise
+    def _fail():
+        raise RuntimeError("redis down")
 
-        # Positive cap but Redis unreachable → fail open (no exception).
-        settings.claude_daily_token_cap_per_org = 100
-
-        def _fail():
-            raise RuntimeError("redis down")
-
-        cost_guard._redis_client = _fail
-        cost_guard.enforce_daily_token_cap("org-A")  # fail open → no raise
-        cost_guard.record_token_usage("org-A", 50)   # fail open → no raise
-    finally:
-        settings.claude_daily_token_cap_per_org = original_cap
-        cost_guard._redis_client = original_client
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 100)
+    monkeypatch.setattr(cost_guard, "_redis_client", _fail)
+    assert cost_guard.reserve_tokens("org-A", 50) is None  # fail open, no raise
+    cost_guard.settle_tokens(("ai:token_cap:org-A:2026-01-01", 50), 10)  # fail open, no raise
 
 
-def test_cost_cap_rejects_with_429_when_exceeded():
+def test_cost_cap_rejects_with_429_when_exceeded(monkeypatch):
     from fastapi import HTTPException
 
     from app.ai import cost_guard
     from app.core.config import settings
 
-    class _FakeClient:
-        def __init__(self, value):
-            self.value = value
+    class _FakeRedis:
+        """Applies the reserve script's rule: refuse once spent, else add the reservation."""
 
-        def get(self, _key):
-            return self.value
+        def __init__(self, spent):
+            self.spent = spent
 
-        def close(self):
-            pass
+        def eval(self, _script, _numkeys, _key, cap, reserve, _ttl):
+            if self.spent >= cap:
+                return -1
+            self.spent += reserve
+            return 1
 
-    original_cap = settings.claude_daily_token_cap_per_org
-    original_client = cost_guard._redis_client
+    monkeypatch.setattr(settings, "claude_daily_token_cap_per_org", 100)
+    monkeypatch.setattr(cost_guard, "_redis_client", lambda: _FakeRedis(150))  # already over
     try:
-        settings.claude_daily_token_cap_per_org = 100
-        cost_guard._redis_client = lambda: _FakeClient(b"150")  # already over
-        try:
-            cost_guard.enforce_daily_token_cap("org-A")
-        except HTTPException as exc:
-            assert exc.status_code == 429
-        else:  # pragma: no cover - must raise
-            raise AssertionError("expected HTTP 429 when daily cap is exceeded")
+        cost_guard.reserve_tokens("org-A", 10)
+    except HTTPException as exc:
+        assert exc.status_code == 429
+    else:  # pragma: no cover - must raise
+        raise AssertionError("expected HTTP 429 when daily cap is exceeded")
 
-        cost_guard._redis_client = lambda: _FakeClient(b"50")  # under cap
-        cost_guard.enforce_daily_token_cap("org-A")  # no raise
-    finally:
-        settings.claude_daily_token_cap_per_org = original_cap
-        cost_guard._redis_client = original_client
+    monkeypatch.setattr(cost_guard, "_redis_client", lambda: _FakeRedis(50))  # under cap
+    assert cost_guard.reserve_tokens("org-A", 10) is not None
 
 
 def test_external_share_passcode_requires_at_least_eight_chars():
@@ -415,3 +425,131 @@ def test_external_share_passcode_requires_at_least_eight_chars():
         ExternalShareInput(contract_handle="contract-0", passcode="1234567")  # 7 chars
     ok = ExternalShareInput(contract_handle="contract-0", passcode="12345678")  # 8 chars
     assert ok.passcode == "12345678"
+
+
+def test_legal_question_session_adds_intake_context_only_for_that_session_type():
+    """A chat opened from Legal Intake's 'General legal question' form tells the model
+    where the user came from and how to file; other sessions are unchanged."""
+    kwargs = dict(message="Can we terminate early?", contract_id=None, contract_ids=[], handles=[])
+    legal = ai_controller._assistant_user_prompt(**kwargs, session_type="legal_question")
+    general = ai_controller._assistant_user_prompt(**kwargs, session_type="general")
+    default = ai_controller._assistant_user_prompt(**kwargs)
+
+    assert "General legal question" in legal
+    assert '"Legal Question — General"' in legal
+    assert "Indian law" in legal  # blank jurisdiction defaults to India, stated in the answer
+    assert "General legal question" not in general
+    assert general == default
+    # The worker passes the session's type through to the controller.
+    from app.assistant.runner import drive_run
+
+    assert "session_type=session.session_type" in inspect.getsource(drive_run)
+
+
+# Ask Aegis must ask before any high-risk action: deciding approvals, anything that
+# reaches the counterparty, moving a contract or a governance workflow, or changing
+# who owns a request. A prompt-injected contract could otherwise make the model do
+# these on its own. (Decided 2026-10-05: lower-risk filing/notice/task/obligation
+# tools stay instant.)
+HIGH_RISK_TOOLS = {
+    "decide_approval",
+    "send_for_negotiation",
+    "add_contract_comment",
+    "advance_contract_stage",
+    "reassign_request",
+    "start_intake_workflow",
+    "advance_intake_workflow",
+    "create_workflow",
+    # already confirmation-gated before this change
+    "edit_contract",
+    "redraft_contract",
+    "redline_against_playbook",
+    "send_for_signature",
+    "external_share",
+}
+
+
+def test_high_risk_assistant_tools_require_confirmation():
+    from app.ai.tool_registry import tool_registry
+
+    missing = sorted(n for n in HIGH_RISK_TOOLS if not tool_registry.get(n).requires_confirmation)
+    assert missing == []
+
+
+def test_every_external_action_tool_requires_confirmation():
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    external = [s.name for s in tool_registry._tools.values()
+                if s.category == AssistantToolCategory.EXTERNAL_ACTION and not s.requires_confirmation]
+    assert external == []
+
+
+# Tools that change data but deliberately run without asking. Each one only
+# adds a new analysis record for the user to read and changes nothing that
+# exists; the reason is written next to its registration.
+# query_contracts: a wording question starts a table review that reads each candidate
+# contract (spends tokens) -- the same new-record-only precedent as create_tabular_review.
+NO_CONFIRMATION_BY_DESIGN = {"run_playbook_review", "create_tabular_review", "query_contracts"}
+
+
+def test_every_tool_that_changes_data_asks_first_unless_listed():
+    """Safe by default: a non-read-only tool must ask the user before it runs,
+    so a hidden instruction in contract or email text can't trigger it. A new
+    exception has to be added to NO_CONFIRMATION_BY_DESIGN on purpose."""
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    unconfirmed = {s.name for s in tool_registry.all()
+                   if s.category != AssistantToolCategory.READ_ONLY and not s.requires_confirmation}
+    assert unconfirmed == NO_CONFIRMATION_BY_DESIGN
+
+
+def test_read_only_tools_never_ask():
+    from app.ai.tool_registry import tool_registry
+    from app.core.enums import AssistantToolCategory
+
+    asking = [s.name for s in tool_registry.all()
+              if s.category == AssistantToolCategory.READ_ONLY and s.requires_confirmation]
+    assert asking == []
+
+
+def test_confirmation_card_shows_what_is_being_approved():
+    """The confirmation event carries the action's arguments, so the user sees WHICH
+    request / WHO / WHAT decision — not just the tool name."""
+    from app.ai.controller import _confirmation_details
+
+    details = _confirmation_details(
+        {"request_id": "REQ-5960", "assignee": "Erin Legal", "notify": True,
+         "nested": {"x": 1}, "note": "x" * 500, "blank": "  "}
+    )
+    assert details["request_id"] == "REQ-5960" and details["assignee"] == "Erin Legal"
+    assert details["notify"] == "yes"
+    assert "nested" not in details and "blank" not in details
+    assert len(details["note"]) == 300
+    assert _confirmation_details(None) == {}
+    src = inspect.getsource(ai_controller.stream_assistant_run) + inspect.getsource(ai_controller.resume_assistant_run)
+    # Both places that pause for a confirmation show the tool's own card when it has one
+    # (a stage move says which contract and what happens), else the action's arguments.
+    assert src.count('"details": _card_details(') == 2
+    from app.ai.controller import _card_details
+
+    assert inspect.getsource(_card_details).count("_confirmation_details(tool_input)") == 1
+
+
+def test_assistant_errors_shown_to_users_never_carry_internal_detail():
+    """Provider/SDK/database errors are logged, not streamed: the user and the run
+    row (returned by the runs API) get a generic message with the request id."""
+    from fastapi import HTTPException
+
+    from app.assistant.routes import _user_facing_error
+
+    internal = RuntimeError("anthropic.APIStatusError: 401 invalid x-api-key sk-ant-123 at /app/integrations/claude.py")
+    msg = _user_facing_error(internal, request_id="req-42", run_id="run-1")
+    assert "sk-ant" not in msg and "claude.py" not in msg and "401" not in msg
+    assert "req-42" in msg
+    # Messages written for users (e.g. the AI budget guard) still pass through.
+    budget = HTTPException(429, "Today's AI budget for your organisation is used up.")
+    assert _user_facing_error(budget, request_id=None, run_id="run-1") == budget.detail
+    for fn in (stream_session,):
+        assert 'yield _sse("error", {"message": str(exc)' not in inspect.getsource(fn)

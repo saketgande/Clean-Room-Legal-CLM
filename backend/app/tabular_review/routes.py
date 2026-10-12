@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -9,75 +7,12 @@ from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.access import is_org_admin
-from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
-from app.core.enums import TabularCellStatus
-from app.matters.access import get_project_for_user
 from app.tabular_review.dependencies import get_tabular_review_service
-from app.tabular_review.models import (
-    TabularReview,
-    TabularReviewCell,
-)
+from app.tabular_review.models import TabularReview
 from app.tabular_review.service import TabularReviewService
 
 router = APIRouter(prefix="/tabular-reviews", tags=["tabular-reviews"])
-
-# A review whose cells have not all finished within this window is treated
-# as stuck (e.g. a worker died) so it can resolve instead of showing
-# "Running" forever.
-STUCK_REVIEW_TTL = timedelta(minutes=20)
-_TERMINAL_CELL = {
-    TabularCellStatus.COMPLETE,
-    TabularCellStatus.NEEDS_REVIEW,
-    TabularCellStatus.FAILED,
-}
-_ACTIVE_REVIEW_STATUSES = {"running", "pending", "draft"}
-
-
-def _reconcile_review_status(db: Session, *, review: TabularReview) -> bool:
-    """Derive a review's status from its cells.
-
-    Cells are processed by independent Celery jobs and nothing transitions
-    the parent review off ``running`` on its own, so a review whose worker
-    died would otherwise display "Running" forever. This also reaps cells
-    stuck past the TTL so the run can resolve and individual cells re-run.
-    Returns True if the review row was mutated (caller commits).
-    """
-    if review.status not in _ACTIVE_REVIEW_STATUSES:
-        return False
-    cells = db.scalars(
-        select(TabularReviewCell).where(
-            TabularReviewCell.org_id == review.org_id,
-            TabularReviewCell.tabular_review_id == review.id,
-        )
-    ).all()
-    if not cells:
-        return False
-    pending = [c for c in cells if c.status not in _TERMINAL_CELL]
-    changed = False
-    if pending:
-        last_active = review.updated_at or review.created_at
-        if utcnow() - last_active < STUCK_REVIEW_TTL:
-            if review.status != "running":
-                review.status = "running"
-                return True
-            return False
-        for cell in pending:
-            cell.status = TabularCellStatus.FAILED
-            cell.error_message = (
-                "Timed out — no result within the expected window "
-                "(the worker may have stopped). Re-run this cell to retry."
-            )
-        changed = True
-    answered = any(
-        c.status in {TabularCellStatus.COMPLETE, TabularCellStatus.NEEDS_REVIEW}
-        for c in cells
-    )
-    new_status = "completed" if answered else "failed"
-    if review.status != new_status:
-        review.status = new_status
-        changed = True
-    return changed
 
 
 class TabularColumnCreate(BaseModel):
@@ -87,7 +22,6 @@ class TabularColumnCreate(BaseModel):
 
 class TabularReviewCreate(BaseModel):
     name: str
-    matter_id: str | None = None
     contract_ids: list[str] = Field(default_factory=list)
     columns: list[TabularColumnCreate] = Field(min_length=1)
 
@@ -121,12 +55,6 @@ def _review_is_accessible(
     accessible_contract_ids: set[str] | None = None,
 ) -> bool:
     if is_org_admin(current_user) or review.created_by_user_id == current_user.id:
-        return True
-    if review.matter_id:
-        try:
-            get_project_for_user(db, matter_id=review.matter_id, user=current_user)
-        except HTTPException:
-            return False
         return True
     if accessible_contract_ids is not None:
         # Batched fast path: caller already resolved the user's full
@@ -174,9 +102,6 @@ def list_reviews(
             accessible_contract_ids=accessible_contract_ids,
         )
     ]
-    mutated = [_reconcile_review_status(db, review=review) for review in visible]
-    if any(mutated):
-        db.commit()
     return visible
 
 
@@ -227,9 +152,6 @@ def get_review(
     service: TabularReviewService = Depends(get_tabular_review_service),
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
-    if _reconcile_review_status(db, review=review):
-        db.commit()
-        db.refresh(review)
     return service.review_payload(review=review, org_id=current_user.org_id)
 
 

@@ -36,7 +36,7 @@ from app.org_structure.models import OrgUnit
 # this feature. Drives ScreenResponse.is_enforced (a derived response field,
 # not a column).
 TRANCHE_1_SCREEN_CODES: frozenset[str] = frozenset(
-    {"contracts", "matters", "trademarks", "notices", "intake"}
+    {"contracts", "trademarks", "notices", "intake"}
 )
 
 

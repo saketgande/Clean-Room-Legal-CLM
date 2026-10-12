@@ -1,0 +1,55 @@
+{
+ "review": [
+  "rv-cuad-004",
+  "rv-cuad-008",
+  "rv-cuad-019",
+  "rv-cnli-01",
+  "rv-ae-msa-01",
+  "rv-ae-msa-02",
+  "rv-scan-ae-msa-02",
+  "rv-ae-long-01"
+ ],
+ "extraction": [
+  "ex-cuad-004",
+  "ex-cuad-008",
+  "ex-cuad-019",
+  "ex-ae-msa-01",
+  "ex-ae-msa-02",
+  "ex-ae-long-01"
+ ],
+ "qa": [
+  "qa-006",
+  "qa-007",
+  "qa-008",
+  "qa-017",
+  "qa-018",
+  "qa-019",
+  "qa-041",
+  "qa-042",
+  "qa-043"
+ ],
+ "portfolio": [
+  "pq-01",
+  "pq-02"
+ ],
+ "routing": [
+  "rt-01",
+  "rt-02",
+  "rt-03",
+  "rt-04",
+  "rt-05",
+  "rt-06",
+  "rt-07",
+  "rt-08",
+  "rt-09",
+  "rt-10"
+ ],
+ "portfolio_docs": [
+  "ae-msa-01",
+  "ae-msa-02",
+  "ae-long-01",
+  "pf-02",
+  "pf-03",
+  "pf-05"
+ ]
+}

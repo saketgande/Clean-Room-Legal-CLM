@@ -10,7 +10,10 @@ Group=aegis
 WorkingDirectory=/opt/aegis/backend
 EnvironmentFile=/etc/aegis/backend.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/opt/aegis/backend/.venv/bin/celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=4
+# 12 slots: Ask Aegis answers run here alongside document jobs (~10 people asking
+# at once plus spare). Each slot is a process: check the server's RAM (~140 MiB
+# per idle slot, more while a document job has loaded the search models).
+ExecStart=/opt/aegis/backend/.venv/bin/celery -A app.jobs.celery_app.celery_app worker --loglevel=info --concurrency=12
 Restart=always
 RestartSec=5
 TimeoutStopSec=60

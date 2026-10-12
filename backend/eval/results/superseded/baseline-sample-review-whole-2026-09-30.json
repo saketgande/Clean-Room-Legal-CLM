@@ -1,0 +1,196 @@
+{
+ "summary": {
+  "model": "claude-sonnet-4-6",
+  "sample": true,
+  "date": "2026-09-30",
+  "review": {
+   "rules": 120,
+   "precision": 0.7380952380952381,
+   "recall": 0.8611111111111112,
+   "f1": 0.7948717948717949,
+   "status_accuracy": 0.7666666666666667
+  },
+  "extraction": {
+   "fields": 0,
+   "accuracy": 0.0
+  },
+  "qa": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "qa_answer_beyond_25k": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "routing": {
+   "requests": 0,
+   "workflow_accuracy": 0.0,
+   "escalation_accuracy": 0.0
+  },
+  "errors": {
+   "review": 0,
+   "extraction": 0,
+   "qa": 0,
+   "routing": 0
+  }
+ },
+ "results": {
+  "review": {
+   "review-nda-01": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "missing",
+     "nda-7": "deviation",
+     "nda-10": "deviation",
+     "nda-18": "missing",
+     "nda-20": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8991,
+     "completion_tokens": 3180,
+     "total_tokens": 12171,
+     "cache_creation_input_tokens": 1026,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "review-nda-02": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-12": "deviation",
+     "nda-15": "deviation",
+     "nda-11": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8788,
+     "completion_tokens": 3347,
+     "total_tokens": 12135,
+     "cache_creation_input_tokens": 1026,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "review-nda-03": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-11": "missing",
+     "nda-12": "missing",
+     "nda-13": "missing",
+     "nda-17": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8588,
+     "completion_tokens": 3566,
+     "total_tokens": 12154,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-nda-04": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-8": "deviation",
+     "nda-10": "missing",
+     "nda-11": "missing",
+     "nda-12": "missing",
+     "nda-13": "missing",
+     "nda-15": "missing",
+     "nda-17": "deviation",
+     "nda-20": "deviation",
+     "nda-7": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8715,
+     "completion_tokens": 4096,
+     "total_tokens": 12811,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-01": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 8501,
+     "completion_tokens": 772,
+     "total_tokens": 9273,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-02": {
+    "predicted": {
+     "limitation_of_liability": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8499,
+     "completion_tokens": 1384,
+     "total_tokens": 9883,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-03": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "ip_indemnity": "deviation",
+     "assignment": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8500,
+     "completion_tokens": 1313,
+     "total_tokens": 9813,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-01": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 6667,
+     "completion_tokens": 531,
+     "total_tokens": 7198,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-04": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "ip_indemnity": "deviation",
+     "termination_for_breach": "deviation",
+     "confidentiality": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8481,
+     "completion_tokens": 1549,
+     "total_tokens": 10030,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-02": {
+    "predicted": {
+     "subprocessor_notice": "deviation",
+     "inquiry_notice": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 6654,
+     "completion_tokens": 1394,
+     "total_tokens": 8048,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   }
+  },
+  "extraction": {},
+  "qa": {},
+  "routing": {}
+ }
+}

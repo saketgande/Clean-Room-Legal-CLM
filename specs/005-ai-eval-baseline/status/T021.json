@@ -1,0 +1,7 @@
+{
+  "task": "T021",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "stamp_and_mirror refuses non-legal_clm_eval DB; approve_paid_run validates kind; score_pair refuses same run; verdict reads target from runs (no target arg); amount trailing zeros; write_detail only under private runs; replace=True removed; FR-26 missed section n + line; tests/test_exam_report.py added; 485 exam tests pass, ruff clean",
+  "updated": "2026-10-06T19:22:40Z"
+}

@@ -24,6 +24,17 @@ _ALIASES: dict[str, str] = {
     "confidential_information": "confidentiality",
     "confidential_information_definition": "confidentiality",
     "confidentiality_exclusions": "confidentiality",
+    "definition_of_confidential_information": "confidentiality",
+    "exclusions_from_confidential_information": "confidentiality",
+    "return_or_destruction_of_confidential_information": "confidentiality",
+    "return_or_destruction": "confidentiality",
+    # Compelled/required disclosure (subpoena, court order) is the standard
+    # carve-out FROM the confidentiality obligation — the same family as
+    # "exclusions_from_confidential_information" just above.
+    "compelled_disclosure": "confidentiality",
+    "required_disclosure": "confidentiality",
+    "permitted_disclosure": "confidentiality",
+    "permitted_disclosures": "confidentiality",
     "nondisclosure": "confidentiality",
     "non_disclosure": "confidentiality",
     # Term / termination
@@ -35,6 +46,9 @@ _ALIASES: dict[str, str] = {
     "governing_law": "governing_law",
     "governing_law_jurisdiction": "governing_law",
     "governing_law_and_disputes": "governing_law",
+    "governing_law_and_dispute_resolution": "governing_law",
+    "governing_law_and_jurisdiction": "governing_law",
+    "governing_law_and_general_provisions": "governing_law",
     "choice_of_law": "governing_law",
     "jurisdiction": "governing_law",
     # Liability
@@ -49,9 +63,24 @@ _ALIASES: dict[str, str] = {
     "data_privacy": "data_protection",
     "privacy": "data_protection",
     "gdpr": "data_protection",
+    # GDPR/DPA sub-topics. The extractor emits these both with and without the
+    # "data_protection_" prefix; the prefixed forms already resolve via
+    # _PREFIX_KEYS, so without these the SAME concept lands in two different
+    # buckets depending on how the model happened to phrase the label.
+    "sub_processors": "data_protection",
+    "subprocessors": "data_protection",
+    "data_subject_rights": "data_protection",
+    "international_data_transfers": "data_protection",
+    "cross_border_data_transfers": "data_protection",
+    "processing_instructions": "data_protection",
+    "data_return_and_deletion": "data_protection",
+    "data_breach_notification": "data_protection",
+    "security_incident_notification": "data_protection",
     # IP
     "ip_ownership": "ip_ownership",
     "intellectual_property": "ip_ownership",
+    "intellectual_property_rights": "ip_ownership",
+    "intellectual_property_ownership": "ip_ownership",
     "ip": "ip_ownership",
     "ownership": "ip_ownership",
     "license_grant": "license_grant",
@@ -104,13 +133,26 @@ def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", (value or "").lower()).strip("_")
 
 
+# Longest-first so "ip_ownership" wins over "ip" when both could prefix-match.
+_PREFIX_KEYS = sorted(set(_ALIASES) | set(_ALIASES.values()), key=len, reverse=True)
+
+
 def canonical_clause_type(raw: str | None) -> str:
     """Map any raw clause label to its canonical key. Unknown labels collapse
     to a normalized slug so at least casing/spacing variants unify."""
     if not raw:
         return "unknown"
     slug = _slug(raw)
-    return _ALIASES.get(slug, slug)
+    if slug in _ALIASES:
+        return _ALIASES[slug]
+    # The extractor invents compound labels the alias table will never enumerate
+    # ("ip_ownership_and_no_license", "data_protection_sub_processors"). They are
+    # the canonical type plus a qualifier, so the leading segment still decides.
+    # Only runs after an exact miss, so it can never override a known alias.
+    for key in _PREFIX_KEYS:
+        if slug.startswith(key + "_"):
+            return _ALIASES.get(key, key)
+    return slug
 
 
 def display_label(canonical: str) -> str:

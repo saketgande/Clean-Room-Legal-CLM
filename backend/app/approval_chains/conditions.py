@@ -379,10 +379,10 @@ def validate_expression(expression: Any, *, allowed_fields: frozenset[str]) -> N
     SQL.
     """
     if not isinstance(expression, dict):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Condition must be an object")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Condition must be an object")
     if set(expression.keys()) != _ALLOWED_KEYS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             "Condition must have exactly the keys 'field', 'operator', 'value' "
             "(no combinators such as 'and'/'or' are supported)",
         )
@@ -391,38 +391,38 @@ def validate_expression(expression: Any, *, allowed_fields: frozenset[str]) -> N
     value = expression.get("value")
 
     if not isinstance(field, str) or not field or len(field) > MAX_FIELD_LEN:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Condition 'field' is invalid")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Condition 'field' is invalid")
     if field not in allowed_fields:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown condition field '{field}'"
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown condition field '{field}'"
         )
     if not isinstance(operator, str) or operator not in OPERATORS:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Condition 'operator' must be one of: {', '.join(sorted(OPERATORS))}",
         )
 
     if operator in ("gt", "lt"):
         if not _is_finite_number(value):
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 f"Condition 'value' must be a finite number for operator '{operator}'",
             )
     elif operator == "in":
         if not isinstance(value, list) or not value:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Condition 'value' must be a non-empty list for 'in'"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "Condition 'value' must be a non-empty list for 'in'"
             )
         if len(value) > MAX_LIST_ITEMS:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, f"Condition 'value' list exceeds {MAX_LIST_ITEMS} items"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"Condition 'value' list exceeds {MAX_LIST_ITEMS} items"
             )
         if not all(_scalar_ok(v) for v in value):
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "Condition 'value' list items must be simple scalars"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "Condition 'value' list items must be simple scalars"
             )
     elif operator in ("eq", "contains") and not _scalar_ok(value):
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Condition 'value' must be a simple scalar within size limits for '{operator}'",
         )

@@ -1,0 +1,1986 @@
+[
+ {
+  "doc_id": "cuad-001",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-001.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "cf04de080570e4ba426c11eaba774f54552c9f8f3dfba54f655473b80cbac9da",
+  "title": "STARTECGLOBALCOMMUNICATIONSCORP_11_16_1998-EX-10.30-CONSTRUCTION AND MAINTENANCE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-002",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-002.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "b86a8e64c553d03a982cc5f149435f29181e309db400ff250ed850599a01b225",
+  "title": "TELEGLOBEINTERNATIONALHOLDINGSLTD_03_29_2004-EX-10.10-CONSTRUCTION AND MAINTENANCE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-003",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-003.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "75ee54e34508350f537d8c765a2567c3ab99bbd7533fac6880739d5b850f53ce",
+  "title": "FOUNDATIONMEDICINE,INC_02_02_2015-EX-10.2-Collaboration Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-004",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-004.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0c6be355977150d83d8f1ee5dd30f176e637a4e02df72b731131860b079f1b41",
+  "title": "GOOSEHEADINSURANCE,INC_04_02_2018-EX-10.6-Franchise Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-005",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-005.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "4362013dcc33e52ba5180650d945aa4e69b4ec9ca1e2ce39447a34a15889db7d",
+  "title": "CHANGEPOINTCORP_03_08_2000-EX-10.6-LICENSE AND HOSTING AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-006",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-006.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8e2adddb58dd5ac9a6ee447d09375f65b6121162f13a8e1fcd3339044aab2868",
+  "title": "MRSFIELDSORIGINALCOOKIESINC_01_29_1998-EX-10-FRANCHISE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-007",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-007.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "cdd87a59c56a0bdbef6d4fa88a739471be81d90fec6a92327698a7f359a8302d",
+  "title": "BERKELEYLIGHTS,INC_06_26_2020-EX-10.12-COLLABORATION AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-008",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-008.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "f5694a4ed68e476c2e15b37054373b6a5098bd8309df1aa780a486868342c4e1",
+  "title": "HOSPITALITYINVESTORSTRUST,INC_04_07_2014-EX-10.26-FRANCHISE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-009",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-009.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "441ffefff8b1ea9ae55dd3e3898c0c2983589431f693fcbbbeebbffa1d90df18",
+  "title": "ZogenixInc_20190509_10-Q_EX-10.2_11663313_EX-10.2_Distributor Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-010",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-010.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d13b7e693935407b2be0db9bea61d5aae5779fbc505abef757c27f07fa1bae7e",
+  "title": "MACROGENICSINC_08_02_2013-EX-10-COLLABORATION AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-011",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-011.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "94706869d0da15fd791d8c9104959513c48271a91977b4701291184d1606c969",
+  "title": "Array BioPharma Inc. - LICENSE, DEVELOPMENT AND COMMERCIALIZATION AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-012",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-012.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "e6370745e927c1182c7c7425a6a984ad0d0ebc3439bc33d99cfc91c30bd381db",
+  "title": "CoherusBiosciencesInc_20200227_10-K_EX-10.29_12021376_EX-10.29_Development Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-013",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-013.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "b0260f5f7048eabdee209987eb7a20c10aaf0a4b9503552e7c1bad2d7d784c3b",
+  "title": "CytodynInc_20200109_10-Q_EX-10.5_11941634_EX-10.5_License Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-014",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-014.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d89ff42b33c8d92c367ed43c67b9213fbc4ac2df1a489a76cc60992e6ee1b9b1",
+  "title": "UpjohnInc_20200121_10-12G_EX-2.6_11948692_EX-2.6_Manufacturing Agreement_ Supply Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-015",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-015.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "670816cb31e329a198638a46a32531b4db03129fd8471203a3772e8d33cdcf1f",
+  "title": "BABCOCK_WILCOXENTERPRISES,INC_08_04_2015-EX-10.17-INTELLECTUAL PROPERTY AGREEMENT between THE BABCOCK _ WILCOX COMPANY and BABCOCK _ WILCOX ENTERPRISES, INC.",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-016",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-016.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "83b3bd9444f56aeb9d1d4e5191c6f717356bca0b5d8c8da05e910aa49ec0af7b",
+  "title": "CERES,INC_01_25_2012-EX-10.20-Collaboration Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-017",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-017.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "bb355fb1c969bf79632147aa2235f3b539ed0854ed7dc63aebefc0465e633685",
+  "title": "HarpoonTherapeuticsInc_20200312_10-K_EX-10.18_12051356_EX-10.18_Development Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-018",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-018.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "cdfb3869104f6d5ef5250203a5e085f58446e73916ed2aad9a504ac253e8c888",
+  "title": "PHREESIA,INC_05_28_2019-EX-10.18-STRATEGIC ALLIANCE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-019",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-019.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8da2c49973d8fb73e5107a17b76c10c7cbf38fdb97b6235e9ab77446c9c8de0a",
+  "title": "SENMIAOTECHNOLOGYLTD_02_19_2019-EX-10.5-Collaboration Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-020",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-020.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "f20f55c32b8c30c720f2aabb614592e0cf8beb74e9e6fa25ad78a3295bb0db56",
+  "title": "ADAPTIMMUNETHERAPEUTICSPLC_04_06_2017-EX-10.11-STRATEGIC ALLIANCE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-021",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-021.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "ef5d06f1cc291342f84bfff8a40d561cdd843a025475ec71d78ebbd5b687f0b8",
+  "title": "AIRSPANNETWORKSINC_04_11_2000-EX-10.5-Distributor Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-022",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-022.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "e7af6c31ad15625052cf5a166db30aa312faac61927e34cc9675adf418e61076",
+  "title": "DigitalCinemaDestinationsCorp_20111220_S-1_EX-10.10_7346719_EX-10.10_Affiliate Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-023",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-023.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "46183b3468a04e9c11f082a2e51359a1403bb373cc5d0f61e6eaa4306f65a9d5",
+  "title": "PaperexchangeComInc_20000322_S-1A_EX-10.4_5202103_EX-10.4_Co-Branding Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-024",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-024.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "1548a698bd96e53c7bf7a60f7dd065cf340bf1a2282cb748d6c01addc800a26d",
+  "title": "FIDELITYNATIONALINFORMATIONSERVICES,INC_08_05_2009-EX-10.3-INTELLECTUAL PROPERTY AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-025",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-025.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "5cc2cbafdfe4b089bce0b1084cd4997a37f9a23b7c6307fec93a1777015fb690",
+  "title": "MANUFACTURERSSERVICESLTD_06_05_2000-EX-10.14-OUTSOURCING AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-026",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-026.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8a156f69e9ca6966c0f1d48c9a972d711b6cb7583b6c9c26c3fc7fe1e27bcf0a",
+  "title": "NeoformaInc_19991202_S-1A_EX-10.26_5224521_EX-10.26_Co-Branding Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-027",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-027.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "3060a01d1ea3766e43cfc623f3aa3d5563bccac7c2364fffb84cbd7d49dee1ad",
+  "title": "AimmuneTherapeuticsInc_20200205_8-K_EX-10.3_11967170_EX-10.3_Development Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-028",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-028.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "bc45f0f30bd60138b5bc89c935b96f23707000482795a0939524c54517daca38",
+  "title": "BELLICUMPHARMACEUTICALS,INC_05_07_2019-EX-10.1-Supply Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-029",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-029.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d2dcc7fa33b3143ae561025ba2e907e4c3d36a7ee3782f8b3d35744c7642a0f9",
+  "title": "ENERGOUSCORP_03_16_2017-EX-10.24-STRATEGIC ALLIANCE AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-030",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-030.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "6885da43f470be15f67ecf5be03d1006d27cf88e11aeef8bf478d81f71e0c7e2",
+  "title": "INNOVIVA,INC_08_07_2014-EX-10.1-COLLABORATION AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-031",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-031.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "75afb072cf4dbafd060c40ac37f1e6acaeaeeb606469bc4e5268c6096d16dd6c",
+  "title": "Microgenics Corporation - Collaborative Development and Commercialization Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-032",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-032.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "4dd3c78211abb8cbe0200daddaca6a1cf86ae1227766d9bcbc3e8fd1fd642870",
+  "title": "NICELTD_06_26_2003-EX-4.5-OUTSOURCING AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-033",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-033.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "2c0cbfce0cdc073b09800802a58fd0f025e9d1f7014713ecc5dd47f7c62f2c52",
+  "title": "OFGBANCORP_03_28_2007-EX-10.23-OUTSOURCING AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-034",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-034.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "3d9aa8e816a1271c5169e51a03dd88439b1278c21ce57cb28b786e22335108e4",
+  "title": "PfHospitalityGroupInc_20150923_10-12G_EX-10.1_9266710_EX-10.1_Franchise Agreement1",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-035",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-035.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "614d80aa5d416949088c7dcad51aab867ed0af1e3ac906ac0060ef7256bcb37a",
+  "title": "RevolutionMedicinesInc_20200117_S-1_EX-10.1_11948417_EX-10.1_Development Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-036",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-036.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "afa8a94a1c6252861882320a9d28516ea5b4b8a4e0215e9b2213f442a2528540",
+  "title": "XENCORINC_10_25_2013-EX-10.24-COLLABORATION AGREEMENT (3)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-037",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-037.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "b91c8e29f3002e983cfeb01ad86739f785fec1b6f7a5d934b61136725bf4d67a",
+  "title": "FIBROGENINC_10_01_2014-EX-10.11-COLLABORATION AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-038",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-038.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "50c60164bc1c459c80937614afbcd908538a7e304a283a0da553e4b5c5dfd57c",
+  "title": "LeadersonlineInc_20000427_S-1A_EX-10.8_4991089_EX-10.8_Co-Branding Agreement",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-039",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-039.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "1b4a0744754138176a7a3081a9c89a859248df2013a56f6ef13eeccbc264c9a1",
+  "title": "NETGEAR,INC_04_21_2003-EX-10.16-DISTRIBUTOR AGREEMENT",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cuad-040",
+  "category": "public",
+  "dataset": "cuad",
+  "file": "public/cuad-040.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "78d91abf7c1efc2a3a2458c5257d3c6e3fd1ec36154a3342bf253b04f5cababc",
+  "title": "ScansourceInc_20190822_10-K_EX-10.38_11793958_EX-10.38_Distributor Agreement1",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "cnli-01",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "a4862f5ef8abdb3ae1f806947412a809317688bba87269e6bd4162c3c27363e9",
+  "title": "appendix-g-nda-form",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-02",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "2dd97a6c41398b26dcd3d19f578b8d1f87291492fed0ae25acce64c2a7d4b66c",
+  "title": "802724_0001193125-15-331613_d96542dex99d5",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-03",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "fe939a893c015439051df1c7bee2cceb910e9bc1c3ecd8717245c49d36b0179d",
+  "title": "1020416_0001193125-16-701566_d250247dex99d2",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-04",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "a934de74cd731b055ccad127ecd381a03818c14e06e3bcad333350da62d78b6f",
+  "title": "1041550_0001193125-19-004977_d663808dex106",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-05",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-05.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "ac62cf7e31b4e7af4e2b32a9024ccbd2a094c5b58f77ccef3b5ea74fb4945408",
+  "title": "1073090_0001356564-06-000012_sorell10ksbamend2x102",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-06",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-06.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "29d639a3ee48258f0dc0a56371880d8355fbe5630389f3ee097ab46751822213",
+  "title": "Attachment-I-Non-DisclosureAgreementContractor",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-07",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-07.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "ddd108a93b923211e1c29ff1f2b521619255e9f04c5365aa93a814bc91e2e127",
+  "title": "1010471_0000950134-97-006281_document_5",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-08",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-08.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0dc2a036d1bd828777ff73932c99b3558746638b9d01e0c2d4515bfc603567b2",
+  "title": "59b1148ff6952b0001bdbedc_20170907_non disclosure agreement_expert",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-09",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-09.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "68de683c8bb86b9434a6691345c7d4048a1cae5681fcd82e58420397d25b4902",
+  "title": "BaconNon-Disclosure",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cnli-10",
+  "category": "public",
+  "dataset": "contractnli",
+  "file": "public/cnli-10.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "2d44bbaa1cefbdcbda3d4cf3ceb56cc4478a97283732d6768096a7d590627237",
+  "title": "non-disclosure-agreement-template",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-01",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "fc89796b0dce8fc63bb3caaf5a2046c814f6061f6681446964037b834ec1c433",
+  "title": "Cloud Service Agreement - Globex Pharma Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-02",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "91bb737feb2f57080d98063d4f8ab17a3708b4337d219de5cc165230e8a63c82",
+  "title": "Cloud Service Agreement - Initech Analytics Pvt Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-03",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "bc33a6e3ec93cddf1a41341f791bf0ba2467a4b3c35e65ba43b58f25cd9311af",
+  "title": "Cloud Service Agreement - Umbrella Health Inc",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-04",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "46a018839c72572f622a51e3fc102853fe2b045631a3080f2bcbe9aa6b57f68b",
+  "title": "Cloud Service Agreement - Stark Components LLC",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-05",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-05.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "3fdbdbb7b6b7f9d64c4c96ae80f513b97831b2b4b927c210c579003d59e18c9b",
+  "title": "Cloud Service Agreement - Wayne Logistics Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-06",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-06.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "16d3b882ae3f2c423760f951e0511ff253850d3744d4527c08183f7a10efa75f",
+  "title": "Cloud Service Agreement - Soylent Foods Pvt Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-07",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-07.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "2a3fd2ac5eef5061fae6d478765872aafe54974a9f74fe08cbf55fc183b6301c",
+  "title": "Cloud Service Agreement - Hooli Cloud Inc",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-08",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-08.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "ce15a3443f64ae7563b9016dc6790275572a11c6a3910899a0d3fd90bd743cab",
+  "title": "Cloud Service Agreement - Vandelay Industries",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-09",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-09.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "e32d91ae376dbd874cc27ccc36bc4e2e0e124926613de071c3aedf8726fbde93",
+  "title": "Cloud Service Agreement - Tyrell Biotech Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-10",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-10.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d959879baa79b12d825b8d4fe20ef1e1835288b6779bc6670645bc28b93f5a6e",
+  "title": "Cloud Service Agreement - Cyberdyne Systems Pvt Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-msa-11",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-msa-11.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "3c895c9aa80d54cc6017f5ade4643cf3f570fb6fa16710e4764a2aa89d5ecef0",
+  "title": "Cloud Service Agreement - Wonka Nutrition Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-01",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "05f18961c24c7fb7585986575be67a63ce9169e61273a6cc9ad5a50879451422",
+  "title": "Data Processing Agreement - Soylent Foods Pvt Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-02",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "00456e20437f73677b8dbc169f30e781520e5ac37b2d5ffc4d5cf38b7ed60242",
+  "title": "Data Processing Agreement - Hooli Cloud Inc",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-03",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8c09d59ec503e8b748618d23809104b293d58c0c71df279fc54e74244d3469a5",
+  "title": "Data Processing Agreement - Vandelay Industries",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-04",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "a85df6e222669b5e62812d6ab85bd7aa447e6d3a60919cae21d727f765e3367b",
+  "title": "Data Processing Agreement - Tyrell Biotech Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-05",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-05.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "7a0ea829698aa3409c367c7b541ccd5f1095d2ef51094b21721484686e8516a9",
+  "title": "Data Processing Agreement - Cyberdyne Systems Pvt Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-06",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-06.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "f018d4bb603e8ca4cf1fe20a8d9cf4027a853918cb2a073aa410d49028b90aeb",
+  "title": "Data Processing Agreement - Wonka Nutrition Ltd",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "cp-dpa-07",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/cp-dpa-07.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "cfd94ec94870918e11003bf332ed2e59e809d0aa258282f246abf16a937ca482",
+  "title": "Data Processing Agreement - Oscorp Materials Inc",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "ae-msa-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-msa-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "e79a24e39a80ebe3eafd187f0227babea39f08d39a86eea36210a6a83204d929",
+  "title": "Master Services Agreement - Aranya Components Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-msa-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-msa-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0a61546fde2e78ca7c5cecc5c2f21a31da7e417e1b302ce170a3d78870020b4e",
+  "title": "Master Services Agreement - Bhavani Foods Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-msa-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-msa-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8a6ec74751db4f9b401c03ca7553212c3661875bd047fa9d859564d41c408d64",
+  "title": "Master Services Agreement - Chandra Labs LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-msa-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-msa-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d3e59e72a9843684b3d2015aaa844a8b1eaeea2f9fbfa852670de2c2ed835273",
+  "title": "Master Services Agreement - Deccan Biotech Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-consultancy-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-consultancy-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "bb621ef4d8c0646950c27f74781f3907837c9d0cd950cad478f7bb0e8b2fc238",
+  "title": "Consultancy Agreement - M/s Ekta Textiles Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-consultancy-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-consultancy-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "6940533330e89852c703098c33a11f2e32aa614dd2487ff012f41062ddd4c9e7",
+  "title": "Consultancy Agreement - Fortuna Systems Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-consultancy-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-consultancy-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "037f280f20ce63a6c78e56d008aaae2977a40acad3ee868c35090d319a1b5339",
+  "title": "Consultancy Agreement - Gandiva Packaging LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-consultancy-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-consultancy-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "8fa8943949c451dd84b49a6ee3f2f6d32e2465fd1cac30195af7e2e72a7f8f99",
+  "title": "Consultancy Agreement - Himadri Engineering Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-vendor-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-vendor-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "29ad030d0d5d912f4cad863e847bb366c7b9702de64a520820d3f108635353c1",
+  "title": "Vendor Agreement - Indus Logistics Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-vendor-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-vendor-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "47eefdd81713438a0d2d3b3381c5251f0ffae0d7b460ee613d99eabeaa167e19",
+  "title": "Vendor Agreement - Kestrel Components Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-vendor-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-vendor-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "9bf7d37fc689ff1ded6b6984b1e3d574d507607269bb26a66350d13e2c8a199c",
+  "title": "Vendor Agreement - Jyoti Software Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-vendor-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-vendor-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "f3a83e2965e6864209ecbbf16244e7298742e6d0d7c336f5ebb996a29f158c06",
+  "title": "Vendor Agreement - M/s Kaveri Diagnostics LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-saas-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-saas-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "aa985709bfefe597f862cc161509c3f9606d730c845005f9a539165808c560d9",
+  "title": "Software / SaaS Agreement - Lotus Analytics Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-saas-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-saas-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d94146fba9be62a1f118929ceb67bc609f699fed695ff1723344e067e7969934",
+  "title": "Software / SaaS Agreement - Malabar Consulting Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-saas-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-saas-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "83b594c3658ab659e482e2e27f5727cdb544d33919f971be9281a0f4e8601973",
+  "title": "Software / SaaS Agreement - Narmada Materials Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-saas-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-saas-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d58f6ed706707f413ef90cac711cfd366d604fa7d9fdb9e1288afa0d8c3aadae",
+  "title": "Software / SaaS Agreement - Kestrel Components Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-sow-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-sow-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "42ab5b2652837691605cc1e4d8d96066fe53a40dce0682bf8e4a800d7c299b40",
+  "title": "Statement of Work - Orchid Components LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-sow-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-sow-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "06447e94bcc7e6da2cff50b520a79dc9d46c42458bbd98f6ff283ffa235bac92",
+  "title": "Statement of Work - Pinnacle Foods Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-sow-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-sow-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "4fe48222b029e642d579d80d37eb283f98f572d208bc87dd9b13066e612d7a2d",
+  "title": "Statement of Work - M/s Quantum Labs Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-sow-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-sow-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "e92a5ff140f8cbdbf13f743acf3350dcbbf17311eed24545d2aac319ceb3bb82",
+  "title": "Statement of Work - Rajdhani Biotech Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-dpa-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-dpa-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "a50562fb52d9f55ee4d1d5db3f4a60863a8cc3060ef7d3aba9a8f34c95a384d3",
+  "title": "Data Processing Agreement - Sahyadri Textiles LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-dpa-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-dpa-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "70ca24e9fa2cf3208eaa39b9eb0ab91f6a8d1b583952c357b09aff2a173253de",
+  "title": "Data Processing Agreement - Tapovan Systems Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-dpa-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-dpa-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d20dfc484e68a2d2dee3c8e030060d55d3eb60ea17e037b3409f9e37b3d3d409",
+  "title": "Data Processing Agreement - Udaan Packaging Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-dpa-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-dpa-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "d12fab43a08851e6a7e3d14e1db6598f3bac34c7e83c82bcb09b085a14898683",
+  "title": "Data Processing Agreement - Vindhya Engineering Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-long-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-long-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "21e21bb2c92eb5c3d49fa4d66d11335124d70d158c716142b010462031edf304",
+  "title": "Master Services Agreement - M/s Yamuna Logistics LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-long-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-long-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "f1d10f0393bbb0e72fd8bfd9ec3323b182d12d70b0992f54cff3b7688a59c865",
+  "title": "Master Services Agreement - Zenith Software Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-long-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-long-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "3cb723b9a8924a4f537e2ada36f35e3f986954b642d0abf5002f5260919a04bd",
+  "title": "Master Services Agreement - Ashoka Diagnostics Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "ae-long-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/ae-long-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "6c2f1babc5f887db5c19c5fe93bbd4f62e27d8e9289add832fc5f65f900cfb25",
+  "title": "Software / SaaS Agreement - Bharat Analytics Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-01.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0d6534e6e5ce6059996c5322e8ec1c55b13e9a4d0931bd19cf49213c47ec6891",
+  "title": "Mutual NDA - Chola Consulting LLP",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-02.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "001a10129880edbd4e267fc0d421df7f159ce028bb28d8c8302449771d17be0d",
+  "title": "Vendor Agreement - Thames Valley Logistics Ltd",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-03.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0b16b02f00003e2ceb16fd917d8ff2581753f7c11d3bb3d1d749181bf3fe914c",
+  "title": "Software / SaaS Agreement - Merlion Analytics Pte. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-04",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-04.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "7ce43f8215dd6c26b135c33202768b0782b9c4ef6cb5100d20fc6d777375b491",
+  "title": "Master Services Agreement - Kestrel Components Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-05",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-05.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "624c4162607c8cfc69b27cdaf8f25297034cf7088fbd782587af38c113831300",
+  "title": "Consultancy Agreement - Pennine Analytics Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-06",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-06.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "0e68c580c5bc400efa2f66166f669837e95eee1364e195d2062dae5fe522ac27",
+  "title": "Statement of Work - Raffles Components Pte. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-07",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-07.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "60bdae83608525f292382598eb2e12be384b3a90ab66981d1756123e44348ecf",
+  "title": "Mutual NDA - Dhruva Materials Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-08",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-08.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "52b4d31c9018db8477dc6605ab7e82b296061357cb343c475af43a69a1b16790",
+  "title": "Vendor Agreement - Cotswold Biotech Ltd",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-09",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-09.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "de6515a01b26c324ac2e80df9fbaead345c0e26304f663b865e8dff4677ee8be",
+  "title": "Software / SaaS Agreement - M/s Eastern Components Pvt. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-10",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-10.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "54858ca05d2074638d3c87ea63134749f829c9d4494da72baa606aacdb0e1862",
+  "title": "Data Processing Agreement - Sentosa Logistics Pte. Ltd.",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-11",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-11.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "fd7ffc650c0c0390c57e30bf69a75abadd9c8ddd3a2203090a9214d2775a318e",
+  "title": "Mutual NDA - Severn Components Ltd",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "pf-12",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/pf-12.txt",
+  "mime_type": "text/plain",
+  "file_sha256": "2663485c3c140f18628803a1f0a9a6370a29b1cb85d287fdd5d0478c11e7c3e9",
+  "title": "Master Services Agreement - Gokul Foods Private Limited",
+  "uploader": "portfolio",
+  "text_mode": "app",
+  "twin_of": null,
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata",
+   "clauses",
+   "brain"
+  ]
+ },
+ {
+  "doc_id": "scan-cp-msa-03",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/scan-cp-msa-03.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "e1819da03bf7117de6274b45b5aaf835675a9ae1de3aefe9318a86bd69c0707b",
+  "title": "Cloud Service Agreement - Umbrella Health Inc (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "cp-msa-03",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "scan-cp-dpa-02",
+  "category": "constructed",
+  "dataset": "commonpaper",
+  "file": "constructed/scan-cp-dpa-02.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "5b0fdfacebe79c56a7ef007aceb4d1332a08c09b52accaf3833d65a24aedf448",
+  "title": "Data Processing Agreement - Hooli Cloud Inc (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "cp-dpa-02",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "scan-ae-msa-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/scan-ae-msa-02.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "aa00a925abc0996a40167a6df4ca688accfc622a7a05c5addfb731909aeea764",
+  "title": "Master Services Agreement - Bhavani Foods Private Limited (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "ae-msa-02",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "scan-ae-saas-02",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/scan-ae-saas-02.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "7dedfc8b810539cb885e933b49b7fcdb1bdcf2283807f5605c910e762ad09726",
+  "title": "Software / SaaS Agreement - Malabar Consulting Pvt. Ltd. (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "ae-saas-02",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "scan-ae-vendor-03",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/scan-ae-vendor-03.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "231ed511d50391bc145258d4d588528cdd950ef5c683a6ff20b62e24058f9e68",
+  "title": "Vendor Agreement - Jyoti Software Private Limited (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "ae-vendor-03",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ },
+ {
+  "doc_id": "scan-ae-long-01",
+  "category": "constructed",
+  "dataset": null,
+  "file": "constructed/scan-ae-long-01.pdf",
+  "mime_type": "application/pdf",
+  "file_sha256": "b07547b117372835fdd98aeefac2bcebd8f1691321d3512920074d057995cde9",
+  "title": "Master Services Agreement - M/s Yamuna Logistics LLP (scanned)",
+  "uploader": "runner",
+  "text_mode": "app",
+  "twin_of": "ae-long-01",
+  "as_read_today_of": null,
+  "ai_steps": [
+   "metadata"
+  ]
+ }
+]

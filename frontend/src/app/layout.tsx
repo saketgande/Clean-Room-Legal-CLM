@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { ClientErrorReporter } from "@/components/client-error-reporter";
+import { ConnectionBanner } from "@/components/connection-banner";
 import { QueryProvider } from "@/lib/query";
 import { LayoutProvider } from "@/lib/layout";
 import { ToastProvider } from "@/components/toast";
@@ -31,6 +32,7 @@ export default function RootLayout({
       </head>
       <body>
         <ClientErrorReporter />
+        <ConnectionBanner />
         <QueryProvider>
           <AuthProvider>
             <LayoutProvider>
