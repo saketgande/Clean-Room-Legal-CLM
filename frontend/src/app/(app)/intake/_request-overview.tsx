@@ -69,14 +69,8 @@ const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("")
 
 // Which doc type this request can auto-draft (mirrors the intake service's
 // heuristic). null ⇒ not a draft-able contract request.
-function draftableDocType(r: IntakeRequest): string | null {
-  const t = `${r.type_label} ${r.description ?? ""}`.toLowerCase();
-  if (/nda|non-disclosure|non disclosure/.test(t)) return "NDA";
-  if (/\b(dpa|data processing|data protection|gdpr)\b/.test(t)) return "DPA";
-  if (/\b(msa|master service|master services|services agreement|statement of work|sow)\b/.test(t)) return "MSA";
-  if (/vendor|supplier|procurement/.test(t)) return "Vendor agreement";
-  return null;
-}
+// The server decides what (if anything) a request drafts — see resolve_doc_type.
+const draftableDocType = (r: IntakeRequest): string | null => r.draftable_doc_label ?? null;
 
 // Mirrors draftableDocType's shape — a request whose subject reads as a
 // trademark matter, eligible for "Continue as Trademark".

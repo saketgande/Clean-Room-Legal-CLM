@@ -23,6 +23,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/endpoints", () => ({ intakeApi: h.intakeApi, workflowsApi: h.workflowsApi, contractsApi: h.contractsApi, brainApi: h.brainApi }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Legal One", permissions: h.permissions } }) }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("./_negotiation-panel", () => ({ NegotiationPanel: () => null }));
 vi.mock("@/components/lifecycle-view", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/lifecycle-view")>()),

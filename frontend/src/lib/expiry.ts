@@ -5,10 +5,14 @@ export const EXPIRY_WINDOW_DAYS = 90;
 
 type Shape = Pick<ContractResponse, "expiration_date" | "lifecycle_stage">;
 
-/** Whole days from now until the contract's end date (negative once it has passed), or null with no end date. */
+/** Whole calendar days from today until the contract's end date (0 on the end date itself, negative once it
+ *  has passed), or null with no end date. Counted from the start of today, so the number does not drop by
+ *  one at midday; Math.round absorbs the 23- and 25-hour days around a clock change. */
 export function daysToExpiry(c: Pick<ContractResponse, "expiration_date">, now: number = Date.now()): number | null {
   if (!c.expiration_date) return null;
-  return Math.round((new Date(`${c.expiration_date}T00:00:00`).getTime() - now) / 86_400_000);
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(`${c.expiration_date}T00:00:00`).getTime() - today.getTime()) / 86_400_000);
 }
 
 /** A signed, running agreement that ends within the window.

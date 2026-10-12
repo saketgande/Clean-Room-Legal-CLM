@@ -2309,6 +2309,9 @@ def _sentence_at(text: str, at: int) -> str:
 def deal_extraction(deal: Deal, text: str) -> ExtractionItem:
     """The facts the contract states, each with the exact words that state it. A fact that a plant
     could have changed is read from the final text, and every quote is checked to be in it."""
+    # Imported here for the same reason as in _render: drafting pulls the database layer in.
+    from app.intake.drafting import _long_date
+
     opening = text.index("entered into as of")
     parties_end = text.index(deal.counterparty, opening) + len(deal.counterparty)
     effective = re.compile(r'\(the "(?:SOW )?Effective Date"\)').search(text, opening)
@@ -2335,12 +2338,12 @@ def deal_extraction(deal: Deal, text: str) -> ExtractionItem:
         fields.append(
             FieldKey(
                 field="expiration_date", kind="date", value=deal.end.isoformat(),
-                quote=f"continues until {deal.end.isoformat()}",
+                quote=f"continues until {_long_date(deal.end)}",
             )
         )
     if deal.auto_renew:
         renewal = re.search(
-            r"continues until \d{4}-\d{2}-\d{2}, and then renews automatically.*?non-renewal", text
+            r"continues until [^,]+, and then renews automatically.*?non-renewal", text
         ).group(0)
         for name in ("renewal_term", "notice_period"):
             fields.append(FieldKey(field=name, kind="passage", value=renewal, quote=renewal))
@@ -2525,7 +2528,8 @@ PORTFOLIO_QUESTIONS = (
     ("Which contracts are governed by the laws of Singapore?", "governing_law",
      lambda d: d.law == "Singapore", lambda t: "laws of Singapore" in t),
     ("Which contracts expire in 2027?", "expiry_year",
-     lambda d: bool(d.end and d.end.year == 2027), lambda t: "continues until 2027-" in t),
+     lambda d: bool(d.end and d.end.year == 2027),
+     lambda t: re.search(r"continues until \d{1,2} [A-Z][a-z]+ 2027\b", t) is not None),
     ("Which contracts have a total value above INR 1,00,00,000 (one crore)?", "value",
      lambda d: bool(d.value and d.value > ONE_CRORE), _says_value_above_a_crore),
     ("Which contracts need at least 90 days' notice to stop them renewing?", "renewal_notice",

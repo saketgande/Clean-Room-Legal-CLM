@@ -8,10 +8,10 @@ import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
-  ErrorState, Field, Input, Modal, Pagination, Select, Table, TD, TH, THead,
+  ErrorState, Field, Input, Modal, Select, Table, TD, TH, THead,
   TR, Textarea,
 } from "@/components/ui";
-import { intakeApi, contractsApi, approvalsApi, approvalChainsApi, aiApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
+import { intakeApi, contractsApi, approvalsApi, approvalChainsApi, playbooksApi, workflowsApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 

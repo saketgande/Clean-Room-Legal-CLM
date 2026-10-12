@@ -14,14 +14,15 @@ Failures this guards:
 ``test_our_own_template_passes_the_literal_check``.)
 """
 
+import uuid
+
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 import app.models  # noqa: F401  (registers every mapper)
 from app.auth.models import User
-from app.core.database import SessionLocal
-from app.drafting_templates.models import DraftingTemplateVersion
+from app.core.database import engine, new_uuid
 from app.drafting_templates.service import (
     PLACEHOLDERS,
     TEMPLATES,
@@ -30,6 +31,7 @@ from app.drafting_templates.service import (
     default_body,
 )
 from app.intake import drafting
+from app.organizations.models import Organization
 
 _FIELDS = {"value": "4500000", "currency": "INR", "start_date": "2026-10-01", "term": "Fixed end date",
            "end_date": "2027-09-30", "payment_terms": "45 days", "nda_kind": "One-way",
@@ -77,28 +79,38 @@ def test_literal_braces_written_doubled_are_fine():
 
 @pytest.fixture
 def db():
-    s = SessionLocal()
-    made: list[str] = []
+    """A session whose work is rolled back at the end, so nothing the test saves outlives it."""
+    connection = engine.connect()
+    trans = connection.begin()
+    session = Session(bind=connection)
     try:
-        yield s, made
+        yield session
     finally:
-        s.rollback()
-        for row in s.scalars(select(DraftingTemplateVersion).where(DraftingTemplateVersion.id.in_(made))):
-            s.delete(row)
-        s.commit()
-        s.close()
+        session.close()
+        trans.rollback()
+        connection.close()
+
+
+def _make_actor(db: Session) -> User:
+    """A real organization with one user. (Drafting-template rows point at their organization, so a
+    stand-in "first user in the database" does not work on an empty database like CI's.)"""
+    org = Organization(id=new_uuid(), name="Drafting Co", slug=f"drafting-co-{uuid.uuid4().hex[:8]}")
+    db.add(org)
+    db.flush()
+    user = User(org_id=org.id, email=f"admin-{uuid.uuid4().hex[:8]}@example.com", full_name="admin",
+                hashed_password="hash", status="active")
+    db.add(user)
+    db.flush()
+    return user
 
 
 def test_saved_wording_is_what_drafting_uses_and_reset_goes_back(db):
-    s, made = db
-    actor = s.scalar(select(User).limit(1))
+    s = db
+    actor = _make_actor(s)
     service = DraftingTemplateService(s)
     edited = default_body("vendor") + "\n\nSCHEDULE — test-drafting-templates marker for {counterparty}."
 
     saved = service.save(actor=actor, key="vendor", body=edited, note="test")
-    made += [r.id for r in s.scalars(select(DraftingTemplateVersion).where(
-        DraftingTemplateVersion.org_id == actor.org_id, DraftingTemplateVersion.key == "vendor",
-        DraftingTemplateVersion.version >= saved["version"] - 1))]
     assert saved["customized"] is True
     assert service.body_for(org_id=actor.org_id, key="vendor") == edited
 
@@ -106,9 +118,6 @@ def test_saved_wording_is_what_drafting_uses_and_reset_goes_back(db):
     assert service.save(actor=actor, key="vendor", body=edited, note=None)["version"] == saved["version"]
 
     back = service.reset(actor=actor, key="vendor", note=None)
-    made += [r.id for r in s.scalars(select(DraftingTemplateVersion).where(
-        DraftingTemplateVersion.org_id == actor.org_id, DraftingTemplateVersion.key == "vendor",
-        DraftingTemplateVersion.version == back["version"]))]
     assert back["customized"] is False and back["version"] == saved["version"] + 1
     assert service.body_for(org_id=actor.org_id, key="vendor") == default_body("vendor")
     # The edited wording stays readable in History.
@@ -116,7 +125,7 @@ def test_saved_wording_is_what_drafting_uses_and_reset_goes_back(db):
 
 
 def test_an_unknown_template_is_not_found(db):
-    s, _ = db
+    s = db
     with pytest.raises(HTTPException) as exc:
         DraftingTemplateService(s).get(org_id="x", key="customer")
     assert exc.value.status_code == 404

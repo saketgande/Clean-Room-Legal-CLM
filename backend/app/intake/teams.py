@@ -94,6 +94,7 @@ class TeamService:
                                                          IntakeTeam.key == "legal_counsel"))
             if counsel is not None:
                 counsel.is_default_intake = True
+                db.flush()  # the session does not autoflush: a read right after must see the default
         return created
 
     def default_intake_team(self, *, org_id: str) -> IntakeTeam | None:
