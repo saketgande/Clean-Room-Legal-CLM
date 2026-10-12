@@ -7,12 +7,20 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
-from app.ai.schemas import BrainAnswerOutput
+from app.ai.schemas import BrainAnswerOutput, PortfolioFilter, PortfolioFilterOutput
 from app.contract_brain.grounding import ground_answer
 from app.contract_brain.models import BrainQuery
+from app.contract_brain.portfolio import (
+    answer_text,
+    bare_all_filter,
+    looks_like_list_question,
+    mark_search_partial,
+    portfolio_result,
+    reading_finished,
+    run_portfolio_filter,
+)
 from app.contract_brain.retrieval import (
     accessible_contract_ids,
-    aggregate_answer,
     hybrid_sources,
     precedent_contracts,
     resolve_scope_contract_ids,
@@ -90,43 +98,15 @@ async def ask_contract_brain(
 
     request_id = getattr(request.state, "request_id", None)
 
-    # Count/list questions ("how many contracts", "list contracts") are answered
-    # deterministically from the database — RAG retrieves snippets, not totals,
-    # so the LLM would otherwise guess a number.
-    agg = aggregate_answer(
-        db,
-        user=current_user,
-        question=payload.question,
-        scope=payload.query_scope,
-        contract_id=payload.contract_id,
-    )
-    if agg is not None:
-        query = BrainQuery(
-            org_id=current_user.org_id,
-            query_scope=payload.query_scope,
-            question=payload.question,
-            contract_id=payload.contract_id,
-            answer=agg["answer"],
-            citations=[],
-            retrieval_metadata={
-                "scope": payload.query_scope,
-                "source_count": len(agg["contract_ids"]),
-                "graph_facts": 0,
-                "vector_chunks": 0,
-                "fulltext_clauses": 0,
-                "contract_ids": agg["contract_ids"][:50],
-                "confidence": "high",
-                "citation_review": "deterministic",
-                "limitations": None,
-                "answer_mode": "database_count",
-            },
-            created_by_user_id=current_user.id,
-            updated_by_user_id=current_user.id,
+    # "Which / how many contracts ..." is answered by running a filter over EVERY
+    # contract the user can open, not from the best-matching passages (which named 8 of 20
+    # and still said "high confidence"). Anything else goes to search below.
+    if payload.query_scope == "portfolio":
+        saved = await _answer_from_filter(
+            db, payload=payload, current_user=current_user, request_id=request_id
         )
-        db.add(query)
-        db.commit()
-        db.refresh(query)
-        return query
+        if saved is not None:
+            return saved
 
     # Retrieve the SAME hybrid sources that "Find sources only" returns, so the
     # answer is grounded in exactly what the user can see — the two can never
@@ -172,6 +152,9 @@ async def ask_contract_brain(
     # shared grounding function the assistant tool now uses too, so both paths
     # can never diverge on how trustworthy an answer is.
     grounded = ground_answer(answer, source_text)
+    if payload.query_scope == "portfolio":
+        # Search looked at the best passages, not every contract: say so, and cap confidence.
+        grounded = mark_search_partial(grounded, contract_count=len(contract_ids))
 
     # Float the sources the answer actually cited to the top of the cards — raw
     # semantic similarity can rank a close-but-unused passage first, which is what
@@ -211,6 +194,122 @@ async def ask_contract_brain(
     db.commit()
     db.refresh(query)
     return query
+
+
+async def _propose_filter(db: Session, *, question: str, current_user, request_id) -> PortfolioFilter | None:
+    """The model's reading of the question as a filter, or None when it is not a
+    "which / how many contracts" question or the model could not be used. Falling back to
+    search is safe: its answer is marked as not covering every contract."""
+    try:
+        out = await ai_controller.run_structured_skill(
+            db,
+            skill_name="portfolio_filter",
+            org_id=current_user.org_id,
+            created_by_user_id=current_user.id,
+            input_payload={
+                "question": question,
+                "today": utcnow().date().isoformat(),
+                "default_currency": settings.default_currency,
+            },
+            request_id=request_id,
+        )
+        out = out if isinstance(out, PortfolioFilterOutput) else PortfolioFilterOutput.model_validate(out)
+    except HTTPException:
+        raise  # a spending cap must stop the request, not be swallowed into a search
+    except Exception:
+        logger.warning("portfolio_filter failed; answering from search", exc_info=True)
+        return None
+    if not out.is_list_question:
+        return None
+    return PortfolioFilter.model_validate(out.model_dump(exclude={"is_list_question"}))
+
+
+async def _answer_from_filter(db: Session, *, payload: BrainAskRequest, current_user, request_id):
+    """Save and return the filter's answer for a portfolio question, or None when this
+    question is not one the filter answers."""
+    question = payload.question.strip()
+    flt = bare_all_filter(question)  # a bare "how many contracts": nothing to propose
+    not_checked = []
+    if flt is None and looks_like_list_question(question):
+        flt = await _propose_filter(db, question=question, current_user=current_user, request_id=request_id)
+        if flt is not None and flt == PortfolioFilter(count_only=flt.count_only):
+            # A question with words beyond "all contracts" came back with no condition at
+            # all: listing every contract as a match would hide what it asked.
+            not_checked.append("the question's conditions could not be turned into a filter")
+    if flt is None:
+        return None
+    # Same hand-off as hybrid_sources below: a sync DB pass (and the review's job dispatch)
+    # must not block the event loop.
+    result = await asyncio.to_thread(
+        run_portfolio_filter, db, user=current_user, flt=flt, question=payload.question, not_checked=not_checked
+    )
+    query = BrainQuery(
+        org_id=current_user.org_id,
+        query_scope=payload.query_scope,
+        question=payload.question,
+        contract_id=payload.contract_id,
+        answer=answer_text(result),
+        citations=[],
+        retrieval_metadata=_filter_metadata(result),
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(query)
+    db.commit()
+    db.refresh(query)
+    return query
+
+
+def _filter_metadata(result: dict) -> dict:
+    """A filter answer's RESULT plus the keys every saved answer carries."""
+    return {
+        "scope": "portfolio",
+        "source_count": result["total"],
+        "graph_facts": 0,
+        "vector_chunks": 0,
+        "fulltext_clauses": 0,
+        "citation_review": "deterministic",
+        "limitations": ("Not checked: " + "; ".join(result["not_checked"])) if result["not_checked"] else None,
+        **result,
+    }
+
+
+@router.get("/queries/{query_id}/result")
+def get_brain_query_result(
+    query_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("assistant:use")),
+):
+    """A "which / how many contracts" answer as it stands now. Its AI reading may have
+    still been running when it was asked; this rebuilds the list from the reading's current
+    cells, for the viewer's own access. When the asker's reading has finished, the final
+    list is saved onto the row so history shows it."""
+    query = db.scalar(
+        select(BrainQuery).where(
+            BrainQuery.id == query_id,
+            BrainQuery.org_id == current_user.org_id,
+            _visible_brain_queries(db, current_user),
+        )
+    )
+    meta = dict(query.retrieval_metadata or {}) if query else {}
+    if query is None or meta.get("answer_mode") != "database_filter":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Result not found")
+    result = portfolio_result(db, user=current_user, meta=meta)
+    data = {column.name: getattr(query, column.name) for column in BrainQuery.__table__.columns}
+    data["answer"] = answer_text(result)
+    merged = {**meta, **_filter_metadata(result)}
+    if "candidates" not in result:
+        merged.pop("candidates", None)  # nothing left to rebuild from (or nothing this viewer may see)
+    # Only the asker's own recompute is saved, and only once it can no longer change.
+    if query.created_by_user_id == current_user.id and reading_finished(result) and merged != meta:
+        query.answer = data["answer"]
+        query.retrieval_metadata = merged
+        query.updated_by_user_id = current_user.id
+        db.commit()
+    # `candidates` is server-side state (titles of every contract handed to the AI): it is
+    # never sent, so no viewer sees one they cannot open.
+    data["retrieval_metadata"] = {k: v for k, v in merged.items() if k != "candidates"}
+    return data
 
 
 @router.get("/queries")
@@ -371,6 +470,12 @@ def _viewer_copy(query: BrainQuery, *, viewer_id: str, accessible_ids: set[str])
         return data
     meta = dict(query.retrieval_metadata or {})
     used = set(meta.get("contract_ids") or [])
+    if meta.get("answer_mode") == "database_filter":
+        # `contract_ids` above is the full list; the lists below name titles, so they are
+        # cut to what this viewer can open as well.
+        for key in ("matches", "unknown"):
+            meta[key] = [m for m in meta.get(key) or [] if m.get("contract_id") in accessible_ids]
+        meta.pop("candidates", None)  # server-side state, never sent
     if isinstance(meta.get("sources"), dict):
         sources = dict(meta["sources"])
         for lens in ("semantic", "clauses", "text"):
@@ -392,5 +497,11 @@ def _viewer_copy(query: BrainQuery, *, viewer_id: str, accessible_ids: set[str])
         data["answer"] = _WITHHELD_ANSWER
         data["citations"] = []
         meta["withheld_for_viewer"] = True
+        if meta.get("answer_mode") == "database_filter":
+            # The asker's counts, coverage and confidence describe contracts this viewer
+            # cannot open: keep only what names the question and what they can open.
+            keep = ("answer_mode", "scope", "question", "filter", "conditions", "count_only",
+                    "matches", "unknown", "contract_ids", "withheld_for_viewer")
+            meta = {k: meta[k] for k in keep if k in meta}
     data["retrieval_metadata"] = meta
     return data

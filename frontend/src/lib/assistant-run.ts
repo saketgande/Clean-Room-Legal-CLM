@@ -7,6 +7,9 @@ export interface RunNotice {
   message: string;
   /** The question to send again, when it can be retried. */
   retryText: string | null;
+  /** Set when the answer wrote nothing: the server then asks the same stored question again instead of
+   *  adding a second copy of it to the chat. Null when partial text was kept (the question is asked again below it). */
+  retryRunId: string | null;
 }
 
 /** Explain a chat's latest answer when it didn't finish (else null). */
@@ -20,9 +23,9 @@ export function runNoticeFor(
     const base = run.has_answer
       ? "This answer was cut off before it finished."
       : run.error_message || "This answer didn't finish.";
-    return { message: base, retryText: question };
+    return { message: base, retryText: question, retryRunId: run.has_answer ? null : run.id };
   }
   if (run.status === "cancelled" && !run.has_answer)
-    return { message: "You stopped this answer before Aegis wrote anything.", retryText: question };
+    return { message: "You stopped this answer before Aegis wrote anything.", retryText: question, retryRunId: run.id };
   return null;
 }

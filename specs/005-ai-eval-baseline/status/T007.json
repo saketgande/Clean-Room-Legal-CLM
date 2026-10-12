@@ -1,0 +1,1 @@
+{"task": "T007", "agent": "backend-dev", "status": "done", "detail": "traffic=real|exam filter, model-aware _RATES, public token_cost(batched=), batched grouping; 28 tests pass (test_analytics_ai_usage_traffic.py), tests/test_ai_gateway.py still 25 pass, ruff clean", "updated": "2026-10-06T17:26:28Z"}

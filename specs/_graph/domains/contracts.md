@@ -30,11 +30,12 @@ Owner agents: backend-dev, db-engineer
 - `POST /contracts/upload` -- permission: `contract:create` -- request: Response -- response: ContractUploadResponse
 - `POST /contracts/{contract_id}/lifecycle` -- permission: `contract:update` -- request: LifecycleTransitionRequest -- response: ContractResponse
 - `POST /contracts/{contract_id}/parties` -- permission: `contract:update` -- request: ContractPartyCreate -- response: ContractPartyResponse
+- `POST /contracts/{contract_id}/review/retry` -- permission: `contract:redline` -- request: ? -- response: ReviewRetryResponse
 - `POST /contracts/{contract_id}/risk` -- permission: `contract:read` -- request: ? -- response: ?
 
 ## Schemas
 
-ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractUpdate, ContractUploadResponse, CounterpartyOption, DiffLine, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewStatusResponse, SignerOption, VersionDiffResponse
+AutoReviewState, ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractUpdate, ContractUploadResponse, CounterpartyOption, DiffLine, LastReview, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewRetryResponse, ReviewStatusResponse, SignerOption, VersionDiffResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -63,11 +64,13 @@ Api group: `contractsApi` (confidence: exact)
 - `contractsApi.deleteComment()` -> `DELETE /contracts/${id}/comments/${commentId}`
 - `contractsApi.deviations()` -> `GET /contracts/${id}/deviations`
 - `contractsApi.downloadVersion()` -> `GET /contracts/${id}/versions/${versionId}/download`
+- `contractsApi.draftIssueFixes()` -> `POST /contracts/${id}/edits/draft-issue-fixes`
 - `contractsApi.editorConfig()` -> `GET /contracts/${id}/editor/config`
 - `contractsApi.edits()` -> `GET /contracts/${id}/edits${qs({ status_filter })}`
 - `contractsApi.exportDocx()` -> `GET /contracts/${id}/export-docx`
 - `contractsApi.finishRevisionRound()` -> `POST /contracts/${id}/revisions/${roundId}/finish`
 - `contractsApi.get()` -> `GET /contracts/${id}`
+- `contractsApi.issueFixJob()` -> `GET /contracts/${id}/edits/draft-issue-fixes`
 - `contractsApi.lifecycleOptions()` -> `GET /contracts/${id}/lifecycle`
 - `contractsApi.list()` -> `GET /contracts`
 - `contractsApi.logCounterpartyRevision()` -> `POST /contracts/${id}/counterparty-revision`
@@ -79,6 +82,7 @@ Api group: `contractsApi` (confidence: exact)
 - `contractsApi.rejectEdit()` -> `POST /contracts/${id}/edits/${editId}/reject`
 - `contractsApi.resolveComment()` -> `POST /contracts/${id}/comments/${commentId}/resolve`
 - `contractsApi.restoreVersion()` -> `POST /contracts/${id}/versions/${versionId}/restore`
+- `contractsApi.retryReview()` -> `POST /contracts/${id}/review/retry`
 - `contractsApi.reviewStatus()` -> `GET /contracts/${id}/review-status`
 - `contractsApi.revisionRound()` -> `GET /contracts/${id}/revisions/current`
 - `contractsApi.risk()` -> `GET /contracts/${id}/risk`

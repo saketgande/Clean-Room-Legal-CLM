@@ -51,7 +51,7 @@
    {
     "key": "cp_signer_email",
     "label": "Their signer: email",
-    "kind": "text",
+    "kind": "email",
     "required": true
    },
    {
@@ -253,6 +253,7 @@
     "label": "End date",
     "kind": "date",
     "required": true,
+    "not_before": "start_date",
     "show": [
      {
       "field": "agreement_type",
@@ -489,7 +490,7 @@
    {
     "key": "cp_signer_email",
     "label": "Their signer: email",
-    "kind": "text",
+    "kind": "email",
     "required": true
    },
    {
@@ -529,7 +530,8 @@
     "key": "services_end",
     "label": "Services end",
     "kind": "date",
-    "required": true
+    "required": true,
+    "not_before": "services_start"
    },
    {
     "key": "value",
@@ -619,7 +621,7 @@
    {
     "key": "cp_signer_email",
     "label": "Their signer: email",
-    "kind": "text",
+    "kind": "email",
     "required": true
    },
    {
@@ -1101,6 +1103,7 @@
     "label": "End date",
     "kind": "date",
     "required": true,
+    "not_before": "start_date",
     "show": [
      {
       "field": "term",

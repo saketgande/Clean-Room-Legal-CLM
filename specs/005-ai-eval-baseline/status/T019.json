@@ -1,0 +1,7 @@
+{
+  "task": "T019",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "review fixes: driver stubs the local reranker (cold-cache hermetic), baseline set removes its report if the designation audit fails, 2 new tests (status unfinished/waiting lines, no orphan baseline report); test_exam_isolation 43 passed, all test_exam_* + analytics 697 passed, ruff clean",
+  "updated": "2026-10-07T07:34:04Z"
+}

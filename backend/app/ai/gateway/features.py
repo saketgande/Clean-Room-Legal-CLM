@@ -85,11 +85,11 @@ _LABELS: dict[str, tuple[str, str]] = {
     "playbook_generation": ("Playbook generation", "Redlining"),
     "assistant_streaming": ("Ask Aegis (chat turn)", "Ask Aegis / Chat"),
     "contract_brain_answer": ("Contract Brain answer", "Ask Aegis / Chat"),
+    "portfolio_filter": ("Which-contracts question", "Ask Aegis / Chat"),
     "tabular_review_chat": ("Tabular review chat", "Ask Aegis / Chat"),
     "flow_router": ("Workflow router", "Ask Aegis / Chat"),
     "clause_extraction": ("Clause extraction", "Analysis & extraction"),
     "clause_labeling": ("Clause labelling", "Analysis & extraction"),
-    "contract_risk_assessment": ("Risk assessment", "Analysis & extraction"),
     "tabular_cell_extraction": ("Tabular cell extraction", "Analysis & extraction"),
     "tabular_row_extraction": ("Tabular row extraction", "Analysis & extraction"),
     "obligation_extraction": ("Obligation extraction", "Analysis & extraction"),
@@ -121,7 +121,9 @@ _AGENT_CALL_SHAPE: dict[str, tuple[str | None, int]] = {
     "litigation_intake_agent": ("assess_litigation", 900),
     "email_triage_agent": ("classify_email", 200),
     "plain_language_summary": (None, 500),
-    "notice_extraction_agent": ("extract_notice_fields", 700),
+    # 1200, not 700: 700 was sized before the reply carried the typed deadline
+    # block (period, runs_from, quote, clear_days) on top of the register fields.
+    "notice_extraction_agent": ("extract_notice_fields", 1200),
     "notice_response_agent": (None, 1200),
 }
 

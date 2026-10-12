@@ -15,6 +15,7 @@ Owner agents: backend-dev, db-engineer
 
 - `GET /contract-brain/precedents` -- permission: `assistant:use` -- request: str | None -- response: ?
 - `GET /contract-brain/queries` -- permission: `assistant:use` -- request: str | None -- response: ?
+- `GET /contract-brain/queries/{query_id}/result` -- permission: `assistant:use` -- request: ? -- response: ?
 - `GET /contract-brain/search` -- permission: `contract:read` -- request: ? -- response: ?
 - `POST /contract-brain/ask` -- permission: `assistant:use` -- request: BrainAskRequest -- response: ?
 - `POST /contract-brain/ingest` -- permission: `contract:update` -- request: ? -- response: ?
@@ -32,4 +33,5 @@ Owner agents: backend-dev, db-engineer
 Api group: `brainApi` (confidence: heuristic)
 - `brainApi.ask()` -> `POST /contract-brain/ask`
 - `brainApi.queries()` -> `GET /contract-brain/queries${qs(params)}`
+- `brainApi.result()` -> `GET /contract-brain/queries/${id}/result`
 - `brainApi.search()` -> `GET /contract-brain/search?q=${encodeURIComponent(q)}&limit=${limit}`

@@ -69,7 +69,12 @@ class SearchService:
         if stage:
             query = query.where(Contract.lifecycle_stage == stage)
         if risk_level:
-            query = query.where(Contract.risk_level == risk_level)
+            # Filters on the cached playbook band (risk_band); the param keeps its old
+            # name for the API. "unknown" = no qualifying review, cached as NULL.
+            band = risk_level.strip().lower()
+            query = query.where(
+                Contract.risk_band.is_(None) if band == "unknown" else Contract.risk_band == band
+            )
         if contract_type:
             query = query.where(Contract.contract_type == contract_type)
         if counterparty:

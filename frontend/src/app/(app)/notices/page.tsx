@@ -35,7 +35,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import type { Notice, NoticeExtraction } from "@/lib/types";
-import { NOTICE_TYPES, POSTURE_TONE, STATUS_TONE, deadlineLabel, typeLabel } from "./shared";
+import { NOTICE_TYPES, POSTURE_TONE, STATUS_TONE, computeDue, deadlineLabel, typeLabel } from "./shared";
 import { useScreenAccess } from "@/lib/screen-access";
 
 export default function NoticesPage() {
@@ -232,6 +232,8 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
   const [extraction, setExtraction] = useState<NoticeExtraction | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [prefilled, setPrefilled] = useState<Set<string>>(new Set());
+  // The filer's one tick that they checked the received date and the deadline.
+  const [checked, setChecked] = useState(false);
   const [form, setForm] = useState({
     subject: "", counterparty_name: "", direction: "received", notice_type: "demand",
     counterparty_ref: "", notice_date: "", received_at: "", response_due_date: "",
@@ -243,7 +245,11 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
     // the review highlight only ever flags values the model actually supplied.
     setPrefilled((s) => { const n = new Set(s); n.delete(k); return n; });
   };
-  const canSave = form.subject.trim() && form.counterparty_name.trim();
+  // The deadline wording read from the notice. With it the date is counted (live
+  // here, again on the server when saved); a typed date replaces the count.
+  const facts = extraction?.deadline_basis ?? null;
+  const counted = computeDue(facts, form.notice_date || null, form.received_at || null);
+  const canSave = form.subject.trim() && form.counterparty_name.trim() && (!facts || checked);
 
   /** Read the notice and drop its values into the form for review. Nothing is
    *  saved here — the filer still confirms and submits. */
@@ -255,6 +261,7 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
     try {
       const result = await noticesApi.extract(file);
       setExtraction(result);
+      setChecked(false);
       // Computed against the current `form`, NOT inside a setForm updater:
       // React defers the updater, so anything collected in there is still empty
       // when read synchronously below — which reported "nothing could be read"
@@ -262,10 +269,16 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
       const s = result.suggestions ?? {};
       const next = { ...form };
       const applied = new Set<string>();
-      for (const k of ["subject", "counterparty_name", "counterparty_ref", "notice_type", "notice_date", "response_due_date"] as const) {
+      for (const k of ["subject", "counterparty_name", "counterparty_ref", "notice_type", "notice_date"] as const) {
         const v = s[k];
         // Never clobber something the filer already typed.
         if (v && !form[k]) { next[k] = v; applied.add(k); }
+      }
+      // The period usually runs from receipt: assume it arrived the day it's
+      // filed, and highlight it so the filer corrects it if it came earlier.
+      if (result.deadline_basis && !form.received_at && form.direction === "received") {
+        next.received_at = new Date().toLocaleDateString("en-CA");
+        applied.add("received_at");
       }
       if (s.demanded_action && !form.description) {
         next.description = s.demanded_action;
@@ -294,6 +307,12 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
       const payload: Record<string, unknown> = { ...form };
       for (const k of ["notice_date", "received_at", "response_due_date", "counterparty_ref"]) {
         if (!payload[k]) payload[k] = null;
+      }
+      if (facts) {
+        // The server counts the date from these; a typed date that differs from
+        // its count is recorded as a person's override.
+        payload.deadline_basis = facts;
+        payload.deadline_confirmed = checked;
       }
       const created = await noticesApi.create(payload);
       // Keep the source document on the record. A failure here shouldn't lose
@@ -390,11 +409,37 @@ function NoticeCreateModal({ onClose, onSaved }: { onClose: () => void; onSaved:
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label="Date on notice"><Input type="date" value={form.notice_date} onChange={(e) => set("notice_date", e.target.value)} className={mark("notice_date")} /></Field>
-          <Field label="Received on"><Input type="date" value={form.received_at} onChange={(e) => set("received_at", e.target.value)} /></Field>
-          <Field label="Response due" hint="the statutory clock">
-            <Input type="date" value={form.response_due_date} onChange={(e) => set("response_due_date", e.target.value)} className={mark("response_due_date")} />
+          <Field label="Received on" hint={prefilled.has("received_at") ? "filing date - check it" : undefined}>
+            <Input type="date" value={form.received_at} onChange={(e) => set("received_at", e.target.value)} className={mark("received_at")} />
+          </Field>
+          <Field label="Response due" hint={facts && !counted.needs_person ? "calculated" : "the statutory clock"}>
+            <Input
+              type="date"
+              // With a basis the counted date shows until the filer types their own.
+              value={form.response_due_date || (facts ? counted.due ?? "" : "")}
+              onChange={(e) => set("response_due_date", e.target.value)}
+              className={facts && !form.response_due_date && counted.due ? "ring-1 ring-brand-300 bg-brand-50/40" : ""}
+            />
           </Field>
         </div>
+        {facts && (
+          <div className="space-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
+            {counted.needs_person && !form.response_due_date ? (
+              <p className="font-medium text-warning">{counted.reason}</p>
+            ) : form.response_due_date && form.response_due_date !== counted.due ? (
+              <p className="text-slate-600">
+                Set by you — replaces the calculated date{counted.formula ? ` (${counted.formula})` : ""}. Clear it to use the calculation.
+              </p>
+            ) : (
+              counted.formula && <p className="font-mono text-slate-700">{counted.formula}</p>
+            )}
+            {facts.quote && <p className="italic text-slate-500">&ldquo;{facts.quote}&rdquo;</p>}
+            <label className="flex items-center gap-2 pt-1 text-sm text-slate-700">
+              <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} />
+              I&apos;ve checked the received date and deadline
+            </label>
+          </div>
+        )}
         <Field label="Summary" hint="what it demands, and by when">
           <Textarea rows={3} value={form.description} onChange={(e) => set("description", e.target.value)} className={mark("description")} />
         </Field>

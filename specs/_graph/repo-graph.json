@@ -301,6 +301,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:brainApi.result",
+      "matched": true,
+      "to": "endpoint:contract_brain:GET:/contract-brain/queries/{query_id}/result",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:brainApi.search",
       "matched": false,
       "to": null,
@@ -391,6 +397,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:contractsApi.draftIssueFixes",
+      "matched": true,
+      "to": "endpoint:contract_files:POST:/contracts/{contract_id}/edits/draft-issue-fixes",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:contractsApi.editorConfig",
       "matched": true,
       "to": "endpoint:contract_files:GET:/contracts/{contract_id}/editor/config",
@@ -418,6 +430,12 @@
       "from": "endpoint_client_fn:contractsApi.get",
       "matched": true,
       "to": "endpoint:contracts:GET:/contracts/{contract_id}",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:contractsApi.issueFixJob",
+      "matched": true,
+      "to": "endpoint:contract_files:GET:/contracts/{contract_id}/edits/draft-issue-fixes",
       "type": "calls"
     },
     {
@@ -484,6 +502,12 @@
       "from": "endpoint_client_fn:contractsApi.restoreVersion",
       "matched": true,
       "to": "endpoint:contract_files:POST:/contracts/{contract_id}/versions/{version_id}/restore",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:contractsApi.retryReview",
+      "matched": true,
+      "to": "endpoint:contracts:POST:/contracts/{contract_id}/review/retry",
       "type": "calls"
     },
     {
@@ -1315,6 +1339,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:renewalsApi.confirmDates",
+      "matched": true,
+      "to": "endpoint:renewals:POST:/renewals/{renewal_id}/confirm-dates",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:renewalsApi.decide",
       "matched": true,
       "to": "endpoint:renewals:POST:/renewals/{renewal_id}/decision",
@@ -1696,6 +1726,12 @@
       "from": "endpoint_client_fn:workflowsApi.refreshRun",
       "matched": true,
       "to": "endpoint:workflows:POST:/workflows/runs/{run_id}/refresh",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:workflowsApi.retryReview",
+      "matched": true,
+      "to": "endpoint:workflows:POST:/workflows/runs/{run_id}/retry-review",
       "type": "calls"
     },
     {
@@ -2263,6 +2299,11 @@
     },
     {
       "from": "domain:backend:contract_brain",
+      "to": "endpoint:contract_brain:GET:/contract-brain/queries/{query_id}/result",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contract_brain",
       "to": "endpoint:contract_brain:GET:/contract-brain/search",
       "type": "contains"
     },
@@ -2309,6 +2350,11 @@
     {
       "from": "domain:backend:contract_files",
       "to": "endpoint:contract_files:GET:/contracts/{contract_id}/edits",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contract_files",
+      "to": "endpoint:contract_files:GET:/contracts/{contract_id}/edits/draft-issue-fixes",
       "type": "contains"
     },
     {
@@ -2369,6 +2415,11 @@
     {
       "from": "domain:backend:contract_files",
       "to": "endpoint:contract_files:POST:/contracts/{contract_id}/edits/ai-redline",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contract_files",
+      "to": "endpoint:contract_files:POST:/contracts/{contract_id}/edits/draft-issue-fixes",
       "type": "contains"
     },
     {
@@ -2583,6 +2634,11 @@
     },
     {
       "from": "domain:backend:contracts",
+      "to": "endpoint:contracts:POST:/contracts/{contract_id}/review/retry",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:contracts",
       "to": "endpoint:contracts:POST:/contracts/{contract_id}/risk",
       "type": "contains"
     },
@@ -2674,56 +2730,6 @@
     {
       "from": "domain:backend:debug",
       "to": "endpoint:debug:GET:/debug/resources/{resource_type}/{resource_id}/timeline",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "endpoint:docstudio:GET:/docstudio/documents",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "endpoint:docstudio:GET:/docstudio/versions/{version_id}",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "endpoint:docstudio:GET:/docstudio/versions/{version_id}/file",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "endpoint:docstudio:POST:/docstudio/documents",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsAnnotation",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsClause",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsDocument",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsEvent",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsOcrResult",
-      "type": "contains"
-    },
-    {
-      "from": "domain:backend:docstudio",
-      "to": "model:docstudio:DsVersion",
       "type": "contains"
     },
     {
@@ -3673,6 +3679,11 @@
     },
     {
       "from": "domain:backend:renewals",
+      "to": "endpoint:renewals:POST:/renewals/{renewal_id}/confirm-dates",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:renewals",
       "to": "endpoint:renewals:POST:/renewals/{renewal_id}/decision",
       "type": "contains"
     },
@@ -4013,6 +4024,11 @@
     },
     {
       "from": "domain:backend:workflows",
+      "to": "endpoint:workflows:POST:/workflows/runs/{run_id}/retry-review",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:workflows",
       "to": "endpoint:workflows:POST:/workflows/runs/{run_id}/return",
       "type": "contains"
     },
@@ -4089,16 +4105,6 @@
     {
       "from": "domain:frontend:delegations",
       "to": "page:/delegations",
-      "type": "contains"
-    },
-    {
-      "from": "domain:frontend:docstudio",
-      "to": "page:/docstudio",
-      "type": "contains"
-    },
-    {
-      "from": "domain:frontend:docstudio",
-      "to": "page:/docstudio/{versionId}",
       "type": "contains"
     },
     {
@@ -5035,27 +5041,6 @@
       "from": "model:contracts:ContractStageHistory",
       "resolved": true,
       "to": "model:contracts:Contract",
-      "type": "fk"
-    },
-    {
-      "column": "document_id",
-      "from": "model:docstudio:DsAnnotation",
-      "resolved": true,
-      "to": "model:docstudio:DsDocument",
-      "type": "fk"
-    },
-    {
-      "column": "version_id",
-      "from": "model:docstudio:DsClause",
-      "resolved": true,
-      "to": "model:docstudio:DsVersion",
-      "type": "fk"
-    },
-    {
-      "column": "document_id",
-      "from": "model:docstudio:DsVersion",
-      "resolved": true,
-      "to": "model:docstudio:DsDocument",
       "type": "fk"
     },
     {
@@ -6123,27 +6108,37 @@
       "from": "migration:0070_ai_call_log_cache_tokens",
       "to": "migration:0069_pin_general_legal_question",
       "type": "migration_down"
+    },
+    {
+      "from": "migration:0071_ai_call_log_eval_run",
+      "to": "migration:0070_ai_call_log_cache_tokens",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0072_notice_deadline_basis",
+      "to": "migration:0071_ai_call_log_eval_run",
+      "type": "migration_down"
     }
   ],
   "metadata": {
     "counts": {
       "celery_task": 5,
       "domain_backend": 38,
-      "domain_frontend": 27,
-      "edges_total": 1086,
-      "endpoint": 343,
-      "endpoint_client_fn": 291,
+      "domain_frontend": 26,
+      "edges_total": 1085,
+      "endpoint": 345,
+      "endpoint_client_fn": 297,
       "endpoint_client_group": 36,
       "integration": 5,
-      "migration": 77,
-      "model": 107,
-      "page": 40,
-      "schema": 215,
-      "ts_interface": 226,
+      "migration": 79,
+      "model": 101,
+      "page": 38,
+      "schema": 221,
+      "ts_interface": 241,
       "ui_primitive": 28
     },
-    "generated_at": "2026-10-06T09:48:58Z",
-    "git_head": "075c242242766b149ca25cf78d9f374d9580e7ee",
+    "generated_at": "2026-10-08T11:11:14Z",
+    "git_head": "f0f1f705ccdea89ada580a7d15006c3c73adf759",
     "warnings": [
       "43 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6157,7 +6152,7 @@
       "no frontend Api group matched for backend domain 'analytics' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
-      "no frontend Api group matched for backend domain 'docstudio' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'documents' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'organizations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6394,19 +6389,13 @@
       "type": "domain_backend"
     },
     {
-      "files": [
-        "models.py",
-        "routes.py",
-        "service.py",
-        "schemas.py"
-      ],
-      "id": "domain:backend:docstudio",
-      "name": "docstudio",
+      "files": [],
+      "id": "domain:backend:documents",
+      "name": "documents",
       "owner_agents": [
-        "backend-dev",
-        "db-engineer"
+        "(none)"
       ],
-      "path": "backend/app/docstudio",
+      "path": "backend/app/documents",
       "type": "domain_backend"
     },
     {
@@ -6815,12 +6804,6 @@
       "type": "domain_frontend"
     },
     {
-      "id": "domain:frontend:docstudio",
-      "name": "docstudio",
-      "path": "frontend/src/app/(app)/docstudio",
-      "type": "domain_frontend"
-    },
-    {
       "id": "domain:frontend:intake",
       "name": "intake",
       "path": "frontend/src/app/(app)/intake",
@@ -7023,7 +7006,7 @@
       "method": "GET",
       "path": "/analytics/ai-usage",
       "permission": "admin_panel:access",
-      "request_model": null,
+      "request_model": "Literal['real', 'exam']",
       "response_model": null,
       "type": "endpoint"
     },
@@ -7745,6 +7728,17 @@
     {
       "domain": "contract_brain",
       "file": "backend/app/contract_brain/routes.py",
+      "id": "endpoint:contract_brain:GET:/contract-brain/queries/{query_id}/result",
+      "method": "GET",
+      "path": "/contract-brain/queries/{query_id}/result",
+      "permission": "assistant:use",
+      "request_model": null,
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "contract_brain",
+      "file": "backend/app/contract_brain/routes.py",
       "id": "endpoint:contract_brain:GET:/contract-brain/search",
       "method": "GET",
       "path": "/contract-brain/search",
@@ -7806,6 +7800,17 @@
       "permission": "contract:redline",
       "request_model": "str | None",
       "response_model": "list[ContractEditResponse]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "contract_files",
+      "file": "backend/app/contract_files/routes.py",
+      "id": "endpoint:contract_files:GET:/contracts/{contract_id}/edits/draft-issue-fixes",
+      "method": "GET",
+      "path": "/contracts/{contract_id}/edits/draft-issue-fixes",
+      "permission": "contract:redline",
+      "request_model": null,
+      "response_model": "IssueFixJobResponse | None",
       "type": "endpoint"
     },
     {
@@ -7938,6 +7943,17 @@
       "permission": "contract:redline",
       "request_model": "AiRedlineRequest",
       "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "contract_files",
+      "file": "backend/app/contract_files/routes.py",
+      "id": "endpoint:contract_files:POST:/contracts/{contract_id}/edits/draft-issue-fixes",
+      "method": "POST",
+      "path": "/contracts/{contract_id}/edits/draft-issue-fixes",
+      "permission": "contract:redline",
+      "request_model": null,
+      "response_model": "DraftIssueFixesResponse",
       "type": "endpoint"
     },
     {
@@ -8295,6 +8311,17 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/routes.py",
+      "id": "endpoint:contracts:POST:/contracts/{contract_id}/review/retry",
+      "method": "POST",
+      "path": "/contracts/{contract_id}/review/retry",
+      "permission": "contract:redline",
+      "request_model": null,
+      "response_model": "ReviewRetryResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/routes.py",
       "id": "endpoint:contracts:POST:/contracts/{contract_id}/risk",
       "method": "POST",
       "path": "/contracts/{contract_id}/risk",
@@ -8400,50 +8427,6 @@
       "permission": null,
       "request_model": null,
       "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/routes.py",
-      "id": "endpoint:docstudio:GET:/docstudio/documents",
-      "method": "GET",
-      "path": "/docstudio/documents",
-      "permission": "contract_file:read",
-      "request_model": null,
-      "response_model": "list[DocumentOut]",
-      "type": "endpoint"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/routes.py",
-      "id": "endpoint:docstudio:GET:/docstudio/versions/{version_id}",
-      "method": "GET",
-      "path": "/docstudio/versions/{version_id}",
-      "permission": "contract_file:read",
-      "request_model": null,
-      "response_model": "VersionDetail",
-      "type": "endpoint"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/routes.py",
-      "id": "endpoint:docstudio:GET:/docstudio/versions/{version_id}/file",
-      "method": "GET",
-      "path": "/docstudio/versions/{version_id}/file",
-      "permission": "contract_file:read",
-      "request_model": null,
-      "response_model": null,
-      "type": "endpoint"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/routes.py",
-      "id": "endpoint:docstudio:POST:/docstudio/documents",
-      "method": "POST",
-      "path": "/docstudio/documents",
-      "permission": "contract_file:create",
-      "request_model": null,
-      "response_model": "VersionSummary",
       "type": "endpoint"
     },
     {
@@ -10044,6 +10027,17 @@
     {
       "domain": "renewals",
       "file": "backend/app/renewals/routes.py",
+      "id": "endpoint:renewals:POST:/renewals/{renewal_id}/confirm-dates",
+      "method": "POST",
+      "path": "/renewals/{renewal_id}/confirm-dates",
+      "permission": "contract:renew",
+      "request_model": "RenewalConfirmPayload",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "renewals",
+      "file": "backend/app/renewals/routes.py",
       "id": "endpoint:renewals:POST:/renewals/{renewal_id}/decision",
       "method": "POST",
       "path": "/renewals/{renewal_id}/decision",
@@ -10660,6 +10654,17 @@
     {
       "domain": "workflows",
       "file": "backend/app/workflows/routes.py",
+      "id": "endpoint:workflows:POST:/workflows/runs/{run_id}/retry-review",
+      "method": "POST",
+      "path": "/workflows/runs/{run_id}/retry-review",
+      "permission": "intake:read",
+      "request_model": null,
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "workflows",
+      "file": "backend/app/workflows/routes.py",
       "id": "endpoint:workflows:POST:/workflows/runs/{run_id}/return",
       "method": "POST",
       "path": "/workflows/runs/{run_id}/return",
@@ -10730,7 +10735,7 @@
       "id": "endpoint_client_fn:aiUsageApi.summary",
       "method_name": "summary",
       "path_normalized": "/analytics/ai-usage{param})}",
-      "path_template": "/analytics/ai-usage${qs({ days })}",
+      "path_template": "/analytics/ai-usage${qs({ days, traffic })}",
       "response_type": "AiUsageSummary",
       "type": "endpoint_client_fn"
     },
@@ -11255,6 +11260,17 @@
       "download": false,
       "group": "brainApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:brainApi.result",
+      "method_name": "result",
+      "path_normalized": "/contract-brain/queries/{param}/result",
+      "path_template": "/contract-brain/queries/${id}/result",
+      "response_type": "BrainQuery",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "brainApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:brainApi.search",
       "method_name": "search",
       "path_normalized": "/contract-brain/search?q={param}&limit={param}",
@@ -11419,6 +11435,17 @@
     {
       "download": false,
       "group": "contractsApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:contractsApi.draftIssueFixes",
+      "method_name": "draftIssueFixes",
+      "path_normalized": "/contracts/{param}/edits/draft-issue-fixes",
+      "path_template": "/contracts/${id}/edits/draft-issue-fixes",
+      "response_type": "DraftIssueFixesResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
       "http_method": "GET",
       "id": "endpoint_client_fn:contractsApi.editorConfig",
       "method_name": "editorConfig",
@@ -11469,6 +11496,17 @@
       "path_normalized": "/contracts/{param}",
       "path_template": "/contracts/${id}",
       "response_type": "ContractResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:contractsApi.issueFixJob",
+      "method_name": "issueFixJob",
+      "path_normalized": "/contracts/{param}/edits/draft-issue-fixes",
+      "path_template": "/contracts/${id}/edits/draft-issue-fixes",
+      "response_type": "IssueFixJob | null",
       "type": "endpoint_client_fn"
     },
     {
@@ -11590,6 +11628,17 @@
       "path_normalized": "/contracts/{param}/versions/{param}/restore",
       "path_template": "/contracts/${id}/versions/${versionId}/restore",
       "response_type": "ContractVersionResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "contractsApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:contractsApi.retryReview",
+      "method_name": "retryReview",
+      "path_normalized": "/contracts/{param}/review/retry",
+      "path_template": "/contracts/${id}/review/retry",
+      "response_type": "ReviewRetryResponse",
       "type": "endpoint_client_fn"
     },
     {
@@ -13114,6 +13163,17 @@
       "download": false,
       "group": "renewalsApi",
       "http_method": "POST",
+      "id": "endpoint_client_fn:renewalsApi.confirmDates",
+      "method_name": "confirmDates",
+      "path_normalized": "/renewals/{param}/confirm-dates",
+      "path_template": "/renewals/${id}/confirm-dates",
+      "response_type": "RenewalEvent",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "renewalsApi",
+      "http_method": "POST",
       "id": "endpoint_client_fn:renewalsApi.decide",
       "method_name": "decide",
       "path_normalized": "/renewals/{param}/decision",
@@ -13818,6 +13878,17 @@
       "download": false,
       "group": "workflowsApi",
       "http_method": "POST",
+      "id": "endpoint_client_fn:workflowsApi.retryReview",
+      "method_name": "retryReview",
+      "path_normalized": "/workflows/runs/{param}/retry-review",
+      "path_template": "/workflows/runs/${run_id}/retry-review",
+      "response_type": "WorkflowRun",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "workflowsApi",
+      "http_method": "POST",
       "id": "endpoint_client_fn:workflowsApi.returnStep",
       "method_name": "returnStep",
       "path_normalized": "/workflows/runs/{param}/return",
@@ -13954,14 +14025,14 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:brainApi",
-      "method_count": 3,
+      "method_count": 4,
       "name": "brainApi",
       "type": "endpoint_client_group"
     },
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:contractsApi",
-      "method_count": 43,
+      "method_count": 46,
       "name": "contractsApi",
       "type": "endpoint_client_group"
     },
@@ -14073,7 +14144,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:renewalsApi",
-      "method_count": 4,
+      "method_count": 5,
       "name": "renewalsApi",
       "type": "endpoint_client_group"
     },
@@ -14150,7 +14221,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:workflowsApi",
-      "method_count": 16,
+      "method_count": 17,
       "name": "workflowsApi",
       "type": "endpoint_client_group"
     },
@@ -14891,6 +14962,24 @@
       "file": "backend/alembic/versions/0070_ai_call_log_cache_tokens.py",
       "id": "migration:0070_ai_call_log_cache_tokens",
       "revision": "0070_ai_call_log_cache_tokens",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0070_ai_call_log_cache_tokens"
+      ],
+      "file": "backend/alembic/versions/0071_ai_call_log_eval_run.py",
+      "id": "migration:0071_ai_call_log_eval_run",
+      "revision": "0071_ai_call_log_eval_run",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0071_ai_call_log_eval_run"
+      ],
+      "file": "backend/alembic/versions/0072_notice_deadline_basis.py",
+      "id": "migration:0072_notice_deadline_basis",
+      "revision": "0072_notice_deadline_basis",
       "type": "migration"
     },
     {
@@ -16320,125 +16409,6 @@
       "type": "model"
     },
     {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [
-        {
-          "column": "document_id",
-          "ref": "ds_document.id"
-        }
-      ],
-      "id": "model:docstudio:DsAnnotation",
-      "mixins": [
-        "ActorTrackedMixin",
-        "IdMixin",
-        "OrgScopedMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsAnnotation",
-      "org_scoped": true,
-      "soft_delete": false,
-      "table": "ds_annotation",
-      "type": "model"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [
-        {
-          "column": "version_id",
-          "ref": "ds_version.id"
-        }
-      ],
-      "id": "model:docstudio:DsClause",
-      "mixins": [
-        "IdMixin",
-        "OrgScopedMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsClause",
-      "org_scoped": true,
-      "soft_delete": false,
-      "table": "ds_clause",
-      "type": "model"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [],
-      "id": "model:docstudio:DsDocument",
-      "mixins": [
-        "ActorTrackedMixin",
-        "IdMixin",
-        "OrgScopedMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsDocument",
-      "org_scoped": true,
-      "soft_delete": false,
-      "table": "ds_document",
-      "type": "model"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [],
-      "id": "model:docstudio:DsEvent",
-      "mixins": [
-        "IdMixin",
-        "OrgScopedMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsEvent",
-      "org_scoped": true,
-      "soft_delete": false,
-      "table": "ds_event",
-      "type": "model"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [],
-      "id": "model:docstudio:DsOcrResult",
-      "mixins": [
-        "IdMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsOcrResult",
-      "org_scoped": false,
-      "soft_delete": false,
-      "table": "ds_ocr_result",
-      "type": "model"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/models.py",
-      "fk_columns": [
-        {
-          "column": "document_id",
-          "ref": "ds_document.id"
-        }
-      ],
-      "id": "model:docstudio:DsVersion",
-      "mixins": [
-        "ActorTrackedMixin",
-        "IdMixin",
-        "OrgScopedMixin",
-        "TableNameMixin",
-        "TimestampMixin"
-      ],
-      "name": "DsVersion",
-      "org_scoped": true,
-      "soft_delete": false,
-      "table": "ds_version",
-      "type": "model"
-    },
-    {
       "domain": "drafting_templates",
       "file": "backend/app/drafting_templates/models.py",
       "fk_columns": [],
@@ -17685,7 +17655,9 @@
       "type": "page"
     },
     {
-      "components": [],
+      "components": [
+        "_portfolio-answer.tsx"
+      ],
       "domain": "brain",
       "file": "frontend/src/app/(app)/brain/page.tsx",
       "id": "page:/brain",
@@ -17702,7 +17674,14 @@
     },
     {
       "components": [
-        "_clm-workspace.tsx"
+        "_chat-tab.test.tsx",
+        "_chat-tab.tsx",
+        "_clm-workspace.test.tsx",
+        "_clm-workspace.tsx",
+        "_lifecycle-tab.test.tsx",
+        "_lifecycle-tab.tsx",
+        "_review-list.test.tsx",
+        "_review-list.tsx"
       ],
       "domain": "contracts",
       "file": "frontend/src/app/(app)/contracts/[id]/page.tsx",
@@ -17721,22 +17700,6 @@
       "type": "page"
     },
     {
-      "components": [],
-      "domain": "docstudio",
-      "file": "frontend/src/app/(app)/docstudio/page.tsx",
-      "id": "page:/docstudio",
-      "route": "/docstudio",
-      "type": "page"
-    },
-    {
-      "components": [],
-      "domain": "docstudio",
-      "file": "frontend/src/app/(app)/docstudio/[versionId]/page.tsx",
-      "id": "page:/docstudio/{versionId}",
-      "route": "/docstudio/{versionId}",
-      "type": "page"
-    },
-    {
       "components": [
         "_agreement-forms.tsx",
         "_governance-ladder.tsx",
@@ -17745,6 +17708,7 @@
         "_my-work.tsx",
         "_negotiation-panel.tsx",
         "_phase1.tsx",
+        "_request-overview.test.tsx",
         "_request-overview.tsx"
       ],
       "domain": "intake",
@@ -18062,13 +18026,6 @@
     {
       "domain": "ai",
       "file": "backend/app/ai/schemas.py",
-      "id": "schema:ai:ClauseRiskOutput",
-      "name": "ClauseRiskOutput",
-      "type": "schema"
-    },
-    {
-      "domain": "ai",
-      "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:ContractDocxGenerationOutput",
       "name": "ContractDocxGenerationOutput",
       "type": "schema"
@@ -18104,8 +18061,15 @@
     {
       "domain": "ai",
       "file": "backend/app/ai/schemas.py",
-      "id": "schema:ai:ContractRiskOutput",
-      "name": "ContractRiskOutput",
+      "id": "schema:ai:DateRange",
+      "name": "DateRange",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:InitialTerm",
+      "name": "InitialTerm",
       "type": "schema"
     },
     {
@@ -18120,6 +18084,13 @@
       "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:ObligationOutput",
       "name": "ObligationOutput",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:ObligationTiming",
+      "name": "ObligationTiming",
       "type": "schema"
     },
     {
@@ -18174,6 +18145,20 @@
     {
       "domain": "ai",
       "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:PortfolioFilter",
+      "name": "PortfolioFilter",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:PortfolioFilterOutput",
+      "name": "PortfolioFilterOutput",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:PrivacyIncidentAssessmentOutput",
       "name": "PrivacyIncidentAssessmentOutput",
       "type": "schema"
@@ -18183,6 +18168,13 @@
       "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:RenewalExtractionOutput",
       "name": "RenewalExtractionOutput",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:RenewalNoticeTerm",
+      "name": "RenewalNoticeTerm",
       "type": "schema"
     },
     {
@@ -18218,6 +18210,13 @@
       "file": "backend/app/ai/schemas.py",
       "id": "schema:ai:TabularRowOutput",
       "name": "TabularRowOutput",
+      "type": "schema"
+    },
+    {
+      "domain": "ai",
+      "file": "backend/app/ai/schemas.py",
+      "id": "schema:ai:TermLength",
+      "name": "TermLength",
       "type": "schema"
     },
     {
@@ -18587,6 +18586,13 @@
     {
       "domain": "contract_files",
       "file": "backend/app/contract_files/schemas.py",
+      "id": "schema:contract_files:DraftIssueFixesResponse",
+      "name": "DraftIssueFixesResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "contract_files",
+      "file": "backend/app/contract_files/schemas.py",
       "id": "schema:contract_files:ExternalCommentCreate",
       "name": "ExternalCommentCreate",
       "type": "schema"
@@ -18603,6 +18609,20 @@
       "file": "backend/app/contract_files/schemas.py",
       "id": "schema:contract_files:ExternalShareResponse",
       "name": "ExternalShareResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "contract_files",
+      "file": "backend/app/contract_files/schemas.py",
+      "id": "schema:contract_files:IssueFixJobResponse",
+      "name": "IssueFixJobResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:AutoReviewState",
+      "name": "AutoReviewState",
       "type": "schema"
     },
     {
@@ -18671,6 +18691,13 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:LastReview",
+      "name": "LastReview",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
       "id": "schema:contracts:LifecycleOptionsResponse",
       "name": "LifecycleOptionsResponse",
       "type": "schema"
@@ -18692,6 +18719,13 @@
     {
       "domain": "contracts",
       "file": "backend/app/contracts/schemas.py",
+      "id": "schema:contracts:ReviewRetryResponse",
+      "name": "ReviewRetryResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "contracts",
+      "file": "backend/app/contracts/schemas.py",
       "id": "schema:contracts:ReviewStatusResponse",
       "name": "ReviewStatusResponse",
       "type": "schema"
@@ -18708,41 +18742,6 @@
       "file": "backend/app/contracts/schemas.py",
       "id": "schema:contracts:VersionDiffResponse",
       "name": "VersionDiffResponse",
-      "type": "schema"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/schemas.py",
-      "id": "schema:docstudio:AnnotationOut",
-      "name": "AnnotationOut",
-      "type": "schema"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/schemas.py",
-      "id": "schema:docstudio:ClauseOut",
-      "name": "ClauseOut",
-      "type": "schema"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/schemas.py",
-      "id": "schema:docstudio:DocumentOut",
-      "name": "DocumentOut",
-      "type": "schema"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/schemas.py",
-      "id": "schema:docstudio:VersionDetail",
-      "name": "VersionDetail",
-      "type": "schema"
-    },
-    {
-      "domain": "docstudio",
-      "file": "backend/app/docstudio/schemas.py",
-      "id": "schema:docstudio:VersionSummary",
-      "name": "VersionSummary",
       "type": "schema"
     },
     {
@@ -18981,6 +18980,13 @@
       "file": "backend/app/notices/schemas.py",
       "id": "schema:notices:NoticeCreate",
       "name": "NoticeCreate",
+      "type": "schema"
+    },
+    {
+      "domain": "notices",
+      "file": "backend/app/notices/schemas.py",
+      "id": "schema:notices:NoticeDeadlineFacts",
+      "name": "NoticeDeadlineFacts",
       "type": "schema"
     },
     {
@@ -19526,6 +19532,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AiUsageTraffic",
+      "name": "AiUsageTraffic",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ApiError",
       "name": "ApiError",
       "type": "ts_interface"
@@ -19612,6 +19624,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:AuthorityGrantResponse",
       "name": "AuthorityGrantResponse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:AutoReviewState",
+      "name": "AutoReviewState",
       "type": "ts_interface"
     },
     {
@@ -19928,6 +19946,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DateConflict",
+      "name": "DateConflict",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DeadlineAnchor",
+      "name": "DeadlineAnchor",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:DelegationEligibilityEntry",
       "name": "DelegationEligibilityEntry",
       "type": "ts_interface"
@@ -19948,6 +19978,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:DocumentExtractTemplate",
       "name": "DocumentExtractTemplate",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:DraftIssueFixesResponse",
+      "name": "DraftIssueFixesResponse",
       "type": "ts_interface"
     },
     {
@@ -20198,6 +20234,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:IssueFixJob",
+      "name": "IssueFixJob",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:JobRun",
       "name": "JobRun",
       "type": "ts_interface"
@@ -20270,6 +20312,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:NoticeDeadlineBasis",
+      "name": "NoticeDeadlineBasis",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:NoticeDeadlineFacts",
+      "name": "NoticeDeadlineFacts",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:NoticeDeadlinePosture",
       "name": "NoticeDeadlinePosture",
       "type": "ts_interface"
@@ -20326,6 +20380,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:Obligation",
       "name": "Obligation",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ObligationDeadline",
+      "name": "ObligationDeadline",
       "type": "ts_interface"
     },
     {
@@ -20432,6 +20492,24 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioMatch",
+      "name": "PortfolioMatch",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioReading",
+      "name": "PortfolioReading",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioUnknown",
+      "name": "PortfolioUnknown",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:Prompt",
       "name": "Prompt",
       "type": "ts_interface"
@@ -20462,8 +20540,20 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RenewalDatesStatus",
+      "name": "RenewalDatesStatus",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:RenewalEvent",
       "name": "RenewalEvent",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RenewalFormulas",
+      "name": "RenewalFormulas",
       "type": "ts_interface"
     },
     {
@@ -20494,6 +20584,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ReviewChecklistItem",
       "name": "ReviewChecklistItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ReviewRetryResponse",
+      "name": "ReviewRetryResponse",
       "type": "ts_interface"
     },
     {

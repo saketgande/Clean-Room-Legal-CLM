@@ -1,0 +1,7 @@
+{
+  "task": "T022",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "owner.py audit-before-send + strict 6-fact pre-fill + run versions; routing sheets bound to request texts; sheets label disambiguation; content.py key/id consistency; test_exam_routing.py; pytest gate/sheets/routing 184 passed (all test_exam_* 509 passed); ruff clean",
+  "updated": "2026-10-06T19:30:50Z"
+}

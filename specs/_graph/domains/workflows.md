@@ -24,6 +24,7 @@ Owner agents: backend-dev, db-engineer
 - `POST /workflows/runs/{run_id}/complete-step` -- permission: `intake:read` -- request: CompleteStepPayload -- response: ?
 - `POST /workflows/runs/{run_id}/counterparty/send` -- permission: `intake:read` -- request: CounterpartySendPayload -- response: ?
 - `POST /workflows/runs/{run_id}/refresh` -- permission: `intake:read` -- request: ? -- response: ?
+- `POST /workflows/runs/{run_id}/retry-review` -- permission: `intake:read` -- request: ? -- response: ?
 - `POST /workflows/runs/{run_id}/return` -- permission: `intake:read` -- request: ReturnPayload -- response: ?
 - `POST /workflows/seed` -- permission: `workflow:create` -- request: ? -- response: ?
 - `POST /workflows/start` -- permission: `intake:read` -- request: StartPayload -- response: ?
@@ -52,6 +53,7 @@ Api group: `workflowsApi` (confidence: exact)
 - `workflowsApi.lifecycle()` -> `GET /workflows/lifecycle?${new URLSearchParams(q as Record<string, string>)}`
 - `workflowsApi.listFlows()` -> `GET /workflows`
 - `workflowsApi.refreshRun()` -> `POST /workflows/runs/${run_id}/refresh`
+- `workflowsApi.retryReview()` -> `POST /workflows/runs/${run_id}/retry-review`
 - `workflowsApi.returnStep()` -> `POST /workflows/runs/${run_id}/return`
 - `workflowsApi.runForContract()` -> `GET /workflows/runs/by-contract/${contract_id}`
 - `workflowsApi.runForRequest()` -> `GET /workflows/runs/by-request/${request_id}`

@@ -11,6 +11,9 @@ Redis keys per run (all expire, so nothing here grows without bound):
   assistant:run:<id>:cancel  set by the Stop button; the worker checks it
   assistant:run:<id>:claim   set by the worker that runs the answer, so a
                              redelivered task can't run the same answer twice
+  assistant:run:<id>:alive   refreshed every few seconds while a worker is
+                             running the answer, from its own thread; it lapses
+                             about a minute after the worker dies
 
 Redis failures never fail an answer: publishing is best-effort and the answer
 is always saved to the database, which the page falls back to.
@@ -20,8 +23,10 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import contextmanager
 from functools import lru_cache
 
 from app.core.config import settings
@@ -33,6 +38,10 @@ EVENTS_TTL_SECONDS = 3600
 # generous for one answer; it exists so a runaway run can't fill Redis.
 EVENTS_MAXLEN = 20_000
 TERMINAL_EVENT = "done"
+# A worker proves it is still running an answer by refreshing a short-lived key. The beat is far
+# shorter than the key's life, so one missed beat is not mistaken for a dead worker.
+ALIVE_TTL_SECONDS = 60
+HEARTBEAT_SECONDS = 15
 
 
 def events_key(run_id: str) -> str:
@@ -45,6 +54,10 @@ def cancel_key(run_id: str) -> str:
 
 def claim_key(run_id: str) -> str:
     return f"assistant:run:{run_id}:claim"
+
+
+def alive_key(run_id: str) -> str:
+    return f"assistant:run:{run_id}:alive"
 
 
 @lru_cache(maxsize=1)
@@ -113,6 +126,63 @@ def reset_events(run_id: str) -> None:
         _redis().delete(events_key(run_id), cancel_key(run_id))
     except Exception:
         logger.warning("assistant run %s: could not reset events", run_id, exc_info=True)
+
+
+def mark_alive(run_id: str, ttl_seconds: int = ALIVE_TTL_SECONDS) -> bool:
+    try:
+        _redis().set(alive_key(run_id), "1", ex=ttl_seconds)
+        return True
+    except Exception:
+        logger.warning("assistant run %s: could not record heartbeat", run_id, exc_info=True)
+        return False
+
+
+def clear_alive(run_id: str) -> None:
+    try:
+        _redis().delete(alive_key(run_id))
+    except Exception:
+        logger.warning("assistant run %s: could not clear heartbeat", run_id, exc_info=True)
+
+
+@contextmanager
+def heartbeat(run_id: str, *, every: float = HEARTBEAT_SECONDS, ttl_seconds: int = ALIVE_TTL_SECONDS):
+    """Keep the run's "alive" key fresh while the block runs.
+
+    Beats come from a thread of their own, not the event loop that produces the answer, so a slow
+    or blocking step cannot silence them. If the worker process dies the thread dies with it and
+    the key lapses within ``ttl_seconds``."""
+    stop = threading.Event()
+    mark_alive(run_id, ttl_seconds)
+
+    def beat() -> None:
+        while not stop.wait(every):
+            mark_alive(run_id, ttl_seconds)
+
+    thread = threading.Thread(target=beat, name=f"assistant-heartbeat-{run_id}", daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=2)
+        clear_alive(run_id)
+
+
+def worker_state(run_id: str) -> str:
+    """Is a worker running this answer right now?
+
+    ``alive``      a worker is beating.
+    ``lost``       a worker claimed the run but stopped beating: it died.
+    ``unstarted``  no worker has claimed it (still queued), or it already finished.
+    ``unknown``    Redis cannot say; callers must then behave as if the worker is alive.
+    """
+    try:
+        client = _redis()
+        if client.exists(alive_key(run_id)):
+            return "alive"
+        return "lost" if client.exists(claim_key(run_id)) else "unstarted"
+    except Exception:
+        return "unknown"
 
 
 def release_claim(run_id: str) -> None:

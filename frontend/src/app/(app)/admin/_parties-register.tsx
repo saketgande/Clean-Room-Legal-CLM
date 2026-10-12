@@ -15,6 +15,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { partiesApi } from "@/lib/endpoints";
+import { EMAIL_PROBLEM, looksLikeEmail } from "@/lib/form-checks";
 import type { Counterparty, LegalEntity } from "@/lib/types";
 
 type Kind = "entity" | "counterparty";
@@ -136,11 +137,19 @@ function RecordModal({ kind, existing, onClose, onSaved }: { kind: Kind; existin
   }
 
   const noun = kind === "entity" ? "legal entity" : "counterparty";
+  // A new counterparty must say where it is and how to reach it (round 2, bug 46). Older records may lack them,
+  // so editing one is not held to it; an address that is typed must always be a real-looking one.
+  const needsDetails = kind === "counterparty" && !existing;
+  const emailTyped = kind === "counterparty" && values.contact_email?.trim() !== "";
+  const emailBad = emailTyped && !looksLikeEmail(values.contact_email ?? "");
+  const incomplete = !values.name.trim() || emailBad || (needsDetails && (!values.jurisdiction.trim() || !emailTyped));
+  const requiredHere = (key: string) => needsDetails && (key === "jurisdiction" || key === "contact_email");
   return (
     <Modal open onClose={onClose} title={existing ? `Edit ${existing.name}` : `New ${noun}`} size="lg">
       <div className="space-y-3">
         {FIELDS[kind].map((f) => (
-          <Field key={f.key} label={f.label}>
+          <Field key={f.key} label={requiredHere(f.key) ? `${f.label} (required)` : f.label}
+            hint={f.key === "contact_email" && emailBad ? EMAIL_PROBLEM : undefined}>
             {f.long
               ? <Textarea rows={2} value={values[f.key]} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />
               : <Input type={f.type ?? "text"} value={values[f.key]} onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))} />}
@@ -148,7 +157,7 @@ function RecordModal({ kind, existing, onClose, onSaved }: { kind: Kind; existin
         ))}
         <div className="flex justify-end gap-2 pt-2">
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={save} loading={busy} disabled={!values.name.trim()}>{existing ? "Save changes" : `Add ${noun}`}</Button>
+          <Button onClick={save} loading={busy} disabled={incomplete}>{existing ? "Save changes" : `Add ${noun}`}</Button>
         </div>
       </div>
     </Modal>

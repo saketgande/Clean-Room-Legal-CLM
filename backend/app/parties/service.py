@@ -54,9 +54,22 @@ def _clean_name(name: str | None) -> str:
     return cleaned[:200]
 
 
+# What a new counterparty must have on its record: where it is (the governing law and the contract's parties
+# depend on it) and a way to reach it. Editing an older record that lacks them is still allowed.
+_COUNTERPARTY_REQUIRED = (("jurisdiction", "a jurisdiction"), ("contact_email", "a contact email"))
+
+
+def _require_counterparty_details(payload) -> None:
+    missing = [phrase for field, phrase in _COUNTERPARTY_REQUIRED if not (getattr(payload, field, None) or "").strip()]
+    if missing:
+        raise HTTPException(422, f"A new counterparty needs {' and '.join(missing)}")
+
+
 def create(db: Session, *, actor: User, kind: str, payload) -> dict:
     model = _MODELS[kind]
     name = _clean_name(payload.name)
+    if kind == "counterparty":
+        _require_counterparty_details(payload)
     existing = db.scalar(select(model).where(model.org_id == actor.org_id,
                                              func.lower(model.name) == name.lower()))
     if existing is not None:

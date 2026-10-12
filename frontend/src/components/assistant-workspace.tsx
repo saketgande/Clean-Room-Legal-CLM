@@ -575,7 +575,7 @@ export function AssistantWorkspace() {
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
       notify(
         accept
-          ? "Edit accepted. The contract updates once every change in this redline is decided."
+          ? "Edit accepted. The contract updates once every suggested change on it has been decided."
           : "Edit rejected",
         "success",
       );
@@ -1703,10 +1703,13 @@ const TOOL_LABELS: Record<string, [string, string]> = {
   ],
   read_contract: ["Reading the contract", "Read the contract"],
   find_in_contract: ["Searching the contract", "Searched the contract"],
+  list_contract_versions: ["Checking the versions", "Checked the versions"],
+  compare_contract_versions: ["Comparing the versions", "Compared the versions"],
   ask_contract_brain: [
     "Consulting Contract Brain",
     "Consulted Contract Brain",
   ],
+  query_contracts: ["Checking every contract", "Checked contracts"],
   extract_obligations: [
     "Extracting obligations",
     "Obligations extracted",
@@ -1768,6 +1771,8 @@ const CONTRACT_OPEN_TOOLS = new Set([
   "read_contract",
   "find_in_contract",
   "get_contract_status",
+  "list_contract_versions",
+  "compare_contract_versions",
 ]);
 
 type OpenLink = { key: string; href: string; label: string };

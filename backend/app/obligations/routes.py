@@ -25,6 +25,11 @@ class ObligationUpdate(BaseModel):
     status: str | None = Field(default=None, pattern="^(open|due_soon|overdue|completed|cancelled)$")
     due_date: date | None = None
     recurrence: str | None = None
+    # The day the triggering event happened (invoice received, notice received...):
+    # code counts the clause's period from it and shows the formula.
+    anchor_date: date | None = None
+    # A person accepts the date shown (or, after an anchor moved, its re-count).
+    confirm: bool | None = None
 
 
 def _get_obligation(db: Session, *, obligation_id: str, current_user: User) -> Obligation:

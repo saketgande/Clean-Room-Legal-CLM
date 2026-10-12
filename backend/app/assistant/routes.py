@@ -15,7 +15,7 @@ from app.ai.confirmations import (
     reject_confirmation,
 )
 from app.ai.tool_registry import tool_registry
-from app.assistant import run_events
+from app.assistant import run_events, runner
 from app.assistant.dependencies import get_assistant_service
 from app.assistant.models import AssistantMessage, AssistantRun, AssistantSession
 from app.assistant.runner import (
@@ -56,6 +56,9 @@ class AssistantStreamRequest(BaseModel):
     contract_ids: list[str] = Field(default_factory=list)
     resume_run_id: str | None = None
     client_event_id: str | None = None
+    # "Try again" on an answer that failed before writing anything: ask the same question again
+    # without storing it a second time.
+    retry_run_id: str | None = None
 
 
 class AssistantSessionUpdate(BaseModel):
@@ -175,6 +178,69 @@ def get_run(
     return service.get_run(assistant_run_id=assistant_run_id, current_user=current_user)
 
 
+_RETRYABLE = (AssistantRunStatus.FAILED, AssistantRunStatus.INTERRUPTED, AssistantRunStatus.CANCELLED)
+
+
+def question_to_retry(db: Session, *, session: AssistantSession, payload: AssistantStreamRequest) -> AssistantMessage | None:
+    """The stored question to ask again, when this send is a "Try again" on the chat's latest answer.
+
+    Only when that answer failed, was interrupted or was stopped BEFORE writing anything, and the
+    text is the same question. Otherwise None, and the send is stored as a new message as usual. (An
+    answer that was cut off keeps its partial text in the chat, so the question is asked again below it.)
+    """
+    if not payload.retry_run_id:
+        return None
+    run = db.get(AssistantRun, payload.retry_run_id)
+    if run is None or run.session_id != session.id or run.org_id != session.org_id:
+        return None
+    if run.status not in _RETRYABLE or run.assistant_message_id is not None:
+        return None
+    latest = db.scalar(
+        select(AssistantRun.id).where(AssistantRun.session_id == session.id).order_by(AssistantRun.created_at.desc()).limit(1)
+    )
+    if latest != run.id:
+        return None
+    message = db.get(AssistantMessage, run.user_message_id) if run.user_message_id else None
+    if message is None or message.role != "user" or (message.content or "").strip() != payload.message.strip():
+        return None
+    return message
+
+
+def create_turn(
+    db: Session, *, session: AssistantSession, payload: AssistantStreamRequest, current_user, service: AssistantService
+) -> AssistantRun:
+    """Store the question (or reuse it on a retry) and start its run. Commits."""
+    for contract_id in payload.contract_ids:
+        service.ensure_contract_handle(session=session, contract_id=contract_id, current_user=current_user)
+    user_message = question_to_retry(db, session=session, payload=payload)
+    if user_message is None:
+        user_message = AssistantMessage(
+            org_id=current_user.org_id,
+            session_id=session.id,
+            role="user",
+            content=payload.message,
+            metadata_json={"client_event_id": payload.client_event_id},
+            created_by_user_id=current_user.id,
+            updated_by_user_id=current_user.id,
+        )
+        db.add(user_message)
+        db.flush()
+    assistant_run = AssistantRun(
+        org_id=current_user.org_id,
+        session_id=session.id,
+        status=AssistantRunStatus.RUNNING,
+        user_message_id=user_message.id,
+        provider_state={"schema_version": 1, "resume_run_id": payload.resume_run_id},
+        context_manifest={"contract_ids": payload.contract_ids},
+        created_by_user_id=current_user.id,
+        updated_by_user_id=current_user.id,
+    )
+    db.add(assistant_run)
+    db.commit()
+    db.refresh(assistant_run)
+    return assistant_run
+
+
 @router.post("/sessions/{session_id}/stream")
 @limiter.limit(settings.rate_limit_assistant_stream)
 async def stream_session(
@@ -204,32 +270,7 @@ async def stream_session(
             status.HTTP_409_CONFLICT,
             "Aegis is still answering your last message in this chat. Wait for it, or press Stop.",
         )
-    for contract_id in payload.contract_ids:
-        service.ensure_contract_handle(session=session, contract_id=contract_id, current_user=current_user)
-    user_message = AssistantMessage(
-        org_id=current_user.org_id,
-        session_id=session.id,
-        role="user",
-        content=payload.message,
-        metadata_json={"client_event_id": payload.client_event_id},
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(user_message)
-    db.flush()
-    assistant_run = AssistantRun(
-        org_id=current_user.org_id,
-        session_id=session.id,
-        status=AssistantRunStatus.RUNNING,
-        user_message_id=user_message.id,
-        provider_state={"schema_version": 1, "resume_run_id": payload.resume_run_id},
-        context_manifest={"contract_ids": payload.contract_ids},
-        created_by_user_id=current_user.id,
-        updated_by_user_id=current_user.id,
-    )
-    db.add(assistant_run)
-    db.commit()
-    db.refresh(assistant_run)
+    assistant_run = create_turn(db, session=session, payload=payload, current_user=current_user, service=service)
 
     request_id = getattr(request.state, "request_id", None)
     failure = _enqueue_turn(db, assistant_run, mode="start", request_id=request_id)
@@ -292,6 +333,7 @@ async def watch_run_events(
 @router.post("/runs/{assistant_run_id}/cancel")
 def cancel_run(
     assistant_run_id: str,
+    db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
     service: AssistantService = Depends(get_assistant_service),
 ):
@@ -302,6 +344,11 @@ def cancel_run(
         return {"assistant_run_id": run.id, "run_status": run.status, "cancel_requested": False}
     if not run_events.request_cancel(run.id):
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Couldn't stop the answer right now. Try again.")
+    # The flag above is only ever read by the worker running the answer. If there is none (it died, or
+    # the answer is still queued) nothing would act on it, so end the run here instead.
+    if run_events.worker_state(run.id) in ("lost", "unstarted"):
+        runner.stop_run_without_worker(db, run.id)
+        db.refresh(run)
     return {"assistant_run_id": run.id, "run_status": run.status, "cancel_requested": True}
 
 

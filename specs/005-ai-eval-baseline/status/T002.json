@@ -1,0 +1,7 @@
+{
+  "task": "T002",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "root .gitignore: restored backend/docstudio_out/ under reworded comment; added backend/eval/private/, contracts/, .work/, **/*.xlsx. backend/.dockerignore mirrors them. Verified with git check-ignore (private/contracts/.work/xlsx/docstudio_out ignored; eval/exam/content, eval/exam/reports, eval/golden.json not ignored).",
+  "updated": "2026-10-06T17:22:00Z"
+}

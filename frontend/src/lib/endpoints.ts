@@ -1,6 +1,6 @@
 // Typed endpoint functions, grouped by backend module.
 import { apiFetch, apiDownload } from "./api";
-import type { AdminSetting, DraftingTemplate, DraftingTemplateSummary, DraftingTemplateVersion, AiUsageSummary, ApprovalChainStep, ApprovalRequest, ApprovalReviewContext, ApproverBrief, AssistantMessage, AssistantRunSummary, AssistantSession, BrainQuery, BrainSearchResponse, BrainScope, ClauseSearchResult, ConfigStatus, ContractActivityResponse, ContractClause, ContractEditResponse, ContractComment, ContractParty, ContractResponse, ContractRiskSummary, CounterpartyOption, CounterpartyState, ExternalComment, Workflow, WorkflowRun, LifecycleRow, LifecycleStage, SignerOption, ExternalShareView, ContractDeviation, ReviewStatusResponse, VersionDiffResponse, ContractShareCreateResponse, ContractShareResponse, ContractStageHistoryResponse, ContractTextSearchResult, ContractTextSnapshotResponse, ContractUploadResponse, ContractVersionResponse, ContractLifecycleStage, JobRun, LifecycleOptionsResponse, Notification, Notice, NoticeExtraction, NoticeReminderRun, NoticeSummary, Obligation, OrganizationResponse, BuildChatResponse, ExtractedDoc, PlaybookDraftRule, PlaybookInsights, PlaybookResponse, PlaybookRuleResponse, PlaybookRunDetailResponse, PlaybookRunResponse, PlaybookVersionResponse, RegistrationResponse, RenewalEvent, RevisionRound, RenewalRecommendation, SignatureRecipient, SignatureRequest, TabularReview, TabularReviewChat, TabularReviewDetail, TokenResponse, UserInvitationResponse, UserResponse, RoleResponse, PermissionInfo, WallResponse, AuthorityGrantResponse, Prompt, PromptVersion, PromptUsage, IntakeRequest, IntakeApprovalRung, IntakeTask, IntakeHandoff, IntakeAssignee, IntakeMyWork, IntakeSlaLegs, IntakeSlaOps, IntakeTeam, IntakeDocument, IntakeDraft, RequestFormDef, IntakeApprovalPreview, LegalEntity, Counterparty, Trademark, TrademarkCreatePayload, TrademarkUpdatePayload, IntakeSubmitPayload, TrademarkDashboardMetrics, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, UploadDocumentResponse, ExtractRequest, ExtractResponse, IngestRequest, IngestResponse, IntegrationStatusResponse, IntegrationTestResponse, OrgUnitResponse, OrgUnitDeleteResponse, RoleGrantResponse, DelegationResponse, DelegationEligibilityEntry, MenuTreeResponse, MyScreenAccessResponse, ActionLevelResponse, ScreenResponse, ScreenGrantResponse, ScreenGrantCreate, ScreenGrantUpdate, ConditionFieldCatalogResponse, ConditionExpression, ChainDefinitionResponse, ChainStepResponse, ChainStepRuleResponse, ChainInstanceSummary, ChainInstanceDetailResponse, ChainBlockedResponse, ChainHistoryEntry, ChainInstanceStatus, ChainApprovalMode, ChainStepType } from "./types";
+import type { AdminSetting, DraftingTemplate, DraftingTemplateSummary, DraftingTemplateVersion, AiUsageSummary, AiUsageTraffic, ApprovalChainStep, ApprovalRequest, ApprovalReviewContext, ApproverBrief, AssistantMessage, AssistantRunSummary, AssistantSession, BrainQuery, BrainSearchResponse, BrainScope, ClauseSearchResult, ConfigStatus, ContractActivityResponse, ContractClause, ContractEditResponse, ContractComment, ContractParty, ContractResponse, ContractRiskSummary, CounterpartyOption, CounterpartyState, ExternalComment, Workflow, WorkflowRun, LifecycleRow, LifecycleStage, SignerOption, ExternalShareView, ContractDeviation, DraftIssueFixesResponse, IssueFixJob, ReviewRetryResponse, ReviewStatusResponse, VersionDiffResponse, ContractShareCreateResponse, ContractShareResponse, ContractStageHistoryResponse, ContractTextSearchResult, ContractTextSnapshotResponse, ContractUploadResponse, ContractVersionResponse, ContractLifecycleStage, JobCounts, JobRun, JobStatus, LifecycleOptionsResponse, Notification, Notice, NoticeExtraction, NoticeReminderRun, NoticeSummary, Obligation, OrganizationResponse, BuildChatResponse, ExtractedDoc, PlaybookDraftRule, PlaybookInsights, PlaybookResponse, PlaybookRuleResponse, PlaybookRunDetailResponse, PlaybookRunResponse, PlaybookVersionResponse, RegistrationResponse, RenewalEvent, RevisionRound, RenewalRecommendation, SignatureRecipient, SignatureRequest, TabularReview, TabularReviewChat, TabularReviewDetail, TokenResponse, UserInvitationResponse, UserResponse, RoleResponse, PermissionInfo, WallResponse, AuthorityGrantResponse, Prompt, PromptVersion, PromptUsage, IntakeRequest, IntakeApprovalRung, IntakeTask, IntakeHandoff, IntakeAssignee, IntakeMyWork, IntakeSlaLegs, IntakeSlaOps, IntakeTeam, IntakeDocument, IntakeDraft, RequestFormDef, IntakeApprovalPreview, LegalEntity, Counterparty, Trademark, TrademarkCreatePayload, TrademarkUpdatePayload, IntakeSubmitPayload, TrademarkDashboardMetrics, RenewalCalendarEntry, SearchSimilarRequest, SearchSimilarResponse, UploadDocumentResponse, ExtractRequest, ExtractResponse, IngestRequest, IngestResponse, IntegrationStatusResponse, IntegrationTestResponse, OrgUnitResponse, OrgUnitDeleteResponse, RoleGrantResponse, DelegationResponse, DelegationEligibilityEntry, MenuTreeResponse, MyScreenAccessResponse, ActionLevelResponse, ScreenResponse, ScreenGrantResponse, ScreenGrantCreate, ScreenGrantUpdate, ConditionFieldCatalogResponse, ConditionExpression, ChainDefinitionResponse, ChainStepResponse, ChainStepRuleResponse, ChainInstanceSummary, ChainInstanceDetailResponse, ChainBlockedResponse, ChainHistoryEntry, ChainInstanceStatus, ChainApprovalMode, ChainStepType } from "./types";
 
 const qs = (params: Record<string, unknown>) => {
   const sp = new URLSearchParams();
@@ -445,6 +445,9 @@ export const contractsApi = {
     apiFetch<ContractStageHistoryResponse[]>(`/contracts/${id}/stage-history`),
   reviewStatus: (id: string) =>
     apiFetch<ReviewStatusResponse>(`/contracts/${id}/review-status`),
+  // Run the AI review again when it was interrupted (safe to press twice: the server returns the one in progress).
+  retryReview: (id: string) =>
+    apiFetch<ReviewRetryResponse>(`/contracts/${id}/review/retry`, { method: "POST", body: {} }),
   deviations: (id: string) =>
     apiFetch<ContractDeviation[]>(`/contracts/${id}/deviations`),
   plainSummary: (id: string) =>
@@ -535,9 +538,11 @@ export const contractsApi = {
     apiFetch<ContractTextSnapshotResponse>(
       `/contracts/${id}/versions/${versionId}/text`,
     ),
-  versionDiff: (id: string, baseVersionId: string, targetVersionId: string) =>
+  // context: keep only that many unchanged lines around each change (the server collapses the rest into
+  // one "gap" line). Left out, every line comes back.
+  versionDiff: (id: string, baseVersionId: string, targetVersionId: string, context?: number) =>
     apiFetch<VersionDiffResponse>(
-      `/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}`,
+      `/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}${qs({ context })}`,
     ),
   downloadVersion: (id: string, versionId: string, name?: string) =>
     apiDownload(`/contracts/${id}/versions/${versionId}/download`, name),
@@ -554,11 +559,22 @@ export const contractsApi = {
       method: "POST",
       body: payload,
     }),
-  aiRedline: (id: string, instructions: string) =>
+  aiRedline: (id: string, instructions: string, playbookDeviationId?: string) =>
     apiFetch<{ edits: number; summary?: string | null }>(
       `/contracts/${id}/edits/ai-redline`,
-      { method: "POST", body: { instructions } },
+      {
+        method: "POST",
+        body: { instructions, playbook_deviation_id: playbookDeviationId },
+      },
     ),
+  /** Start writing a suggested change for every open issue that has none, in the background. */
+  draftIssueFixes: (id: string) =>
+    apiFetch<DraftIssueFixesResponse>(`/contracts/${id}/edits/draft-issue-fixes`, {
+      method: "POST",
+    }),
+  /** The latest such job (the one a review started, or one asked for by hand), or null. */
+  issueFixJob: (id: string) =>
+    apiFetch<IssueFixJob | null>(`/contracts/${id}/edits/draft-issue-fixes`),
   exportDocx: (id: string, name?: string) =>
     apiDownload(`/contracts/${id}/export-docx`, name),
   updateText: (
@@ -745,13 +761,23 @@ export const workflowsApi = {
   lifecycle: (q: { request_id?: string; contract_id?: string }) =>
     apiFetch<Partial<Record<LifecycleStage, LifecycleRow[]>>>(
       `/workflows/lifecycle?${new URLSearchParams(q as Record<string, string>)}`),
-  completeStep: (run_id: string, note?: string, step_idx?: number) =>
+  completeStep: (run_id: string, note?: string, step_idx?: number, override_reason?: string, rework_reply?: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/complete-step`, {
       method: "POST",
-      body: { ...(note ? { note } : {}), ...(step_idx != null ? { step_idx } : {}) },
+      body: {
+        ...(note ? { note } : {}),
+        ...(step_idx != null ? { step_idx } : {}),
+        // Only sent to send a contract on with suggestions still open; the server checks the permission.
+        ...(override_reason ? { override_reason } : {}),
+        // The answer to a rejected approval; the server asks for it only while one is owed.
+        ...(rework_reply ? { rework_reply } : {}),
+      },
     }),
   refreshRun: (run_id: string) =>
     apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/refresh`, { method: "POST", body: {} }),
+  // A review step that stopped because its AI review was interrupted: run the review again and set the step going.
+  retryReview: (run_id: string) =>
+    apiFetch<WorkflowRun>(`/workflows/runs/${run_id}/retry-review`, { method: "POST", body: {} }),
   counterparty: (run_id: string) =>
     apiFetch<CounterpartyState>(`/workflows/runs/${run_id}/counterparty`),
   sendToCounterparty: (
@@ -918,6 +944,9 @@ export const approvalsApi = {
     ),
 
   eligibleApprovers: () => apiFetch<ApproverBrief[]>("/approvals/eligible-approvers"),
+  /** Only the people this approval can be handed to (the server refuses anyone else). */
+  reassignCandidates: (id: string, kind: "delegate" | "escalate") =>
+    apiFetch<ApproverBrief[]>(`/approvals/requests/${id}/reassign-candidates?kind=${kind}`),
 };
 
 // ---- Signatures ----------------------------------------------------------
@@ -1026,6 +1055,14 @@ export const renewalsApi = {
     ),
   recommendation: (id: string) =>
     apiFetch<RenewalRecommendation>(`/renewals/${id}/recommendation`),
+  /** Empty body confirms the dates shown (the re-count, if it needs
+   *  re-confirming); a typed date replaces the calculated one; `no_end_date`
+   *  settles "the form's end date is wrong, it runs until terminated". */
+  confirmDates: (
+    id: string,
+    payload: { expiration_date?: string; notice_date?: string; no_end_date?: boolean } = {},
+  ) =>
+    apiFetch<RenewalEvent>(`/renewals/${id}/confirm-dates`, { method: "POST", body: payload }),
 };
 
 // ---- Trademarks -----------------------------------------------------------
@@ -1083,6 +1120,9 @@ export const brainApi = {
     }),
   queries: (params: { contract_id?: string; limit?: number } = {}) =>
     apiFetch<BrainQuery[]>(`/contract-brain/queries${qs(params)}`),
+  // A which/how-many answer, recomputed from the AI's reading so far.
+  result: (id: string) =>
+    apiFetch<BrainQuery>(`/contract-brain/queries/${id}/result`),
 };
 
 // ---- Tabular review ------------------------------------------------------
@@ -1148,15 +1188,19 @@ export const notificationsApi = {
 };
 
 export const jobsApi = {
-  list: () => apiFetch<JobRun[]>("/jobs"),
+  /** Newest first. `limit`/`offset` page through every job; `status` narrows the list. */
+  list: (params: { status?: JobStatus; limit?: number; offset?: number } = {}) =>
+    apiFetch<JobRun[]>(`/jobs${qs(params)}`),
+  /** Counts by status over ALL jobs (the list is only one page). */
+  summary: () => apiFetch<JobCounts>("/jobs/summary"),
   cancel: (id: string) =>
     apiFetch<JobRun>(`/jobs/${id}/cancel`, { method: "POST" }),
   run: (id: string) => apiFetch<JobRun>(`/jobs/${id}/run`, { method: "POST" }),
 };
 
 export const aiUsageApi = {
-  summary: (days = 30) =>
-    apiFetch<AiUsageSummary>(`/analytics/ai-usage${qs({ days })}`),
+  summary: (days = 30, traffic: AiUsageTraffic = "real") =>
+    apiFetch<AiUsageSummary>(`/analytics/ai-usage${qs({ days, traffic })}`),
 };
 
 export const adminApi = {
@@ -1303,7 +1347,7 @@ export const intakeApi = {
   pause: (id: string, paused: boolean) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/pause?paused=${paused}`, { method: "POST" }),
   slaOps: () => apiFetch<IntakeSlaOps>("/intake/sla-ops"),
-  slaScan: () => apiFetch<{ escalated: number; breached: number; downgraded: number }>(
+  slaScan: () => apiFetch<{ escalated: number; breached: number; downgraded: number; completed: number }>(
     "/intake/sla-scan", { method: "POST" }),
 
   // teams

@@ -22,6 +22,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /contracts/{contract_id}/clauses` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/editor/config` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/edits` -- permission: `contract:redline` -- request: str | None -- response: list[ContractEditResponse]
+- `GET /contracts/{contract_id}/edits/draft-issue-fixes` -- permission: `contract:redline` -- request: ? -- response: IssueFixJobResponse | None
 - `GET /contracts/{contract_id}/export-docx` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/files` -- permission: `contract_file:read` -- request: ? -- response: list[ContractFileResponse]
 - `GET /contracts/{contract_id}/revisions/current` -- permission: `contract:read` -- request: ? -- response: ?
@@ -34,6 +35,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /external-shares/{token}/download` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: ?
 - `POST /contracts/{contract_id}/counterparty-revision` -- permission: `contract_file:update` -- request: Response -- response: ContractVersionResponse
 - `POST /contracts/{contract_id}/edits/ai-redline` -- permission: `contract:redline` -- request: AiRedlineRequest -- response: ?
+- `POST /contracts/{contract_id}/edits/draft-issue-fixes` -- permission: `contract:redline` -- request: ? -- response: DraftIssueFixesResponse
 - `POST /contracts/{contract_id}/edits/propose` -- permission: `contract:redline` -- request: ManualEditProposal -- response: ContractEditResponse
 - `POST /contracts/{contract_id}/edits/{edit_id}/accept` -- permission: `contract:redline` -- request: ContractEditDecisionRequest -- response: ContractEditResponse
 - `POST /contracts/{contract_id}/edits/{edit_id}/reject` -- permission: `contract:redline` -- request: ContractEditDecisionRequest -- response: ContractEditResponse
@@ -51,7 +53,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse
+ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, DraftIssueFixesResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse, IssueFixJobResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 

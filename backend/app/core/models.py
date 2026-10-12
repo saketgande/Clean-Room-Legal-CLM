@@ -1,4 +1,15 @@
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, Integer, String, Text, event
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    Integer,
+    String,
+    Text,
+    event,
+    false,
+)
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -123,3 +134,10 @@ class AICallLog(
     redaction_status = Column(String(80), nullable=True)
     raw_ai_output = Column(JSON, nullable=True)
     validated_output = Column(JSON, nullable=True)
+    # AI exam traffic (FR-34): NULL = real usage, set = a call the evaluation exam
+    # made in that run. No FK: the run record lives in audit_log. Lets the usage
+    # page keep exam spend out of the real figures.
+    eval_run_id = Column(String(36), index=True, nullable=True)
+    # True only for exam calls answered through the provider's Message Batches API,
+    # which bills at half price (FR-41); the usage page prices these rows at 50%.
+    batched = Column(Boolean, nullable=False, default=False, server_default=false())

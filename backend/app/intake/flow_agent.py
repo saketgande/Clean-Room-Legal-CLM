@@ -1,10 +1,10 @@
 """Workflow Router agent — reads an intake request and suggests which governance
 workflow (Workflow) it should ride, grounded on the org's live flow catalog.
 
-Suggest-only itself: it never starts a flow — that's
-app.intake.service._maybe_autostart_workflow's call, gated on this module's
-own confidence score. A reviewer can also accept the suggestion manually on
-the ticket (one click → flows/start). Two layers by design:
+Suggest-only: it never starts a flow, and neither does its confidence score.
+app.intake.service._maybe_autostart_workflow starts only an admin's "Used for"
+pick (``used_for_suggestion``); this router's pick waits for a person to accept
+it on the ticket (one click → workflows/start). Two layers by design:
 
   * deterministic baseline — `select_flow`'s criteria match, always available
     and used verbatim when mocks are on or the model call fails, so there is

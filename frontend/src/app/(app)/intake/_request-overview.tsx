@@ -11,10 +11,17 @@ import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { intakeApi, workflowsApi, brainApi, contractsApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
+import { LoadError } from "@/components/ui";
+import { REVIEW_NOTICE_CSS, StepReviewNotice } from "@/components/review-notice";
+import { interruptedReviewStep, reviewPollInterval } from "@/lib/review-retry";
 import { currentStage, LIFECYCLE, LifecycleView, NextStepCard, stepStage } from "@/components/lifecycle-view";
-import { stepMeta } from "./_governance-ladder";
+import { activityTrail, beforeWorkflow, isBeingSetUp, termFact } from "@/lib/request-facts";
+import { openSteps, stepInFocus } from "@/lib/workflow-steps";
+import { stepMeta, waitLabel } from "./_governance-ladder";
 import { NegotiationPanel } from "./_negotiation-panel";
 import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep, ContractDeviation, RiskDriver } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import { fmtDateTime, riskBand, RISK_UNKNOWN_LABEL } from "@/lib/utils";
 
 const SEV_ORDER = ["critical", "high", "medium", "low"] as const;
 type Sev = typeof SEV_ORDER[number];
@@ -22,7 +29,7 @@ const sevOf = (s: string): Sev => { const v = (s || "").toLowerCase(); return (S
 
 // One display row for the workflow — unified over the live WorkflowRun engine (when
 // a run exists) and the static intake stage-spine fallback (before one starts).
-type WfStep = { label: string; tone: "done" | "cur" | "warn" | "todo"; node: string; badge?: string; badgeTone: "done" | "cur" | "warn"; sub?: string; sidx?: number; assign?: string; result?: Record<string, unknown> | null };
+type WfStep = { label: string; tone: "done" | "cur" | "warn" | "todo"; node: string; badge?: string; badgeTone: "done" | "cur" | "warn" | "skip"; skipped?: boolean; sub?: string; sidx?: number; assign?: string; result?: Record<string, unknown> | null };
 const isWaiting = (s?: WorkflowRunStep) => !!s && s.status.startsWith("waiting");
 // The "doorway" for a step: the real tool the owner opens to actually DO the
 // step's work, with the contract in context — not just a "mark done" button.
@@ -43,7 +50,7 @@ function resultRows(res: Record<string, unknown> | null | undefined): [string, s
   const pct = (v: unknown) => `${Math.round(Number(v) * 100)}%`;
   const rows: [string, string][] = [];
   const push = (k: string, v: unknown) => { if (v != null && v !== "") rows.push([k, String(v)]); };
-  if (res.risk_band || res.risk_score != null) push("Risk", [res.risk_band, res.risk_score != null ? `(${res.risk_score})` : ""].filter(Boolean).join(" "));
+  if (res.risk_band) push("Risk", res.risk_band === "unknown" ? RISK_UNKNOWN_LABEL : res.risk_band);
   if (res.confidence != null) push("Confidence", pct(res.confidence));
   push("Category", res.category);
   push("Matter", res.matter_type);
@@ -56,6 +63,7 @@ function resultRows(res: Record<string, unknown> | null | undefined): [string, s
 }
 
 const svg = (p: string) => <svg className="ic" viewBox="0 0 24 24" dangerouslySetInnerHTML={{ __html: p }} />;
+const WARN_ICON = '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>';
 const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
 // Which doc type this request can auto-draft (mirrors the intake service's
@@ -75,26 +83,28 @@ function counterpartyOf(r: IntakeRequest): string | null {
 export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const qc = useQueryClient();
   const { notify } = useToast();
+  const { user } = useAuth();
   // Poll only while the AI triage is still running (its result lands a few
   // seconds after filing); otherwise refetch on focus — you're almost always
   // the only one looking at a ticket, and your own actions invalidate it.
-  const { data: r, isLoading } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true, refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" ? 3000 : false) });
+  const { data: r, isLoading, error: requestError, refetch: refetchRequest } = useQuery({ queryKey: ["intake-request", id], queryFn: () => intakeApi.get(id), refetchOnWindowFocus: true, refetchInterval: (q) => ((q.state.data?.ai_triage as { status?: string } | null)?.status === "pending" || isBeingSetUp(q.state.data, qc.getQueryData(["flow-run", id])) ? 3000 : false) });
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
   const { data: handoffs } = useQuery({ queryKey: ["intake-handoffs", id], queryFn: () => intakeApi.handoffs(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });
   const [reassignTo, setReassignTo] = useState("");
 
   const cid = r?.contract_id ?? null;
-  // AI Risk Review data — the analysis the page used to hide. Poll while the risk
-  // score hasn't landed yet (drafting kicks off a background clause+risk job).
+  // The risk band from the playbook review. Poll while it's unknown (drafting starts
+  // a background review) — capped, since a contract can stay unreviewed for good.
   const { data: risk } = useQuery({
     queryKey: ["contract-risk", cid], queryFn: () => contractsApi.risk(cid!), enabled: !!cid,
-    refetchInterval: (q) => ((q.state.data as { score?: number | null } | undefined)?.score == null ? 4000 : false),
+    refetchInterval: (q) => (riskBand(q.state.data) === "unknown" && q.state.dataUpdateCount < 30 ? 4000 : false),
   });
   const { data: deviations } = useQuery({ queryKey: ["contract-devs", cid], queryFn: () => contractsApi.deviations(cid!), enabled: !!cid });
   const { data: approvals } = useQuery({ queryKey: ["intake-approval-chain", id], queryFn: () => intakeApi.approvalChain(id) });
   const { data: teams } = useQuery({ queryKey: ["intake-teams"], queryFn: intakeApi.teams });
-  const { data: contractStatus } = useQuery({ queryKey: ["contract-review", cid], queryFn: () => contractsApi.reviewStatus(cid!), enabled: !!cid });
+  // While a review is running, ask again every few seconds, so the step below moves on when it ends.
+  const { data: contractStatus } = useQuery({ queryKey: ["contract-review", cid], queryFn: () => contractsApi.reviewStatus(cid!), enabled: !!cid, refetchInterval: (q) => reviewPollInterval(q.state.data?.auto_review) });
 
   // The live workflow engine — poll while an agent step is mid-beat so the ladder
   // animates; idle (waiting on a human / complete) runs don't poll. Capped: if
@@ -107,11 +117,12 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     queryFn: () => workflowsApi.runForRequest(id),
     refetchInterval: (q) => {
       const run = q.state.data as WorkflowRun | null | undefined;
-      if (!run) return false;
+      // A request just filed is set up in the background; its workflow starts a few seconds later.
+      if (!run) return isBeingSetUp(qc.getQueryData<IntakeRequest>(["intake-request", id]), run) ? 3000 : false;
       const working = (run.steps ?? []).some((s) => s.status === "running" || s.status === "waiting_job");
       if (run.status !== "running" && !working) return false;
-      const cur = (run.steps ?? [])[run.current_index];
-      const lastProgress = cur?.updated_at ? new Date(cur.updated_at).getTime() : 0;
+      // Steps that run side by side: the latest progress of any of them counts.
+      const lastProgress = Math.max(0, ...openSteps(run).map((s) => (s.updated_at ? new Date(s.updated_at).getTime() : 0)));
       return Date.now() - lastProgress < 45_000 ? 1500 : false;
     },
   });
@@ -123,6 +134,19 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   // Pump a mid-beat "running" step once: hold ~1s so the beat shows, then resume
   // the executor so the agent runs for real and the flow advances (back-and-forth).
   const pumpedRef = useRef<string | null>(null);
+  // A review that was running and no longer is has just ended: run the workflow on from it, and fetch what it wrote.
+  const reviewPending = !!contractStatus?.auto_review;
+  const reviewWasPending = useRef(false);
+  const flowRunId = flowRun?.id;
+  useEffect(() => {
+    if (reviewWasPending.current && !reviewPending && flowRunId) {
+      workflowsApi.refreshRun(flowRunId)
+        .then((run) => qc.setQueryData(["flow-run", id], run))
+        .catch(() => qc.invalidateQueries({ queryKey: ["flow-run", id] }));
+      for (const k of [["contract-risk", cid], ["contract-devs", cid], ["contract-review", cid]]) qc.invalidateQueries({ queryKey: k });
+    }
+    reviewWasPending.current = reviewPending;
+  }, [reviewPending, flowRunId, id, cid, qc]);
   useEffect(() => {
     if (!flowRun || flowRun.status !== "running") return;
     const key = `${flowRun.id}:${flowRun.current_index}`;
@@ -138,6 +162,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const [q, setQ] = useState("");
   const [openSevs, setOpenSevs] = useState<Record<Sev, boolean>>({ critical: true, high: true, medium: false, low: false });
   const commentRef = useRef<HTMLInputElement>(null);
+  const sendBackRef = useRef<HTMLSelectElement>(null);
 
   // Every write refreshes the request in place + the boards that list it.
   const done = (msg: string) => (updated: IntakeRequest) => {
@@ -148,6 +173,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const fail = (e: unknown) => notify(e instanceof Error ? e.message : "Action failed", "error");
 
   const reassign = useMutation({ mutationFn: (uid: string) => intakeApi.triage(id, { action: "reassigned", assignee_user_id: uid }), onSuccess: (u) => { setReassignTo(""); done("Owner reassigned")(u); }, onError: fail });
+  // The AI's urgency is only a suggestion; a person applies it (PATCH audits the change).
+  const applyPriority = useMutation({ mutationFn: (p: string) => intakeApi.update(id, { priority: p }), onSuccess: done("Priority updated"), onError: fail });
   const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
   // Engine actions — start the workflow, complete a human step, or poll an approval/signature.
@@ -156,7 +183,28 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   // matcher can't read an untyped workflow's free-text AI condition, so without
   // the id it could land on a different flow than the one this page shows.
   const startFlow = useMutation({ mutationFn: (flowId?: string) => workflowsApi.startFlow(id, flowId), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Workflow started", "success"); }, onError: fail });
-  const completeStep = useMutation({ mutationFn: () => workflowsApi.completeStep(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Step completed", "success"); }, onError: fail });
+  // After a rejected approval the server wants a written reply before the step can go on.
+  const [reply, setReply] = useState("");
+  const owed = flowRun?.rework ?? null;
+  const replyMissing = !!owed && !reply.trim();
+  const completeStep = useMutation({
+    // Always say which step: of two steps running side by side, the server must not guess.
+    mutationFn: () => (owed
+      ? workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx, undefined, reply.trim())
+      : workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx)),
+    onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setReply(""); notify("Step completed", "success"); },
+    onError: fail,
+  });
+  // The review step stopped because its AI review was interrupted: run the review again and set the step going.
+  const retryReview = useMutation({
+    mutationFn: () => workflowsApi.retryReview(flowRun?.id ?? ""),
+    onSuccess: (run) => {
+      qc.setQueryData(["flow-run", id], run);
+      for (const k of [["contract-review", cid], ["contract-risk", cid], ["contract-devs", cid]]) qc.invalidateQueries({ queryKey: k });
+      notify("Review restarted. The workflow carries on when it finishes.", "success");
+    },
+    onError: fail,
+  });
   const checkStep = useMutation({ mutationFn: () => workflowsApi.refreshRun(flowRun?.id ?? ""), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); notify("Refreshed", "success"); }, onError: fail });
   // Dynamic edges: send a step back for rework, and post questions/comments.
   const [backTo, setBackTo] = useState("");
@@ -164,13 +212,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const [comment, setComment] = useState("");
   const returnStep = useMutation({ mutationFn: (p: { to_idx?: number; note?: string }) => workflowsApi.returnStep(flowRun?.id ?? "", p.to_idx, p.note), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setBackTo(""); setBackNote(""); notify("Sent back for rework", "success"); }, onError: fail });
   const postComment = useMutation({ mutationFn: (text: string) => workflowsApi.comment(flowRun?.id ?? "", text), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setComment(""); }, onError: fail });
-  const rerunRisk = useMutation({ mutationFn: () => contractsApi.computeRisk(cid ?? ""), onSuccess: (rs) => { qc.setQueryData(["contract-risk", cid], rs); qc.invalidateQueries({ queryKey: ["contract-devs", cid] }); notify("Re-running the AI review…", "success"); }, onError: fail });
+  const rerunRisk = useMutation({ mutationFn: () => contractsApi.computeRisk(cid ?? ""), onSuccess: (rs) => { qc.setQueryData(["contract-risk", cid], rs); qc.invalidateQueries({ queryKey: ["contract-devs", cid] }); notify("Risk recomputed from the playbook review", "success"); }, onError: fail });
   const ask = useMutation({
     mutationFn: (question: string) => brainApi.ask({ question, query_scope: r?.contract_id ? "contract" : "portfolio", contract_id: r?.contract_id ?? undefined }),
     onSuccess: (res) => setChat((c) => [...c, { role: "ai", text: res.answer, cites: res.citations?.length ?? 0 }]),
     onError: (e) => setChat((c) => [...c, { role: "ai", text: e instanceof Error ? e.message : "Couldn't answer that." }]),
   });
-  const busy = reassign.isPending || draft.isPending || ingest.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending;
+  const busy = reassign.isPending || draft.isPending || ingest.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending || retryReview.isPending;
   function sendChat() {
     const text = q.trim();
     if (!text || ask.isPending) return;
@@ -180,6 +228,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   }
 
   const steps = r?.workflow ?? [];
+  // A request that could not be opened (removed, wrong link, no access) says so; it used to sit on "Loading request…" for ever.
+  if (!r && requestError) return <div className="ro"><div style={{ padding: 24 }}><LoadError error={requestError} what="this request" onRetry={() => void refetchRequest()} onBack={onBack} backLabel="← Back to Legal Intake" /></div></div>;
   if (isLoading || !r) return <div className="ro"><div style={{ padding: 40, color: "var(--ink-3)" }}>Loading request…</div></div>;
 
   const cp = counterpartyOf(r);
@@ -191,6 +241,12 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
         .filter(([, xs]) => xs && xs.length)
     : [];
   const fs = (r.ai_triage as { flow_suggestion?: WorkflowSuggestion } | null)?.flow_suggestion;
+  // The model's urgency, offered as a suggestion. Only when the model produced it (form
+  // triage copies the requester's priority, which would come back as a fake "AI" hint after
+  // an edit), and never against Critical: the model can't say Critical, so "apply" would
+  // only lower an escalation.
+  const triage = r.ai_triage as { source?: string; understanding?: { urgency?: string } | null } | null;
+  const aiUrgency = triage?.source === "llm" && r.priority !== "Critical" ? triage.understanding?.urgency : undefined;
   const missingInfo = ((r.ai_triage as { understanding?: { missing_info?: string[] } } | null)?.understanding?.missing_info) ?? [];
   const triageDegraded = (r.ai_triage as { degraded?: boolean; degraded_reason?: string } | null) ?? {};
   const stuck = r.sla_status === "overdue";
@@ -201,22 +257,31 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
 
   // --- the live workflow, unified over the engine + the static fallback -------
   const hasRun = !!flowRun && ["running", "waiting", "complete", "failed", "cancelled"].includes(flowRun.status);
+  const settingUp = !hasRun && !fs?.flow_name && isBeingSetUp(r, flowRun);
   const runComplete = flowRun?.status === "complete";
   const runFailed = flowRun?.status === "failed" || flowRun?.status === "cancelled";
   const curIdx = flowRun?.current_index ?? 0;
-  const current: WorkflowRunStep | undefined = hasRun ? (flowRun!.steps ?? [])[curIdx] : undefined;
+  const interruptedStep = hasRun ? interruptedReviewStep(flowRun) : null;
+  // The step to show and act on. Steps flagged "parallel" run side by side and `current_index` stays on the
+  // first of them, so once that one is done the step still waiting is another one.
+  const current: WorkflowRunStep | undefined = hasRun ? stepInFocus(flowRun, user?.id) : undefined;
+  const openIdx = new Set(hasRun ? openSteps(flowRun).map((s) => s.idx) : []);
   const wf: WfStep[] = hasRun
     ? (flowRun!.steps ?? []).map((s, i) => {
-        const isDone = ["done", "complete", "skipped"].includes(s.status);
-        const isCur = i === curIdx && !runComplete;
+        // A step the engine skipped (its condition was not met) was never done: it shows as skipped and is
+        // not counted as work that happened, but it does not hold the workflow up either.
+        const isSkipped = s.status === "skipped";
+        const isDone = isSkipped || ["done", "complete"].includes(s.status);
+        const isCur = (openIdx.has(s.idx) || i === curIdx) && !isDone && !runComplete;
         const failedHere = runFailed && i === curIdx;
         const meta = stepMeta(s.type);
         return {
           label: s.name,
           tone: isDone ? "done" : failedHere ? "warn" : isCur ? "cur" : "todo",
-          node: isDone ? "✓" : failedHere ? "!" : String(i + 1),
-          badge: isDone ? "done" : isCur ? (failedHere ? "failed" : s.status === "running" ? meta.running : isWaiting(s) ? meta.wait : "here now") : undefined,
-          badgeTone: isDone ? "done" : failedHere ? "warn" : "cur",
+          node: isSkipped ? "–" : isDone ? "✓" : failedHere ? "!" : String(i + 1),
+          badge: isSkipped ? "skipped" : isDone ? "done" : isCur ? (failedHere ? "failed" : s.status === "running" ? meta.running : isWaiting(s) ? waitLabel(s, user?.id) : "here now") : undefined,
+          badgeTone: isSkipped ? "skip" : isDone ? "done" : failedHere ? "warn" : "cur",
+          skipped: isSkipped,
           sub: meta.label,
           sidx: i,
           assign: assignOf(s),
@@ -235,21 +300,24 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
         badge: s.done ? "done" : s.active ? (stuck ? "overdue" : "here now") : undefined,
         badgeTone: s.done ? "done" : stuck ? "warn" : "cur",
       } as WfStep));
-  const wfDone = wf.filter((w) => w.tone === "done").length;
+  const wfSkipped = wf.filter((w) => w.skipped).length;
+  const wfDone = wf.filter((w) => w.tone === "done" && !w.skipped).length;
   const wfActiveIdx = wf.findIndex((w) => w.tone === "cur" || w.tone === "warn");
-  const activeLabel = hasRun ? (runComplete ? "Workflow complete" : current?.name ?? "In progress") : (wf[wfActiveIdx]?.label ?? "In progress");
+  const activeLabel = hasRun ? (runComplete ? "Workflow complete" : current?.name ?? "In progress") : (wf[wfActiveIdx]?.label ?? beforeWorkflow(r).title);
   const flowTitle = hasRun ? flowRun!.flow_name : fs?.flow_name;
   const stageNow = currentStage({ run: hasRun ? flowRun : null, contractStage: contractStatus?.lifecycle_stage, requestClosed: !open });
   const stageLabel = LIFECYCLE.find((x) => x.key === stageNow)?.label;
 
   // The single primary action, engine-aware: run a human step, poll an
   // approval/signature, or start the workflow when none is running yet.
-  type Act = { label: string; onClick: () => void; icon: string };
+  type Act = { label: string; onClick: () => void; icon: string; blocked?: boolean };
   let engineAction: Act | null = null;
   if (canAct) {
     if (hasRun && !runComplete && current) {
-      if (current.status === "waiting_human") engineAction = { label: "Complete this step", onClick: () => completeStep.mutate(), icon: '<path d="M20 6 9 17l-5-5"/>' };
-      else if (current.type === "approval" || current.type === "signature") engineAction = { label: `Check ${current.type} status`, onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
+      // A step waiting on a person is finished from "Your decision" (it shows the risk and takes the reply
+      // owed to a rejection). A third "Complete this step" up here, and another on the step, made one action
+      // look like three (round 2, bug 44).
+      if (current.type === "approval" || current.type === "signature") engineAction = { label: `Check ${current.type} status`, onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
       // ai_task has no owner to click "complete" — once the 45s auto-poll cap
       // above gives up, this is the only way left to nudge it forward.
       else if (current.type === "ai_task" && current.status === "running") engineAction = { label: "Check AI review status", onClick: () => checkStep.mutate(), icon: '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>' };
@@ -257,32 +325,41 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
       engineAction = { label: "Start workflow", onClick: () => startFlow.mutate(fs.flow_id ?? undefined), icon: '<path d="M5 3l14 9-14 9z"/>' };
     }
   }
-  // --- AI Risk Review: group deviations by severity, enrich with driver quotes -
-  const drivers: RiskDriver[] = risk?.drivers ?? [];
-  const quoteFor = (ct: string): string | undefined => drivers.find((d) => d.clause_type === ct && d.quote)?.quote ?? undefined;
-  const openDevs = (deviations ?? []).filter((d) => (d.status || "open") === "open");
+  // --- Risk review: the band, and the playbook findings behind it -----------
+  // needs_review is a finding a person still has to check: as open as "open".
+  const openDevs = (deviations ?? []).filter((d) => ["open", "needs_review"].includes(d.status || "open"));
   const bySev: Record<Sev, ContractDeviation[]> = { critical: [], high: [], medium: [], low: [] };
   openDevs.forEach((d) => bySev[sevOf(d.severity)].push(d));
-  // Fall back to the risk-score drivers as findings when there are no playbook deviations.
-  const useDrivers = openDevs.length === 0 && drivers.length > 0;
-  const riskScore = risk?.score ?? null;
-  const riskBand = (risk?.band ?? "unknown") as string;
-  const analyzing = !!cid && riskScore == null;
-  const bandTone = riskBand === "high" ? "crit" : riskBand === "medium" ? "warn" : riskBand === "low" ? "good" : "ink-3";
-  const critCount = useDrivers ? drivers.filter((d) => d.risk === "high").length : bySev.critical.length;
-  const gateCount = critCount + (useDrivers ? 0 : bySev.high.length);
-  const findingCount = useDrivers ? drivers.length : openDevs.length;
-  // Severity breakdown MUST come from the same findings as findingCount (the list
-  // below), not from risk.counts (which is the per-clause risk distribution and
-  // never reconciles). Critical folds into "high" so the 3-bucket chip sums to
-  // findingCount. When falling back to drivers, count by driver risk level.
-  const findHigh = useDrivers ? drivers.filter((d) => d.risk === "high").length : bySev.critical.length + bySev.high.length;
-  const findMedium = useDrivers ? drivers.filter((d) => d.risk === "medium").length : bySev.medium.length;
-  const findLow = useDrivers ? drivers.filter((d) => d.risk === "low").length : bySev.low.length;
+  // Accepted/waived issues keep their wording, so they still count toward the band.
+  const conceded: RiskDriver[] = (risk?.drivers ?? []).filter((d) => d.conceded);
+  const band = riskBand(risk);
+  // Unknown is "nobody has a judgement on this text", never a level — and never "clear".
+  const unknownRisk = !!cid && band === "unknown";
+  const bandTone = band === "high" ? "crit" : band === "medium" ? "warn" : band === "low" ? "good" : "ink-3";
+  // Counted from the band's own findings (risk.counts: this text's review, concessions
+  // included). /deviations now lists the same review's undecided findings (the server's
+  // current_open_findings), so the header and the list under it agree; they used to disagree
+  // because /deviations held every review's open rows, and the card could call a contract
+  // "clean" while its band was high.
+  const rc = risk?.counts ?? { critical: 0, high: 0, medium: 0, low: 0 };
+  const critCount = rc.critical ?? 0;
+  const gateCount = critCount + (rc.high ?? 0);
+  // Critical folds into "high" so the 3-bucket chip sums to findingCount.
+  const findHigh = gateCount;
+  const findMedium = rc.medium ?? 0;
+  const findLow = rc.low ?? 0;
+  const findingCount = findHigh + findMedium + findLow;
+  // The band counts every finding of this text's review, decided ones too (an accepted or waived finding
+  // keeps its wording, so it still counts). The list holds only the undecided ones. Saying both numbers
+  // keeps "3 findings" next to an empty list from reading as a contradiction.
+  const decidedCount = deviations ? Math.max(0, findingCount - openDevs.length) : 0;
 
-  // Approve the current human step, warning when critical risks are still open.
+  // Approve the current human step, warning when critical risks are open or nobody reviewed the text.
   function approveStep() {
-    if (critCount > 0 && !window.confirm(`${critCount} ${useDrivers ? "high" : "critical"}-severity risk${critCount === 1 ? "" : "s"} still open on this contract.\n\nApprove and advance anyway?`)) return;
+    if (replyMissing) return;
+    const warning = unknownRisk ? "The risk on this contract's text has not been reviewed."
+      : critCount > 0 ? `${critCount} critical-severity risk${critCount === 1 ? "" : "s"} still open on this contract.` : null;
+    if (warning && !window.confirm(`${warning}\n\nApprove and advance anyway?`)) return;
     completeStep.mutate();
   }
   const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human";
@@ -294,20 +371,19 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const value = typeof rawValue === "number" || (typeof rawValue === "string" && /^[\d.,]+$/.test(rawValue))
     ? `${cur ? `${cur} ` : ""}${Number(String(rawValue).replace(/,/g, "")).toLocaleString(cur === "INR" ? "en-IN" : "en-US")}`
     : (rawValue as string | undefined);
-  const start = ["start_date", "services_start", "change_effective", "effective_date"].map((k) => fv[k]).find(Boolean) as string | undefined;
-  const end = ["end_date", "services_end", "new_end_date", "renew_end", "termination_date"].map((k) => fv[k]).find(Boolean) as string | undefined;
 
+  const termText = termFact(fv);
   const facts: [string, string][] = [
     ["Counterparty", cp ?? "—"],
     ["Type", (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label],
     ...(value ? [["Value", value] as [string, string]] : []),
-    ...(start || end ? [["Term", `${start ?? "—"} → ${end ?? "open-ended"}`] as [string, string]] : []),
+    ...(termText ? [["Term", termText] as [string, string]] : []),
     ["Priority", r.priority],
   ];
 
   return (
     <div className="ro">
-      <style dangerouslySetInnerHTML={{ __html: RO_CSS }} />
+      <style dangerouslySetInnerHTML={{ __html: RO_CSS + REVIEW_NOTICE_CSS }} />
 
       {/* header */}
       <div className="rohd">
@@ -317,14 +393,14 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           <div className="badges">
             <span className="bdg type">{r.type_label}</span>
             {value ? <span className="bdg val">{value}</span> : null}
-            <span className="bdg phase">{stageLabel}{wf.length ? ` · ${wfDone}/${wf.length} steps` : ""}</span>
-            {riskScore != null ? <span className={`bdg ${bandTone === "crit" ? "warn" : bandTone === "warn" ? "warn" : "val"}`}>⚑ risk {riskScore} · {riskBand}</span> : null}
+            <span className="bdg phase" title="Stage of the contract, and workflow steps finished">{stageLabel}{wf.length ? ` · ${wfDone} of ${wf.length - wfSkipped} steps done${wfSkipped ? `, ${wfSkipped} skipped` : ""}` : ""}</span>
+            {cid && risk ? <span className={`bdg ${band === "low" ? "val" : "warn"}`}>⚑ {band === "unknown" ? "risk not reviewed" : `${band} risk`}</span> : null}
             {stuck ? <span className="bdg warn">⚠ overdue</span> : null}
           </div>
           <div style={{ flex: 1 }} />
           {r.contract_id ? <Link href={`/contracts/${r.contract_id}`} className="btn">{svg('<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>')}Open CLM editor →</Link> : null}
           {engineAction ? (
-            <button className="btn pri" disabled={busy} onClick={engineAction.onClick}>{svg(engineAction.icon)}{busy ? "Working…" : engineAction.label}</button>
+            <button className="btn pri" disabled={busy || engineAction.blocked} title={engineAction.blocked ? "Reply to the rejection first" : undefined} onClick={engineAction.onClick}>{svg(engineAction.icon)}{busy ? "Working…" : engineAction.label}</button>
           ) : hasRun && !runComplete && current && (current.status === "running" || current.status === "waiting_job") ? (
             <span className="btn spin" aria-live="polite">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}Agent working…</span>
           ) : null}
@@ -334,8 +410,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           <div className={`youare${stuck || runFailed ? " blocked" : ""}`}>
             <div className="ya-ic">{svg(stuck || runFailed ? '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>' : '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</div>
             <div><div className="k">{runComplete ? "Done" : `You are here · ${stageLabel}`}</div>
-              <div className="v">{activeLabel}{!runComplete && wfActiveIdx >= 0 ? ` · ${wfActiveIdx + 1} of ${wf.length}` : ""}</div>
-              <div className="m">{hasRun ? (current && isWaiting(current) ? stepMeta(current.type).wait : flowTitle ?? "in progress") : (r.assigned_to_label ? `with ${r.assigned_to_label}` : "not started")}{stuck ? " · overdue" : ""}</div></div>
+              <div className="v">{activeLabel}{!runComplete && wfActiveIdx >= 0 ? ` · step ${wfActiveIdx + 1} of ${wf.length}` : ""}</div>
+              <div className="m">{hasRun ? (current && isWaiting(current) ? waitLabel(current, user?.id) : flowTitle ?? "in progress") : beforeWorkflow(r).note}{stuck ? " · overdue" : ""}</div></div>
           </div>
           <div className="lcwrap"><LifecycleView compact steps={hasRun ? flowRun!.steps ?? [] : []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} /></div>
         </div>
@@ -389,56 +465,55 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
 
           {/* AI Risk Review — the analysis the page used to hide */}
           {cid && (
-            <div className="card"><div className="ch"><div className="glyph warn">{svg('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9.5 12l2 2 3-4"/>')}</div><h2>AI Risk Review</h2>{risk?.clause_count ? <span className="cnt">{risk.clause_count} clauses</span> : null}
-              {canManage ? <button className="ministep" style={{ marginLeft: "auto", background: "var(--surface)", color: "var(--ink-2)", borderColor: "var(--border-strong)" }} disabled={rerunRisk.isPending} onClick={() => rerunRisk.mutate()}>{svg('<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>')}Re-run</button> : null}</div>
+            <div className="card"><div className="ch"><div className="glyph warn">{svg('<path d="M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z"/><path d="M9.5 12l2 2 3-4"/>')}</div><h2>AI Risk Review</h2>
+              {canManage ? <button className="ministep" style={{ marginLeft: "auto", background: "var(--surface)", color: "var(--ink-2)", borderColor: "var(--border-strong)" }} disabled={rerunRisk.isPending} onClick={() => rerunRisk.mutate()}>{svg('<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v5h-5"/>')}Recompute</button> : null}</div>
               <div className="cb">
-                {analyzing ? (
-                  <div className="analyzing">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}<span>Analyzing the contract… the AI review runs in the background after drafting.</span></div>
-                ) : riskScore == null ? (
-                  <div className="dim" style={{ fontSize: 12.5 }}>No analysis yet.{canManage ? <> <a onClick={() => rerunRisk.mutate()} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>Run it →</a></> : null}</div>
+                {!risk ? (
+                  <div className="analyzing">{svg('<circle cx="12" cy="12" r="9" opacity=".3"/><path d="M12 3a9 9 0 0 1 9 9"/>')}<span>Loading the risk review…</span></div>
+                ) : unknownRisk ? (
+                  <div className="dim" style={{ fontSize: 12.5 }}><b>{RISK_UNKNOWN_LABEL}.</b> {risk.note ?? "No playbook review of this text yet."}</div>
                 ) : (
                   <>
                     <div className="risktop">
-                      <div className="rgauge" style={{ background: bandTone === "crit" ? "var(--crit)" : bandTone === "warn" ? "var(--warn)" : bandTone === "good" ? "var(--good)" : "var(--ink-3)" }}>{riskScore}</div>
-                      <div className="rmeta"><div className="rb" style={{ textTransform: "capitalize" }}>{riskBand} risk</div><div className="rc">{findingCount} finding{findingCount === 1 ? "" : "s"} · {findHigh} high · {findMedium} medium · {findLow} low</div></div>
+                      <div className="rgauge" style={{ background: bandTone === "crit" ? "var(--crit)" : bandTone === "warn" ? "var(--warn)" : bandTone === "good" ? "var(--good)" : "var(--ink-3)" }}>{band.charAt(0).toUpperCase()}</div>
+                      <div className="rmeta"><div className="rb" style={{ textTransform: "capitalize" }}>{band} risk</div><div className="rc">{findingCount} finding{findingCount === 1 ? " counts" : "s count"} toward this · {findHigh} high · {findMedium} medium · {findLow} low{deviations ? ` · ${openDevs.length} still to decide` : ""}{decidedCount ? ` · ${decidedCount} decided, still counted` : ""}</div></div>
                     </div>
-                    {risk?.summary ? <div className="rsum">{risk.summary}</div> : null}
-                    {findingCount === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No open deviations — the contract is clean against the playbook.</div> :
-                      useDrivers ? (
-                        <div>{drivers.slice().sort((a, b) => (b.contribution ?? 0) - (a.contribution ?? 0)).map((d, i) => (
-                          <div key={i} className={`risk ${d.risk === "high" ? "high" : d.risk === "medium" ? "med" : "low"}`}>
-                            <div className="rh"><span className={`sevpill sev-${d.risk === "high" ? "high" : d.risk === "medium" ? "med" : "low"}`}>{d.risk}</span><span className="rt">{d.label}</span></div>
-                            <div className="ri">{d.rationale}</div>{d.quote ? <div className="rq">“{d.quote}”</div> : null}
+                    {band === "low" && findingCount === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No open deviations — the contract is clean against the playbook.</div> : null}
+                    {SEV_ORDER.filter((s) => bySev[s].length).map((s) => (
+                      <div key={s} className="sevgroup">
+                        <button className="sevhead" onClick={() => setOpenSevs((o) => ({ ...o, [s]: !o[s] }))}>
+                          <span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{bySev[s].length} {s}</span>
+                          <span className="chev">{openSevs[s] ? "▾" : "▸"}</span>
+                        </button>
+                        {openSevs[s] ? bySev[s].map((d) => (
+                          <div key={d.id} className={`risk ${s === "critical" ? "crit" : s === "high" ? "high" : s === "medium" ? "med" : "low"}`}>
+                            <div className="rh"><span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{s}</span><span className="rt">{(d.clause_type || "clause").replace(/_/g, " ")}</span></div>
+                            <div className="ri">{d.issue}</div>
+                            {d.suggested_fix ? <div className="rfix">{svg('<path d="M20 6 9 17l-5-5"/>')}<div><b>Fix:</b> {d.suggested_fix}</div></div> : null}
                           </div>
-                        ))}</div>
-                      ) : (
-                        SEV_ORDER.filter((s) => bySev[s].length).map((s) => (
-                          <div key={s} className="sevgroup">
-                            <button className="sevhead" onClick={() => setOpenSevs((o) => ({ ...o, [s]: !o[s] }))}>
-                              <span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{bySev[s].length} {s}</span>
-                              <span className="chev">{openSevs[s] ? "▾" : "▸"}</span>
-                            </button>
-                            {openSevs[s] ? bySev[s].map((d) => { const qt = quoteFor(d.clause_type); return (
-                              <div key={d.id} className={`risk ${s === "critical" ? "crit" : s === "high" ? "high" : s === "medium" ? "med" : "low"}`}>
-                                <div className="rh"><span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{s}</span><span className="rt">{(d.clause_type || "clause").replace(/_/g, " ")}</span></div>
-                                <div className="ri">{d.issue}</div>
-                                {qt ? <div className="rq">“{qt}”</div> : null}
-                                {d.suggested_fix ? <div className="rfix">{svg('<path d="M20 6 9 17l-5-5"/>')}<div><b>Fix:</b> {d.suggested_fix}</div></div> : null}
-                              </div>
-                            );}) : null}
-                          </div>
-                        ))
-                      )}
+                        )) : null}
+                      </div>
+                    ))}
+                    {conceded.map((d) => { const s = sevOf(d.severity); return (
+                      <div key={d.deviation_id} className={`risk ${s === "critical" ? "crit" : s === "high" ? "high" : s === "medium" ? "med" : "low"}`}>
+                        <div className="rh"><span className={`sevpill sev-${s === "medium" ? "med" : s}`}>{s}</span><span className="rt">accepted as-is — still counts</span></div>
+                        <div className="ri">{d.issue}</div>
+                      </div>
+                    ); })}
                   </>
                 )}
               </div></div>
           )}
 
-          <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>')}</div><h2>Workflow &amp; stages</h2>{wf.length ? <span className="cnt">{wfDone}/{wf.length}</span> : null}{hasRun ? <span className={`bdg ${runComplete ? "phase" : runFailed ? "warn" : "type"}`} style={{ marginLeft: "auto" }}>{runComplete ? "complete" : runFailed ? flowRun!.status : "live"}</span> : null}</div>
+          <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="12" r="2.5"/><path d="M8.5 6H14a2 2 0 0 1 2 2v2M8.5 18H14a2 2 0 0 0 2-2v-2"/>')}</div><h2>Workflow &amp; stages</h2>{wf.length ? <span className="cnt" title={wfSkipped ? `${wfDone} done, ${wfSkipped} skipped` : undefined}>{wfDone}/{wf.length - wfSkipped}</span> : null}{hasRun ? <span className={`bdg ${runComplete ? "phase" : runFailed ? "warn" : "type"}`} style={{ marginLeft: "auto" }}>{runComplete ? "complete" : runFailed ? flowRun!.status : "live"}</span> : null}</div>
             <div className="cb">
               {hasRun ? <div className="flowmeta"><b>Running:</b> {flowRun!.flow_name}. <span className="dim">The workflow engine drives each step — agent runs, approvals, and signatures move it forward and back.</span></div>
                 : fs?.flow_name ? <div className="flowmeta"><b>Suggested:</b> {fs.flow_name}. <span className="dim">{fs.reasoning}</span>{canAct ? <> — <a onClick={() => startFlow.mutate(fs.flow_id ?? undefined)} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>start it →</a></> : null}</div>
-                : (
+                : settingUp ? (
+                  // Just filed: the workflow starts in the background a few seconds later. Offering a
+                  // picker now invited a second workflow on the same request.
+                  <div className="flowmeta" aria-live="polite"><b>Setting up the workflow…</b> <span className="dim">This request was just filed. The workflow appears here in a few seconds.</span></div>
+                ) : (
                   // No workflow is set up for this type (or none's conditions fit):
                   // a person picks one — nothing starts by accident.
                   <div className="flowmeta">
@@ -463,21 +538,21 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                     return (
                     <Fragment key={i}>
                     {newStage ? <div className="stagehd">Stage {LIFECYCLE.findIndex((x) => x.key === stg) + 1} · {LIFECYCLE.find((x) => x.key === stg)?.label}</div> : null}
-                    <div className={`step ${w.tone}`}>
+                    <div className={`step ${w.tone}${w.skipped ? " skip" : ""}`}>
                       <div className="snode">{w.node}</div>
                       <div className="shd"><span className="sname">{w.label}</span>
                         {w.sub ? <span className="stype">{w.sub}</span> : null}
                         {w.badge ? <span className={`sbadge ${w.badgeTone}`}>{w.badge}</span> : null}
-                        {hasRun && i === curIdx && current?.status === "waiting_human" && canAct ? (() => {
+                        {hasRun && i === current?.idx && current?.status === "waiting_human" && canAct ? (() => {
                           const doc = flowRun?.contract_id ?? cid;
                           const dw = current ? STEP_DOORWAY[current.type] : undefined;
                           return (
                             <>
                               {doc && dw ? <Link href={`/contracts/${doc}`} className="ministep doorway">{svg(dw.icon)}{dw.label}</Link> : null}
-                              <button className={`ministep${doc && dw ? " ghost" : ""}`} disabled={busy} onClick={() => completeStep.mutate()}>{svg('<path d="M20 6 9 17l-5-5"/>')}{current?.type === "human_task" || current?.type === "counterparty" ? "Mark done" : "Complete"}</button>
                             </>
                           );
                         })() : null}</div>
+                      {interruptedStep?.idx === i ? <StepReviewNotice auto={contractStatus?.auto_review} canAct={canAct} busy={busy} onRetry={() => retryReview.mutate()} /> : null}
                       {w.assign ? <div className="sassign">{svg('<path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/>')}Assigned to <b>{w.assign}</b></div> : null}
                       {rows.length > 0 ? <div className="sresult">{rows.map(([k, v]) => <div key={k} className="rr"><span className="rk">{k}</span><span className="rv">{v}</span></div>)}</div> : null}
                     </div>
@@ -515,12 +590,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
               {hasRun && !runComplete && canAct && curIdx > 0 ? (
                 <div className="sendback">
                   <div className="lbl">Send back for rework</div>
-                  <select className="sel" value={backTo} onChange={(e) => setBackTo(e.target.value)}>
+                  <select className="sel" ref={sendBackRef} value={backTo} onChange={(e) => setBackTo(e.target.value)}>
                     <option value="">Pick the step to return to…</option>
                     {wf.slice(0, curIdx).map((w) => <option key={w.sidx} value={String(w.sidx)}>{(w.sidx ?? 0) + 1}. {w.label}</option>)}
                   </select>
                   <input className="cin" value={backNote} placeholder="Reason / question for the owner…" onChange={(e) => setBackNote(e.target.value)} />
-                  <button className="btn" disabled={busy || backTo === ""} onClick={() => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined })}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back</button>
+                  <button className="btn" disabled={busy || backTo === ""} aria-describedby={backTo === "" ? "sendback-hint" : undefined} title={backTo === "" ? "Pick the step to return to first" : undefined} onClick={() => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined })}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back</button>
+                  {backTo === "" ? <div id="sendback-hint" className="dim" style={{ fontSize: 11.5, marginTop: 6 }}>Pick the step to return to, then Send back is available.</div> : null}
                 </div>
               ) : null}
 
@@ -531,7 +607,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                   {(flowRun!.comments ?? []).length === 0 ? <div className="dim" style={{ fontSize: 12 }}>No comments yet — leave a note or ask a question about a stage.</div> :
                     <ul className="clist">{(flowRun!.comments ?? []).map((c, i) => (
                       <li key={i} className={c.kind === "return" ? "ret" : ""}>
-                        <div className="cmeta"><b>{c.actor_name}</b>{c.idx != null && wf[c.idx] ? <span className="dim"> · on {wf[c.idx].label}</span> : null}{c.kind === "return" ? <span className="cret"> sent back</span> : null}</div>
+                        <div className="cmeta"><b>{c.actor_name}</b><span className="dim"> · {fmtDateTime(c.at)}</span>{c.idx != null && wf[c.idx] ? <span className="dim"> · on {wf[c.idx].label}</span> : null}{c.kind === "return" ? <span className="cret"> sent back</span> : null}{c.kind === "reply" ? <span className="cret"> replied to the rejection</span> : null}</div>
                         <div className="ctext">{c.text}</div>
                       </li>
                     ))}</ul>}
@@ -577,13 +653,23 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           {/* Your decision — the current step's call, risk-aware */}
           {atReviewGate && (
             <div className="card"><div className="ch"><div className="glyph flow">{svg('<circle cx="12" cy="12" r="9"/><path d="m9 12 2 2 4-4"/>')}</div><h2>Your decision</h2></div><div className="cb">
-              <div className={`decide${gateCount > 0 ? " warn" : " ok"}`}>
-                {gateCount > 0 ? <div className="dw">{svg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>')}{critCount > 0 ? `${critCount} ${useDrivers ? "high" : "critical"} + ` : ""}{useDrivers ? "" : `${bySev.high.length} high `}risk{gateCount === 1 ? "" : "s"} open — review before approving</div>
+              <div className={`decide${unknownRisk || gateCount > 0 || band === "high" ? " warn" : " ok"}`}>
+                {unknownRisk ? <div className="dw">{svg(WARN_ICON)}{RISK_UNKNOWN_LABEL}{risk?.note ? ` — ${risk.note}` : ""}</div>
+                  : gateCount > 0 ? <div className="dw">{svg(WARN_ICON)}{critCount > 0 ? `${critCount} critical + ` : ""}{rc.high ?? 0} high risk{gateCount === 1 ? "" : "s"} open — review before approving</div>
+                  : band === "high" ? <div className="dw">{svg(WARN_ICON)}Overall risk is high — accepted issues still count</div>
                   : <div className="dw ok">{svg('<path d="M20 6 9 17l-5-5"/>')}No blocking risks — clear to advance</div>}
+                {owed ? (
+                  <div className="reply">
+                    <label className="lbl" htmlFor="rework-reply">Reply to the rejection</label>
+                    <div className="why">Rejected: “{owed.reason}”</div>
+                    <textarea id="rework-reply" rows={3} maxLength={2000} value={reply} onChange={(e) => setReply(e.target.value)}
+                      placeholder="What did you change, or why does it stand? The approver sees this." />
+                  </div>
+                ) : null}
                 <div className="db">
-                  <button className="btn pri wide" disabled={busy} onClick={approveStep}>{svg('<path d="M20 6 9 17l-5-5"/>')}Approve &amp; advance →</button>
-                  {curIdx > 0 ? <button className="btn wide" disabled={busy} onClick={() => returnStep.mutate({ note: backNote || "Sent back for rework" })}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back</button> : null}
-                  <button className="btn wide" onClick={() => { commentRef.current?.focus(); commentRef.current?.scrollIntoView({ block: "center" }); }}>{svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>')}Request changes / comment</button>
+                  <button className="btn pri wide" disabled={busy || replyMissing} title={replyMissing ? "Reply to the rejection first" : undefined} onClick={approveStep}>{svg('<path d="M20 6 9 17l-5-5"/>')}Approve &amp; advance →</button>
+                  {curIdx > 0 ? <button className="btn wide" disabled={busy} title="Opens “Send back for rework”: pick the step and say why" onClick={() => { sendBackRef.current?.scrollIntoView({ block: "center" }); sendBackRef.current?.focus(); }}>{svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v3"/>')}Send back for rework…</button> : null}
+                  <button className="btn wide" title="Jumps to the comment box. Nothing is sent until you press Post" onClick={() => { commentRef.current?.focus(); commentRef.current?.scrollIntoView({ block: "center" }); }}>{svg('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>')}Add a comment</button>
                 </div>
               </div>
             </div></div>
@@ -651,9 +737,9 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           <div className="card"><div className="ch"><h2>At a glance</h2></div><div className="cb glance">
             <div className="row"><span className="k">Raised by</span><span className="v">{r.requester_name ?? "—"}</span></div>
             <div className="row"><span className="k">Department</span><span className="v">{r.department ?? "—"}</span></div>
-            <div className="row"><span className="k">Owner</span><span className="v">{r.assigned_to_label ?? "Unassigned"}</span></div>
-            <div className="row"><span className="k">Stage</span><span className="v">{r.stage}</span></div>
-            <div className="row"><span className="k">Priority</span><span className="v">{r.priority}</span></div>
+            <div className="row"><span className="k">Request owner</span><span className="v" title="Looks after the whole request. A step can be assigned to someone else.">{r.assigned_to_label ?? "Unassigned"}</span></div>
+            <div className="row"><span className="k">Stage</span><span className="v">{stageLabel ?? r.stage}</span></div>
+            <div className="row"><span className="k">Priority</span><span className="v">{r.priority}{aiUrgency && aiUrgency !== r.priority ? <span className="dim"> · AI suggests {aiUrgency}{canAct ? <> — <a onClick={() => !applyPriority.isPending && applyPriority.mutate(aiUrgency)} style={{ color: "var(--accent)", cursor: "pointer", fontWeight: 600 }}>apply</a></> : null}</span> : null}</span></div>
             <div className="row"><span className="k">SLA</span><span className="v" style={{ color: stuck ? "var(--crit)" : r.sla_status === "at_risk" ? "var(--warn)" : "var(--good)" }}>{stuck ? "overdue" : r.sla_status === "at_risk" ? "at risk" : "on track"}</span></div>
           </div></div>
 
@@ -668,14 +754,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
 
           <div className="card"><div className="ch"><h2>People</h2></div><div className="cb">
             <div className="person"><div className="av">{ini(r.requester_name ?? "R")}</div><div><div className="n">{r.requester_name ?? "Requester"}</div><div className="r">requester</div></div></div>
-            {r.assigned_to_label ? <div className="person"><div className="av">{ini(r.assigned_to_label)}</div><div><div className="n">{r.assigned_to_label}</div><div className="r">owner</div></div></div> : null}
+            {r.assigned_to_label ? <div className="person"><div className="av">{ini(r.assigned_to_label)}</div><div><div className="n">{r.assigned_to_label}</div><div className="r">request owner</div></div></div> : null}
           </div></div>
 
           <div className="card"><div className="ch"><h2>Activity</h2></div><div className="cb">
             <ul className="trail">
-              <li className="you"><span className="w">{r.requester_name ?? "Requester"}</span> · raised this request<div className="t">{r.created_at ?? r.submitted_at ?? ""}</div></li>
-              {(handoffs ?? []).map((h) => (
-                <li key={h.id} className={h.actor_type === "agent" ? "" : "cp"}><span className="w">{h.to_label ?? h.to_holder}</span> · {h.reason ?? "took custody"}<div className="t">{h.created_at ?? ""}</div></li>
+              {activityTrail({ requester: r.requester_name, raisedAt: r.created_at ?? r.submitted_at, handoffs: handoffs ?? [], comments: flowRun?.comments ?? [] }).map((t) => (
+                <li key={t.key} className={t.tone === "you" ? "you" : t.tone === "cp" ? "cp" : ""}><span className="w">{t.who}</span> · {t.what}<div className="t">{t.at ? fmtDateTime(t.at) : ""}</div></li>
               ))}
             </ul>
           </div></div>
@@ -735,12 +820,13 @@ const RO_CSS = `
 .ro .step::before{content:"";position:absolute;left:9px;top:22px;bottom:-4px;width:2px;background:var(--border)} .ro .step:last-child::before{display:none}
 .ro .snode{position:absolute;left:2px;top:3px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:700 9px var(--mono);background:var(--surface);border:2px solid var(--border-strong);color:var(--ink-3)}
 .ro .step.done .snode{background:var(--good);border-color:var(--good);color:#fff}
+.ro .step.skip .snode{background:var(--surface);border-color:var(--border-strong);color:var(--ink-3)}
 .ro .step.cur .snode{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 0 0 3px var(--accent-soft)}
 .ro .step.warn .snode{background:var(--warn);border-color:var(--warn);color:#fff}
 .ro .shd{display:flex;align-items:center;gap:9px;padding:2px 0 10px}
 .ro .sname{font-weight:650;font-size:13px} .ro .step.todo .sname{color:var(--ink-3);font-weight:600}
 .ro .sbadge{font:600 10px var(--sans);padding:1px 8px;border-radius:99px}
-.ro .sbadge.done{background:var(--good-soft);color:var(--good)} .ro .sbadge.cur{background:var(--accent-soft);color:var(--accent)} .ro .sbadge.warn{background:var(--warn-soft);color:var(--warn)}
+.ro .sbadge.done{background:var(--good-soft);color:var(--good)} .ro .sbadge.cur{background:var(--accent-soft);color:var(--accent)} .ro .sbadge.warn{background:var(--warn-soft);color:var(--warn)} .ro .sbadge.skip{background:var(--surface-2,var(--surface));color:var(--ink-3);border:1px solid var(--border)}
 .ro .stype{font:600 10px var(--sans);color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
 .ro .sassign{display:flex;align-items:center;gap:6px;margin:2px 0 6px;font-size:11.5px;color:var(--ink-2)} .ro .sassign .ic{width:12px;height:12px;color:var(--ink-3)} .ro .sassign b{font-weight:650;color:var(--ink)}
 .ro .sresult{margin:2px 0 8px;padding:9px 11px;border:1px solid var(--border);border-radius:9px;background:var(--inset);display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
@@ -814,6 +900,8 @@ const RO_CSS = `
 .ro .decide{border-radius:10px;padding:12px} .ro .decide.warn{border:1px solid color-mix(in srgb,var(--warn) 34%,var(--border));background:var(--warn-soft)} .ro .decide.ok{border:1px solid color-mix(in srgb,var(--good) 30%,var(--border));background:var(--good-soft)}
 .ro .decide .dw{display:flex;align-items:flex-start;gap:7px;font-size:12.5px;color:var(--warn);font-weight:600;margin-bottom:10px;line-height:1.4} .ro .decide .dw.ok{color:var(--good)} .ro .decide .dw .ic{width:15px;height:15px;flex:none;margin-top:1px}
 .ro .decide .db{display:flex;flex-direction:column;gap:7px}
+.ro .decide .reply{display:flex;flex-direction:column;gap:6px;margin-bottom:10px} .ro .decide .reply .lbl{font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)} .ro .decide .reply .why{font-size:12.5px;line-height:1.45;color:var(--ink)}
+.ro .decide .reply textarea{padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans);resize:vertical;outline:none}
 .ro .appr{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid var(--border)} .ro .appr:last-child{border-bottom:0}
 .ro .appr .an{width:26px;height:26px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font:700 10px var(--mono);color:var(--ink-2);flex:none}
 .ro .appr .al{flex:1;min-width:0} .ro .appr .al .n{font-weight:600;font-size:12.5px} .ro .appr .al .r{font-size:11px;color:var(--ink-3)}

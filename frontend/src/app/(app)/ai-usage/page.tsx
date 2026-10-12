@@ -24,7 +24,7 @@ import {
   THead,
   TR,
 } from "@/components/ui";
-import type { AiUsageSummary } from "@/lib/types";
+import type { AiUsageSummary, AiUsageTraffic } from "@/lib/types";
 
 const usd = (n: number) =>
   n >= 1
@@ -46,13 +46,19 @@ const CATEGORY_TONE: Record<string, "blue" | "amber" | "green" | "slate"> = {
 };
 
 const WINDOWS = [7, 30, 90] as const;
+const TRAFFIC: { value: AiUsageTraffic; label: string }[] = [
+  { value: "real", label: "Real usage" },
+  { value: "exam", label: "Exam traffic" },
+];
 
 export default function AiUsagePage() {
   const [days, setDays] = useState<(typeof WINDOWS)[number]>(30);
+  const [traffic, setTraffic] = useState<AiUsageTraffic>("real");
   const { data, isLoading, error } = useQuery<AiUsageSummary>({
-    queryKey: ["ai-usage", days],
-    queryFn: () => aiUsageApi.summary(days),
+    queryKey: ["ai-usage", days, traffic],
+    queryFn: () => aiUsageApi.summary(days, traffic),
   });
+  const exam = traffic === "exam";
 
   const maxDaily = Math.max(1, ...(data?.daily ?? []).map((d) => d.cost));
   const empty = !isLoading && !error && (data?.totals.calls ?? 0) === 0;
@@ -61,22 +67,44 @@ export default function AiUsagePage() {
     <div className="space-y-4">
       <PageHeader
         title="AI Usage & Cost"
-        description="Every AI operation, priced from the token ledger at list rates (Sonnet: $3 / $15 per million input / output tokens; cached input costs 10% to read, 125% to write)."
+        description={
+          exam
+            ? "AI calls made by the AI exam (backend/eval/exam). They are never counted in real usage; batch calls are priced at half the list rate."
+            : "Every AI operation, priced from the token ledger per model at list rates (cached input costs 10% to read, 125% to write)."
+        }
         actions={
-          <div className="flex gap-1 rounded-lg border border-slate-200 p-0.5">
-            {WINDOWS.map((w) => (
-              <button
-                key={w}
-                onClick={() => setDays(w)}
-                className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
-                  days === w
-                    ? "bg-brand-600 text-white"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                {w}d
-              </button>
-            ))}
+          <div className="flex items-center gap-2">
+            {exam && <Badge tone="amber">Exam traffic</Badge>}
+            <div className="flex gap-1 rounded-lg border border-slate-200 p-0.5">
+              {TRAFFIC.map((t) => (
+                <button
+                  key={t.value}
+                  onClick={() => setTraffic(t.value)}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+                    traffic === t.value
+                      ? "bg-brand-600 text-white"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-1 rounded-lg border border-slate-200 p-0.5">
+              {WINDOWS.map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setDays(w)}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+                    days === w
+                      ? "bg-brand-600 text-white"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {w}d
+                </button>
+              ))}
+            </div>
           </div>
         }
       />
@@ -88,14 +116,18 @@ export default function AiUsagePage() {
       ) : empty ? (
         <EmptyState
           icon={<Activity className="h-6 w-6" />}
-          title="No AI activity yet"
-          description={`No AI calls were logged in the last ${days} days.`}
+          title={exam ? "No exam traffic" : "No AI activity yet"}
+          description={
+            exam
+              ? `No exam calls in the last ${days} days.`
+              : `No AI calls were logged in the last ${days} days.`
+          }
         />
       ) : data ? (
         <>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatCard
-              label={`Total spend (${days}d)`}
+              label={exam ? `Exam spend (${days}d)` : `Total spend (${days}d)`}
               value={usd(data.totals.cost)}
               tone="green"
               icon={<DollarSign className="h-5 w-5" />}

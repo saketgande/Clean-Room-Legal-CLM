@@ -51,7 +51,7 @@ def actor(db):
 
 def _cp(db, actor, name):
     return service.create(db, actor=actor, kind="counterparty",
-                          payload=CounterpartyIn(name=name, jurisdiction="India"))
+                          payload=CounterpartyIn(name=name, jurisdiction="India", contact_email="legal@example.com"))
 
 
 def test_create_counterparty_makes_a_findable_record(db, actor):
@@ -100,3 +100,37 @@ def test_inactive_records_are_hidden_from_the_lookup(db, actor):
     service.update(db, actor=actor, kind="counterparty", record_id=made["id"],
                    payload=CounterpartyPatch(active=False))
     assert all(h["id"] != made["id"] for h in service.search(db, actor=actor, kind="counterparty", q=_TAG))
+
+
+# --- a new counterparty must say where it is and how to reach it (round 2, bug 46) ---
+
+@pytest.mark.parametrize("given,needs", [
+    ({}, "a jurisdiction and a contact email"),
+    ({"jurisdiction": "India"}, "a contact email"),
+    ({"contact_email": "legal@example.com"}, "a jurisdiction"),
+    ({"jurisdiction": "   ", "contact_email": "legal@example.com"}, "a jurisdiction"),
+])
+def test_a_new_counterparty_without_jurisdiction_or_email_is_refused(db, actor, given, needs):
+    with pytest.raises(HTTPException) as exc:
+        service.create(db, actor=actor, kind="counterparty", payload=CounterpartyIn(name=f"{_TAG} Hollow Ltd", **given))
+    assert exc.value.status_code == 422
+    assert exc.value.detail == f"A new counterparty needs {needs}"
+    assert service.search(db, actor=actor, kind="counterparty", q=f"{_TAG} Hollow") == []
+
+
+def test_an_older_counterparty_without_them_can_still_be_edited(db, actor):
+    """Records made before the rule exist: renaming one must not demand details it never had."""
+    row = Counterparty(org_id=actor.org_id, name=f"{_TAG} Old Ltd")
+    db.add(row)
+    db.commit()
+    out = service.update(db, actor=actor, kind="counterparty", record_id=row.id,
+                         payload=CounterpartyPatch(name=f"{_TAG} Old Holdings Ltd"))
+    assert out["name"] == f"{_TAG} Old Holdings Ltd"
+
+
+def test_a_legal_entity_does_not_need_a_contact_email(db, actor):
+    """The rule is for the other side of an agreement; our own entities are kept by admins."""
+    from app.parties.routes import EntityIn
+
+    made = service.create(db, actor=actor, kind="legal_entity", payload=EntityIn(name=f"{_TAG} Our Entity Ltd"))
+    assert made["jurisdiction"] is None

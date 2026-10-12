@@ -14,14 +14,17 @@ from app.contract_files.models import (
     ContractVersion,
 )
 from app.contracts.access import ContractAccessService, accessible_contract_filter
+from app.contracts.blanks import find_blanks
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import (
     ContractLifecycleStage,
+    ContractVersionSource,
+    PlaybookStatus,
     UserStatus,
 )
 from app.core.models import ResourceTimelineEvent
-from app.playbooks.models import PlaybookDeviation, PlaybookRun
+from app.playbooks.models import PlaybookRun, PlaybookVersion
 
 # Pre-approval stages where a guided "what's next" review makes sense.
 _PRE_APPROVAL_STAGES = {
@@ -29,8 +32,63 @@ _PRE_APPROVAL_STAGES = {
     ContractLifecycleStage.DRAFTING,
     ContractLifecycleStage.REVIEW,
 }
-_UNRESOLVED_DEVIATION = ("open", "needs_review")
 _DIFF_MAX_LINES = 4000
+
+# Proposal versions: previews that are never promoted (a manual redline proposal, a
+# playbook redline, an assistant edit). The source alone can't say so — the version an
+# accepted batch of edits becomes, and an internal party's negotiation upload, carry the
+# same sources and DO become current. Only proposals pair the source with these methods.
+_PROPOSAL_KINDS = {
+    (ContractVersionSource.USER_REDLINE, "manual_edit_text"),
+    (ContractVersionSource.PLAYBOOK_REDLINE, "playbook_redline_text"),
+    (ContractVersionSource.ASSISTANT_EDIT, "assistant_edit_text"),
+}
+
+
+def same_text_version_ids(db: Session, contract: Contract) -> list[str]:
+    """The current version plus the versions right before it with byte-identical text
+    (a signed copy, a no-op editor save, an unchanged counterparty return), newest first.
+    Work done on any of them — a review, a risk score — was done on the text now current.
+
+    Consecutive only: the walk stops at the first version whose text differs, skipping
+    proposals (never current, so not part of the text's history). A restore of older text
+    must not inherit that text's old review: its issues may have been marked "fixed" in
+    the versions between, and the fixed wording is gone again. Deleted versions still
+    count as history, so deleting the fixed version can't bridge the gap either.
+    """
+    current_id = contract.current_authoritative_version_id
+    if not current_id:
+        return []
+    current_text = (
+        select(ContractTextSnapshot.text)
+        .join(ContractVersion, ContractVersion.text_snapshot_id == ContractTextSnapshot.id)
+        .where(ContractVersion.id == current_id)
+        .scalar_subquery()
+    )
+    rows = db.execute(
+        select(
+            ContractVersion.id,
+            ContractVersion.source,
+            ContractTextSnapshot.extraction_method,
+            # NULL (no snapshot on either side) is not "same": fail closed.
+            (ContractTextSnapshot.text == current_text).label("same"),
+        )
+        .outerjoin(ContractTextSnapshot, ContractTextSnapshot.id == ContractVersion.text_snapshot_id)
+        .where(ContractVersion.org_id == contract.org_id, ContractVersion.contract_id == contract.id)
+        .order_by(ContractVersion.created_at.desc(), ContractVersion.version_number.desc())
+    ).all()
+    ids = [current_id]
+    older = False
+    for row in rows:
+        if row.id == current_id:
+            older = True
+            continue
+        if not older or (row.source, row.extraction_method) in _PROPOSAL_KINDS:
+            continue
+        if not row.same:
+            break
+        ids.append(row.id)
+    return ids
 
 
 class ContractService:
@@ -130,6 +188,13 @@ class ContractService:
             meta["field_sources"] = {**(meta.get("field_sources") or {}), **{k: "user" for k in human_fields}}
             contract.metadata_json = meta
         contract.updated_by_user_id = user.id
+        if {"effective_date", "expiration_date"} & set(human_fields):
+            # Deadlines are counted from these dates; recount them in this transaction
+            # so a date and the deadlines derived from it never disagree. Also when the
+            # value is unchanged: a person setting it settles a form-vs-text conflict.
+            from app.core.deadlines import recompute_contract_deadlines
+
+            recompute_contract_deadlines(db, contract)
         write_audit_log(
             db,
             action="contract.metadata_updated",
@@ -186,10 +251,14 @@ class ContractService:
         # "AI reviewed" is satisfied by EITHER a structured clause/risk analysis OR a
         # playbook review — so the one-click analysis clears this step, and a playbook
         # run (which also yields deviations) counts as the deeper check.
+        # Claude's own runs only: a keyword scan saved as "succeeded" before 2026-10-08 is
+        # not a review either.
         playbook_reviewed = (
             db.scalar(
                 select(func.count(PlaybookRun.id)).where(
-                    PlaybookRun.contract_id == cid, PlaybookRun.status == "succeeded"
+                    PlaybookRun.contract_id == cid,
+                    PlaybookRun.status == "succeeded",
+                    PlaybookRun.model_name == "claude",
                 )
             )
             or 0
@@ -200,26 +269,59 @@ class ContractService:
             )
             or 0
         ) > 0
-        ai_reviewed = playbook_reviewed or clause_analyzed
-        open_issues = (
-            db.scalar(
-                select(func.count(PlaybookDeviation.id)).where(
-                    PlaybookDeviation.contract_id == cid,
-                    PlaybookDeviation.status.in_(_UNRESOLVED_DEVIATION),
-                )
+        # A review that was asked for and stopped part-way is not a review: the clause scan the same
+        # job finished first must not read as "AI reviewed" (contracts.auto_review).
+        from app.contracts.auto_review import review_state
+
+        auto_review = review_state(db, contract)
+        review_interrupted = bool(auto_review and auto_review["state"] == "interrupted")
+        ai_reviewed = playbook_reviewed or (clause_analyzed and not review_interrupted)
+        # The newest playbook run, so the page can say what really happened: an AI
+        # review, only a keyword scan (the AI failed or wasn't used), or nothing yet.
+        # ai_reviewed can't tell these apart — clause extraction on upload alone sets it.
+        # playbook_reviewed above counts only "succeeded", which a keyword scan never is.
+        # A test run against a DRAFT playbook is the playbook author checking their rules,
+        # not a review of this contract.
+        last_run = db.scalar(
+            select(PlaybookRun)
+            .join(PlaybookVersion, PlaybookVersion.id == PlaybookRun.playbook_version_id)
+            .where(
+                PlaybookRun.org_id == contract.org_id,
+                PlaybookRun.contract_id == cid,
+                PlaybookVersion.status != PlaybookStatus.DRAFT,
             )
-            or 0
+            .order_by(PlaybookRun.created_at.desc(), PlaybookRun.id.desc())
+            .limit(1)
         )
-        high_issues = (
-            db.scalar(
-                select(func.count(PlaybookDeviation.id)).where(
-                    PlaybookDeviation.contract_id == cid,
-                    PlaybookDeviation.status.in_(_UNRESOLVED_DEVIATION),
-                    func.lower(PlaybookDeviation.severity).in_(("high", "critical")),
-                )
+        last_review = None if last_run is None else {
+            "status": last_run.status,
+            "source": "ai" if last_run.model_name == "claude" else "keyword",
+            "contract_version_id": last_run.contract_version_id,
+            # A signed copy or a no-op save is a new version with the reviewed text; the
+            # page must not call that review "of an earlier version".
+            "on_current_text": last_run.contract_version_id
+            in same_text_version_ids(db, contract),
+        }
+        if review_interrupted and not playbook_reviewed:
+            ai_review_detail = "The AI review was interrupted before it finished. Retry it."
+        elif last_review and last_review["source"] == "keyword" and not playbook_reviewed:
+            ai_review_detail = (
+                "The AI playbook review didn't run — the issues shown come from a "
+                "keyword scan. Run the playbook again."
             )
-            or 0
-        )
+        elif not ai_reviewed:
+            ai_review_detail = "Analyzes risks & clauses in one click"
+        elif not playbook_reviewed:
+            ai_review_detail = "Analysis done — run a playbook for a deeper standards check"
+        else:
+            ai_review_detail = None
+        # The same findings the Review tab lists and the risk band is computed from: those of
+        # the review of the current text, not every open row of every review ever run.
+        from app.contracts.risk import current_open_findings
+
+        findings = current_open_findings(db, contract)
+        open_issues = len(findings)
+        high_issues = sum(1 for d in findings if (d.severity or "").lower() in ("high", "critical"))
         pending_redlines = (
             db.scalar(
                 select(func.count(ContractEdit.id)).where(
@@ -229,6 +331,7 @@ class ContractService:
             or 0
         )
         open_comments = self._open_comment_count(contract_id=cid)
+        blanks_left = find_blanks(self._current_text(contract))
 
         now = datetime.now(UTC)
         counterparty_active = (
@@ -258,15 +361,7 @@ class ContractService:
             _item(
                 "ai_review", "AI review",
                 "done" if ai_reviewed else "todo",
-                detail=(
-                    "Analyzes risks & clauses in one click"
-                    if not ai_reviewed
-                    else (
-                        "Analysis done — run a playbook for a deeper standards check"
-                        if not playbook_reviewed
-                        else None
-                    )
-                ),
+                detail=ai_review_detail,
             ),
             _item(
                 "issues", "Review flagged issues",
@@ -286,6 +381,13 @@ class ContractService:
                 "comments", "Resolve comments",
                 "done" if open_comments == 0 else "todo",
                 count=open_comments,
+            ),
+            _item(
+                "blanks", "Fill in blanks",
+                # Advisory here; sending for signature is what refuses (signatures.service).
+                "done" if not blanks_left else "todo",
+                count=len(blanks_left),
+                detail=", ".join(blanks_left[:3]) if blanks_left else None,
             ),
             _item(
                 "counterparty", "Counterparty round",
@@ -351,12 +453,31 @@ class ContractService:
             "high_severity_issues": high_issues,
             "pending_redlines": pending_redlines,
             "open_comments": open_comments,
+            "blanks": blanks_left,
+            "version_approval": self._version_approval(contract),
             "counterparty_active": counterparty_active,
             "ready_for_approval": ready_for_approval,
             "next_step": next_step,
             "next_action": next_action,
             "checklist": checklist,
+            "last_review": last_review,
+            "auto_review": auto_review,
         }
+
+    def _version_approval(self, contract: Contract) -> str:
+        from app.contracts.lifecycle import version_approval_state
+
+        return version_approval_state(self.db, contract)
+
+    def _current_text(self, contract: Contract) -> str | None:
+        """The text of the version the contract is on now, or None when it has none yet."""
+        if not contract.current_authoritative_version_id:
+            return None
+        return self.db.scalar(
+            select(ContractTextSnapshot.text)
+            .join(ContractVersion, ContractVersion.text_snapshot_id == ContractTextSnapshot.id)
+            .where(ContractVersion.id == contract.current_authoritative_version_id)
+        )
 
     def _open_comment_count(self, *, contract_id: str) -> int:
         """Unresolved comments on the contract. Returns 0 until the comments feature
@@ -377,10 +498,17 @@ class ContractService:
         )
 
     def compute_version_diff(
-        self, *, contract: Contract, base_version_id: str, target_version_id: str
+        self, *, contract: Contract, base_version_id: str, target_version_id: str, context: int | None = None
     ) -> dict:
         """Line-level diff between two versions' extracted text — used to show what
-        the counterparty changed when they return a revision."""
+        the counterparty changed when they return a revision, and to compare any two
+        versions (the compare screen, the chat's compare tool).
+
+        context=None returns every line, unchanged ones included. context=N keeps only N
+        unchanged lines either side of each change and replaces the rest with a single
+        {"type": "gap"} line saying how many were left out, so a change late in a long
+        contract is not pushed past the line limit by the pages of text before it.
+        added / removed always count every changed line, even past the limit."""
         db = self.db
 
         def _resolve(version_id: str) -> tuple[ContractVersion, str]:
@@ -406,23 +534,48 @@ class ContractService:
         lines: list[dict] = []
         added = removed = 0
         truncated = False
-        matcher = difflib.SequenceMatcher(a=base_lines, b=target_lines, autojunk=False)
-        for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-            if tag in ("delete", "replace"):
-                for text in base_lines[i1:i2]:
-                    lines.append({"type": "remove", "text": text})
-                    removed += 1
-            if tag in ("insert", "replace"):
-                for text in target_lines[j1:j2]:
-                    lines.append({"type": "add", "text": text})
-                    added += 1
-            if tag == "equal":
-                for text in base_lines[i1:i2]:
-                    lines.append({"type": "context", "text": text})
-            if len(lines) > _DIFF_MAX_LINES:
+
+        def emit(kind: str, text: str) -> None:
+            nonlocal truncated
+            if truncated:
+                return
+            if len(lines) >= _DIFF_MAX_LINES:
                 truncated = True
-                lines = lines[:_DIFF_MAX_LINES]
-                break
+                return
+            lines.append({"type": kind, "text": text})
+
+        def unchanged(block: list[str], *, first: bool, last: bool) -> None:
+            if context is None:
+                for text in block:
+                    emit("context", text)
+                return
+            if first and last:
+                return  # nothing changed at all: nothing to show
+            keep_head = 0 if first else context
+            keep_tail = 0 if last else context
+            if len(block) <= keep_head + keep_tail:
+                for text in block:
+                    emit("context", text)
+                return
+            for text in block[:keep_head]:
+                emit("context", text)
+            skipped = len(block) - keep_head - keep_tail
+            emit("gap", f"{skipped} unchanged line{'' if skipped == 1 else 's'}")
+            for text in block[len(block) - keep_tail :]:
+                emit("context", text)
+
+        opcodes = difflib.SequenceMatcher(a=base_lines, b=target_lines, autojunk=False).get_opcodes()
+        for index, (tag, i1, i2, j1, j2) in enumerate(opcodes):
+            if tag in ("delete", "replace"):
+                removed += i2 - i1
+                for text in base_lines[i1:i2]:
+                    emit("remove", text)
+            if tag in ("insert", "replace"):
+                added += j2 - j1
+                for text in target_lines[j1:j2]:
+                    emit("add", text)
+            if tag == "equal":
+                unchanged(base_lines[i1:i2], first=index == 0, last=index == len(opcodes) - 1)
 
         return {
             "base_version_id": base_version_id,
@@ -578,10 +731,10 @@ def compute_review_status(db: Session, *, contract: Contract) -> dict:
 
 
 def compute_version_diff(
-    db: Session, *, contract: Contract, base_version_id: str, target_version_id: str
+    db: Session, *, contract: Contract, base_version_id: str, target_version_id: str, context: int | None = None
 ) -> dict:
     return ContractService(db).compute_version_diff(
-        contract=contract, base_version_id=base_version_id, target_version_id=target_version_id
+        contract=contract, base_version_id=base_version_id, target_version_id=target_version_id, context=context
     )
 
 

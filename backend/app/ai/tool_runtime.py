@@ -1,21 +1,24 @@
+import asyncio
 import hashlib
 import html
 import json
 import logging
 import re
 import secrets
+import time
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
 
 from fastapi import HTTPException, status
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.confirmations import create_confirmation
 from app.ai.models import AIConfirmation
 from app.ai.redaction import redact_ai_payload
+from app.ai.schemas import PortfolioFilter
 from app.ai.tool_policy import is_tool_enabled
 from app.ai.tool_registry import (
     AddCommentInput,
@@ -24,6 +27,7 @@ from app.ai.tool_registry import (
     ArchiveContractInput,
     AttentionItemsInput,
     BrainAskInput,
+    CompareContractVersionsInput,
     CompleteObligationInput,
     CompleteTaskInput,
     ContractHandleInput,
@@ -38,12 +42,14 @@ from app.ai.tool_registry import (
     FindInContractInput,
     GenerateContractInput,
     IntakeRequestRef,
+    ListContractVersionsInput,
     ListNoticesInput,
     ListObligationsInput,
     ListRenewalsInput,
     NoticeRef,
     PlaybookToolInput,
     PromptRunInput,
+    QueryContractsInput,
     ReadContractInput,
     ReadTableCellsInput,
     ReassignRequestInput,
@@ -60,6 +66,12 @@ from app.approvals.models import ApprovalRequest
 from app.approvals.service import ApprovalsService
 from app.assistant.models import AssistantContractHandle, AssistantToolCall
 from app.auth.models import User
+from app.contract_brain.portfolio import (
+    mark_search_partial,
+    portfolio_result,
+    reading_finished,
+    run_portfolio_filter,
+)
 from app.contract_brain.retrieval import assemble_context
 from app.contract_files.blocks import anchor_quote, block_by_id, split_blocks
 from app.contract_files.models import (
@@ -71,9 +83,12 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contract_files.service import ContractFilesService
+from app.contracts import version_compare
 from app.contracts.access import accessible_contract_filter
-from app.contracts.lifecycle import ContractLifecycleService
+from app.contracts.blanks import find_blanks
+from app.contracts.lifecycle import ContractLifecycleService, open_redline_count
 from app.contracts.models import Contract
+from app.contracts.risk import contract_risk
 from app.contracts.service import ContractService
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
@@ -104,6 +119,12 @@ from app.signatures.models import SignatureRecipient, SignatureRequest
 from app.signatures.service import SignaturesService
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
 from app.tabular_review.service import dispatch_cells
+
+# query_contracts waits this long for the AI to read the candidate contracts, then answers with
+# what is decided so far; the reading carries on in the worker and the table keeps filling.
+QUERY_WAIT_SECONDS = 90
+QUERY_POLL_SECONDS = 3
+QUERY_LIST_LIMIT = 50
 
 
 class ToolRuntime:
@@ -145,7 +166,16 @@ class ToolRuntime:
             raise HTTPException(status.HTTP_403_FORBIDDEN, f"AI tool is disabled: {tool_name}")
         validated_input = spec.input_model.model_validate(tool_input)
         validated_args = validated_input.model_dump(mode="json")
-        idempotency_key = _idempotency_key(tool_name, session_id, validated_args)
+        # A stage move is the same call only while the contract is in the same state.
+        # The same words after it has moved again are a new request, so replaying the
+        # first answer would claim a move that never happened. Planning it here also
+        # refuses a move that can't happen BEFORE the user is asked to confirm it.
+        key_args, card = validated_args, None
+        if tool_name == "advance_contract_stage":
+            plan = self._plan_stage_move(db, payload=validated_input, user=user, session_id=session_id)
+            key_args = {**validated_args, "_from": plan.from_stage, "_to": plan.to_stage, "_via": plan.via}
+            card = plan.card()
+        idempotency_key = _idempotency_key(tool_name, session_id, key_args)
         replay = self._replayed_call(
             db, spec=spec, org_id=user.org_id, session_id=session_id, idempotency_key=idempotency_key
         )
@@ -181,7 +211,11 @@ class ToolRuntime:
                 assistant_run_id=assistant_run_id or "",
                 tool_call=call,
                 tool_input=validated_input.model_dump(mode="json"),
-                policy={"confirmation_policy": spec.confirmation_policy, "category": spec.category},
+                policy={
+                    "confirmation_policy": spec.confirmation_policy,
+                    "category": spec.category,
+                    **({"card": card} if card else {}),
+                },
                 provider_state=provider_state,
             )
             db.flush()
@@ -189,6 +223,8 @@ class ToolRuntime:
                 "confirmation_required": True,
                 "tool_call_id": call.id,
                 "confirmation_id": confirmation.id,
+                # What the card says, in words, when the raw arguments are only ids.
+                **({"details": card} if card else {}),
             }
 
         try:
@@ -228,6 +264,11 @@ class ToolRuntime:
         from app.core.enums import AIConfirmationStatus, AssistantToolCategory
 
         if spec.category == AssistantToolCategory.READ_ONLY:
+            return None
+        if spec.name == "query_contracts":
+            # Always runs fresh: a repeat follows the reading already under way (the filter
+            # reuses it, so nothing is paid twice) and sees what has finished since, where a
+            # replay would hand back the first call's "still reading" snapshot.
             return None
         prior = db.scalar(
             select(AssistantToolCall)
@@ -338,6 +379,10 @@ class ToolRuntime:
             return self._find_in_contract(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "get_contract_status":
             return self._get_contract_status(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_contract_versions":
+            return self._list_contract_versions(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "compare_contract_versions":
+            return self._compare_contract_versions(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_workflows":
             return self._list_workflows(db, user=user)
         if tool_name == "list_playbooks":
@@ -386,6 +431,8 @@ class ToolRuntime:
             return self._my_attention_items(db, payload=payload, user=user)
         if tool_name == "find_contracts":
             return self._find_contracts(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "query_contracts":
+            return await self._query_contracts(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_obligations":
             return self._list_obligations(db, payload=payload, user=user)
         if tool_name == "create_intake_request":
@@ -426,7 +473,9 @@ class ToolRuntime:
         if tool_name == "get_signature_status":
             return self._get_signature_status(db, payload=payload, user=user)
         if tool_name == "advance_contract_stage":
-            return self._advance_contract_stage(db, payload=payload, user=user)
+            return await self._advance_contract_stage(db, payload=payload, user=user, session_id=session_id)
+        if tool_name == "list_contract_suggestions":
+            return self._list_contract_suggestions(db, payload=payload, user=user, session_id=session_id)
         if tool_name == "list_my_approvals":
             return self._list_my_approvals(db, user=user)
         if tool_name == "read_notice":
@@ -662,8 +711,8 @@ class ToolRuntime:
     def _list_notices(self, db: Session, *, payload: ListNoticesInput, user: User) -> dict[str, Any]:
         from app.notices.service import NoticesService
 
-        rows = NoticesService(db).list_notices(org_id=user.org_id, status_filter=payload.status, overdue_only=payload.overdue_only)
-        return {"count": len(rows), "notices": rows[:25]}
+        rows = NoticesService(db).list_notices(user=user, status_filter=payload.status, overdue_only=payload.overdue_only)
+        return {"count": len(rows), "total": len(rows), "notices": rows[:25]}
 
     def _create_notice(self, db: Session, *, payload: CreateNoticeInput, user: User) -> dict[str, Any]:
         from app.notices.schemas import NoticeCreate
@@ -690,26 +739,38 @@ class ToolRuntime:
         from app.obligations.models import Obligation
 
         ob = db.get(Obligation, payload.obligation_id)
-        if ob is None or ob.org_id != user.org_id:
+        if ob is None or ob.org_id != user.org_id or ob.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
-        from app.obligations.service import complete_and_schedule_next
+        # Same gate as POST /obligations/{id}/complete: a walled contract's duties
+        # can't be closed from chat.
+        ContractService(db).get_contract_for_user(contract_id=ob.contract_id, user=user)
+        from app.obligations.service import ObligationsService
 
-        successor = complete_and_schedule_next(db, ob=ob, actor_user_id=user.id)
-        db.commit()
-        return {"completed": True, "obligation_id": ob.id, "next_obligation_id": successor.id if successor else None}
+        # Through the service (it commits), not complete_and_schedule_next, so chat
+        # writes the same obligation.completed audit row the page does.
+        done = ObligationsService(db).complete_obligation(ob=ob, current_user=user)
+        return {"completed": True, "obligation_id": ob.id, "status": done["status"]}
 
     def _list_renewals(self, db: Session, *, payload: ListRenewalsInput, user: User) -> dict[str, Any]:
         from app.renewals.models import RenewalEvent
 
-        rows = db.scalars(
-            select(RenewalEvent).where(RenewalEvent.org_id == user.org_id)
-            .order_by(RenewalEvent.renewal_window_starts_at.asc())
-        ).all()
+        found = (
+            select(RenewalEvent)
+            .join(Contract, Contract.id == RenewalEvent.contract_id)
+            # Same gate as GET /renewals: an ethical wall must hide the renewal from chat too.
+            .where(
+                RenewalEvent.org_id == user.org_id,
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(user),
+            )
+        )
+        rows = db.scalars(found.order_by(RenewalEvent.renewal_window_starts_at.asc()).limit(payload.limit)).all()
+        total = db.scalar(select(func.count()).select_from(found.subquery())) or 0
         out = [{
             "id": r.id, "contract_id": r.contract_id, "decision": r.decision,
             "window_starts": (r.renewal_window_starts_at.isoformat() if r.renewal_window_starts_at else None),
-        } for r in rows[:payload.limit]]
-        return {"count": len(out), "renewals": out}
+        } for r in rows]
+        return {"count": len(out), "total": total, "renewals": out}
 
     def _list_my_requests(self, db: Session, *, user: User) -> dict[str, Any]:
         from app.intake.models import IntakeRequest
@@ -747,15 +808,100 @@ class ToolRuntime:
         return {"contract_id": cid, "status": sig.status,
                 "recipients": [{"name": r.name, "status": r.status} for r in recips]}
 
-    def _advance_contract_stage(self, db: Session, *, payload: AdvanceContractStageInput, user: User) -> dict[str, Any]:
-        cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=payload.contract_id, user=user)
-        contract = ContractService(db).get_contract_for_user(contract_id=cid, user=user)
-        updated = ContractLifecycleService(db).transition_contract_stage(
-            contract=contract, to_stage=payload.to_stage.strip().lower(),
-            actor_user_id=user.id, reason="Stage moved via Ask Aegis",
+    def _resolve_stage_contract(
+        self, db: Session, *, payload: AdvanceContractStageInput, user: User, session_id: str
+    ) -> Contract:
+        """The contract a stage move is about: the one named (handle or id), the one
+        behind a request, or else the one this chat is about."""
+        if payload.contract_handle or payload.contract_id:
+            return self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        if payload.request_id:
+            cid = self._resolve_contract_id(db, request_id=payload.request_id, contract_id=None, user=user)
+            return ContractService(db).get_contract_for_user(contract_id=cid, user=user)
+        handles = db.scalars(
+            select(AssistantContractHandle).where(
+                AssistantContractHandle.org_id == user.org_id,
+                AssistantContractHandle.session_id == session_id,
+            )
+        ).all()
+        if len(handles) == 1:
+            return ContractService(db).get_contract_for_user(contract_id=handles[0].contract_id, user=user)
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Say which contract to move: this chat isn't about exactly one contract.",
+        )
+
+    def _plan_stage_move(self, db: Session, *, payload: AdvanceContractStageInput, user: User, session_id: str):
+        from app.contracts.stage_moves import plan_stage_move
+        from app.workflows.service import WorkflowService
+
+        contract = self._resolve_stage_contract(db, payload=payload, user=user, session_id=session_id)
+        return plan_stage_move(
+            db, contract=contract, to_stage=payload.to_stage, reason=payload.reason, actor=user,
+            workflow_service=WorkflowService(db),
+        )
+
+    async def _advance_contract_stage(
+        self, db: Session, *, payload: AdvanceContractStageInput, user: User, session_id: str
+    ) -> dict[str, Any]:
+        from app.contracts.stage_moves import execute_stage_move, plan_stage_move
+        from app.workflows.service import WorkflowService
+
+        contract = self._resolve_stage_contract(db, payload=payload, user=user, session_id=session_id)
+        workflows = WorkflowService(db)
+        # Plan again: the contract may have moved since the user was asked.
+        plan = plan_stage_move(
+            db, contract=contract, to_stage=payload.to_stage, reason=payload.reason, actor=user,
+            workflow_service=workflows,
+        )
+        result = await execute_stage_move(
+            db, contract=contract, plan=plan, actor=user, workflow_service=workflows,
+            lifecycle_service=ContractLifecycleService(db),
         )
         db.commit()
-        return {"moved": True, "contract_id": cid, "stage": updated.lifecycle_stage}
+        return result
+
+    def _list_contract_suggestions(
+        self, db: Session, *, payload: ContractHandleInput, user: User, session_id: str
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        edits = db.scalars(
+            select(ContractEdit)
+            .where(ContractEdit.contract_id == contract.id, ContractEdit.status == "proposed")
+            .order_by(ContractEdit.created_at.asc())
+            .limit(25)
+        ).all()
+        total = open_redline_count(db, contract.id)
+
+        def _cut(text: str | None, n: int = 300) -> str | None:
+            return text if text is None or len(text) <= n else text[: n - 1] + "…"
+
+        def _origin(edit: ContractEdit) -> str:
+            entries = [c for c in (edit.citation or []) if isinstance(c, dict)]
+            kinds = {c.get("type") for c in entries}
+            if "playbook_deviation" in kinds or "playbook_run" in kinds:
+                return "playbook"
+            return "chat" if "assistant_edit_version" in kinds else "manual"
+
+        return {
+            "contract_id": contract.id,
+            "title": contract.title,
+            "lifecycle_stage": contract.lifecycle_stage,
+            "open_suggestions": total,
+            "suggestions": [
+                {
+                    "suggestion_id": e.id,
+                    "type": e.edit_type,
+                    "original": _cut(e.original_text),
+                    "replacement": _cut(e.replacement_text),
+                    "why": _cut(e.rationale),
+                    "made_by": _origin(e),
+                    "for_current_version": e.contract_version_id == contract.current_authoritative_version_id,
+                }
+                for e in edits
+            ],
+            "shown": len(edits),
+        }
 
     def _list_my_approvals(self, db: Session, *, user: User) -> dict[str, Any]:
         from app.approvals.models import ApprovalRequest
@@ -775,7 +921,7 @@ class ToolRuntime:
     def _read_notice(self, db: Session, *, payload: NoticeRef, user: User) -> dict[str, Any]:
         from app.notices.service import NoticesService
 
-        return NoticesService(db).get_notice(org_id=user.org_id, notice_id=payload.notice_id)
+        return NoticesService(db).get_notice(user=user, notice_id=payload.notice_id)
 
     def _read_contract(
         self,
@@ -833,6 +979,60 @@ class ToolRuntime:
             start = lower_text.find(query, end)
         return {"contract_id": contract.id, "query": payload.query, "matches": matches}
 
+    def _list_contract_versions(
+        self, db: Session, *, payload: ListContractVersionsInput, user: User, session_id: str
+    ) -> dict[str, Any]:
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        return version_compare.list_versions(db, contract)
+
+    def _compare_contract_versions(
+        self, db: Session, *, payload: CompareContractVersionsInput, user: User, session_id: str
+    ) -> dict[str, Any]:
+        """What changed between two versions, as lines starting '+ ' (added in the newer one), '- ' (removed
+        from the older one) or two spaces (unchanged, kept only near a change). A comparison that cannot be
+        made comes back as found false with the reason, not as an error, so the assistant can say why."""
+        contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        base, target, lookup, problem = version_compare.resolve_pair(
+            db,
+            contract,
+            base_number=payload.base_version_number,
+            target_number=payload.target_version_number,
+            base_id=payload.base_version_id,
+            target_id=payload.target_version_id,
+        )
+        if problem is not None:
+            return problem
+        diff = ContractService(db).compute_version_diff(
+            contract=contract, base_version_id=base.id, target_version_id=target.id, context=payload.context_lines
+        )
+        lines = [version_compare.format_line(line) for line in diff["lines"]]
+        chunk, next_offset = version_compare.window(lines, payload.diff_offset)
+        return {
+            "found": True,
+            "contract_id": contract.id,
+            "title": contract.title,
+            "base": lookup.describe(base),
+            "target": lookup.describe(target),
+            "lines_added": diff["added"],
+            "lines_removed": diff["removed"],
+            "identical": diff["added"] == 0 and diff["removed"] == 0,
+            "diff_truncated": diff["truncated"],
+            "diff": chunk,
+            "diff_offset": max(0, payload.diff_offset),
+            "total_diff_lines": len(lines),
+            "has_more": next_offset is not None,
+            "next_offset": next_offset,
+            "note": (
+                "A line-by-line comparison of the extracted text, so a reworded sentence shows as one line removed "
+                "and one added. Lines marked '… N unchanged lines …' were left out because nothing changed there. "
+                + (
+                    "The comparison was cut off at its size limit: later changes may be missing, so say so. "
+                    if diff["truncated"]
+                    else ""
+                )
+            ).strip(),
+        }
+
     # --- Spec A: read-only portfolio tools ---
     def _my_attention_items(self, db: Session, *, payload: AttentionItemsInput, user: User) -> dict[str, Any]:
         today = utcnow().date()
@@ -840,11 +1040,15 @@ class ToolRuntime:
         org = user.org_id
         contracts = {
             c.id: c
-            for c in db.scalars(select(Contract).where(accessible_contract_filter(user))).all()
+            for c in db.scalars(
+                select(Contract).where(
+                    Contract.org_id == org, Contract.deleted_at.is_(None), accessible_contract_filter(user)
+                )
+            ).all()
         }
         accessible_ids = set(contracts)
         if not accessible_ids:
-            return {"window_days": payload.window_days, "count": 0, "items": []}
+            return {"window_days": payload.window_days, "count": 0, "total": 0, "items": []}
 
         def _title(cid: str) -> str:
             c = contracts.get(cid)
@@ -923,22 +1127,14 @@ class ToolRuntime:
             logging.getLogger(__name__).debug("worklist source failed; skipping", exc_info=True)
         rank = {"overdue": 0, "high": 1, "medium": 2}
         items.sort(key=lambda x: (rank.get(x["urgency"], 3), x["due_date"] or "9999-12-31"))
-        return {"window_days": payload.window_days, "count": len(items), "items": items[:40]}
+        return {"window_days": payload.window_days, "count": len(items), "total": len(items), "items": items[:40]}
 
-    def _find_contracts(self, db: Session, *, payload: FindContractsInput, user: User, session_id: str) -> dict[str, Any]:
-        like = _like_contains(payload.query.strip())
-        rows = db.scalars(
-            select(Contract)
-            .where(
-                accessible_contract_filter(user),
-                or_(
-                    Contract.title.ilike(like, escape="\\"),
-                    Contract.counterparty_name.ilike(like, escape="\\"),
-                ),
-            )
-            .limit(8)
-        ).all()
-        existing = {
+    def _contract_handles(
+        self, db: Session, *, user: User, session_id: str, contract_ids: list[str]
+    ) -> dict[str, str]:
+        """Handles for these contracts in this chat, minted in one pass: the chat's handles
+        are read once, so a long list does not cost two queries per contract."""
+        handles = {
             h.contract_id: h.handle
             for h in db.scalars(
                 select(AssistantContractHandle).where(
@@ -947,23 +1143,109 @@ class ToolRuntime:
                 )
             ).all()
         }
-        count = len(existing)
-        matches: list[dict[str, Any]] = []
-        for c in rows:
-            handle = existing.get(c.id)
-            if not handle:
-                handle = f"contract-{count}"
-                count += 1
+        for contract_id in contract_ids:
+            if contract_id not in handles:
+                handles[contract_id] = f"contract-{len(handles)}"
                 db.add(AssistantContractHandle(
-                    org_id=user.org_id, session_id=session_id, contract_id=c.id, handle=handle,
-                    created_by_user_id=user.id, updated_by_user_id=user.id,
+                    org_id=user.org_id, session_id=session_id, contract_id=contract_id,
+                    handle=handles[contract_id], created_by_user_id=user.id, updated_by_user_id=user.id,
                 ))
-            matches.append({
-                "contract_id": c.id, "title": c.title, "counterparty_name": c.counterparty_name,
-                "lifecycle_stage": c.lifecycle_stage, "handle": handle,
-            })
         db.flush()
-        return {"query": payload.query, "found": len(matches), "matches": matches}
+        return handles
+
+    def _find_contracts(self, db: Session, *, payload: FindContractsInput, user: User, session_id: str) -> dict[str, Any]:
+        like = _like_contains(payload.query.strip())
+        found = select(Contract).where(
+            Contract.org_id == user.org_id,
+            Contract.deleted_at.is_(None),
+            accessible_contract_filter(user),
+            or_(
+                Contract.title.ilike(like, escape="\\"),
+                Contract.counterparty_name.ilike(like, escape="\\"),
+            ),
+        )
+        rows = db.scalars(found.limit(8)).all()
+        total = db.scalar(select(func.count()).select_from(found.subquery())) or 0
+        handles = self._contract_handles(db, user=user, session_id=session_id, contract_ids=[c.id for c in rows])
+        matches = [{
+            "contract_id": c.id, "title": c.title, "counterparty_name": c.counterparty_name,
+            "lifecycle_stage": c.lifecycle_stage, "handle": handles[c.id],
+        } for c in rows]
+        return {"query": payload.query, "found": len(matches), "total": total, "matches": matches}
+
+    async def _query_contracts(
+        self, db: Session, *, payload: QueryContractsInput, user: User, session_id: str
+    ) -> dict[str, Any]:
+        """Every "which / how many contracts" question: the typed filter runs over EVERY contract
+        the user can open (code decides), and the AI reads wording no field answers. The model
+        gets counts, reasons and lists, never ids it could mistake for the whole book."""
+        flt = PortfolioFilter.model_validate(payload.model_dump(exclude={"question"}))
+        # Off the event loop: it reads every accessible contract and dispatches the reading.
+        result = await run_in_threadpool(
+            run_portfolio_filter, db, user=user, flt=flt, question=payload.question
+        )
+        deadline = time.monotonic() + QUERY_WAIT_SECONDS
+        while not reading_finished(result) and time.monotonic() < deadline:
+            db.commit()  # nothing is held open while the worker reads
+            await asyncio.sleep(QUERY_POLL_SECONDS)
+            db.expire_all()
+            result = await run_in_threadpool(portfolio_result, db, user=user, meta=result)
+
+        # The model gets the counts and at most QUERY_LIST_LIMIT of each list (none for "how
+        # many"): a full list on a big book would fill its context and be re-paid every turn.
+        # The complete lists are on the Brain page for the same question.
+        shown = 0 if result["count_only"] else QUERY_LIST_LIMIT
+        matches, unknown = result["matches"][:shown], result["unknown"][:shown]
+        handles = self._contract_handles(
+            db, user=user, session_id=session_id,
+            contract_ids=[m["contract_id"] for m in matches] + [u["contract_id"] for u in unknown],
+        )
+        summary = f"Checked {result['checked']} of {result['total']} contracts · {result['matched']} match"
+        out: dict[str, Any] = {
+            "question": result["question"],
+            "conditions": result["conditions"],
+            "total": result["total"],
+            "checked": result["checked"],
+            "matched": result["matched"],
+            "unknown_count": len(result["unknown"]),
+            "unknown_reasons": result["unknown_reasons"],
+            "not_checked": result["not_checked"],
+            "complete": result["complete"],
+            "count_only": result["count_only"],
+            "confidence": result["confidence"],
+            # No contract_id in the items: _model_safe_result would turn each into a handle with
+            # two queries apiece. The handles are minted above in one pass.
+            "matches": [
+                {"contract_handle": handles[m["contract_id"]], "title": m["title"],
+                 "counterparty_name": m["counterparty_name"], "why": m["why"]}
+                for m in matches
+            ],
+            "unknown": [
+                {"contract_handle": handles[u["contract_id"]], "title": u["title"], "reason": u["reason"]}
+                for u in unknown
+            ],
+        }
+        omitted = {"matches_omitted": result["matched"] - len(matches),
+                   "unknown_omitted": len(result["unknown"]) - len(unknown)}
+        out.update({k: n for k, n in omitted.items() if n})
+        if any(omitted.values()):
+            out["list_note"] = ("Lists shortened for you; the counts are complete. The full lists are on the "
+                                "Contract Brain page for the same question.")
+        reading = result["reading"]
+        if reading:
+            out["reading"] = {k: reading[k] for k in ("contracts", "done", "failed", "estimate_usd", "started")}
+            if reading["tabular_review_id"]:
+                out["review_url"] = f"/tabular-reviews/{reading['tabular_review_id']}"
+            if not reading_finished(result):
+                progress = f"the AI is still reading {reading['done']} of {reading['contracts']} contracts"
+                summary += f" · {progress}"
+                out["reading_note"] = (
+                    f"Not final: {progress} after {QUERY_WAIT_SECONDS} seconds. The matches are only what is "
+                    "decided so far. The table at review_url keeps filling: say so, with the progress, and "
+                    "point the user to it for the final answers."
+                )
+        out["summary"] = summary
+        return out
 
     def _list_obligations(self, db: Session, *, payload: ListObligationsInput, user: User) -> dict[str, Any]:
         query = (
@@ -972,6 +1254,7 @@ class ToolRuntime:
             .where(
                 Obligation.org_id == user.org_id,
                 Obligation.deleted_at.is_(None),
+                Contract.deleted_at.is_(None),
                 accessible_contract_filter(user),
             )
         )
@@ -1021,14 +1304,54 @@ class ToolRuntime:
         user: User,
         session_id: str,
     ) -> dict[str, Any]:
+        from app.workflows.service import WorkflowService
+
         contract = self._resolve_contract(db, payload=payload, user=user, session_id=session_id)
+        # The same readiness the contract page shows, so what the chat says about
+        # "what's left" is what the Lifecycle and Review tabs say.
+        review = ContractService(db).compute_review_status(contract=contract)
+        workflows = WorkflowService(db)
+        run = workflows.get_run_for_contract(contract_id=contract.id, org_id=contract.org_id)
+        workflow = None
+        if run is not None:
+            view = workflows.serialize_run(run)
+            steps = view["steps"]
+            cur = next((x for x in steps if x["idx"] == view["current_index"]), None)
+            nxt = next((x for x in steps if cur is not None and x["idx"] == cur["idx"] + 1), None)
+
+            def _brief(step: dict[str, Any] | None) -> dict[str, Any] | None:
+                if step is None:
+                    return None
+                return {
+                    "name": step["name"],
+                    "type": step["type"],
+                    "status": step["status"],
+                    "assigned_to": step.get("assignee_label") or step.get("team_label"),
+                }
+
+            workflow = {
+                "name": view["flow_name"],
+                "status": view["status"],
+                "current_step": _brief(cur),
+                "next_step": _brief(nxt),
+            }
+        # The band computed now from the playbook review of this text; 'unknown' (with
+        # why) rather than the hand-settable legacy risk_level.
+        risk = contract_risk(db, contract)
         return {
             "contract_id": contract.id,
             "title": contract.title,
             "lifecycle_stage": contract.lifecycle_stage,
-            "risk_level": contract.risk_level,
+            "risk_band": risk["band"],
+            "risk_note": risk["note"],
             "counterparty_name": contract.counterparty_name,
             "current_authoritative_version_id": contract.current_authoritative_version_id,
+            "open_suggestions": review["pending_redlines"],
+            "open_issues": review["open_issues"],
+            "open_comments": review["open_comments"],
+            "ready_for_approval": review["ready_for_approval"],
+            "next_step": review["next_step"],
+            "workflow": workflow,
         }
 
     def _list_workflows(self, db: Session, *, user: User) -> dict[str, Any]:
@@ -1180,8 +1503,10 @@ class ToolRuntime:
         body_text, content = _render_structured_contract_docx(
             title=getattr(drafted, "title", None) or payload.title,
             sections=[(s.heading, s.body) for s in drafted.sections],
-            assumptions=list(getattr(drafted, "assumptions", []) or []),
         )
+        # Not in the contract text (see _render_structured_contract_docx); the
+        # drafter sees them in the tool result, the timeline keeps them.
+        assumptions = _drafting_assumptions(drafted)
         storage_object = _store_docx(
             db,
             org_id=user.org_id,
@@ -1238,6 +1563,9 @@ class ToolRuntime:
         db.add(snapshot)
         db.flush()
         version.text_snapshot_id = snapshot.id
+        # Clause structure like every other new version, or clause extraction falls back to
+        # the old full-text skill that cuts off on long contracts.
+        ContractFilesService(db)._persist_document_elements(snapshot, elements=[])
         contract_file.current_version_id = version.id
         contract.current_contract_file_id = contract_file.id
         contract.current_authoritative_version_id = version.id
@@ -1262,7 +1590,7 @@ class ToolRuntime:
             event_type="assistant.contract_generated",
             title="Assistant generated contract",
             actor_user_id=user.id,
-            details={"contract_version_id": version.id},
+            details={"contract_version_id": version.id, "assumptions": assumptions},
         )
         # Kept as the module-level wrapper (not ContractFilesService directly) —
         # tests/test_ai_architecture_wiring.py pins this literal assignment via
@@ -1312,6 +1640,7 @@ class ToolRuntime:
             "contract_file_id": contract_file.id,
             "contract_version_id": version.id,
             "storage_object_id": storage_object.id,
+            "assumptions": assumptions,
         }
 
     async def _edit_contract(
@@ -1337,6 +1666,7 @@ class ToolRuntime:
         # place. Fall back to a single whole-document proposal if the skill is
         # unavailable, so the tool never hard-fails mid-conversation.
         anchored: list[dict[str, Any]] = []
+        left_blank: list[str] = []
         summary: str | None = None
         if source_text.strip():
             try:
@@ -1359,9 +1689,11 @@ class ToolRuntime:
                     commit=False,
                 )
                 summary = getattr(suggestion_out, "summary", None)
-                anchored = _anchor_suggestions(
-                    source_text, list(getattr(suggestion_out, "edits", []) or [])
-                )
+                # A fix with a fill-in blank in it ("[INSERT CORRECT EXPIRY DATE]") isn't a fix: accepted,
+                # it puts the blank in the contract, and the automatic re-review then flags it and asks
+                # for another. Leave such an edit out; a person has to supply the fact.
+                suggested, left_blank = _without_blanks(list(getattr(suggestion_out, "edits", []) or []))
+                anchored = _anchor_suggestions(source_text, suggested)
             except Exception:
                 logging.getLogger(__name__).warning(
                     "contract_edit_suggestions skill failed; using fallback",
@@ -1369,6 +1701,8 @@ class ToolRuntime:
                 )
 
         applied = [a for a in anchored if a.get("applied")]
+        if not applied and left_blank:
+            raise _blank_refusal(left_blank)
         if not applied:
             # No anchored edits the model could quote exactly (commonly: the
             # source is a placeholder/skeleton, or the request was too broad).
@@ -1577,15 +1911,16 @@ class ToolRuntime:
             "confidentiality, intellectual property, warranties, indemnification, "
             "limitation of liability, governing law, dispute resolution, notices, "
             "miscellaneous, and a signature block). Preserve the parties, "
-            "commercial terms, and intent below; expand thin or placeholder "
-            "language into full, enforceable clauses.\n\n"
+            "commercial terms, and intent below; expand thin language into full "
+            "clauses; keep every [TO BE CONFIRMED: ...] placeholder unless the "
+            "metadata or additional instructions below supply that term.\n\n"
             "CONTRACT METADATA:\n" + "\n".join(meta) + "\n\n"
             "CURRENT DRAFT (may be a stub — expand it):\n"
             + (source_text.strip() or "(empty — draft from the metadata above)")
             + "\n\nADDITIONAL INSTRUCTIONS: "
             + (
                 payload.instructions.strip()
-                or "Produce a complete, market-standard contract."
+                or "Produce a complete contract."
             )
         )
 
@@ -1611,8 +1946,8 @@ class ToolRuntime:
         body_text, content = _render_structured_contract_docx(
             title=getattr(drafted, "title", None) or contract.title,
             sections=[(s.heading, s.body) for s in drafted.sections],
-            assumptions=list(getattr(drafted, "assumptions", []) or []),
         )
+        assumptions = _drafting_assumptions(drafted)
         storage_object = _store_docx(
             db,
             org_id=user.org_id,
@@ -1647,7 +1982,7 @@ class ToolRuntime:
                 if payload.instructions.strip()
                 else "AI full redraft"
             )[:240],
-            is_authoritative=True,
+            is_authoritative=False,  # promoted below, once the current one is demoted
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -1668,20 +2003,15 @@ class ToolRuntime:
         db.add(snapshot)
         db.flush()
         new_version.text_snapshot_id = snapshot.id
+        # New text: split into clauses like any other version.
+        ContractFilesService(db)._persist_document_elements(snapshot, elements=[])
 
         # The redraft becomes the current/authoritative document; the prior
-        # version stays in history for rollback. Mirror the accept-edit flip so
-        # exactly one version is authoritative.
-        for v in db.scalars(
-            select(ContractVersion).where(
-                ContractVersion.org_id == user.org_id,
-                ContractVersion.contract_id == contract.id,
-                ContractVersion.deleted_at.is_(None),
-            )
-        ).all():
-            v.is_authoritative = v.id == new_version.id
-            v.updated_by_user_id = user.id
-        contract.current_authoritative_version_id = new_version.id
+        # version stays in history for rollback. promote_version demotes first:
+        # inserting a second authoritative version broke uq_contract_version_authoritative.
+        ContractFilesService(db).promote_version(
+            contract=contract, version=new_version, actor_user_id=user.id
+        )
         contract.current_contract_file_id = contract_file.id
         contract_file.current_version_id = new_version.id
 
@@ -1709,9 +2039,14 @@ class ToolRuntime:
             details={
                 "new_version_id": new_version.id,
                 "sections": len(drafted.sections),
+                "assumptions": assumptions,
             },
         )
-        db.flush()
+        # The redraft is the current version: analyse it like any other (commits, then
+        # dispatches metadata/clause/embeddings, as generate_contract does).
+        ContractFilesService(db).requeue_contract_ai_jobs(
+            user=user, contract=contract, version=new_version
+        )
         return {
             "status": "created",
             "artifact_type": "generated_contract",
@@ -1719,6 +2054,7 @@ class ToolRuntime:
             "contract_version_id": new_version.id,
             "version_number": new_version.version_number,
             "sections": len(drafted.sections),
+            "assumptions": assumptions,
         }
 
     def _replicate_contract_version(
@@ -1768,6 +2104,8 @@ class ToolRuntime:
             db.add(snapshot)
             db.flush()
             replicated.text_snapshot_id = snapshot.id
+            # A copy of the current text, so it takes the current version's clause tree.
+            ContractFilesService(db)._persist_document_elements(snapshot, elements=[])
         write_audit_log(
             db,
             action="assistant.contract_version_replicated",
@@ -1861,6 +2199,9 @@ class ToolRuntime:
             "artifact_type": "playbook_redline" if artifacts.redline_version else "playbook_review",
             "model_name": artifacts.run.model_name,
             "ai_error": ai_error,
+            # False for a keyword-only fallback: the model must not report an AI
+            # review that never ran.
+            "ai_review_ran": artifacts.run.status == "succeeded",
             "contract_id": contract.id,
             "playbook_id": playbook.id,
             "playbook_version_id": version.id,
@@ -1886,6 +2227,18 @@ class ToolRuntime:
                     "contract_edit_id": artifacts.contract_edit.id if artifacts.contract_edit else None,
                 }
             )
+        if create_redline and not payload.test_mode:
+            # Same follow-up as the Playbooks page's run: queue the job that drafts a change for
+            # each issue the review found no wording for. It needs the review saved first (the
+            # job runs in a worker) so commit; best-effort, the review has succeeded either way.
+            from app.contract_files import issue_fixes
+
+            db.commit()
+            job = issue_fixes.start_after_review(
+                db, contract=contract, actor_user_id=user.id, playbook_run_id=artifacts.run.id
+            )
+            if job is not None:
+                result["issue_fix_job_id"] = job.id
         return result
 
     async def _ask_contract_brain(
@@ -1937,6 +2290,9 @@ class ToolRuntime:
         )
         answer = raw if isinstance(raw, BrainAnswerOutput) else BrainAnswerOutput.model_validate(raw)
         grounded = ground_answer(answer, source_text)
+        if payload.query_scope == "portfolio":
+            # Search read the best-matching passages, not every contract: say so, cap confidence.
+            grounded = mark_search_partial(grounded, contract_count=len(context["contract_ids"]))
         return {
             "status": "answered",
             "scope": payload.query_scope,
@@ -1965,7 +2321,7 @@ class ToolRuntime:
         ):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                "Overriding the approved-before-signature gate requires contract:lifecycle_override",
+                "You don't have override rights, so the contract has to finish approval before it can be sent for signature.",
             )
         if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE and not payload.override_lifecycle:
             raise HTTPException(
@@ -1979,9 +2335,12 @@ class ToolRuntime:
         storage_object = db.get(StorageObject, version.storage_object_id)
         if storage_object is None or storage_object.org_id != user.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Stored file not found")
-        SignaturesService(db).validate_signature_recipients(
+        signatures = SignaturesService(db)
+        signatures.validate_signature_recipients(
             contract=contract, org_id=user.org_id, recipients=payload.recipients
         )
+        signatures.ensure_version_is_approved(contract=contract, version=version, override=payload.override_lifecycle)
+        signatures.ensure_version_is_complete(version=version, override=payload.override_lifecycle)
         content = self.storage.read_bytes(storage_object.storage_key)
         envelope = await self.docusign.create_envelope(
             filename=storage_object.filename,
@@ -2338,14 +2697,22 @@ def _store_docx(
     return storage_object
 
 
+def _drafting_assumptions(drafted: Any) -> list[str]:
+    """The model's assumptions, blanks dropped: a note for the drafter, never text."""
+    return [a.strip() for a in (getattr(drafted, "assumptions", None) or []) if a and a.strip()]
+
+
 def _render_structured_contract_docx(
     *,
     title: str,
     sections: list[tuple[str, str]],
-    assumptions: list[str],
 ) -> tuple[str, bytes]:
     """Render an AI-drafted contract (real operative text) into a DOCX and a
-    plain-text snapshot used by clause/metadata extraction."""
+    plain-text snapshot used by clause/metadata extraction.
+
+    Assumptions are never rendered: this text is the snapshot clause extraction,
+    playbook review and citations read, so anything printed here becomes contract
+    terms. Callers hand them to the drafter instead."""
     from docx import Document
 
     text_parts = [title]
@@ -2365,14 +2732,6 @@ def _render_structured_contract_docx(
                 if para:
                     document.add_paragraph(para)
             text_parts.append(body)
-    if assumptions:
-        document.add_heading("Drafting Assumptions", level=2)
-        text_parts.append("Drafting Assumptions")
-        for note in assumptions:
-            note = (note or "").strip()
-            if note:
-                document.add_paragraph(note, style="List Bullet")
-                text_parts.append(f"- {note}")
     buffer = BytesIO()
     document.save(buffer)
     return "\n\n".join(text_parts), buffer.getvalue()
@@ -2413,6 +2772,29 @@ def _find_span(haystack: str, needle: str) -> tuple[int, int] | None:
     except Exception:  # pragma: no cover - rapidfuzz optional / defensive
         pass
     return None
+
+
+def _without_blanks(suggestions: list[Any]) -> tuple[list[Any], list[str]]:
+    """The suggestions whose wording is real contract text, and the blanks of those that were
+    dropped (contracts.blanks). A deletion has no wording, so it is never a blank."""
+    kept: list[Any] = []
+    dropped: list[str] = []
+    for s in suggestions:
+        found = find_blanks(getattr(s, "replacement_text", None))
+        if found:
+            dropped.extend(b for b in found if b not in dropped)
+        else:
+            kept.append(s)
+    return kept, dropped
+
+
+def _blank_refusal(blanks_left: list[str]) -> HTTPException:
+    shown = ", ".join(f"\u201c{b}\u201d" for b in blanks_left[:3])
+    return HTTPException(
+        status.HTTP_422_UNPROCESSABLE_CONTENT,
+        f"No wording was proposed: the fix needs a fact only a person can supply ({shown}). "
+        "Type it into the clause yourself rather than accept a blank.",
+    )
 
 
 def _anchor_suggestions(source_text: str, suggestions: list[Any]) -> list[dict[str, Any]]:

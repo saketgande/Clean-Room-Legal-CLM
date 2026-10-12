@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** "1 item", "2 items". Pass `many` for words that do not just add an s ("1 company", "2 companies"). */
+export function plural(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
 export function titleCase(s: string | null | undefined): string {
   if (!s) return "";
   return s
@@ -104,6 +109,26 @@ export function riskTone(risk?: string | null): Tone {
   }
 }
 
+export type RiskBand = "low" | "medium" | "high" | "unknown";
+
+/** What an unknown band reads as, everywhere risk is shown. Never a level:
+ *  "no judgement" must not look like "low". */
+export const RISK_UNKNOWN_LABEL = "Not reviewed — needs a person";
+
+/** The band a risk summary carries, or "unknown". Pass the contract's current
+ *  version to also treat a summary computed for other text as unknown — the
+ *  cached summary can lag a new version, and a stale "low" is the dangerous
+ *  case. Deliberately never reads the legacy, hand-settable risk_level. */
+export function riskBand(
+  summary: { band?: string | null; contract_version_id?: string | null } | null | undefined,
+  currentVersionId?: string | null,
+): RiskBand {
+  const band = (summary?.band ?? "").toLowerCase();
+  if (band !== "low" && band !== "medium" && band !== "high") return "unknown";
+  if (currentVersionId !== undefined && summary?.contract_version_id !== currentVersionId) return "unknown";
+  return band;
+}
+
 export function statusTone(status?: string | null): Tone {
   switch ((status ?? "").toLowerCase()) {
     case "active":
@@ -113,6 +138,7 @@ export function statusTone(status?: string | null): Tone {
     case "complete":
     case "published":
     case "valid":
+    case "fixed":
       return "green";
     case "pending":
     case "queued":
@@ -121,6 +147,8 @@ export function statusTone(status?: string | null): Tone {
     case "due_soon":
     case "waiting_confirmation":
     case "needs_review":
+    // A playbook run whose AI review didn't run: only a keyword scan, never a green success.
+    case "keyword_only":
       return "amber";
     case "rejected":
     case "failed":

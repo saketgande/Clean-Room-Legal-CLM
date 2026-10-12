@@ -47,7 +47,7 @@ def test_closed_says_when_the_contract_ends():
 def test_an_uploaded_contract_skips_the_draft_step(monkeypatch):
     """Its document already exists: re-drafting would replace what was uploaded."""
     monkeypatch.setattr(service, "_enter_step_stage", lambda *a, **k: None)
-    sr = SimpleNamespace(status="pending", note=None)
+    sr = SimpleNamespace(status="pending", note=None, result=None)
     run = SimpleNamespace(contract_id="c1", request_id="r1")
     out = asyncio.run(service._execute_step(None, run=run, step={"type": "clm_draft", "name": "Draft"}, sr=sr, actor=None))
     assert out == "advance" and sr.status == "skipped"

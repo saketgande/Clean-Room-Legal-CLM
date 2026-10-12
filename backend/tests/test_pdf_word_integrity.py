@@ -158,3 +158,56 @@ def test_a_damaged_pdf_asks_for_ocr_rather_than_raising():
     assert result.method == "pdf_failed"
     assert result.needs_ocr is True
     assert result.text == ""
+
+
+_STAMP = "DocuSign Envelope ID: AE2D5C05-DC56-9863-FAE6-E256D52E682F"
+
+
+def _fitz_pdf(pages: list[str], *, image: bool) -> bytes:
+    import fitz
+
+    pdf = fitz.open()
+    for text in pages:
+        page = pdf.new_page()
+        if image:  # a page photographed by a scanner: the words are pixels
+            pixmap = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 200, 280), False)
+            pixmap.clear_with(200)
+            page.insert_image(page.rect, pixmap=pixmap)
+        page.insert_textbox(fitz.Rect(40, 20, 560, 800), text, fontsize=7)
+    return pdf.tobytes()
+
+
+def test_a_scan_whose_only_text_is_an_esignature_stamp_asks_for_ocr():
+    """A scanned contract whose only text layer is a DocuSign stamp on every page scored 0.78
+    on character mix, so it was stored as ~500 characters of stamp and never sent to OCR."""
+    result = extract_text(_fitz_pdf([_STAMP] * 8, image=True), mime_type="application/pdf",
+                          filename="scan.pdf")
+    assert result.needs_ocr is True
+
+
+def test_a_thin_text_pdf_is_not_sent_to_ocr():
+    """The stamp rule is for scanned pages only. A one-page notice or a deck of short text
+    slides has little text because that is all there is; sending it to OCR costs credits and
+    throws away its page map."""
+    notice = ["NOTICE OF TERMINATION. We terminate the Agreement dated 1 May 2024 effective 30 June."]
+    slides = [f"Slide {n}: quarterly review" for n in range(1, 13)]
+    for pages in (notice, slides):
+        result = extract_text(_fitz_pdf(pages, image=False), mime_type="application/pdf",
+                              filename="thin.pdf")
+        assert result.needs_ocr is False
+
+
+def test_a_real_text_pdf_with_a_running_header_is_still_read_natively():
+    """The stamp rule must not count a contract's own words as furniture: a text contract
+    whose every page repeats a running header keeps its native text."""
+    import random
+
+    words = ["supplier", "customer", "services", "fees", "invoice", "payment", "renewal",
+             "notice", "liability", "indemnity", "warranty", "breach", "termination", "law"]
+    body = [
+        f"Acme MSA - Page {n} of 5\n" + " ".join(random.Random(n).choices(words, k=250))
+        for n in range(1, 6)
+    ]
+    result = extract_text(_fitz_pdf(body, image=False), mime_type="application/pdf",
+                          filename="msa.pdf")
+    assert result.needs_ocr is False

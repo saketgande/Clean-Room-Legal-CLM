@@ -13,7 +13,13 @@ from app.contract_files.models import (
 from app.contract_files.structure import distinctive_tokens, word_set
 from app.contracts.models import Contract
 
-MAX_FULL_TEXT_CHARS = 25_000
+# The whole contract goes to the model. The old 25k cut hid most of every long contract: the
+# exam measured facts past 25k found 17% of the time against 72% before it, and the playbook
+# review called clauses it never saw "missing". 400k characters is about 100-115k tokens,
+# well inside the model's context window with the prompt, playbook rules and the answer.
+# ponytail: a longer document is still cut (and flagged text_was_truncated); upgrade path: send
+# it in sections, or only the clauses a skill needs (_focused_text does this for edits).
+MAX_FULL_TEXT_CHARS = 400_000
 
 # Clause-scoped retrieval (Phase 3). When an instruction is supplied, send only
 # the clauses it's about instead of the whole (truncated) document.
@@ -31,8 +37,7 @@ def _focused_text(db: Session, snapshot: ContractTextSnapshot | None, query: str
     """Return just the clauses relevant to ``query`` (each with its heading for
     context), or None to signal 'not confident — use the full text'. Only
     engages for structured snapshots; retrieval finds the right clause wherever
-    it sits, so the answer no longer depends on the clause being in the first
-    25k characters."""
+    it sits, and sends a fraction of the tokens."""
     if snapshot is None or snapshot.structure_status != "structured":
         return None
     els = db.scalars(
@@ -120,8 +125,12 @@ def build_contract_context(
     contract_version_id: str | None = None,
     text_snapshot_id: str | None = None,
     focus_query: str | None = None,
+    skill_name: str | None = None,
 ) -> ContractAIContext:
     """Assemble what an AI skill may read about a contract.
+
+    ``skill_name`` (the skill the context is for) leaves the risk band out for a
+    skill in RISK_BLIND_SKILLS.
 
     ``user`` is who the text is for: their ethical walls and clearance decide what
     comes back, not the tenant alone. Pass None only for work with no person behind
@@ -157,10 +166,9 @@ def build_contract_context(
     text = snapshot.text if snapshot else ""
 
     # Clause-scoped path: if the caller supplied a focus query and the snapshot
-    # is structured, send only the relevant clauses. This finds the right clause
-    # wherever it sits — so a large contract is no longer silently cut off at 25k
-    # — and sends a fraction of the tokens. Falls back to the truncated full text
-    # whenever retrieval isn't confident, so it's never worse than before.
+    # is structured, send only the relevant clauses: a fraction of the tokens.
+    # Falls back to the full text whenever retrieval isn't confident, so it's
+    # never worse than before.
     focused = _focused_text(db, snapshot, focus_query) if focus_query else None
     if focused is not None:
         payload_text = focused
@@ -185,7 +193,7 @@ def build_contract_context(
             "text_was_truncated": was_truncated,
             "focus_applied": focus_applied,
             # Real deal facts already computed elsewhere in the app (metadata
-            # extraction, risk assessment) — without these, a skill has nothing
+            # extraction, the playbook risk band) — without these, a skill has nothing
             # to reason from but the raw clause text, so it defaults to generic
             # textbook explanations instead of judgment grounded in this deal.
             "title": contract.title,
@@ -195,10 +203,30 @@ def build_contract_context(
             # float, not Decimal: this manifest is JSON-dumped into the prompt and stored.
             "value_amount": float(contract.value_amount) if contract.value_amount is not None else None,
             "currency": contract.currency,
-            "risk_band": contract.risk_band,
-            "risk_summary": (contract.risk_summary or {}).get("summary"),
+            **({} if skill_name in RISK_BLIND_SKILLS else _risk_facts(contract)),
         },
     )
+
+
+# Skills that must not see the risk band: the playbook review PRODUCES the findings
+# the band is computed from, so showing it the previous band anchors its own answer.
+RISK_BLIND_SKILLS = frozenset({"playbook_review"})
+
+
+def _risk_facts(contract: Contract) -> dict:
+    """The rule's band as last refreshed (contracts.risk.refresh_contract_risk runs on
+    every review, decision and new version), 'unknown' included: leaving risk out let
+    a model read "nothing on file" as "nothing wrong". Advisory, so the cache is
+    enough -- gates compute it fresh. A summary without playbook_run_ids was written
+    by the old AI score, which this rule replaced, so it counts as unknown."""
+    rs = contract.risk_summary or {}
+    if "playbook_run_ids" not in rs:
+        return {"risk_band": "unknown", "risk_counts": None, "risk_note": "Not computed yet."}
+    return {
+        "risk_band": rs.get("band") or "unknown",
+        "risk_counts": rs.get("counts"),
+        "risk_note": rs.get("note"),
+    }
 
 
 def list_contract_handles(db: Session, *, session_id: str) -> list[dict]:

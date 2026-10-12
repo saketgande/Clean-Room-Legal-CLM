@@ -78,7 +78,8 @@ def test_renewal_flag_is_committed_before_its_email(monkeypatch):
                                owner_user_id="u-1", updated_by_user_id=None, created_by_user_id=None)
     event = SimpleNamespace(id="e-1", contract_id="c-1", renewal_window_starts_at=today - timedelta(days=1),
                             notice_date=today, expiration_date=today + timedelta(days=60), owner_user_id="u-1",
-                            metadata_json={})
+                            # Code-counted dates: the sweep skips events read before Step 3d.
+                            metadata_json={"dates": {"notice_date": today.isoformat()}})
     committed = {"renewal_due": False}
 
     class RenewalDB:

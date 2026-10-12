@@ -1,0 +1,7 @@
+{
+  "task": "T018",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "reviewer defects fixed: resume re-holds in-flight batch worst case (FR-32), refused-call rows never stamped/copied, abandon prices cancelled-batch answers, per-batch usd idempotent, free stage under capture meter (FR-31), FR-11 truncation test; test_exam_batch 53 passed, all test_exam_* 626 passed, ruff clean",
+  "updated": "2026-10-07T04:45:00Z"
+}

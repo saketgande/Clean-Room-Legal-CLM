@@ -81,8 +81,23 @@ def _norm_type(raw: str | None) -> str:
     return _TYPE_MAP.get((raw or "").strip().lower(), "paragraph")
 
 
+# OCR returns numbered headings as markdown ("## 4. CHARGES", "- 1.1 ..."): the number sits
+# under the prefix, and without reading it every section of a scan dropped out of labelling.
+# Behind a prefix only a real clause number counts: "- 2024 revenue" and "- 30 days" are bullets.
+_MD_PREFIX = re.compile(r"^\s*(?:#{1,6}|[-*])\s+")
+_MD_LABEL = re.compile(
+    r"^\s*("
+    r"\d+(?:\.\d+)+[.)]?|\d+[.)]"
+    r"|\((?:[a-z]|[ivxlcdm]+|\d+)\)"
+    r"|(?:Article|ARTICLE|Section|SECTION)\s+[\w.-]+"
+    r")"
+)
+
+
 def _number_label(text: str) -> str | None:
-    m = _LABEL.match(text or "")
+    text = text or ""
+    bare = _MD_PREFIX.sub("", text, count=1)
+    m = (_MD_LABEL if bare != text else _LABEL).match(bare)
     return m.group(1).strip() if m else None
 
 

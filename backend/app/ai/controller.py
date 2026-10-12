@@ -1,9 +1,9 @@
-from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
@@ -21,8 +21,6 @@ from app.ai.schemas import (
     ClauseExtractionOutput,
     ClauseLabelingOutput,
     ContractMetadataOutput,
-    ObligationExtractionOutput,
-    RenewalExtractionOutput,
 )
 from app.ai.skill import SkillSpec
 from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
@@ -37,6 +35,7 @@ from app.assistant.models import (
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
 from app.contract_files.blocks import locate_phrase
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
@@ -48,8 +47,6 @@ from app.core.rbac import has_permission
 from app.integrations.claude import ClaudeProvider
 from app.integrations.claude import claude_client as _default_claude_client
 from app.jobs.models import JobRun
-from app.obligations.models import Obligation, ObligationReminder
-from app.renewals.models import RenewalEvent
 
 INTERNAL_RESULT_KEYS = {
     "text_snapshot_id",
@@ -78,6 +75,22 @@ INTERNAL_RESULT_KEYS = {
     "tool_call_id",
     "confirmation_id",
 }
+
+# Analysis jobs whose result depends only on the snapshot text (and the prompt),
+# so a byte-identical earlier snapshot's run can stand in (carry_forward_job).
+# Clause jobs run either skill, depending on whether the reader segmented the text.
+REUSABLE_JOB_SKILLS: dict[str, tuple[str, ...]] = {
+    "metadata_extraction": ("contract_metadata_extraction",),
+    "clause_extraction": ("clause_labeling", "clause_extraction"),
+    "obligation_extraction": ("obligation_extraction",),
+    "renewal_extraction": ("renewal_extraction",),
+}
+
+
+def _is_refusal(exc: Exception) -> bool:
+    """A rule said no (HTTP 4xx with a message written for people), as opposed to the tool breaking.
+    The chat shows a refusal as "not done", not as a failure: the answer that follows explains it."""
+    return isinstance(exc, HTTPException) and isinstance(exc.detail, str) and 400 <= exc.status_code < 500
 
 
 def _safe_tool_error(exc: Exception) -> str:
@@ -123,6 +136,120 @@ class AIController:
             resource_id=job.resource_id,
             job_id=job.id,
         )
+
+    def carry_forward_job(self, db: Session, *, job: JobRun) -> str | None:
+        """Satisfy an analysis job from an earlier snapshot of the SAME contract
+        whose text is byte-identical, instead of paying the model again for the
+        same answer (a signed copy, a no-op editor save, an unchanged counterparty
+        return). Returns the donor snapshot id when carried, else None (run as usual).
+
+        The donor is the newest run of the job's skill on same-text snapshots, whatever
+        its status, and it is reused only if it succeeded under today's prompt, model and
+        skill version: anything else must re-run. (Taking the newest SUCCEEDED run instead
+        would also copy the rows of a later needs_review run on the same snapshot.) Clause
+        jobs copy the donor snapshot's rows onto this version through _replace_clauses (its
+        current-version and empty-result guards still apply). Metadata, obligations and
+        renewals are contract-level: the donor's stored answer is written again through the
+        normal path, because the text in between may have changed those values (a restore,
+        or an edit back to old wording). Does not commit — the caller marks the job and
+        commits.
+
+        ponytail: a donor whose job is still running isn't found, so the second
+        job pays once. Waiting on/re-queueing behind the in-flight job if it matters."""
+        skills = REUSABLE_JOB_SKILLS.get(job.job_type)
+        meta = job.metadata_json or {}
+        if not skills or not meta.get("text_snapshot_id"):
+            return None
+        snapshot = db.get(ContractTextSnapshot, meta["text_snapshot_id"])
+        if snapshot is None or snapshot.org_id != job.org_id or snapshot.contract_id != job.resource_id:
+            return None
+        donor = db.scalar(
+            select(AISkillRun)
+            .join(ContractTextSnapshot, ContractTextSnapshot.id == AISkillRun.text_snapshot_id)
+            .where(
+                AISkillRun.org_id == job.org_id,
+                AISkillRun.contract_id == snapshot.contract_id,
+                AISkillRun.skill_name.in_(skills),
+                ContractTextSnapshot.org_id == job.org_id,
+                ContractTextSnapshot.contract_id == snapshot.contract_id,
+                ContractTextSnapshot.id != snapshot.id,
+                ContractTextSnapshot.text == snapshot.text,
+            )
+            .order_by(AISkillRun.created_at.desc())
+            .limit(1)
+        )
+        if donor is None or donor.status != AISkillRunStatus.SUCCEEDED:
+            return None
+        spec = skill_registry.get(donor.skill_name)
+        active = get_active_prompt_bundle(
+            db,
+            org_id=job.org_id,
+            prompt_key=spec.prompt_key,
+            default_version=spec.prompt_version,
+            model_config={"temperature": spec.temperature, "max_tokens": spec.max_tokens},
+        )
+        if (
+            donor.prompt_hash != active.prompt_hash
+            or donor.model != active.model_name
+            or donor.skill_version != spec.version
+        ):
+            return None
+        contract = db.get(Contract, snapshot.contract_id)
+        version = db.get(ContractVersion, snapshot.contract_version_id)
+        if contract is None or version is None:
+            return None
+        if job.job_type == "clause_extraction":
+            # The newest succeeded run on that snapshot wrote the rows created
+            # since it started (a failed run rolls back and writes none).
+            rows = [
+                {"clause_type": c.clause_type, "heading": c.heading, "text": c.text,
+                 "start_char": c.start_char, "end_char": c.end_char, "confidence": c.confidence}
+                for c in db.scalars(
+                    select(ClauseExtraction)
+                    .where(
+                        ClauseExtraction.org_id == job.org_id,
+                        ClauseExtraction.contract_id == snapshot.contract_id,
+                        ClauseExtraction.text_snapshot_id == donor.text_snapshot_id,
+                        ClauseExtraction.created_at >= donor.started_at,
+                    )
+                    .order_by(ClauseExtraction.start_char.asc().nulls_last(), ClauseExtraction.created_at)
+                ).all()
+            ]
+            if not rows:
+                # The donor's clauses were never kept (its version stopped being
+                # current mid-run), so there is nothing to carry: pay.
+                return None
+            self._replace_clauses(
+                db,
+                rows=rows,
+                context=SimpleNamespace(contract=contract, version=version, snapshot=snapshot),
+                created_by_user_id=job.created_by_user_id,
+            )
+        else:
+            if not donor.output_payload:
+                return None
+            self._persist_skill_output(
+                db,
+                spec=spec,
+                output=spec.output_model.model_validate(donor.output_payload),
+                contract_context=SimpleNamespace(contract=contract, version=version, snapshot=snapshot),
+                created_by_user_id=job.created_by_user_id,
+                request_id=None,
+                skill_run=donor,
+                ai_call_log=None,
+            )
+        write_timeline_event(
+            db,
+            org_id=job.org_id,
+            resource_type=job.resource_type or "contract",
+            resource_id=job.resource_id,
+            event_type="ai.skill_succeeded",
+            title=f"AI skill completed: {donor.skill_name} (text unchanged — earlier result reused)",
+            actor_user_id=job.created_by_user_id,
+            job_id=job.id,
+            details={"carried_from_snapshot_id": donor.text_snapshot_id, "donor_skill_run_id": donor.id},
+        )
+        return donor.text_snapshot_id
 
     @staticmethod
     def _load_session_history(
@@ -253,7 +380,7 @@ class AIController:
         db.commit()
 
         contract_summaries = self._contract_context_summaries(db, user=user, org_id=org_id, handles=handles)
-        contract_inventory = self._contract_inventory(db, user=user)
+        contract_inventory, contract_total = self._contract_inventory(db, user=user)
         # Prior conversation turns give the assistant in-session memory. The
         # current user message was already persisted by the route, so exclude it
         # to avoid duplicating it (the enriched current turn is appended below).
@@ -280,6 +407,7 @@ class AIController:
                     handles=handles,
                     contract_summaries=contract_summaries,
                     contract_inventory=contract_inventory,
+                    contract_total=contract_total,
                     blackboard=blackboard_text,
                     session_type=session_type,
                 ),
@@ -394,7 +522,7 @@ class AIController:
                                     "tool_call_id": result.get("tool_call_id"),
                                     "confirmation_id": result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
-                                    "details": _confirmation_details(tool_use.get("input")),
+                                    "details": _card_details(result, tool_use.get("input")),
                                 },
                             }
                             return
@@ -454,6 +582,7 @@ class AIController:
                                 "tool_name": tool_name,
                                 "tool_use_id": tool_use.get("id"),
                                 "error": safe_error,
+                                "refused": _is_refusal(exc),
                             },
                         }
                         tool_result_blocks.append(
@@ -699,7 +828,7 @@ class AIController:
                                     "tool_call_id": loop_result.get("tool_call_id"),
                                     "confirmation_id": loop_result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
-                                    "details": _confirmation_details(tool_use.get("input")),
+                                    "details": _card_details(loop_result, tool_use.get("input")),
                                 },
                             }
                             return
@@ -732,6 +861,7 @@ class AIController:
                                 "tool_name": tool_name,
                                 "tool_use_id": tool_use.get("id"),
                                 "error": safe_error,
+                                "refused": _is_refusal(exc),
                             },
                         }
                         tool_result_blocks.append(
@@ -787,6 +917,7 @@ class AIController:
         handles: list[dict[str, Any]],
         contract_summaries: list[dict[str, Any]] | None = None,
         contract_inventory: list[dict[str, Any]] | None = None,
+        contract_total: int | None = None,
         blackboard: str = "",
         session_type: str | None = None,
     ) -> str:
@@ -799,6 +930,16 @@ class AIController:
                 if (handle := _handle_for_contract_id(contract, handles))
             ],
         }
+        # The list below is capped, so it must never read as the whole book: counts and
+        # filtered lists come from query_contracts, which checks every contract.
+        shown = len(contract_inventory or [])
+        total = shown if contract_total is None else contract_total
+        inventory_heading = (
+            f"The {shown} most recent of the user's {total} contracts (not the full list — use "
+            "query_contracts for counts and lists;"
+            if total > shown
+            else f"The user's {total} contracts (use query_contracts for counts and filtered lists;"
+        )
         parts = [
             f"User message:\n{message}",
             _SESSION_CONTEXT.get(session_type or "", ""),  # filtered out below when empty
@@ -810,7 +951,7 @@ class AIController:
             "Contract status context:",
             self._json_tool_result(contract_summaries or []),
             (
-                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
+                f"{inventory_heading} resolve a name with find_contracts to get a handle; "
                 "use my_attention_items for what-needs-attention questions and list_obligations "
                 "for due-date questions):"
             ),
@@ -819,18 +960,21 @@ class AIController:
         ]
         return "\n\n".join(part for part in parts if part)
 
-    def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
-        """A compact list of contracts the user can access."""
+    def _contract_inventory(self, db: Session, *, user: User) -> tuple[list[dict[str, Any]], int]:
+        """The 60 newest contracts the user can open (a compact list), and how many they can open."""
         from sqlalchemy import select as _select
 
         from app.contracts.models import Contract as _Contract
 
+        open_to_user = (
+            _Contract.org_id == user.org_id,
+            _Contract.deleted_at.is_(None),
+            accessible_contract_filter(user),
+        )
         rows = db.scalars(
-            _select(_Contract)
-            .where(accessible_contract_filter(user))
-            .order_by(_Contract.created_at.desc())
-            .limit(60)
+            _select(_Contract).where(*open_to_user).order_by(_Contract.created_at.desc()).limit(60)
         ).all()
+        total = db.scalar(_select(func.count()).select_from(_Contract).where(*open_to_user)) or 0
         return [
             {
                 "contract_id": c.id,
@@ -839,7 +983,7 @@ class AIController:
                 "stage": c.lifecycle_stage,
             }
             for c in rows
-        ]
+        ], total
 
     def _handle_for_contract(
         self,
@@ -1026,6 +1170,7 @@ class AIController:
             input_payload=input_payload,
             resource_type=resource_type,
             resource_id=resource_id,
+            skill_name=spec.name,
         )
         built_prompt = prompt_builder.build_structured_skill_prompt(
             spec=spec,
@@ -1252,6 +1397,7 @@ class AIController:
         input_payload: dict[str, Any],
         resource_type: str | None,
         resource_id: str | None,
+        skill_name: str | None = None,
     ) -> ContractAIContext | None:
         contract_id = input_payload.get("contract_id")
         if resource_type == "contract" and resource_id:
@@ -1269,6 +1415,8 @@ class AIController:
             # redline path passes the instruction) gets only the relevant clauses
             # instead of the whole truncated document.
             focus_query=input_payload.get("focus_query"),
+            # playbook_review must not see the band its own findings produce.
+            skill_name=skill_name,
         )
 
     def _validate_and_store_citations(
@@ -1376,6 +1524,9 @@ class AIController:
             "expiration_date": contract.expiration_date,
         }
         suggestions = metadata.model_dump(mode="json", exclude_none=True)
+        # Read before the copy below: it is shallow, so setdefault() writes into
+        # the very ai_suggestions dict this would otherwise read back.
+        previous_text = dict(((contract.metadata_json or {}).get("ai_suggestions") or {}).get("metadata") or {})
         existing_metadata = dict(contract.metadata_json or {})
         existing_metadata.setdefault("ai_suggestions", {})["metadata"] = suggestions
         existing_metadata["latest_metadata_skill_run_id"] = skill_run.id
@@ -1397,6 +1548,15 @@ class AIController:
             existing_metadata["field_sources"] = sources
         contract.metadata_json = existing_metadata
         contract.updated_by_user_id = created_by_user_id
+        # A new anchor date, or a new text reading that may now disagree with the
+        # form's, changes every deadline counted from it.
+        if any(
+            before[f] != getattr(contract, f) or previous_text.get(f) != suggestions.get(f)
+            for f in ("effective_date", "expiration_date")
+        ):
+            from app.core.deadlines import recompute_contract_deadlines
+
+            recompute_contract_deadlines(db, contract)
         write_audit_log(
             db,
             action="contract.ai_metadata_extracted",
@@ -1586,91 +1746,13 @@ class AIController:
         request_id: str | None,
         skill_run: AISkillRun,
     ) -> None:
-        extracted = (
-            output
-            if isinstance(output, ObligationExtractionOutput)
-            else ObligationExtractionOutput.model_validate(output)
-        )
-        contract = context.contract
-        # Replace prior AI-extracted, still-open obligations so re-extraction
-        # on a new authoritative version does not duplicate.
-        existing = db.scalars(
-            select(Obligation).where(
-                Obligation.org_id == contract.org_id,
-                Obligation.contract_id == contract.id,
-                Obligation.deleted_at.is_(None),
-            )
-        ).all()
-        today = utcnow().date()
-        for ob in existing:
-            if (ob.metadata_json or {}).get("source") == "ai_extraction" and ob.status not in {
-                "completed",
-                "cancelled",
-            }:
-                ob.deleted_at = utcnow()
-                ob.deleted_by_user_id = created_by_user_id
-                ob.updated_by_user_id = created_by_user_id
-        created = 0
-        for item in extracted.obligations:
-            citation = item.citations[0].model_dump(mode="json") if item.citations else None
-            obligation = Obligation(
-                org_id=contract.org_id,
-                contract_id=contract.id,
-                contract_version_id=context.version.id if context.version else None,
-                owner_user_id=contract.owner_user_id,
-                responsible_party=item.responsible_party,
-                obligation_type=item.obligation_type,
-                description=item.description,
-                due_date=item.due_date,
-                recurrence=item.recurrence,
-                status="open",
-                source_citation=citation,
-                metadata_json={
-                    "source": "ai_extraction",
-                    "confidence": item.confidence,
-                    "source_clause_type": item.source_clause_type,
-                    "skill_run_id": skill_run.id,
-                },
-                created_by_user_id=created_by_user_id,
-                updated_by_user_id=created_by_user_id,
-            )
-            db.add(obligation)
-            db.flush()
-            created += 1
-            if item.due_date is not None:
-                remind_at = item.due_date - timedelta(days=7)
-                remind_at = max(remind_at, today)
-                db.add(
-                    ObligationReminder(
-                        org_id=contract.org_id,
-                        obligation_id=obligation.id,
-                        remind_at=remind_at,
-                        channel="email",
-                        created_by_user_id=created_by_user_id,
-                        updated_by_user_id=created_by_user_id,
-                    )
-                )
-        write_audit_log(
-            db,
-            action="contract.obligations_extracted",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=contract.org_id,
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            after={"obligation_count": created, "skill_run_id": skill_run.id},
-        )
-        write_timeline_event(
-            db,
-            org_id=contract.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.obligations_extracted",
-            title=f"Obligations extracted ({created})",
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            details={"obligation_count": created},
+        # The AI copies the wording; the obligations domain computes every date
+        # from the contract's anchors (core/deadlines.py).
+        from app.obligations.service import apply_extracted_obligations
+
+        apply_extracted_obligations(
+            db, contract=context.contract, version=context.version, output=output,
+            skill_run=skill_run, created_by_user_id=created_by_user_id, request_id=request_id,
         )
 
     def _persist_renewal(
@@ -1683,85 +1765,11 @@ class AIController:
         request_id: str | None,
         skill_run: AISkillRun,
     ) -> None:
-        renewal = (
-            output
-            if isinstance(output, RenewalExtractionOutput)
-            else RenewalExtractionOutput.model_validate(output)
-        )
-        contract = context.contract
-        window_start = renewal.notice_date
-        if (
-            window_start is None
-            and renewal.expiration_date is not None
-            and renewal.notice_period_days
-        ):
-            window_start = renewal.expiration_date - timedelta(days=renewal.notice_period_days)
-        event = db.scalar(
-            select(RenewalEvent).where(
-                RenewalEvent.org_id == contract.org_id,
-                RenewalEvent.contract_id == contract.id,
-            )
-        )
-        meta = {
-            "auto_renewal": renewal.auto_renewal,
-            "renewal_term": renewal.renewal_term,
-            "termination_rights_summary": renewal.termination_rights_summary,
-            "confidence": renewal.confidence,
-            "needs_review": renewal.needs_review,
-            "skill_run_id": skill_run.id,
-            "citations": [c.model_dump(mode="json") for c in renewal.citations],
-        }
-        if event is None:
-            event = RenewalEvent(
-                org_id=contract.org_id,
-                contract_id=contract.id,
-                contract_version_id=context.version.id if context.version else None,
-                expiration_date=renewal.expiration_date,
-                notice_date=renewal.notice_date,
-                renewal_window_starts_at=window_start,
-                owner_user_id=contract.owner_user_id,
-                metadata_json=meta,
-                created_by_user_id=created_by_user_id,
-                updated_by_user_id=created_by_user_id,
-            )
-            db.add(event)
-        else:
-            event.expiration_date = renewal.expiration_date
-            event.notice_date = renewal.notice_date
-            event.renewal_window_starts_at = window_start
-            event.contract_version_id = context.version.id if context.version else event.contract_version_id
-            event.metadata_json = meta
-            event.updated_by_user_id = created_by_user_id
-        db.flush()
-        write_audit_log(
-            db,
-            action="contract.renewal_extracted",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=contract.org_id,
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            after={
-                "expiration_date": str(renewal.expiration_date),
-                "notice_date": str(renewal.notice_date),
-                "skill_run_id": skill_run.id,
-            },
-        )
-        write_timeline_event(
-            db,
-            org_id=contract.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.renewal_extracted",
-            title="Renewal terms extracted",
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            details={
-                "expiration_date": str(renewal.expiration_date),
-                "notice_date": str(renewal.notice_date),
-                "needs_review": renewal.needs_review,
-            },
+        from app.renewals.service import apply_extracted_renewal
+
+        apply_extracted_renewal(
+            db, contract=context.contract, version=context.version, output=output,
+            skill_run=skill_run, created_by_user_id=created_by_user_id, request_id=request_id,
         )
 
     def _fallback_output(
@@ -1810,6 +1818,14 @@ _SESSION_CONTEXT: dict[str, str] = {
 
 # Shared with the session API (restoring a confirmation card after a reload).
 _confirmation_details = confirmation_details
+
+
+def _card_details(tool_result: dict[str, Any], tool_input: Any) -> dict[str, str]:
+    """What a confirmation card shows. A tool that can say what it will do in words
+    (a stage move: which contract, from where to where) hands that back with its
+    confirmation; otherwise the card shows the action's own arguments."""
+    card = tool_result.get("details")
+    return card if isinstance(card, dict) and card else _confirmation_details(tool_input)
 
 def _handle_for_contract_id(contract_id: str | None, handles: list[dict[str, Any]]) -> str | None:
     if not contract_id:

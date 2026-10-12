@@ -91,6 +91,20 @@ def reserve_tokens(org_id: str | None, estimate: int) -> tuple[str, int] | None:
     return key, reserved
 
 
+def tokens_left(org_id: str | None) -> int | None:
+    """What is left of today's cap for ``org_id``, or None when there is nothing to
+    check (no org, cap disabled, or Redis unavailable). Read-only: reserves nothing."""
+    cap = settings.claude_daily_token_cap_per_org
+    if not org_id or cap <= 0:
+        return None
+    try:
+        spent = int(_redis_client().get(_daily_key(org_id)) or 0)
+    except Exception:
+        logger.warning("ai token cap check skipped (redis unavailable)", exc_info=True)
+        return None
+    return max(cap - spent, 0)
+
+
 def settle_tokens(reservation: tuple[str, int] | None, actual_tokens: int | None) -> None:
     """Replace a reservation with the call's real token total (0 if the call failed).
 

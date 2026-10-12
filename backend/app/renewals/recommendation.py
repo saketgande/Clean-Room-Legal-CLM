@@ -37,6 +37,13 @@ _SCHEMA = {
 }
 
 
+def _cached_band(contract) -> str | None:
+    """The playbook rule's cached band, or None. A summary without playbook_run_ids was
+    written by the deleted AI risk score, which the rule replaced: it is not a band now."""
+    rs = contract.risk_summary or {}
+    return contract.risk_band if "playbook_run_ids" in rs else None
+
+
 def _days_until(d: date | None) -> int | None:
     if not d:
         return None
@@ -51,11 +58,13 @@ def _facts(renewal, contract) -> list[str]:
         facts.append(f"Counterparty: {contract.counterparty_name}")
     if contract.value_amount is not None:
         facts.append(f"Annual/contract value: {contract.value_amount:,.0f}")
-    if contract.risk_band or contract.risk_score is not None:
-        facts.append(
-            f"Risk: {contract.risk_band or 'unknown'}"
-            + (f" (score {contract.risk_score})" if contract.risk_score is not None else "")
-        )
+    # Always stated: leaving risk out when it is unknown let the model read "no risk
+    # on file" as "nothing wrong". risk_band is the cached playbook band (advisory
+    # here, so the cache is enough); NULL means nothing reviewed the current text.
+    band = _cached_band(contract)
+    facts.append(
+        f"Risk: {band}" if band else "Risk: unknown (the current text has no playbook review)"
+    )
     dn = _days_until(renewal.notice_date)
     de = _days_until(renewal.expiration_date)
     if de is not None:
@@ -66,6 +75,22 @@ def _facts(renewal, contract) -> list[str]:
             if dn >= 0
             else f"Notice deadline passed {-dn} days ago"
         )
+    # The typed renewal facts (Step 3d). Without them the model guessed whether a
+    # contract renews at all, and recommended "renew" for NDAs that simply end.
+    dates = (getattr(renewal, "metadata_json", None) or {}).get("dates") or {}
+    terms = dates.get("facts") or {}
+    if terms.get("term_kind") == "evergreen":
+        facts.append("No end date - continues until terminated")
+    if terms.get("auto_renews") is True:
+        term = terms.get("renewal_term") or {}
+        unit = (term.get("unit") or "").replace("_", " ")
+        unit = unit[:-1] if term.get("number") == 1 else unit
+        length = f" for {term['number']} {unit}" if term.get("number") else ""
+        facts.append(f"Renews automatically{length} unless notice is given")
+    elif terms.get("auto_renews") is False:
+        facts.append("Does not renew automatically - it ends at expiry unless extended")
+    if dates and not dates.get("confirmed_by"):
+        facts.append("These dates were calculated from the contract wording and not yet confirmed by a person")
     return facts
 
 
@@ -73,7 +98,7 @@ def _fallback(renewal, contract) -> dict:
     """Deterministic, defensible default when the model is unavailable: flag
     high-risk agreements for renegotiation, otherwise recommend renewal. Kept
     honest with low confidence — a heuristic is a starting point, not a verdict."""
-    band = (contract.risk_band or "").lower()
+    band = (_cached_band(contract) or "").lower()
     if band in {"high", "critical"}:
         return {
             "decision": "renegotiate",
@@ -84,11 +109,22 @@ def _fallback(renewal, contract) -> dict:
             "confidence": "low",
             "generated": False,
         }
+    if not band:
+        # Unknown is not "no adverse signals": nothing reviewed the current text.
+        return {
+            "decision": "renew",
+            "rationale": (
+                "Risk is unknown — the current text has no playbook review. Run the "
+                "review before the notice deadline; renewal is only a default until then."
+            ),
+            "confidence": "low",
+            "generated": False,
+        }
     return {
         "decision": "renew",
         "rationale": (
-            "No adverse signals on file — default to renewal, and confirm the "
-            "commercial terms before the notice deadline."
+            f"The playbook review found {band} risk at most — default to renewal, and "
+            "confirm the commercial terms before the notice deadline."
         ),
         "confidence": "low",
         "generated": False,

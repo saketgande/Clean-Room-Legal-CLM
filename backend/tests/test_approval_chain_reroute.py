@@ -563,12 +563,17 @@ async def test_workflow_approval_step_with_zero_rungs_still_advances(db: Session
 
 async def test_fast_lane_nda_still_skips_approval_and_creates_no_chain(db: Session):
     """The dispatch sits AFTER the fast-lane branch — an NDA that qualifies
-    still fast-lanes to Signature even with an active chain definition."""
+    still fast-lanes to Signature even with an active chain definition.
+    "Qualifies" means a low band from Claude's review of its current text
+    (see test_nda_fast_lane.py); NDAs carry no value."""
+    from tests.test_nda_fast_lane import make_fast_lane_ready
+
     s = Scenario(db, name="FastLaneParity")
     _build_definition(db, admin=s.admin, module="contract", base_role=s.reviewer_role)
     contract = _make_contract(
-        db, org_id=s.org.id, owner=s.admin, value_amount=1_000, contract_type="nda", risk_band="low",
+        db, org_id=s.org.id, owner=s.admin, value_amount=None, contract_type="nda", risk_band="low",
     )
+    make_fast_lane_ready(db, contract)
 
     result = await submit_contract_for_approval(
         db, user=s.admin, contract=contract, contract_version_id=None,

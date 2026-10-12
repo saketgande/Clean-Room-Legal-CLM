@@ -1,260 +1,256 @@
-"""Weighted, explainable contract risk score.
+"""The contract's ONE risk band, computed in code from its playbook findings.
 
-The old `risk_level` was a single opaque AI-set label. This replaces it with a
-transparent score: each extracted clause gets an AI risk judgment (low/medium/
-high + a one-line reason), multiplied by a deterministic business-impact weight
-(liability/IP/data hurt far more than boilerplate). The document score is the
-weighted average, and every point of it traces to the specific clauses driving
-it — so a lawyer can verify the reasoning instead of trusting a badge.
+There used to be a second, AI-judged risk (a weighted average of per-clause
+ratings) next to the playbook review. On real contracts the two disagreed on
+nearly every one: 11 of 11 reviewed "low" contracts had an open high issue.
+Now the band is a pure function of the playbook review of the current text:
+
+- any unresolved high/critical finding -> high; any unresolved medium -> medium;
+  only low ones (or none) -> low;
+- no qualifying review -> "unknown", with a note saying why. Unknown is never
+  low: gates treat it as "a person has to look".
+
+"low" therefore means "no unresolved playbook findings", not "no risk".
+
+There is no numeric score any more (risk_score stays NULL): nothing honest maps
+a list of findings onto 0-100. The columns on Contract are a cache for the list
+page and search; gates call contract_risk() fresh.
 """
-
-import logging
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ai.controller import ai_controller
-from app.ai.schemas import ClauseRiskOutput, ContractRiskOutput
-from app.contract_brain.clause_taxonomy import (
-    canonical_clause_type,
-    clause_weight,
-    display_label,
-)
-from app.contract_brain.models import ClauseExtraction
 from app.contracts.models import Contract
 from app.core.database import utcnow
 
-logger = logging.getLogger(__name__)
+_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+# Only the playbook's own fallback position closes a finding on the reviewed text.
+# accepted / waived are concessions -- the deviating wording stays in the contract,
+# so it keeps counting. Otherwise whoever conceded could talk the band down past the
+# approver whose authority exists to see conceded risk. rejected / escalated mean we
+# pushed back, and the wording still stands. "fixed" (our wording accepted) does not
+# close it either: the edit lands in a NEW version, and until then the deviating
+# wording is still in this text. Once it lands, this run no longer qualifies (the text
+# changed) and the automatic re-review gives the new band.
+_RESOLVED = frozenset({"accepted_fallback"})
+_CONCEDED = frozenset({"accepted", "waived"})
+_MAX_DRIVERS = 8
+# A finding a person has not decided yet. needs_review is one whose quote didn't check out:
+# as open as "open".
+OPEN_STATUSES = ("open", "needs_review")
 
-# How adverse each risk level is, 0-1. Multiplied by the clause weight.
-_SEVERITY = {"low": 0.15, "medium": 0.55, "high": 0.95}
-# Below this share of clauses judged, the answer is partial and no score is given.
-_MIN_COVERAGE = 0.8
-# Clauses rated per call; each answer carries a rationale + quote per clause.
-_RISK_BATCH = 30
+
+def _effective_rank(severity: str | None, status: str, unverified: bool) -> int:
+    # Same normalisation as playbooks.service._normalize_severity: unknown -> medium.
+    rank = _RANK.get((severity or "medium").lower(), 2)
+    # An unverified finding (its run's quotes didn't all check out) may be worse
+    # than it reads; a person must look before it can make the contract "low".
+    if unverified or status == "needs_review":
+        rank = max(rank, 2)
+    return rank
 
 
-def _band(score: int) -> str:
-    return "high" if score >= 65 else "medium" if score >= 35 else "low"
+def band_for(devs: list[tuple[str | None, str, bool]]) -> str:
+    """(severity, status, unverified) per finding -> 'low' | 'medium' | 'high'.
+
+    Critical folds into high: medium maps to 0.65 in the workflow AI-review gate,
+    which clears its 0.6 threshold, so an open high must never read as medium."""
+    worst = 0
+    for severity, status, unverified in devs:
+        if status in _RESOLVED:
+            continue
+        worst = max(worst, _effective_rank(severity, status, unverified))
+    return "high" if worst >= 3 else "medium" if worst == 2 else "low"
 
 
-def _save_unknown(
-    db: Session, *, contract: Contract, user, note: str, clause_count: int, **extra
-) -> dict:
-    """Persist "unknown": missing or partial coverage is never a clean bill of health."""
-    summary = {
-        "score": None,
+def _unknown_note(rows, version_ids: list[str], playbook_name: str) -> str:
+    """Why no review qualifies -- the most specific reason the runs show."""
+    if not version_ids:
+        return "No text to review yet."
+    if not rows:
+        return f"Never reviewed against the {playbook_name} playbook."
+    same_text = [r for r in rows if r.contract_version_id in version_ids]
+    if not same_text:
+        return "The text changed since the last review; re-run the playbook review."
+    if not any(r.latest for r in same_text):
+        return (
+            f"The {playbook_name} playbook's rules were re-published since the last "
+            "review; re-run the playbook review."
+        )
+    if any(r.status == "keyword_only" for r in same_text):
+        return "Only a keyword scan ran on this text (the AI review did not); re-run the review."
+    return "No completed AI review of this text yet."
+
+
+def _review_runs(db: Session, contract: Contract):
+    """(playbook, same-text version ids, every run of this contract against that playbook,
+    the runs that qualify). playbook is None when none covers this contract type; the run
+    lists are then empty (the version ids are still given). The ONE place that decides which reviews count: the band, the list of
+    open findings and the checklist all read it, so they cannot disagree.
+
+    A qualifying review: a succeeded Claude run, on a version with the current
+    text (same_text_version_ids), of the playbook this contract type is reviewed
+    against, at that playbook's latest PUBLISHED rules. validation_status 'valid'
+    or 'needs_review' -- the latter's findings are floored at medium rather than
+    dropped, since a run's validation never changes and dropping would leave the
+    contract unknown until someone paid for a re-run. Findings of ALL qualifying
+    runs count, so re-running on the same text can't fish for a cleaner answer.
+    """
+    # Local imports: playbooks.service and contracts.service both import widely.
+    from app.contracts.service import same_text_version_ids
+    from app.playbooks.models import PlaybookRun
+    from app.playbooks.service import PlaybooksService, latest_published_version_id
+
+    playbook = PlaybooksService(db).pick_playbook_for_contract(
+        org_id=contract.org_id, contract_type=contract.contract_type
+    )
+    version_ids = same_text_version_ids(db, contract)
+    if playbook is None:
+        return None, version_ids, [], []
+    rows = db.execute(
+        select(
+            PlaybookRun.id,
+            PlaybookRun.contract_version_id,
+            PlaybookRun.playbook_version_id,
+            PlaybookRun.status,
+            PlaybookRun.model_name,
+            PlaybookRun.validation_status,
+            (PlaybookRun.playbook_version_id == latest_published_version_id()).label("latest"),
+        )
+        .where(
+            PlaybookRun.org_id == contract.org_id,
+            PlaybookRun.contract_id == contract.id,
+            PlaybookRun.playbook_id == playbook.id,
+        )
+        .order_by(PlaybookRun.created_at.desc())
+    ).all()
+    qualifying = [
+        r for r in rows
+        if r.contract_version_id in version_ids
+        and r.latest
+        and r.status == "succeeded"
+        and r.model_name == "claude"
+        and r.validation_status in ("valid", "needs_review")
+    ]
+    return playbook, version_ids, rows, qualifying
+
+
+def current_open_findings(db: Session, contract: Contract) -> list:
+    """The open playbook findings (open / needs_review) of the review that counts for the
+    CURRENT text, oldest first: the findings behind the risk band, not every open row of
+    every review ever run. A newer review never closes an older one's rows (only a person's
+    decision does), so listing them all showed each unfixed problem twice -- once from the
+    old review, once from the new -- next to a header that counted only the new one.
+
+    With no qualifying review (band unknown) the only findings there are come from scans of
+    this same text, e.g. a keyword scan after the AI failed, so those are listed; a test run
+    against a DRAFT playbook is the author checking rules, not a review of this contract.
+    Findings of an earlier text are not listed: that text is gone, and the automatic
+    re-check after an accepted change finds what still applies."""
+    from app.core.enums import PlaybookStatus
+    from app.playbooks.models import PlaybookDeviation, PlaybookRun, PlaybookVersion
+
+    _playbook, version_ids, _rows, qualifying = _review_runs(db, contract)
+    if qualifying:
+        run_ids = [r.id for r in qualifying]
+    elif version_ids:
+        run_ids = list(db.scalars(
+            select(PlaybookRun.id)
+            .join(PlaybookVersion, PlaybookVersion.id == PlaybookRun.playbook_version_id)
+            .where(
+                PlaybookRun.org_id == contract.org_id,
+                PlaybookRun.contract_id == contract.id,
+                PlaybookRun.contract_version_id.in_(version_ids),
+                PlaybookVersion.status != PlaybookStatus.DRAFT,
+            )
+        ))
+    else:
+        run_ids = []
+    if not run_ids:
+        return []
+    return list(db.scalars(
+        select(PlaybookDeviation)
+        .where(
+            PlaybookDeviation.org_id == contract.org_id,
+            PlaybookDeviation.contract_id == contract.id,
+            PlaybookDeviation.playbook_run_id.in_(run_ids),
+            PlaybookDeviation.status.in_(OPEN_STATUSES),
+        )
+        .order_by(PlaybookDeviation.created_at.asc(), PlaybookDeviation.id.asc())
+    ))
+
+
+def contract_risk(db: Session, contract: Contract) -> dict:
+    """The band and the findings behind it, computed now. Read-only. Which reviews
+    count is decided by _review_runs."""
+    from app.playbooks.models import PlaybookDeviation
+
+    summary: dict = {
         "band": "unknown",
+        "counts": {"critical": 0, "high": 0, "medium": 0, "low": 0},
         "drivers": [],
-        "counts": {"high": 0, "medium": 0, "low": 0},
-        "clause_count": clause_count,
-        "note": note,
-        **extra,
+        "contract_version_id": contract.current_authoritative_version_id,
+        "playbook_id": None,
+        "playbook_version_id": None,
+        "playbook_run_ids": [],
+        "note": None,
         "computed_at": utcnow().isoformat(),
     }
-    contract.risk_score = None
-    contract.risk_band = None
-    contract.risk_level = None  # no stale badge while the score is unknown
-    contract.risk_summary = summary
-    contract.updated_by_user_id = user.id
-    db.commit()
+    playbook, version_ids, rows, qualifying = _review_runs(db, contract)
+    if playbook is None:
+        summary["note"] = "No playbook covers this contract type, so it can't be reviewed yet."
+        return summary
+    summary["playbook_id"] = playbook.id
+    if not qualifying:
+        summary["note"] = _unknown_note(rows, version_ids, playbook.name)
+        return summary
+
+    unverified_runs = {r.id for r in qualifying if r.validation_status == "needs_review"}
+    devs = db.scalars(
+        select(PlaybookDeviation).where(
+            PlaybookDeviation.org_id == contract.org_id,
+            PlaybookDeviation.contract_id == contract.id,
+            PlaybookDeviation.playbook_run_id.in_([r.id for r in qualifying]),
+        )
+    ).all()
+    keyed = [(d.severity, d.status, d.playbook_run_id in unverified_runs) for d in devs]
+    open_devs: list[tuple[int, PlaybookDeviation]] = []
+    for d, (severity, status, unverified) in zip(devs, keyed, strict=True):
+        if status in _RESOLVED:
+            continue
+        open_devs.append((_effective_rank(severity, status, unverified), d))
+    by_rank = {rank: name for name, rank in _RANK.items()}
+    open_devs.sort(key=lambda pair: pair[0], reverse=True)
+    for rank, _d in open_devs:
+        summary["counts"][by_rank[rank]] += 1
+    summary.update(
+        band=band_for(keyed),
+        # Severity here is the one the band used (an unverified low shows as medium).
+        drivers=[
+            {
+                "deviation_id": d.id,
+                "issue": d.issue,
+                "severity": by_rank[rank],
+                "status": d.status,
+                "conceded": d.status in _CONCEDED,
+            }
+            for rank, d in open_devs[:_MAX_DRIVERS]
+        ],
+        playbook_version_id=qualifying[0].playbook_version_id,
+        playbook_run_ids=[r.id for r in qualifying],
+    )
     return summary
 
 
-class ContractRiskService:
-    """Computes + persists the weighted risk score and its drivers.
-
-    Part of the DI migration (see backend/DI_MIGRATION.md). ``ai`` defaults to
-    the existing ``ai_controller`` singleton but can be overridden in tests.
-    """
-
-    def __init__(self, db: Session, *, ai=None):
-        self.db = db
-        self.ai = ai or ai_controller
-
-    async def compute_contract_risk(
-        self,
-        *,
-        contract: Contract,
-        user,
-        request_id: str | None = None,
-    ) -> dict:
-        db = self.db
-        clauses = db.scalars(
-            select(ClauseExtraction).where(
-                ClauseExtraction.org_id == contract.org_id,
-                ClauseExtraction.contract_id == contract.id,
-                ClauseExtraction.is_stale.is_(False),
-            )
-        ).all()
-        if not clauses:
-            # Self-heal instead of dead-ending. If the contract has text but no
-            # clauses yet, kick off extraction — it chains graph ingestion and
-            # auto-review, which re-runs risk once clauses exist. Previously this
-            # returned "run analysis first" and nothing ever ran.
-            from app.contract_files.models import ContractTextSnapshot, ContractVersion
-
-            note = "No clauses extracted yet."
-            version = (
-                db.get(ContractVersion, contract.current_authoritative_version_id)
-                if contract.current_authoritative_version_id
-                else None
-            )
-            snapshot = (
-                db.get(ContractTextSnapshot, version.text_snapshot_id)
-                if version and version.text_snapshot_id
-                else None
-            )
-            if version is not None and snapshot is not None:
-                from app.jobs.service import create_job, dispatch_job
-
-                job = create_job(
-                    db,
-                    org_id=contract.org_id,
-                    job_type="clause_extraction",
-                    resource_type="contract",
-                    resource_id=contract.id,
-                    created_by_user_id=user.id,
-                    idempotency_key=f"clause_extraction:{version.id}:{snapshot.id}",
-                    metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
-                )
-                db.flush()
-                try:
-                    dispatch_job(db, job=job)
-                    note = "Clause analysis started — the risk score will populate once it completes."
-                except Exception:  # pragma: no cover - dispatch is best-effort
-                    logger.warning("could not dispatch clause extraction for %s", contract.id, exc_info=True)
-            return _save_unknown(
-                db,
-                contract=contract,
-                user=user,
-                note=note,
-                clause_count=0,
-                analysis_started="started" in note,
-            )
-
-        refs = {f"C{n}": clause for n, clause in enumerate(clauses, 1)}
-        # Rated in batches: every clause comes back with a rationale and a
-        # verbatim quote, so one call for an 82-clause SaaS agreement overran
-        # the output limit and the score came back "unknown". Labels stay
-        # global (C1…Cn), so the batches merge into one judgment per clause.
-        items = list(refs.items())
-        judged: dict[str, ClauseRiskOutput] = {}
-        summaries: list[str] = []
-        for i in range(0, len(items), _RISK_BATCH):
-            clause_block = "\n\n".join(
-                f"[{ref}] [{canonical_clause_type(c.clause_type)}] {(c.text or '')[:800]}"
-                for ref, c in items[i:i + _RISK_BATCH]
-            )
-            out = await self.ai.run_structured_skill(
-                db,
-                skill_name="contract_risk_assessment",
-                org_id=contract.org_id,
-                created_by_user_id=user.id,
-                input_payload={"clauses": clause_block, "contract_title": contract.title},
-                request_id=request_id,
-                resource_type="contract",
-                resource_id=contract.id,
-            )
-            out = out if isinstance(out, ContractRiskOutput) else ContractRiskOutput.model_validate(out)
-            if out.summary:
-                summaries.append(out.summary)
-            # Key every judgment to a clause that was actually sent; unknown or repeated refs don't count.
-            for cr in out.clause_risks:
-                ref = (cr.clause_ref or "").strip().strip("[]").upper()
-                if ref in refs:
-                    judged.setdefault(ref, cr)
-        counted = {
-            "clause_count": len(clauses),
-            "assessed_count": len(judged),
-            "coverage": round(len(judged) / len(clauses), 2),
-            "summary": " ".join(summaries) or None,
-        }
-        if len(judged) < _MIN_COVERAGE * len(clauses):
-            # 6 judgments for a 40-clause contract would otherwise read as the whole
-            # contract, and the score would change with whichever clauses came back.
-            return _save_unknown(
-                db,
-                contract=contract,
-                user=user,
-                note=(
-                    f"The risk assessment covered {len(judged)} of {len(clauses)} clauses, "
-                    "too few to score."
-                ),
-                **counted,
-            )
-
-        # One judgment per clause type (its worst), in clause order, so repeated
-        # clauses of one type don't outweigh the rest of the contract.
-        worst: dict[str, ClauseRiskOutput] = {}
-        for ref, clause in refs.items():
-            cr = judged.get(ref)
-            canon = canonical_clause_type(clause.clause_type)
-            if cr is not None and (
-                canon not in worst or _SEVERITY[cr.risk] > _SEVERITY[worst[canon].risk]
-            ):
-                worst[canon] = cr
-
-        drivers: list[dict] = []
-        numerator = 0.0
-        denominator = 0.0
-        for canon, cr in worst.items():
-            weight = clause_weight(canon)
-            contribution = weight * _SEVERITY[cr.risk]
-            numerator += contribution
-            denominator += weight
-            drivers.append(
-                {
-                    "clause_type": canon,
-                    "label": display_label(canon),
-                    "weight": weight,
-                    "risk": cr.risk,
-                    "rationale": cr.rationale,
-                    "quote": cr.quote,
-                    "contribution": round(contribution, 2),
-                }
-            )
-        if not denominator:
-            return _save_unknown(
-                db,
-                contract=contract,
-                user=user,
-                note="The risk assessment returned no weighted clause findings, so no score was computed.",
-                **counted,
-            )
-        score = round(100 * numerator / denominator)
-        drivers.sort(key=lambda d: d["contribution"], reverse=True)
-        counts = {
-            level: sum(1 for d in drivers if d["risk"] == level)
-            for level in ("high", "medium", "low")
-        }
-        summary = {
-            "score": score,
-            "band": _band(score),
-            "drivers": drivers[:8],
-            "counts": counts,
-            **counted,
-            "computed_at": utcnow().isoformat(),
-        }
-        contract.risk_score = score
-        contract.risk_band = _band(score)
-        contract.risk_level = _band(score)  # keep the legacy badge field in sync
-        contract.risk_summary = summary
-        contract.updated_by_user_id = user.id
-        db.commit()
-        db.refresh(contract)
-        return summary
-
-
-# DI-MIGRATION: temporary wrapper — remove once all callers use
-# get_contract_risk_service(). Tracked in backend/DI_MIGRATION.md
-async def compute_contract_risk(
-    db: Session,
-    *,
-    contract: Contract,
-    user,
-    request_id: str | None = None,
-) -> dict:
-    return await ContractRiskService(db).compute_contract_risk(
-        contract=contract, user=user, request_id=request_id
-    )
+def refresh_contract_risk(db: Session, contract: Contract) -> dict:
+    """Recompute and cache the band on the contract. Does NOT commit: it rides the
+    caller's transaction. Unknown caches as NULL so the list page never shows a
+    stale band as if it were current; risk_level mirrors it, so a hand-set legacy
+    badge can't outlive a recompute."""
+    summary = contract_risk(db, contract)
+    band = None if summary["band"] == "unknown" else summary["band"]
+    contract.risk_band = band
+    contract.risk_level = band
+    contract.risk_score = None
+    contract.risk_summary = summary
+    return summary

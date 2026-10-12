@@ -6,9 +6,9 @@
 // see its steps. Shared by the request ticket and the contract page so both show
 // one lifecycle, not two.
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Check, Clock, Minus, Undo2 } from "lucide-react";
-import { cn, fmtRelative } from "@/lib/utils";
+import { cn, fmtRelative, RISK_UNKNOWN_LABEL } from "@/lib/utils";
 import type { IntakeTeam, LifecycleRow, LifecycleStage, WorkflowRun, WorkflowRunComment, WorkflowRunStep } from "@/lib/types";
 
 export const LIFECYCLE: { key: LifecycleStage; label: string; about: string }[] = [
@@ -52,8 +52,11 @@ export function currentStage({ run, contractStage, requestClosed }: {
   return "intake";
 }
 
+/** What `who` prints when a step has no named owner; callers that build a sentence leave it out. */
+const NOBODY = "—";
+
 function who(s: WorkflowRunStep) {
-  return s.assignee_label || s.team_label || s.planned_team_label || (s.type === "counterparty" ? "The other side" : s.type === "ai_task" ? "Aegis AI" : "—");
+  return s.assignee_label || s.team_label || s.planned_team_label || (s.type === "counterparty" ? "The other side" : s.type === "ai_task" ? "Aegis AI" : NOBODY);
 }
 
 const KIND: Record<string, string> = {
@@ -68,7 +71,8 @@ function stepDetail(s: WorkflowRunStep): string {
   if (s.note) return s.note;
   const r = (s.result ?? {}) as Record<string, unknown>;
   if (typeof r.summary === "string" && r.summary) return r.summary;
-  if (r.risk_band) return `Risk ${r.risk_band}${r.risk_score != null ? ` (${r.risk_score})` : ""}`;
+  // The band the step saw; the 0-100 score was the deleted AI risk score.
+  if (r.risk_band) return r.risk_band === "unknown" ? RISK_UNKNOWN_LABEL : `Risk ${r.risk_band}`;
   if (r.category) return `Read as ${r.category}${r.confidence != null ? ` · ${Math.round(Number(r.confidence) * 100)}% confidence` : ""}`;
   if (r.contract_id && s.type === "clm_draft") return "Draft created";
   return "";
@@ -93,12 +97,17 @@ function caption(rows: Row[], state: "done" | "current" | "upcoming") {
   if (!rows.length) return state === "done" ? "Passed" : "No steps";
   const live = rows.find((r) => r.tone === "live");
   if (state === "current" && live) return `Waiting · ${live.name}`;
-  const done = rows.filter((r) => r.tone === "done" || r.tone === "skipped").length;
-  return `${done} of ${rows.length} done`;
+  // A skipped step (its condition was not met) was never done, so it is not counted as done, and it is not
+  // work this request needed either: the count is of the steps that applied, with the skipped ones named.
+  const skipped = rows.filter((r) => r.tone === "skipped").length;
+  const needed = rows.length - skipped;
+  if (needed === 0) return "All skipped";
+  const done = rows.filter((r) => r.tone === "done").length;
+  return `${done} of ${needed} done${skipped ? `, ${skipped} skipped` : ""}`;
 }
 
 export function LifecycleView({
-  steps, current, selectedStepIdx = null, onSelectStep, compact = false, comments = [], extras = {},
+  steps, current, selectedStepIdx = null, onSelectStep, compact = false, strip = false, comments = [], extras = {}, trailing,
 }: {
   steps: WorkflowRunStep[];
   current: LifecycleStage;
@@ -110,6 +119,11 @@ export function LifecycleView({
   onSelectStep?: (idx: number) => void;
   /** Page-header use: no stage is open until one is clicked. */
   compact?: boolean;
+  /** With `compact`: draw the stages as one slim row instead of the grid. Its styles
+   *  (`LIFECYCLE_STRIP_CSS`) need the contract page's `.clm` colour variables, so only that page asks for it. */
+  strip?: boolean;
+  /** With `strip`: shown at the right end of the row (the stage's time against its target). */
+  trailing?: ReactNode;
 }) {
   const [picked, setPicked] = useState<LifecycleStage | null>(null);
   const open = compact ? picked : picked ?? current;
@@ -123,8 +137,31 @@ export function LifecycleView({
   const sel = LIFECYCLE.find((s) => s.key === open);
   const stateOf = (k: LifecycleStage) => (RANK[k] < RANK[current] ? "done" : k === current ? "current" : "upcoming");
 
+  const compactRow = (
+    <div className="lcs-row">
+      <ol className="lcs-strip">
+        {LIFECYCLE.map((s) => {
+          const st = stateOf(s.key);
+          const isOpen = open === s.key;
+          return (
+            <li key={s.key} className={`lcs-st ${st}`}>
+              <button type="button" aria-pressed={isOpen} onClick={() => setPicked(isOpen ? null : s.key)}
+                title={caption(rowsOf(s.key), st)}
+                aria-label={`${s.label}: ${st === "done" ? "done" : st === "current" ? "now" : "not reached yet"}. Show its steps.`}>
+                <span className="lcs-dot" aria-hidden>{st === "done" ? <Check className="h-2.5 w-2.5" strokeWidth={3} /> : null}</span>
+                <span className="lcs-name">{s.label}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+      {trailing ? <div className="lcs-trail">{trailing}</div> : null}
+    </div>
+  );
+
   return (
     <div>
+      {compact && strip ? compactRow : (
       <ol className="grid min-w-[640px] grid-cols-7 gap-1 overflow-x-auto">
         {LIFECYCLE.map((s, i) => {
           const st = stateOf(s.key);
@@ -149,6 +186,7 @@ export function LifecycleView({
           );
         })}
       </ol>
+      )}
 
       {(() => {
         const back = comments.filter((c) => c.kind === "return");
@@ -226,9 +264,13 @@ export function NextStepCard({ run, teams }: { run: WorkflowRun; teams?: IntakeT
   if (!cur) return null;
   const team = (teams ?? []).find((t) => t.id === cur.team_id) ?? (teams ?? []).find((t) => t.name === (cur.team_label ?? cur.planned_team_label));
   const members = (team?.members ?? []).filter((m) => m.active).map((m) => m.name ?? m.user_id);
+  // An approval step reports the live approval itself (who holds it now, and its own due date), which is
+  // what Delegate and Escalate change; the step's team and "started + SLA hours" are only the plan.
+  const live = cur.approval ?? null;
   const sla = Number(cur.sla_hours);
-  const due = sla > 0 && cur.updated_at ? new Date(new Date(cur.updated_at).getTime() + sla * 3_600_000) : null;
-  const overdue = due != null && due.getTime() < Date.now();
+  const slaDue = sla > 0 && cur.updated_at ? new Date(new Date(cur.updated_at).getTime() + sla * 3_600_000) : null;
+  const due = live ? (live.due_at ? new Date(live.due_at) : null) : slaDue;
+  const overdue = live ? live.overdue : due != null && due.getTime() < Date.now();
   let end = run.current_index + 1;
   while (end < steps.length && steps[end].parallel) end++;
   const then = steps[end];
@@ -237,9 +279,13 @@ export function NextStepCard({ run, teams }: { run: WorkflowRun; teams?: IntakeT
     <div className="space-y-1.5 text-[13px] leading-relaxed text-slate-600">
       <div className="text-[14px] font-semibold text-slate-900">{cur.name} <span className="font-normal text-slate-500">· {stageName(cur)}</span></div>
       <div>
-        {cur.assignee_label ? <>With <b className="text-slate-800">{cur.assignee_label}</b>{team ? ` (${team.name})` : ""}. </> : null}
-        {!cur.assignee_label && team ? <><b className="text-slate-800">{team.name}</b> team — {members.length ? members.join(", ") : "no members yet"}. </> : null}
-        {!cur.assignee_label && !team ? <>{who(cur)}. </> : null}
+        {live ? <>With <b className="text-slate-800">{live.approver_label}</b>. </> : null}
+        {!live && cur.assignee_label ? <>With <b className="text-slate-800">{cur.assignee_label}</b>{team ? ` (${team.name})` : ""}. </> : null}
+        {!live && !cur.assignee_label && team ? <><b className="text-slate-800">{team.name}</b> team — {members.length ? members.join(", ") : "no members yet"}. </> : null}
+        {!live && !cur.assignee_label && !team ? (
+          cur.type === "signature" ? <>Waiting for the signers. </>
+            : who(cur) !== NOBODY ? <>{who(cur)}. </> : null
+        ) : null}
       </div>
       {cur.authority_note ? <div>{cur.authority_note}.</div> : null}
       {due ? <div className={overdue ? "font-semibold text-danger" : ""}>{overdue ? "Overdue since" : "Due"} {due.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.</div> : null}
@@ -247,3 +293,26 @@ export function NextStepCard({ run, teams }: { run: WorkflowRun; teams?: IntakeT
     </div>
   );
 }
+
+/** The slim stage row used by `strip` (the contract page): a dot and a name per stage, the
+ *  current stage as a filled pill, done stages with a tick. Needs the `.clm` colour variables. */
+export const LIFECYCLE_STRIP_CSS = `
+.clm .lcs-row{display:flex;align-items:center;justify-content:space-between;gap:14px}
+.clm .lcs-strip{display:flex;align-items:center;list-style:none;margin:0;padding:0;min-width:0;overflow-x:auto;scrollbar-width:none;flex:1}
+.clm .lcs-strip::-webkit-scrollbar{display:none}
+.clm .lcs-st{display:flex;align-items:center;flex:none}
+.clm .lcs-st+.lcs-st::before{content:"";width:16px;height:2px;border-radius:2px;background:var(--border);margin:0 3px;transition:background .3s}
+.clm .lcs-st.done+.lcs-st::before{background:var(--good)}
+.clm .lcs-st button{display:inline-flex;align-items:center;gap:7px;padding:4px 11px 4px 5px;border-radius:99px;color:var(--ink-3);font-size:12.5px;font-weight:500;white-space:nowrap;transition:background .2s,color .2s}
+.clm .lcs-st button:hover{background:var(--surface-2)}
+.clm .lcs-dot{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--border-strong);display:grid;place-items:center;color:#fff;flex:none;transition:background .3s,border-color .3s}
+.clm .lcs-st.done .lcs-dot{background:var(--good);border-color:var(--good)}
+.clm .lcs-st.done button{color:var(--ink)}
+.clm .lcs-st.current button{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.clm .lcs-st.current button:hover{background:var(--accent)}
+.clm .lcs-st.current .lcs-dot{border-color:transparent;background:var(--accent-ink)}
+.clm .lcs-st.current .lcs-dot::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.clm .lcs-st button[aria-pressed="true"]{box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 35%,transparent)}
+.clm .lcs-trail{display:flex;align-items:center;gap:8px;flex:none}
+@media (max-width:640px){.clm .lcs-st:not(.current) .lcs-name{display:none}.clm .lcs-st+.lcs-st::before{width:6px;margin:0 1px}.clm .lcs-st button{padding:3px}.clm .lcs-st.current button{padding:3px 11px 3px 4px}}
+`;

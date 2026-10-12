@@ -35,7 +35,7 @@ def form_fields(key: str | None) -> list[SimpleNamespace]:
     return [
         SimpleNamespace(key=f["key"], label=f["label"], kind=f["kind"], required=f["required"],
                         options=[{"value": o, "label": o} for o in f.get("options") or []] or None,
-                        show=f.get("show"))
+                        show=f.get("show"), not_before=f.get("not_before"))
         for f in (form["fields"] if form else [])
     ]
 

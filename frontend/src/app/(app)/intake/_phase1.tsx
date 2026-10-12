@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import { intakeApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
+import { describeSlaScan } from "@/lib/sla-scan";
 import type { IntakeSlaLeg } from "@/lib/types";
 
 
@@ -28,7 +29,7 @@ export function SlaDashboardTab({ isAdmin }: { isAdmin: boolean }) {
       const r = await intakeApi.slaScan();
       qc.invalidateQueries({ queryKey: ["intake-slaops"] });
       qc.invalidateQueries({ queryKey: ["intake-list"] });
-      notify(`Scan: ${r.escalated} escalated, ${r.breached} breached`, "success");
+      notify(describeSlaScan(r), "success");
     } catch (e) { notify(e instanceof Error ? e.message : "Scan failed", "error"); }
     finally { setBusy(false); }
   }
@@ -39,7 +40,7 @@ export function SlaDashboardTab({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div>
       <div className="toprow">
-        <p className="dim">Queue health · custody-based SLA legs. Escalation fires on the overdue edge.</p>
+        <p className="dim">Queue health · custody-based SLA legs. The SLA scan runs every 5 minutes and escalates a request the moment it goes overdue.</p>
         {isAdmin && <button className="btn" disabled={busy} onClick={scan}>{busy ? "Scanning…" : "Run breach scan"}</button>}
       </div>
       <div className="statcard">
@@ -47,7 +48,7 @@ export function SlaDashboardTab({ isAdmin }: { isAdmin: boolean }) {
           <div className="tile a"><div className="tn">{o.open_total}</div><div className="tl">Open</div></div>
           <div className="tile w"><div className="tn">{o.at_risk}</div><div className="tl">At risk</div></div>
           <div className="tile c"><div className="tn">{o.overdue}</div><div className="tl">Overdue</div></div>
-          <div className="tile"><div className="tn">{o.breaches_7d}</div><div className="tl">Breaches (7d)</div></div>
+          <div className="tile" title="Requests that ran past their SLA in the last 7 days, as recorded by the SLA scan (it runs every 5 minutes). Overdue is how many are past it right now."><div className="tn">{o.breaches_7d}</div><div className="tl">Newly overdue (7d)</div></div>
         </div>
       </div>
 

@@ -50,8 +50,10 @@ export interface Counterparty {
 /** A request form's questions as the server validates them (agreement_forms.json). */
 export interface RequestFormRule { field: string; in: string[] }
 export interface RequestFormField {
-  key: string; label: string; kind: "text" | "textarea" | "select" | "multiselect" | "date" | "number";
+  key: string; label: string; kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number";
   required: boolean; options?: string[]; show?: RequestFormRule[];
+  /** A date that must not come before the date answered under this key (an end date against its start date). */
+  not_before?: string;
 }
 export interface RequestFormDef { key: string; name: string; fields: RequestFormField[] }
 /** A half-filled agreement-wizard form saved with "Save as Draft". */
@@ -303,6 +305,26 @@ export interface ContractDeviation {
   status: string;
 }
 
+/** A requested AI review that has not finished (the server's contracts.auto_review.review_state). */
+export interface AutoReviewState {
+  state: "running" | "interrupted";
+  /** Why it counts as interrupted: "failed" | "stalled" | "no_job". */
+  reason: string | null;
+  /** When the attempt began. */
+  since: string | null;
+  job_id: ID | null;
+  /** "accepted_edits" when this re-checks text the person just changed by accepting suggestions: it lists findings but writes no changes. */
+  after?: string | null;
+}
+
+export interface ReviewRetryResponse {
+  /** "queued" | "already_running" | "not_needed" | "no_playbook" */
+  status: "queued" | "already_running" | "not_needed" | "no_playbook";
+  job_id: ID | null;
+  /** The contract's workflow was waiting on this review and was set going again. */
+  workflow_resumed: boolean;
+}
+
 export interface ReviewStatusResponse {
   contract_id: ID;
   lifecycle_stage: ContractLifecycleStage;
@@ -311,6 +333,10 @@ export interface ReviewStatusResponse {
   high_severity_issues: number;
   pending_redlines: number;
   open_comments: number;
+  /** Fill-in blanks still in the contract text. Advice before approval; sending for signature is refused while any remain. */
+  blanks?: string[];
+  /** Where approval stands for the version on screen. "changed": approved once, edited since, so this version was never approved. */
+  version_approval?: "none" | "approved" | "pending" | "rejected" | "changed";
   counterparty_active: boolean;
   ready_for_approval: boolean;
   next_step: string;
@@ -324,6 +350,17 @@ export interface ReviewStatusResponse {
     | "submit_approval"
     | null;
   checklist: ReviewChecklistItem[];
+  // The newest playbook run (null = never reviewed). "Reviewed" only means an AI run
+  // that succeeded on the current version; a keyword scan is source "keyword".
+  last_review?: {
+    status: string;
+    source: "ai" | "keyword";
+    contract_version_id: ID;
+    // That version's text is the current version's (a signed copy, a no-op save).
+    on_current_text?: boolean;
+  } | null;
+  // A review that was asked for and has not finished; null/absent when none is pending.
+  auto_review?: AutoReviewState | null;
 }
 
 export interface ContractComment {
@@ -468,26 +505,31 @@ export type ContractVersionSource =
   | "restored"
   | "template_generated";
 
+/** One unresolved playbook finding behind the band (GET /contracts/{id}/risk). */
 export interface RiskDriver {
-  clause_type: string;
-  label: string;
-  weight: number;
-  risk: "low" | "medium" | "high";
-  rationale: string;
-  quote?: string | null;
-  contribution: number;
+  deviation_id: ID;
+  issue: string;
+  /** The severity the band used: a finding from an unverified (needs_review) run is floored at medium. */
+  severity: "critical" | "high" | "medium" | "low" | string;
+  status: string;
+  /** Accepted or waived by a person — the wording stays, so it still counts. */
+  conceded: boolean;
 }
 
+/** The one risk signal: a band computed from the unresolved findings of the
+ *  qualifying playbook review(s) of the current text. "unknown" (or a missing
+ *  band, on an old cached row) means nobody has a judgement on this text yet. */
 export interface ContractRiskSummary {
-  score: number | null;
-  band: "low" | "medium" | "high" | "unknown" | string;
-  drivers: RiskDriver[];
-  counts: { high: number; medium: number; low: number };
-  clause_count: number;
-  assessed_count?: number;
-  summary?: string | null;
-  computed_at?: string | null;
+  band: "low" | "medium" | "high" | "unknown" | null;
+  counts?: { critical: number; high: number; medium: number; low: number };
+  drivers?: RiskDriver[];
+  /** Why the band is unknown (never reviewed, keyword scan only, text changed…). */
   note?: string | null;
+  contract_version_id?: ID | null;
+  playbook_id?: ID | null;
+  playbook_version_id?: ID | null;
+  playbook_run_ids?: ID[];
+  computed_at?: string | null;
 }
 
 export interface ContractResponse {
@@ -503,6 +545,7 @@ export interface ContractResponse {
   jurisdiction: string | null;
   confidentiality: string;
   risk_level: string | null;
+  /** Always null since the weighted AI score was retired; the band is the signal. */
   risk_score?: number | null;
   risk_band?: string | null;
   risk_summary?: ContractRiskSummary | null;
@@ -546,7 +589,8 @@ export interface ContractVersionResponse {
 }
 
 export interface VersionDiffLine {
-  type: "context" | "add" | "remove";
+  // "gap" is a run of unchanged lines the server left out; its text says how many ("12 unchanged lines").
+  type: "context" | "add" | "remove" | "gap";
   text: string;
 }
 
@@ -582,6 +626,39 @@ export interface ContractEditResponse {
   replacement_text: string | null;
   rationale: string | null;
   citation: unknown[] | null;
+  /** The playbook issue this change fixes; deciding the change decides the issue. */
+  playbook_deviation_id: string | null;
+  /** False when the change's wording isn't in the text, so it can only be rejected. */
+  locatable: boolean;
+  /** A fill-in blank ("[INSERT DATE]") the change would write into the contract. Such a change can only be rejected. */
+  blank?: string | null;
+}
+
+/** The background job that writes a suggested change for each playbook issue that has none. */
+export interface IssueFixJob {
+  job_id: ID;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /** "review": it started by itself when a playbook review finished. "manual": someone asked. */
+  trigger: "review" | "manual" | null;
+  /** Issues the job took on, and how many it has finished (changes written, or nothing to change, or an error). */
+  total: number;
+  done: number;
+  drafted: number;
+  /** The model found no wording to change: an answer, not an error. */
+  no_change: number;
+  failed: number;
+  /** Open issues beyond the job's cap, left for a person to ask for. */
+  left_for_later: number;
+  /** It stopped before reaching every issue (out of time, or the AI service kept failing). */
+  stopped_early: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface DraftIssueFixesResponse {
+  /** null when every open issue already has a suggested change. */
+  job: IssueFixJob | null;
+  reason: string | null;
 }
 
 export interface ContractShareResponse {
@@ -855,6 +932,8 @@ export interface WorkflowRunStep {
   planned_team_label?: string | null;
   /** Approval steps: the authority needed and how many approvers hold it. */
   authority_note?: string | null;
+  /** Approval steps still waiting: who the live approval is with and when it is due (read from the approval itself). */
+  approval?: { approver_label: string; step_order: number; due_at: string | null; overdue: boolean } | null;
   sla_hours?: number | string | null;
   note: string | null;
   result: Record<string, unknown> | null;
@@ -894,6 +973,9 @@ export interface WorkflowRun {
   comments: WorkflowRunComment[];
   // The multi-agent hand-off trace: what each agent/step established, in order.
   brief?: WorkflowRunBriefEntry[];
+  // Set after a rejected approval, until someone replies to it. The next human step is
+  // refused without a reply (complete-step takes it as `rework_reply`).
+  rework?: { reply_required: true; reason: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -980,7 +1062,11 @@ export interface PlaybookDecisionResponse {
 export interface ApprovalRequest {
   id: ID;
   org_id: ID;
-  contract_id: ID;
+  /** Null for an approval on an intake request that has no contract (see intake_request_id). */
+  contract_id: ID | null;
+  intake_request_id?: ID | null;
+  intake_ref?: string | null;
+  intake_title?: string | null;
   contract_title?: string | null;
   contract_type?: string | null;
   contract_archived?: boolean;
@@ -988,6 +1074,8 @@ export interface ApprovalRequest {
   status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
   requested_by_user_id: ID;
   approver_user_id: ID | null;
+  /** The assigned person's name, sent with the row (the users list is not readable by every approver). */
+  approver_user_name?: string | null;
   approver_role: string | null;
   approver_team_id?: ID | null;
   approver_team_name?: string | null;
@@ -1101,8 +1189,63 @@ export interface Obligation {
   status: ObligationStatus;
   source_citation: Record<string, unknown> | null;
   metadata_json: Record<string, unknown>;
+  /** How the date was counted (null for rows extracted before Step 3d). */
+  deadline: ObligationDeadline | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+/** A contract date (or an event date a person entered) a period counts from.
+ *  `conflict` is set when the request form and the contract text disagree and
+ *  no person has picked: then `value` is null and nothing is computed. */
+export interface DeadlineAnchor {
+  name: string;
+  value: ISODate | null;
+  /** "computed": an expiry code counted from the renewal facts; "change_request": one a
+   *  finished renewal/amendment/termination wrote. An "ai" expiry is never an anchor. */
+  source: "user" | "form" | "ai" | "computed" | "change_request" | "signature" | null;
+  conflict: DateConflict | null;
+}
+
+/** Form value vs the contract text's value. `text` may be a phrase
+ *  ("continues until terminated") rather than a date. */
+export interface DateConflict {
+  form: string;
+  text: string;
+}
+
+/** Mirrors obligations/service._deadline_view. Code computes every date from
+ *  the clause's wording; `formula` shows the sum, `reason` why there is none. */
+export interface ObligationDeadline {
+  formula: string | null;
+  reason: string | null;
+  /** End of an ongoing duty — never a due date, so it can't go overdue. */
+  ends_on: ISODate | null;
+  anchor: DeadlineAnchor | null;
+  /** The day the triggering event happened, as a person entered it. */
+  anchor_date: ISODate | null;
+  set_by_person: boolean;
+  confirmed: boolean;
+  confirmed_by: ID | null;
+  confirmed_at: ISODateTime | null;
+  needs_reconfirm: boolean;
+  /** The re-count after an anchor moved, shown beside the confirmed date. */
+  recomputed: {
+    due: ISODate | null;
+    ends_on: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    anchor: DeadlineAnchor | null;
+  } | null;
+}
+
+export type RenewalDatesStatus = "confirmed" | "needs_reconfirm" | "needs_person" | "calculated";
+
+export interface RenewalFormulas {
+  expiration_date?: string;
+  notice_date?: string;
+  window_opens?: string;
+  next_expiration_date?: string;
 }
 
 export interface RenewalEvent {
@@ -1117,6 +1260,13 @@ export interface RenewalEvent {
   owner_user_id: ID | null;
   decision: "undecided" | "renew" | "terminate" | "renegotiate";
   decision_note: string | null;
+  /** The next term's end if it renews — shown only, never applied. */
+  next_expiration_date: ISODate | null;
+  formulas: RenewalFormulas;
+  date_reason: string | null;
+  date_conflict: DateConflict | null;
+  /** null for an event extracted before Step 3d (no formulas). */
+  dates_status: RenewalDatesStatus | null;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -1165,6 +1315,31 @@ export interface BrainSearchResponse {
   text: BrainSearchTextHit[];
 }
 
+// A "which / how many contracts" answer (answer_mode "database_filter"): code
+// ran the question over every accessible contract. Mirrors the backend RESULT.
+export interface PortfolioMatch {
+  contract_id: ID;
+  title: string;
+  counterparty_name: string | null;
+  why: string[];
+}
+
+export interface PortfolioUnknown {
+  contract_id: ID;
+  title: string;
+  reason: string;
+}
+
+// The AI's reading of contract wording, run as a tabular review.
+export interface PortfolioReading {
+  tabular_review_id: ID | null;
+  contracts: number;
+  done: number;
+  failed: number;
+  estimate_usd: number;
+  started: boolean;
+}
+
 export interface BrainQuery {
   id: ID;
   org_id: ID;
@@ -1188,6 +1363,21 @@ export interface BrainQuery {
     verified_citations?: number;
     total_citations?: number;
     model_confidence?: "high" | "medium" | "low";
+    answer_mode?: string;
+    withheld_for_viewer?: boolean;
+    // answer_mode "database_filter" only:
+    filter?: Record<string, unknown>;
+    conditions?: string[];
+    total?: number;
+    checked?: number;
+    matched?: number;
+    matches?: PortfolioMatch[];
+    unknown?: PortfolioUnknown[];
+    unknown_reasons?: Record<string, number>;
+    not_checked?: string[];
+    reading?: PortfolioReading | null;
+    complete?: boolean;
+    count_only?: boolean;
   };
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -1281,6 +1471,9 @@ export type JobStatus =
   | "failed"
   | "cancelled";
 
+/** How many jobs are in each state across ALL jobs, not just the page on screen. */
+export type JobCounts = Record<JobStatus, number> & { total: number };
+
 export interface JobRun {
   id: ID;
   org_id: ID;
@@ -1289,6 +1482,7 @@ export interface JobRun {
   resource_id: ID;
   idempotency_key: string | null;
   status: JobStatus;
+  /** Whole percent, 0 to 100 (the worker writes 5, then 100 when done). */
   progress: number;
   started_at: ISODateTime | null;
   finished_at: ISODateTime | null;
@@ -1336,7 +1530,8 @@ export interface ClauseSearchResult {
   text_snapshot_id: ID;
   clause_type: string;
   heading: string;
-  confidence: number;
+  /** Stated by the server as a word, or null when it did not say. Not a number. */
+  confidence: "high" | "medium" | "low" | null;
   excerpt: string;
 }
 
@@ -1597,11 +1792,48 @@ export interface IntakeParty { name: string; role: string; is_person?: boolean; 
 // can't go stale against the statutory clock. 'met' = answered or closed.
 export type NoticeDirection = "received" | "sent";
 export type NoticeStatus = "draft" | "open" | "responded" | "escalated" | "closed";
-export type NoticeDeadlinePosture = "none" | "on_track" | "at_risk" | "overdue" | "met";
+export type NoticeDeadlinePosture = "none" | "needs_date" | "on_track" | "at_risk" | "overdue" | "met";
+
+/** The notice's deadline wording as /notices/extract read it — the model copies
+ *  words only; code (server, and the form's live preview) counts the date. */
+export interface NoticeDeadlineFacts {
+  stated: boolean;
+  explicit_date: ISODate | null;
+  period_count: number | null;
+  period_unit: "days" | "business_days" | "weeks" | "months" | null;
+  runs_from: "notice_date" | "receipt" | "other" | null;
+  runs_from_text: string | null;
+  quote: string | null;
+  /** "clear days": the count ends one day earlier (the safe side). */
+  clear_days?: boolean;
+}
+
+/** How response_due_date was worked out (notice.deadline_basis). */
+export interface NoticeDeadlineBasis {
+  facts: NoticeDeadlineFacts | null;
+  set_by: "document" | "person";
+  due: ISODate | null;
+  formula: string | null;
+  reason: string | null;
+  needs_person: boolean;
+  confirmed_by: ID | null;
+  confirmed_at: string | null;
+  needs_reconfirm: boolean;
+  /** The recount after the notice/received date moved under a confirmed date.
+   *  response_due_date keeps the confirmed date until a person accepts this. */
+  recomputed?: {
+    due: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    needs_person: boolean;
+  } | null;
+}
 
 export interface NoticeEvent {
   id: ID;
-  kind: "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note";
+  kind:
+    | "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note"
+    | "reminded" | "deadline_changed" | "deadline_confirmed";
   body: string | null;
   actor_user_id: ID | null;
   actor_name: string | null;
@@ -1632,6 +1864,7 @@ export interface Notice {
   created_at: string;
   updated_at: string;
   deadline_posture: NoticeDeadlinePosture;
+  deadline_basis: NoticeDeadlineBasis | null;
   days_to_due: number | null;
   /** Most urgent reminder already sent to the owner — so you can see whether
    *  anyone was actually told before a deadline lapsed. */
@@ -1661,6 +1894,8 @@ export interface NoticeReminderRun {
 export interface NoticeSummary {
   total: number; open: number; overdue: number; at_risk: number;
   responded: number; escalated: number; closed: number; draft: number;
+  /** Live notices whose deadline a person must set. */
+  needs_date: number;
 }
 
 export interface NoticeDocument {
@@ -1684,9 +1919,18 @@ export interface NoticeExtraction {
     notice_type: string;
     subject: string;
     notice_date: ISODate;
-    response_due_date: ISODate;
     demanded_action: string;
   }>;
+  /** Send back on create as `deadline_basis`; the server recounts from it. */
+  deadline_basis: NoticeDeadlineFacts | null;
+  /** The count with today as the received date — a preview only. */
+  deadline_preview: {
+    due: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    needs_person: boolean;
+    assumed_received_at: ISODate;
+  } | null;
   confidence: number;
   source: "llm" | "heuristic" | "empty";
   extraction_quality: number | null;
@@ -1712,9 +1956,13 @@ export interface AiUsageOperation {
   cost_per_call: number;
 }
 
+// Exam traffic split (specs/005-ai-eval-baseline/plan.md): "real" excludes calls the AI exam made.
+export type AiUsageTraffic = "real" | "exam";
+
 export interface AiUsageSummary {
   currency: string;
   window_days: number;
+  traffic: AiUsageTraffic; // echoes the filter the figures were computed with
   totals: {
     calls: number;
     prompt_tokens: number;

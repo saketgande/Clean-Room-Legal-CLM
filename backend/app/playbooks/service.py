@@ -25,8 +25,10 @@ from app.contract_files.models import (
 )
 from app.contract_files.service import next_version_number
 from app.contracts.models import Contract
+from app.contracts.risk import OPEN_STATUSES, refresh_contract_risk
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.enums import ContractVersionSource, PlaybookStatus, StorageBackend
+from app.playbooks.carry_over import carry_over_decisions
 from app.playbooks.models import (
     Playbook,
     PlaybookDecision,
@@ -35,6 +37,24 @@ from app.playbooks.models import (
     PlaybookRun,
     PlaybookVersion,
 )
+
+
+def latest_published_version_id():
+    """SQL: the version an official run of PlaybookRun's playbook uses today -- its highest
+    PUBLISHED version (select_run_version). Not Playbook.current_version_id: that points at a
+    draft while a new version is being edited, which would discount every review meanwhile."""
+    return (
+        select(PlaybookVersion.id)
+        .where(
+            PlaybookVersion.playbook_id == PlaybookRun.playbook_id,
+            PlaybookVersion.status == PlaybookStatus.PUBLISHED,
+        )
+        .order_by(PlaybookVersion.version_number.desc())
+        .limit(1)
+        .correlate(PlaybookRun)
+        .scalar_subquery()
+    )
+
 
 GENERATED_RULE_TEMPLATES = [
     {
@@ -408,13 +428,19 @@ def execute_playbook_run(
         )
     if ai_error:
         run_validation = "needs_review"
+    # A finding on a clause the person already decided about, unchanged since, inherits that
+    # decision instead of asking again (see carry_over). Decided findings get no redline below.
+    carried = carry_over_decisions(db, contract=contract, run=run, snapshot=snapshot, deviations=deviations)
     redline_version = None
     contract_edit = None
+    undecided_pairs = [
+        (ev, dev) for ev, dev in zip(evaluated, deviations, strict=False) if dev.status in OPEN_STATUSES
+    ]
     # Only rule-backed deviations can rewrite the document (see
     # _create_playbook_redline_version); with none of those there is nothing to
     # propose, and cutting a redline version identical to its base just adds a
     # confusing "proposed changes" entry a reviewer has to open to dismiss.
-    if create_redline and any(ev.rule is not None for ev in evaluated):
+    if create_redline and any(ev.rule is not None for ev, _dev in undecided_pairs):
         redline_version, contract_edit = _create_playbook_redline_version(
             db,
             user=user,
@@ -423,14 +449,19 @@ def execute_playbook_run(
             base_version=contract_version,
             source_snapshot=snapshot,
             run=run,
-            evaluated_pairs=list(zip(evaluated, deviations, strict=False)),
+            evaluated_pairs=undecided_pairs,
         )
-    run.status = "succeeded"
+    # Only a real AI review is "succeeded". A keyword scan (the AI raised, or the
+    # caller chose use_ai=False) keeps its findings, but anything that asks "was
+    # this contract reviewed?" counts succeeded runs, and a scan must not pass as one.
+    # error_message (= ai_error) says why; it is None for a deliberate use_ai=False.
+    run.status = "succeeded" if deviation_source == "claude" else "keyword_only"
     run.validation_status = run_validation
     run.validated_output = {
         "deviation_count": len(deviations),
         "deviation_source": deviation_source,
         "citation_review": run_validation,
+        "carried_decisions": len(carried),
         "ai_error": ai_error,
         "redline_contract_version_id": redline_version.id if redline_version else None,
         "contract_edit_id": contract_edit.id if contract_edit else None,
@@ -448,6 +479,8 @@ def execute_playbook_run(
             "contract_id": contract.id,
             "deviation_count": len(deviations),
             "redline_contract_version_id": redline_version.id if redline_version else None,
+            "status": run.status,
+            "ai_error": ai_error,
         },
     )
     write_timeline_event(
@@ -456,18 +489,63 @@ def execute_playbook_run(
         resource_type="contract",
         resource_id=contract.id,
         event_type="playbook.run_completed",
-        title="Playbook review completed",
+        title=(
+            "Playbook review completed"
+            if run.status == "succeeded"
+            else "Keyword scan only — the AI playbook review did not run"
+        ),
         actor_user_id=user.id,
         details={
             "playbook_id": playbook.id,
             "playbook_name": playbook.name,
             "playbook_run_id": run.id,
             "deviation_count": len(deviations),
+            "carried_decisions": len(carried),
             "redline_contract_version_id": redline_version.id if redline_version else None,
+            "status": run.status,
+            "ai_error": ai_error,
         },
     )
     db.flush()
+    # The band is computed from these findings, so it moves with every run (route,
+    # auto review, the chat's redline tool). A test_mode draft run can't qualify,
+    # so its refresh just recomputes the same band.
+    refresh_contract_risk(db, contract)
     return PlaybookRunArtifacts(run=run, deviations=deviations, redline_version=redline_version, contract_edit=contract_edit)
+
+
+# What the request form already says about the topic a finding is about: (form question, the answer that
+# contradicts the finding, what to tell the reader). The review reads the contract, not the form, so a finding
+# can disagree with what the requester answered (round 2, bug 42: "No" to personal data, yet a high finding for
+# missing Compliance sign-off on personal data). The finding is kept, because a requester's "No" can be wrong
+# and a compliance gap is worth one more look, but it now says what the form said.
+_FORM_CONTEXT: dict[str, tuple[str, str, str]] = {
+    "data_protection": (
+        "personal_data", "no",
+        ("The request form says no personal data is shared or processed. Check that with the requester before "
+         "treating this as a gap."),
+    ),
+}
+
+
+def form_context_note(db: Session, *, contract: Contract, clause_type: str | None) -> str | None:
+    """A sentence to add to a finding when the request form answered the opposite, else None."""
+    context = _FORM_CONTEXT.get((clause_type or "").strip().lower())
+    if context is None:
+        return None
+    from app.intake.models import IntakeRequest
+
+    question, contradicting, note = context
+    # The newest request on this contract that actually asked the question (an amendment's form does not).
+    for request in db.scalars(
+        select(IntakeRequest)
+        .where(IntakeRequest.contract_id == contract.id)
+        .order_by(IntakeRequest.created_at.desc())
+    ):
+        answer = (request.field_values or {}).get(question)
+        if answer is not None:
+            return note if str(answer).strip().lower() == contradicting else None
+    return None
 
 
 def _create_deviation(
@@ -484,6 +562,7 @@ def _create_deviation(
     row_status = "open" if citation_status in {"valid", "not_applicable"} else "needs_review"
     citation = dict(evaluated.citation) if evaluated.citation else {"type": "missing"}
     citation["validation_status"] = citation_status
+    note = form_context_note(db, contract=contract, clause_type=evaluated.clause_type)
     row = PlaybookDeviation(
         org_id=user.org_id,
         playbook_run_id=run.id,
@@ -491,7 +570,7 @@ def _create_deviation(
         contract_id=contract.id,
         severity=evaluated.severity,
         clause_type=evaluated.clause_type,
-        issue=evaluated.issue,
+        issue=f"{evaluated.issue} {note}" if note else evaluated.issue,
         suggested_fix=evaluated.suggested_fix,
         citation=citation,
         status=row_status,
@@ -531,11 +610,12 @@ def _create_playbook_redline_version(
     source_snapshot: ContractTextSnapshot,
     run: PlaybookRun,
     evaluated_pairs: list[tuple["EvaluatedDeviation", PlaybookDeviation]],
-) -> tuple[ContractVersion, ContractEdit | None]:
+) -> tuple[ContractVersion | None, ContractEdit | None]:
     """Create ONE tracked-change edit per deviation — the specific clause that
     deviates struck through and its proposed replacement inserted — instead of a
     single whole-document diff. Located changes are applied to build the proposal
-    text; missing-language deviations (no original span) become insertions.
+    text; missing-language deviations (no original span) become insertions. (None, None)
+    when no finding has anything to propose.
     """
     source_text = source_snapshot.text or ""
     blocks = split_blocks(source_text)
@@ -578,6 +658,12 @@ def _create_playbook_redline_version(
         # are full preferred clauses. Sub-clause diffing only if redlines feel
         # too coarse.
         block = block_by_id(blocks, anchor_quote(blocks, original)) if original else None
+        # Nothing to propose when the clause already says the playbook's wording: a change that
+        # replaces a clause with itself only gives the person a card to reject. The finding stays.
+        if block is not None and is_already_the_wording(block.text, replacement):
+            continue
+        if block is None and not original and any(is_already_the_wording(b.text, replacement) for b in blocks):
+            continue  # a "missing clause" finding for wording the contract already has
         if block is not None:
             idx = source_text.find(block.text)  # block.text is a verbatim slice
             span = (idx, idx + len(block.text)) if idx >= 0 else find_phrase(source_text, block.text)
@@ -603,6 +689,11 @@ def _create_playbook_redline_version(
                 "risk": risk,
             }
         )
+
+    if not changes:
+        # Every finding was either without playbook wording or already says it: nothing to propose,
+        # and a redline version identical to its base is only a card for a reviewer to dismiss.
+        return None, None
 
     # Apply the located replacements left-to-right (non-overlapping) to build the
     # proposal text; append any unlocated insertions at the end.
@@ -789,6 +880,61 @@ def is_document_wording(replacement: str | None) -> bool:
     """Whether a redline replacement may be written into the contract: some
     wording, and no fill-in blank left in it."""
     return bool(replacement and replacement.strip()) and not _FILL_IN_BLANK.search(replacement)
+
+
+_CURLY_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
+# What may open a clause before its text: "1.", "1.1", "12.3)", "(a)", "Article 4", "Section 4.1".
+_CLAUSE_NUMBER = re.compile(r"^(?:(?:article|section)\s+)?(?:\d+(?:\.\d+)*[.)]?|\([A-Za-z0-9]{1,5}\)|[A-Za-z][.)])\s*", re.IGNORECASE)
+# Words a clause heading may keep in lower case ("Limitation of Liability", "Term and Renewal").
+_HEADING_SMALL_WORDS = frozenset({"of", "and", "the", "for", "to", "in", "on", "or", "a", "an", "by", "with", "&"})
+
+
+def _is_clause_label(prefix: str) -> bool:
+    """Whether the words before a clause's text are only its label: a number, a short heading
+    ("Term." / "Limitation of Liability:") or both. A sentence in front is more than a label."""
+    rest = _CLAUSE_NUMBER.sub("", prefix.strip(), count=1).strip()
+    if not rest:
+        return True
+    if rest[-1] not in ".:":
+        return False
+    words = rest[:-1].split()
+    if not 1 <= len(words) <= 6 or any(c in rest[:-1] for c in ".:;"):
+        return False
+    return all(w[0].isupper() or w[0].isdigit() or w.lower() in _HEADING_SMALL_WORDS for w in words)
+
+
+def is_already_the_wording(clause_text: str | None, wording: str | None) -> bool:
+    """Whether a clause already says exactly the playbook's wording: the same words, ignoring
+    spacing, letter case, curly quotes and the closing full stop, with at most its number and
+    heading in front. A clause that says more (another sentence before or after) is not it, so a
+    change is still proposed. Used so a review never offers to replace a clause with itself."""
+    clause = " ".join((clause_text or "").translate(_CURLY_QUOTES).split()).rstrip(" .;:")
+    want = " ".join((wording or "").translate(_CURLY_QUOTES).split()).rstrip(" .;:")
+    if not clause or not want:
+        return False
+    match = re.search(re.escape(want) + r"$", clause, re.IGNORECASE)
+    return bool(match) and _is_clause_label(clause[: match.start()])
+
+
+# A high or critical risk can only be kept on purpose, and the reason is the record of that.
+HIGH_RISK = ("high", "critical")
+_KEEPS_THE_RISK = ("waived", "accepted", "accepted_fallback")
+_MIN_REASON_CHARS = 10
+
+
+def is_high_risk(severity: str | None) -> bool:
+    return (severity or "").strip().lower() in HIGH_RISK
+
+
+def decision_problem(*, severity: str | None, decision: str, rationale: str | None) -> str | None:
+    """Why this decision can't be recorded, or None. Keeping a high or critical risk
+    (waiving it, or accepting the counterparty's wording) must say why: a click on
+    Reject used to clear such an issue and leave nothing on record."""
+    if decision not in _KEEPS_THE_RISK or not is_high_risk(severity):
+        return None
+    if len((rationale or "").strip()) < _MIN_REASON_CHARS:
+        return "This is a high risk. Say why it can stay (a sentence is enough) so the reason is on record."
+    return None
 
 
 def _clean_phrase(value: str | None) -> str | None:
@@ -1139,10 +1285,16 @@ class PlaybooksService:
             .where(PlaybookVersion.org_id == org_id, PlaybookVersion.status == PlaybookStatus.PUBLISHED)
             .distinct()
         ).all()
-        playbooks = [
-            p for p in (db.get(Playbook, pid) for pid in pub_ids)
-            if p is not None and getattr(p, "deleted_at", None) is None
-        ]
+        # Oldest first, so a tie on name overlap always picks the same playbook: the
+        # risk rule only counts a review against this pick, so a pick that changed with
+        # row order could flip a contract's band.
+        playbooks = sorted(
+            (
+                p for p in (db.get(Playbook, pid) for pid in pub_ids)
+                if p is not None and getattr(p, "deleted_at", None) is None
+            ),
+            key=lambda p: (str(getattr(p, "created_at", "") or ""), p.id),
+        )
         if not playbooks:
             return None
         wanted = _type_tokens(contract_type)
@@ -1182,7 +1334,7 @@ class PlaybooksService:
         from app.ai.controller import ai_controller
 
         db = self.db
-        out_result = {"ran": False, "playbook_id": None, "error": None}
+        out_result = {"ran": False, "playbook_id": None, "playbook_run_id": None, "error": None}
         user = db.get(User, actor_user_id) if actor_user_id else None
         if user is None:
             user = db.scalar(select(User).where(User.org_id == contract.org_id).order_by(User.created_at.asc()))
@@ -1211,15 +1363,26 @@ class PlaybooksService:
                 ai_output = PlaybookReviewOutput.model_validate(raw)
             except Exception as exc:
                 ai_error = f"{exc.__class__.__name__}: {exc}"
-            execute_playbook_run(
+            artifacts = execute_playbook_run(
                 db, user=user, playbook=playbook, version=version, contract=contract,
                 create_redline=create_redline, ai_output=ai_output, ai_error=ai_error,
             )
+            run_id = artifacts.run.id
             db.commit()
-            out_result.update(ran=True, playbook_id=playbook.id, error=ai_error)
+            out_result.update(ran=True, playbook_id=playbook.id, playbook_run_id=run_id, error=ai_error)
         except Exception as exc:
             db.rollback()
             out_result["error"] = f"{exc.__class__.__name__}: {exc}"
+            return out_result
+        if create_redline and actor_user_id:
+            # Queue the job that drafts a change for each issue the playbook had no wording for.
+            # Only for a real person: the org-wide fallback user above is for the review, and the
+            # drafting must not run with their permissions on someone else's behalf.
+            from app.contract_files import issue_fixes
+
+            issue_fixes.start_after_review(
+                db, contract=contract, actor_user_id=actor_user_id, playbook_run_id=out_result["playbook_run_id"]
+            )
         return out_result
 
     def record_deviation_decision(
@@ -1263,6 +1426,11 @@ class PlaybooksService:
             actor_user_id=user.id,
             details={"playbook_deviation_id": deviation.id, "decision": decision},
         )
+        # A decision can resolve a finding (fixed / accepted_fallback) or concede it,
+        # so the cached band follows it in the same transaction.
+        contract = db.get(Contract, deviation.contract_id)
+        if contract is not None:
+            refresh_contract_risk(db, contract)
         return row
 
     async def generate_playbook_from_text(
@@ -1573,7 +1741,9 @@ class PlaybooksService:
 
 # --- Phase 2: data-driven playbook recommendations -----------------------
 _CONCESSION_DECISIONS = {"accepted", "accepted_fallback", "waived"}
-_HELD_DECISIONS = {"rejected", "escalated"}
+# The decision describes the counterparty's deviation: conceding it vs holding our
+# position. "fixed" = held, and our wording is now in the document.
+_HELD_DECISIONS = {"rejected", "escalated", "fixed"}
 _OPEN_DEVIATION_STATES = {"open", "needs_review"}
 MIN_DECIDED_FOR_INSIGHTS = 5
 MIN_PER_CLAUSE_FOR_INSIGHTS = 3

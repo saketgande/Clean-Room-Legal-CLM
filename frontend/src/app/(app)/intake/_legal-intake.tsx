@@ -13,7 +13,10 @@ import type { LucideIcon } from "lucide-react";
 import { intakeApi } from "@/lib/endpoints";
 
 import { useToast } from "@/components/toast";
+import { CenterSpinner, LoadError } from "@/components/ui";
 
+import { isAwaitingTriage, isOpenRequest } from "@/lib/request-status";
+import { plural } from "@/lib/utils";
 import type { IntakeRequest, WorkflowSuggestion } from "@/lib/types";
 
 // Refetch on window focus rather than poll — see the note on LIVE_POLL in
@@ -27,7 +30,7 @@ function useNow(ms = 30_000): number {
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), ms); return () => clearInterval(id); }, [ms]);
   return now;
 }
-const isOpenReq = (r: IntakeRequest) => r.status !== "closed" && r.status !== "approved";
+const isOpenReq = isOpenRequest;
 function channelOf(r: IntakeRequest): { key: string; label: string; Icon: LucideIcon } {
   const s = (r.source ?? "").toLowerCase();
   if (/mail|gmail|email|imap/.test(s)) return { key: "email", label: "Email", Icon: Mail };
@@ -66,7 +69,7 @@ const isMsa = (s: string) => /msa|master|service/i.test(s);
 // status filter tokens
 function statusMatch(r: IntakeRequest, token: string): boolean {
   switch (token) {
-    case "new": return r.status === "open";
+    case "new": return isAwaitingTriage(r);
     case "running": return isOpenReq(r) && (r.workflow ?? []).some((s) => s.active);
     case "stuck": return r.sla_status === "overdue";
     case "at_risk": return r.sla_status === "at_risk";
@@ -136,7 +139,7 @@ function StageCell({ r }: { r: IntakeRequest }) {
         <div className="stagehead">
           <span className={`sdot ${stuck ? "stuck" : "ok"}`} />
           <span className="stagenm">{active?.label ?? (done === steps.length ? "Complete" : "In progress")}</span>
-          <span className="stepno">{done}/{steps.length}</span>
+          <span className="stepno" title={`${done} of ${steps.length} stages finished`}>stage {Math.min(done + 1, steps.length)} of {steps.length}</span>
         </div>
         <div className="stepbar">
           {steps.map((s, k) => {
@@ -168,7 +171,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   const now = useNow(30_000);
   const qc = useQueryClient();
   const { notify } = useToast();
-  const { data } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: mode === "pool" ? ["intake-pool"] : ["intake-list"],
     queryFn: () => (mode === "pool" ? intakeApi.pool() : intakeApi.list()),
     ...POLL,
@@ -207,7 +210,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   const overdue = openRows.filter((r) => r.sla_status === "overdue");
   const atRisk = openRows.filter((r) => r.sla_status === "at_risk");
   const unassigned = openRows.filter((r) => !r.assigned_to_user_id);
-  const awaiting = openRows.filter((r) => r.status === "open");
+  const awaiting = openRows.filter(isAwaitingTriage);
   const inWorkflow = openRows.filter((r) => (r.workflow ?? []).some((s) => s.active));
   const confs = openRows.map((r) => flowSuggestion(r)?.confidence).filter((c): c is number => typeof c === "number");
   const avgConf = confs.length ? Math.round((confs.reduce((a, b) => a + b, 0) / confs.length) * 100) : null;
@@ -248,6 +251,11 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
   });
   const anyFilter = !!(q || channelSel.size || typeSel.size || statusSel.size);
 
+  // A queue that could not be loaded is not an empty queue: the zeros and "everything's assigned" below
+  // would be a confident answer to a question nobody got an answer to.
+  if (isLoading) return <div className="li-board"><CenterSpinner label="Loading requests…" /></div>;
+  if (error && !data) return <div className="li-board" style={{ padding: "14px 0" }}><LoadError error={error} what="the request queue" onRetry={() => void refetch()} /></div>;
+
   return (
     <div className="li-board">
       <style dangerouslySetInnerHTML={{ __html: LI_CSS }} />
@@ -281,7 +289,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
         <div className="oneline"><b>{awaiting.length}</b> to triage · <b>{inWorkflow.length}</b> in workflow · <b style={{ color: "var(--crit)" }}>{overdue.length} overdue</b></div>
         <div className="briefbody">
           <p className="summary">
-            <b>{openRows.length} open requests.</b> {atRisk.length} at risk{overdue.length ? <>, <span className="c">{overdue.length} overdue</span></> : null}.{" "}
+            <b>{plural(openRows.length, "open request")}.</b> {atRisk.length} at risk{overdue.length ? <>, <span className="c">{overdue.length} overdue</span></> : null}.{" "}
             {worst ? <>Start with <b>{worst.ref}</b> — {worst.subject || worst.type_label}, {worst.sla_status === "overdue" ? "overdue" : "at risk"}. </> : null}
             {unassigned.length ? <>{unassigned.length} still unassigned.</> : "Everything's assigned."}
           </p>

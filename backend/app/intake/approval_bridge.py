@@ -20,8 +20,6 @@ from app.intake.models import IntakeRequest
 # Field keys we try, in order, to read a monetary value off a request's captured
 # fields — so authority limits can be checked. Free-form; refined later.
 _VALUE_KEYS = ("value", "new_value", "renew_value", "amount", "contract_value", "deal_value", "annual_value")
-# Intake priority already aligns 1:1 with the DoA risk bands.
-_PRIORITY_TO_BAND = {"critical": "critical", "high": "high", "medium": "medium", "low": "low"}
 
 
 class IntakeApprovalSubject:
@@ -86,7 +84,10 @@ class IntakeApprovalSubject:
 
     @property
     def risk_band(self):
-        return _PRIORITY_TO_BAND.get((self.request.priority or "").lower())
+        # Unknown: nothing has reviewed a request's text. The requester's priority used
+        # to stand in for a risk band, which let a requester talk an approval under a
+        # risk ceiling by filing "low". Authority fails closed on unknown.
+        return None
 
     @property
     def risk_level(self):

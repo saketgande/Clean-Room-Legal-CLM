@@ -130,6 +130,14 @@ class Settings(BaseSettings):
     ai_store_raw_outputs: bool = False
     ai_max_tool_iterations: int = 8
     ai_default_temperature: float = 0.0
+    # After a playbook review, the AI drafts a suggested change for every issue that has
+    # none, in a background job (contract_files/issue_fixes.py): one AI request per issue.
+    # This is the switch for that cost and for suggestions nobody asked for one by one.
+    # Off: nothing is drafted until someone clicks "Draft fix with AI" / "Draft fixes for all".
+    auto_draft_issue_fixes: bool = True
+    # The most issues one job drafts. The rest wait for a click, so a very long review can't
+    # hold a worker for minutes or spend without bound.
+    auto_draft_max_issues: int = 8
     # Anthropic prompt caching: cache the (large, static) system prompt + tool
     # schemas so they aren't re-billed at full price on every turn and every
     # tool-loop iteration. Cheap cache reads instead of full input tokens.

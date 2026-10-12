@@ -2,11 +2,13 @@
 flow runs (start / advance / human-step / refresh)."""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.contracts.lifecycle import redline_override
 from app.contracts.service import get_contract_for_user
 from app.core.deps import get_db, require_permission
+from app.core.rbac import has_permission
 from app.intake.models import IntakeRequest
 from app.workflows import counterparty as counterparty_svc
 from app.workflows.builtin import seed_builtin_flows
@@ -33,7 +35,14 @@ class StartPayload(BaseModel):
 
 class CompleteStepPayload(BaseModel):
     note: str | None = None
+    # Send the contract past Review although redlines are still open. Needs the
+    # contract:lifecycle_override permission and a reason, which is kept on the
+    # contract's stage history.
+    override_reason: str | None = Field(default=None, max_length=2000)
     step_idx: int | None = None  # which step (for parallel groups); default = current
+    # The answer to a rejected approval. Required, and only then, while the request is
+    # waiting on one (see service.pending_rework_reply); otherwise ignored.
+    rework_reply: str | None = Field(default=None, max_length=2000)
 
 
 class CounterpartySendPayload(BaseModel):
@@ -206,9 +215,21 @@ async def complete_step(run_id: str, payload: CompleteStepPayload, http_request:
                         workflow_service: WorkflowService = Depends(get_workflow_service),
                         current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user, run_id)
-    workflow_service.complete_human_step(run=run, actor=current_user, note=payload.note,
-                                         step_idx=payload.step_idx, request_id=_request_id(http_request))
-    run = await workflow_service.advance_run(run=run, actor=current_user)
+    override_reason = None
+    if payload.override_reason is not None:
+        override_reason = payload.override_reason.strip()
+        if not override_reason:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Overriding open redlines requires a reason.")
+        if not has_permission(current_user.permission_values, "contract:lifecycle_override"):
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "You don't have override rights, so open redlines have to be accepted or rejected first.",
+            )
+    with redline_override(override_reason):
+        workflow_service.complete_human_step(run=run, actor=current_user, note=payload.note,
+                                             step_idx=payload.step_idx, request_id=_request_id(http_request),
+                                             rework_reply=payload.rework_reply)
+        run = await workflow_service.advance_run(run=run, actor=current_user)
     return workflow_service.serialize_run(run)
 
 
@@ -244,6 +265,17 @@ async def refresh(run_id: str, db: Session = Depends(get_db),
                   current_user=Depends(require_permission("intake:read"))):
     run = _get_run(db, current_user, run_id)
     run = await workflow_service.refresh_run(run=run, actor=current_user)
+    return workflow_service.serialize_run(run)
+
+
+@router.post("/runs/{run_id}/retry-review")
+async def retry_review(run_id: str, http_request: Request, db: Session = Depends(get_db),
+                       workflow_service: WorkflowService = Depends(get_workflow_service),
+                       current_user=Depends(require_permission("intake:read"))):
+    """Run the AI review again for a review step that stopped because the review was interrupted, and
+    set the step going again to wait for it (409 when the step isn't in that state)."""
+    run = _get_run(db, current_user, run_id)
+    run = await workflow_service.retry_ai_review(run=run, actor=current_user, request_id=_request_id(http_request))
     return workflow_service.serialize_run(run)
 
 

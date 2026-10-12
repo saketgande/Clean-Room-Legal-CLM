@@ -176,6 +176,14 @@ async def aclose_claude_client() -> None:
         await client.close()
 
 
+# Set only by the AI exam's own process (backend/eval/exam, specs/005-ai-eval-baseline);
+# always None in the app. Duck-typed: .before(payload) and .after(payload, response).
+# It is the one choke point every paid request passes, so the exam can enforce its
+# spending ceiling and run a batch capture/replay without a second copy of any skill.
+# Mock mode returns before reaching it, so tests and dev mocks never touch it.
+exam_meter: Any = None
+
+
 def _cached_system(system_prompt: str) -> Any:
     """The system prompt as a cache-marked content block so Anthropic serves it
     from cache on repeat turns instead of re-billing the whole thing. Falls back
@@ -374,6 +382,50 @@ class ClaudeClient:
             model=model or settings.claude_model,
         )
 
+    async def complete_json(
+        self,
+        *,
+        org_id: str | None,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, Any],
+        max_tokens: int,
+        model: str,
+    ) -> ClaudeProviderResponse:
+        """One JSON answer shaped by ``json_schema``, through structured outputs
+        (``output_config.format``) instead of a forced tool call. For models that
+        refuse the tool route: claude-sonnet-5-5 answers 400 to a forced
+        ``tool_choice`` and to any non-default ``temperature``, so this payload
+        carries neither (nor any tools). The answer is one text block of JSON —
+        callers parse it themselves."""
+        if settings.mock_claude:
+            raw = {
+                "id": "mock-json",
+                "model": model,
+                "content": [{"type": "text", "text": "{}"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+            return self._to_provider_response(raw, latency_ms=0.0, provider_request_id="mock-json", model=model)
+
+        started = time.perf_counter()
+        response_json, request_id = await self._post_messages(
+            org_id=org_id,
+            json_payload={
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": _cached_system(system_prompt),
+                "messages": [{"role": "user", "content": user_prompt}],
+                "output_config": {"format": {"type": "json_schema", "schema": json_schema}},
+            },
+        )
+        return self._to_provider_response(
+            response_json,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            provider_request_id=request_id,
+            model=model,
+        )
+
     async def complete_with_tools(
         self,
         *,
@@ -476,8 +528,13 @@ class ClaudeClient:
             json_payload["tool_choice"] = {"type": "auto"}
 
         client = _anthropic_client()
+        if exam_meter is not None and exam_meter.before(json_payload) is not None:
+            # The exam never streams, so a stored batch answer offered here would
+            # be dropped on the floor — fail loudly instead of ignoring it.
+            raise RuntimeError("exam_meter offered a replay to a streaming call")
         reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
         used = 0
+        final_message: dict[str, Any] | None = None
         started = time.perf_counter()
         try:
             async with client.messages.stream(**json_payload) as stream:
@@ -502,6 +559,8 @@ class ClaudeClient:
             raise
         finally:
             settle_tokens(reservation, used)
+            if exam_meter is not None:
+                exam_meter.after(json_payload, final_message)
 
         yield {
             "type": "final",
@@ -517,6 +576,12 @@ class ClaudeClient:
         if not settings.claude_api_key:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
         client = _anthropic_client()
+        if exam_meter is not None:
+            # Outside the retry wrapper: one admission (and one replay lookup) per
+            # logical call, however many attempts the request itself takes.
+            replayed = exam_meter.before(json_payload)
+            if replayed is not None:
+                return replayed
 
         @resilient_call("claude")
         async def _do_request() -> tuple[dict[str, Any], str | None]:
@@ -555,12 +620,68 @@ class ClaudeClient:
         # Metered here, once around all retries, so no caller can skip the daily cap.
         reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
         used = 0
+        response_json: dict[str, Any] | None = None
         try:
             response_json, request_id = await _do_request()
             used = _total_tokens(response_json)
         finally:
             settle_tokens(reservation, used)
+            if exam_meter is not None:
+                exam_meter.after(json_payload, response_json)
         return response_json, request_id
+
+    # -- Message Batches: used only by the AI exam (backend/eval/exam) ----------
+    # Half-price delivery for the exam's public and constructed items; the app never
+    # calls these. Same exam key as every other call, via _anthropic_client().
+
+    @staticmethod
+    def _batch_client() -> anthropic.AsyncAnthropic:
+        if settings.mock_claude:
+            raise RuntimeError("Message Batches are not available while MOCK_CLAUDE is on")
+        if not settings.claude_api_key:
+            raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
+        return _anthropic_client()
+
+    async def create_batch(self, requests: list[dict[str, Any]]) -> str:
+        """Submit ``[{"custom_id", "params"}]`` as one batch; returns its id.
+
+        Deliberately NOT retried: a lost reply to a create that did succeed would
+        otherwise make (and bill) a second batch. The caller owns that decision."""
+        batch = await self._batch_client().messages.batches.create(requests=requests)
+        return batch.id
+
+    async def batch_status(self, batch_id: str) -> dict[str, Any]:
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _retrieve() -> dict[str, Any]:
+            return (await client.messages.batches.retrieve(batch_id)).to_dict()
+
+        return await _retrieve()
+
+    async def batch_results(self, batch_id: str) -> dict[str, dict[str, Any]]:
+        """``custom_id`` -> the result object (``succeeded`` / ``errored`` /
+        ``canceled`` / ``expired``). Fetching results is free, so a retry restarts
+        the download from the top."""
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _fetch() -> dict[str, dict[str, Any]]:
+            results: dict[str, dict[str, Any]] = {}
+            async for item in await client.messages.batches.results(batch_id):
+                results[item.custom_id] = item.result.to_dict()
+            return results
+
+        return await _fetch()
+
+    async def cancel_batch(self, batch_id: str) -> None:
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _cancel() -> None:
+            await client.messages.batches.cancel(batch_id)
+
+        await _cancel()
 
     def _to_provider_response(
         self,

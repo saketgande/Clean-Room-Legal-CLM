@@ -1,0 +1,187 @@
+{
+ "name": "Common Paper CSA review (exam)",
+ "description": "Exam playbook for the Common Paper Cloud Service Agreement. Each rule's severity is the one set on the platform playbook rule it names in severity_from.",
+ "source": "Common Paper standard agreements, CC BY 4.0",
+ "rules": [
+  {
+   "clause_type": "limitation_of_liability",
+   "rule_type": "standard_position",
+   "preferred_position": "Each party's liability is capped at no less than the fees paid in the prior 12 months.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "high",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "General Cap Amount: the Fees paid or payable by Customer in the 12 months before the event giving rise to the claim",
+   "severity_from": {
+    "playbook": "Master Services Agreement Playbook",
+    "clause_type": "limitation_of_liability"
+   }
+  },
+  {
+   "clause_type": "governing_law",
+   "rule_type": "standard_position",
+   "preferred_position": "Governed by Delaware law with Delaware courts.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Governing Law: the laws of the State of Delaware\nChosen Courts: the state or federal courts located in Wilmington, Delaware",
+   "severity_from": {
+    "playbook": "Customer Agreement Playbook",
+    "clause_type": "governing_law"
+   }
+  },
+  {
+   "clause_type": "renewal_notice",
+   "rule_type": "standard_position",
+   "preferred_position": "Non-renewal notice of no more than 30 days before the end of the term.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Non-Renewal Notice Date: at least 30 days before the end of the current Subscription Period",
+   "severity_from": {
+    "playbook": "Software / SaaS Agreement Playbook",
+    "clause_type": "renewal"
+   }
+  },
+  {
+   "clause_type": "termination_for_breach",
+   "rule_type": "standard_position",
+   "preferred_position": "A party may terminate for uncured material breach after 30 days notice.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "fails to cure a material breach of the Framework Terms or an Order Form following 30 days notice",
+   "severity_from": {
+    "playbook": "Master Services Agreement Playbook",
+    "clause_type": "termination"
+   }
+  },
+  {
+   "clause_type": "confidentiality",
+   "rule_type": "standard_position",
+   "preferred_position": "The agreement contains mutual confidentiality obligations.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "1. Non-Use and Non-Disclosure.  Except as otherwise authorized in the Agreement or as needed to fulfill its obligations or exercise its rights under this Agreement, Recipient will not (a) use Discloser’s Confidential Information; nor (b) disclose Discloser’s Confidential Information to anyone else. In addition, Recipient will protect Discloser’s Confidential Information using at least the same protections Recipient uses for its own similar information but no less than a reasonable standard of care.",
+   "severity_from": {
+    "playbook": "Master Services Agreement Playbook",
+    "clause_type": "confidentiality"
+   }
+  },
+  {
+   "clause_type": "ip_indemnity",
+   "rule_type": "standard_position",
+   "preferred_position": "Provider indemnifies Customer against third-party IP infringement claims.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "high",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Provider Covered Claims: any claim by a third party that the Cloud Service infringes that party's intellectual property rights",
+   "severity_from": {
+    "playbook": "Master Services Agreement Playbook",
+    "clause_type": "indemnification"
+   }
+  },
+  {
+   "clause_type": "payment_terms",
+   "rule_type": "standard_position",
+   "preferred_position": "Invoices are payable within 30 days.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Payment Period: 30 days from the invoice date",
+   "severity_from": {
+    "playbook": "Master Services Agreement Playbook",
+    "clause_type": "payment_terms"
+   }
+  },
+  {
+   "clause_type": "return_of_data",
+   "rule_type": "standard_position",
+   "preferred_position": "Confidential information is returned or destroyed on termination.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "c. Each Recipient will return or destroy Discloser’s Confidential Information in its possession or control.",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "return_or_deletion"
+   }
+  },
+  {
+   "clause_type": "assignment",
+   "rule_type": "standard_position",
+   "preferred_position": "No assignment without consent, except on merger or change of control.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Neither party may assign any rights or obligations under this Agreement without the prior written consent of the other party. However, either party may assign this Agreement upon notice if the assigning party undergoes a merger, change of control, reorganization, or sale of all or substantially all its equity, business, or assets to which this Agreement relates. Any attempted but non-permitted assignment is void. This Agreement will be binding upon and inure to the benefit of the parties and their permitted successors and assigns.",
+   "severity_from": {
+    "playbook": "Vendor Agreement Playbook",
+    "clause_type": "subcontracting"
+   }
+  },
+  {
+   "clause_type": "service_warranty",
+   "rule_type": "standard_position",
+   "preferred_position": "Provider warrants it will not materially reduce the Cloud Service's functionality.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "3. From Provider.  Provider represents and warrants to Customer that it will not materially reduce the general functionality of the Cloud Service during the Subscription Period.",
+   "severity_from": {
+    "playbook": "Vendor Agreement Playbook",
+    "clause_type": "warranties"
+   }
+  }
+ ]
+}

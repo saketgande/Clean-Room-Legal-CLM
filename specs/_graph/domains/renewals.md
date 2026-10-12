@@ -14,6 +14,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /renewals/{renewal_id}` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /renewals/{renewal_id}/recommendation` -- permission: `contract:read` -- request: ? -- response: ?
 - `POST /renewals/run-window-check` -- permission: `admin_panel:access` -- request: ? -- response: ?
+- `POST /renewals/{renewal_id}/confirm-dates` -- permission: `contract:renew` -- request: RenewalConfirmPayload -- response: ?
 - `POST /renewals/{renewal_id}/decision` -- permission: `contract:renew` -- request: RenewalDecisionPayload -- response: ?
 
 ## Schemas
@@ -27,6 +28,7 @@ Owner agents: backend-dev, db-engineer
 ## Frontend counterpart
 
 Api group: `renewalsApi` (confidence: exact)
+- `renewalsApi.confirmDates()` -> `POST /renewals/${id}/confirm-dates`
 - `renewalsApi.decide()` -> `POST /renewals/${id}/decision`
 - `renewalsApi.list()` -> `GET /renewals${qs({ contract_id })}`
 - `renewalsApi.recommendation()` -> `GET /renewals/${id}/recommendation`

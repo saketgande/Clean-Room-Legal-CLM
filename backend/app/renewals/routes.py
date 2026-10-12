@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
@@ -18,6 +20,15 @@ router = APIRouter(prefix="/renewals", tags=["renewals"])
 class RenewalDecisionPayload(BaseModel):
     decision: str = Field(pattern="^(renew|terminate|renegotiate)$")
     note: str | None = None
+
+
+class RenewalConfirmPayload(BaseModel):
+    """Both optional: an empty body confirms the dates shown as calculated."""
+
+    expiration_date: date | None = None
+    notice_date: date | None = None
+    # "Runs until terminated": settles a form end date the contract text doesn't have.
+    no_end_date: bool = False
 
 
 def _get_renewal(db: Session, *, renewal_id: str, current_user: User) -> RenewalEvent:
@@ -53,11 +64,14 @@ def list_renewals(
         # Portfolio index: a renewal event with no dates has nothing to monitor,
         # so skip the empty shells — show real renewals or a clean empty state,
         # never a table of dashes.
+        # A dateless event that carries a reason (evergreen, or "needs a person")
+        # stays: hiding it is how the evergreen MSA used to vanish from the page.
         query = query.where(
             or_(
                 RenewalEvent.expiration_date.is_not(None),
                 RenewalEvent.notice_date.is_not(None),
                 RenewalEvent.renewal_window_starts_at.is_not(None),
+                RenewalEvent.metadata_json["dates"]["reason"].as_string().is_not(None),
             )
         )
     rows = db.execute(
@@ -72,7 +86,13 @@ def get_renewal(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("contract:read")),
 ):
-    return _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
+    row = _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
+    return serialize_renewal(row, contract_title=_title(db, row))
+
+
+def _title(db: Session, row: RenewalEvent) -> str | None:
+    contract = db.get(Contract, row.contract_id)
+    return contract.title if contract else None
 
 
 @router.get("/{renewal_id}/recommendation")
@@ -98,13 +118,36 @@ def decide_renewal(
     service: RenewalsService = Depends(get_renewals_service),
 ):
     row = _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
-    return service.decide_renewal(
+    row = service.decide_renewal(
         row=row,
         decision=payload.decision,
         note=payload.note,
         current_user=current_user,
         request_id=getattr(request.state, "request_id", None),
     )
+    return serialize_renewal(row, contract_title=_title(db, row))
+
+
+@router.post("/{renewal_id}/confirm-dates")
+def confirm_renewal_dates(
+    renewal_id: str,
+    payload: RenewalConfirmPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:renew")),
+    service: RenewalsService = Depends(get_renewals_service),
+):
+    """A person confirms the calculated renewal dates, or types their own."""
+    row = _get_renewal(db, renewal_id=renewal_id, current_user=current_user)
+    row = service.confirm_dates(
+        row=row,
+        expiration_date=payload.expiration_date,
+        notice_date=payload.notice_date,
+        current_user=current_user,
+        request_id=getattr(request.state, "request_id", None),
+        no_end_date=payload.no_end_date,
+    )
+    return serialize_renewal(row, contract_title=_title(db, row))
 
 
 @router.post("/run-window-check")

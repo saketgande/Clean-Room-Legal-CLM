@@ -75,7 +75,7 @@ async def send_for_signature(
     ):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Overriding the approved-before-signature gate requires contract:lifecycle_override",
+            "You don't have override rights, so the contract has to finish approval before it can be sent for signature.",
         )
     if contract.lifecycle_stage != ContractLifecycleStage.SIGNATURE and not payload.override_lifecycle:
         raise HTTPException(
@@ -105,6 +105,10 @@ async def send_for_signature(
     service.validate_signature_recipients(
         contract=contract, org_id=current_user.org_id, recipients=payload.recipients
     )
+    # Before the irreversible external dispatch: the text that goes out must be the text that was
+    # approved, and a blank left in it would go to the signers.
+    service.ensure_version_is_approved(contract=contract, version=version, override=payload.override_lifecycle)
+    service.ensure_version_is_complete(version=version, override=payload.override_lifecycle)
     content = service.storage.read_bytes(storage_object.storage_key)
     envelope = await service.docusign.create_envelope(
         filename=storage_object.filename,
@@ -222,7 +226,7 @@ async def sync_signature(
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "With live DocuSign, completion is driven by the verified Connect webhook; "
-            "manual completion requires contract:lifecycle_override",
+            "marking it complete by hand needs override rights.",
         )
     await service.sync_signature_request(
         user=current_user,

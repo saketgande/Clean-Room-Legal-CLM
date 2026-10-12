@@ -72,8 +72,25 @@ class AuthorityDecision:
     matched_grant_id: str | None = None
 
 
-def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
-    """Does one policy's limits cover this contract? Returns (ok, miss_reason)."""
+def _current_risk_band(db: Session, subject) -> str:
+    """The contract's risk band computed now, never the cached column (which a missed
+    refresh could leave stale) nor the hand-settable risk_level. A subject with no
+    contract behind it (an intake request) has no review, so its risk is unknown."""
+    from app.contracts.models import Contract
+    from app.contracts.risk import contract_risk
+
+    contract = getattr(subject, "contract", subject)
+    if not isinstance(contract, Contract):
+        return "unknown"
+    return contract_risk(db, contract)["band"]
+
+
+def _grant_covers(
+    grant: AuthorityGrant, contract, *, risk_band: str = "unknown"
+) -> tuple[bool, str | None]:
+    """Does one policy's limits cover this contract? Returns (ok, miss_reason).
+    ``risk_band`` is contracts.risk.contract_risk's band ('unknown' when nothing
+    reviewed the current text)."""
     value = to_money(contract.value_amount)
     if grant.max_value is not None:
         # Unknown value fails closed: counting it as 0 let any limit cover it.
@@ -106,10 +123,16 @@ def _grant_covers(grant: AuthorityGrant, contract) -> tuple[bool, str | None]:
                 f"jurisdiction “{contract.jurisdiction or 'unspecified'}” is outside this authority"
             )
     if grant.max_risk_band:
-        band = contract.risk_band or contract.risk_level
-        if _risk_rank(band) > _risk_rank(grant.max_risk_band):
+        # Unknown risk fails closed, like an unknown value: ranking it with "low" let
+        # a low-risk ceiling cover a contract nobody had reviewed.
+        if risk_band == "unknown":
             return False, (
-                f"risk band “{band}” exceeds the authorised ceiling “{grant.max_risk_band}”"
+                "the risk isn't confirmed for this text (no playbook review of it), so it "
+                "can't be confirmed within this authority's risk ceiling"
+            )
+        if _risk_rank(risk_band) > _risk_rank(grant.max_risk_band):
+            return False, (
+                f"risk band “{risk_band}” exceeds the authorised ceiling “{grant.max_risk_band}”"
             )
     return True, None
 
@@ -157,9 +180,13 @@ class AuthorityService:
                 gated=True,
                 reason="you hold no delegated authority for this action",
             )
+        # Computed once, and only when some ceiling needs it (it costs a few queries).
+        band = (
+            _current_risk_band(db, contract) if any(g.max_risk_band for g in grants) else "unknown"
+        )
         closest_miss: str | None = None
         for g in grants:
-            ok, miss = _grant_covers(g, contract)
+            ok, miss = _grant_covers(g, contract, risk_band=band)
             if ok:
                 return AuthorityDecision(allowed=True, gated=True, matched_grant_id=g.id)
             closest_miss = closest_miss or miss

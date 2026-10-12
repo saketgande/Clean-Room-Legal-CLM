@@ -70,24 +70,6 @@ class ClauseLabelingOutput(BaseModel):
     extraction_notes: str | None = None
 
 
-class ClauseRiskOutput(BaseModel):
-    # The [C<n>] label of the clause judged, so coverage is counted per clause.
-    clause_ref: str | None = None
-    clause_type: str
-    risk: Literal["low", "medium", "high"]  # required: an omitted call is not "low"
-    rationale: str = Field(min_length=1)
-    # Required, not optional: an eval scorecard's LLM judge found "low" risk
-    # calls shipping with no quote at all, so a lawyer had no way to verify
-    # they weren't invented. Every risk call — including "low" — must now
-    # point to real supporting text.
-    quote: str = Field(min_length=1)
-
-
-class ContractRiskOutput(BaseModel):
-    clause_risks: list[ClauseRiskOutput] = Field(default_factory=list)
-    summary: str | None = None
-
-
 class ContractDocxSection(BaseModel):
     heading: str
     body: str
@@ -177,12 +159,44 @@ class PlaybookChatBuildOutput(BaseModel):
     rules: list[PlaybookGenerationRule] = Field(default_factory=list)
 
 
+PeriodUnit = Literal["days", "business_days", "weeks", "months", "years"]
+# Ten years in days; a bigger number is a misread, and it overflows date arithmetic
+# long before it means anything. The tool schema also shows the model this bound.
+MAX_PERIOD = 3650
+
+
+class ObligationTiming(BaseModel):
+    """When an obligation falls due, as the contract WORDS it. The model never
+    returns a date: code counts the period from the anchor (app/core/deadlines.py)
+    and shows the formula, so a wrong anchor or unit is visible, not baked in."""
+
+    kind: Literal["deadline", "ongoing", "condition"] = "condition"
+    period_number: int | None = Field(default=None, ge=0, le=MAX_PERIOD)
+    period_unit: PeriodUnit | None = None
+    direction: Literal["after", "before"] = "after"
+    anchor: Literal[
+        "effective_date", "expiration_date", "signature_date", "termination",
+        "notice_received", "invoice_received", "request_received", "disclosure", "other",
+    ] | None = None
+    anchor_text: str | None = None
+    # False when the period would come from law rather than this contract: such a
+    # deadline is left for a person, never computed.
+    stated_in_text: bool = False
+    clear_days: bool = False
+    # A calendar date the clause writes out as the deadline. Used only when its day
+    # number and year are in the citation quote (core/deadlines.date_in_quote).
+    explicit_date: date | None = None
+
+
 class ObligationOutput(BaseModel):
     obligation_type: str | None = None
     description: str = Field(min_length=1)
     responsible_party: str | None = None
-    due_date: date | None = None
-    recurrence: str | None = None
+    timing: ObligationTiming = Field(default_factory=ObligationTiming)
+    recurrence: Literal[
+        "none", "monthly", "quarterly", "semi_annually", "annually", "per_event"
+    ] = "none"
+    recurrence_note: str | None = None
     source_clause_type: str | None = None
     confidence: Literal["high", "medium", "low"] = "medium"
     citations: list[CitationInput] = Field(default_factory=list)
@@ -193,12 +207,41 @@ class ObligationExtractionOutput(BaseModel):
     extraction_notes: str | None = None
 
 
+class TermLength(BaseModel):
+    number: int = Field(ge=0, le=MAX_PERIOD)
+    unit: PeriodUnit
+
+
+class InitialTerm(TermLength):
+    counted_from: Literal["effective_date", "signature_date", "other"] = "effective_date"
+
+
+class RenewalNoticeTerm(BaseModel):
+    """One notice clause. A contract can have several (either party 90 days, the
+    customer 60 days); code tracks the earliest deadline among them."""
+
+    kind: Literal["non_renewal", "termination_for_convenience"]
+    who: Literal["either", "us", "counterparty", "named"] = "either"
+    number: int | None = Field(default=None, ge=0, le=MAX_PERIOD)
+    unit: PeriodUnit | None = None
+    clear_days: bool = False
+    counted: Literal["before_end_of_term", "other"] = "before_end_of_term"
+    quote: str | None = None
+
+
 class RenewalExtractionOutput(BaseModel):
-    expiration_date: date | None = None
-    auto_renewal: bool = False
-    renewal_term: str | None = None
-    notice_date: date | None = None
-    notice_period_days: int | None = None
+    """The term and renewal WORDING as typed facts. No AI-computed dates: the
+    expiry, notice deadline and window are counted by code from these facts."""
+
+    term_kind: Literal["fixed", "evergreen", "unclear"] = "unclear"
+    # Only a date written out in the text, never one the model worked out.
+    stated_end_date: date | None = None
+    stated_end_date_quote: str | None = None
+    initial_term: InitialTerm | None = None
+    auto_renews: bool | None = None
+    renewal_term: TermLength | None = None
+    max_renewals: int | None = Field(default=None, ge=0, le=100)
+    notice_terms: list[RenewalNoticeTerm] = Field(default_factory=list)
     termination_rights_summary: str | None = None
     confidence: Literal["high", "medium", "low"] = "low"
     needs_review: bool = False
@@ -213,10 +256,73 @@ class BrainAnswerOutput(BaseModel):
     limitations: str | None = None
 
 
+class DateRange(BaseModel):
+    """A date condition as the user said it. Code turns it into from/to; the model never counts days."""
+
+    # Descriptions are what the chat model sees for the query_contracts tool.
+    from_date: date | None = Field(default=None, description="On or after this date, as the user wrote it.")
+    to_date: date | None = Field(default=None, description="On or before this date, as the user wrote it.")
+    year: int | None = Field(default=None, description="A calendar year: 'in 2027'.")
+    within_next_days: int | None = Field(default=None, ge=1, le=3650, description="'in the next 90 days'.")
+    within_next_months: int | None = Field(default=None, ge=1, le=120, description="'in the next 6 months'.")
+    within_last_days: int | None = Field(default=None, ge=1, le=3650, description="'in the last 30 days'.")
+    period: Literal["this_month", "next_month", "this_quarter", "next_quarter", "this_year", "next_year"] | None = (
+        Field(default=None, description="A calendar period around today: 'this quarter', 'next month'.")
+    )
+
+
+class PortfolioFilter(BaseModel):
+    """What a "which / how many contracts" question asks. Every condition must hold (AND)."""
+
+    # As the user said it ("NDA", "statement of work"); matched by the phrases that name each
+    # kind (contract_brain/portfolio.py _KINDS).
+    contract_types: list[str] = Field(default_factory=list)
+    counterparty: str | None = None
+    governing_law: str | None = None  # a place: "England and Wales", "Singapore", "Delaware"
+    stages: list[Literal["intake", "drafting", "review", "approval", "signature", "active", "closed"]] = Field(
+        default_factory=list
+    )
+    risk_bands: list[Literal["low", "medium", "high", "unknown"]] = Field(default_factory=list)
+    effective: DateRange | None = None
+    expires: DateRange | None = None
+    value_min: float | None = Field(default=None, ge=0)
+    value_max: float | None = Field(default=None, ge=0)
+    currency: str | None = None  # ISO-4217; a value bound needs one ("1 crore" = 10000000 INR)
+    wording: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Yes/no questions about ONE contract's text that no field answers, YES being what the "
+        "user wants: 'Does this contract renew automatically?'. The AI reads each candidate contract.",
+    )
+    lacks: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="What a contract must NOT have, asked as the presence question: 'no limitation of "
+        "liability clause' is 'Does this contract have a limitation of liability clause?'. A contract "
+        "matches when the AI's reading says no.",
+    )
+    not_checkable: list[str] = Field(
+        default_factory=list,
+        max_length=5,
+        description="Parts of the question no field or question can check (anything about today, e.g. "
+        "'notice deadline this quarter'), in the user's words. Shown as not checked, never dropped.",
+    )
+    count_only: bool = False  # "how many" (the list is still returned)
+
+
+class PortfolioFilterOutput(PortfolioFilter):
+    # False when the question is not "which / how many / list contracts ..." (for example
+    # "what is our usual liability cap?"): such a question goes to search instead.
+    is_list_question: bool
+
+
 class TabularCellOutput(BaseModel):
     answer: str = ""
     reasoning: str | None = None
     not_found: bool = False
+    # Set only for a column that asks a yes/no question. Code decides from this, never
+    # from the answer's prose (portfolio filter: contract_brain/portfolio.py).
+    verdict: Literal["yes", "no", "not_stated"] | None = None
     confidence: Literal["high", "medium", "low"] = "low"
     citations: list[CitationInput] = Field(default_factory=list)
 

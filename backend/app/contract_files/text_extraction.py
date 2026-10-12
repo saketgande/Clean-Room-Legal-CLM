@@ -1,12 +1,15 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from io import BytesIO
 from zipfile import BadZipFile, ZipFile
 
 from docx.oxml.ns import qn
 
 from app.core.config import settings
+from app.documents.reader.parsing.base import ParsedBlock
 from app.documents.reader.parsing.docx import _paragraph_text
+from app.documents.reader.parsing.furniture import _strip_furniture
+from app.documents.reader.parsing.pdf import _SPARSE_TEXT_PER_PAGE
 
 
 @dataclass(frozen=True)
@@ -348,8 +351,10 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
             offset = 0
             total_bytes = 0
             truncated = False
+            image_pages = 0
             with fitz.open(stream=content, filetype="pdf") as document:
                 for page_number, page in enumerate(document, start=1):
+                    image_pages += _is_scanned_page(page)
                     page_text = _join_number_lines(page.get_text() or "")
                     # Hard cap per contract so a single PDF cannot OOM the worker.
                     if total_bytes + len(page_text.encode("utf-8")) > max_bytes:
@@ -370,6 +375,14 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
                 page_map=page_map,
                 metadata={"truncated": truncated} if truncated else None,
             )
+            # A scan whose only text layer is an e-signature stamp scored 0.78 on character
+            # mix and was stored as ~500 characters of stamp, never OCR'd. On scanned pages,
+            # count the content left once page furniture (the stamp) is dropped. Only scanned
+            # pages: a thin text PDF (a one-page notice, a slide deck, a form) is all there is.
+            if image_pages * 2 > len(pages) and (
+                _content_chars(pages) < _SPARSE_TEXT_PER_PAGE * len(pages)
+            ):
+                result = replace(result, needs_ocr=True)
             return result
         except Exception as exc:
             return TextExtractionResult("", "pdf_failed", 0.0, needs_ocr=True, metadata={"error": str(exc)})
@@ -378,6 +391,29 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
         return TextExtractionResult("", "image_requires_ocr", 0.0, needs_ocr=True)
 
     return TextExtractionResult("", "unsupported", 0.0, needs_ocr=True, metadata={"filename": filename})
+
+
+def _is_scanned_page(page) -> bool:
+    """A page that is a picture: one image covering most of it, as a scanner produces."""
+    area = page.rect.width * page.rect.height or 1
+    return any(
+        rect.width * rect.height >= 0.5 * area
+        for image in page.get_images(full=True)
+        for rect in page.get_image_rects(image[0])
+    )
+
+
+def _content_chars(pages: list[str]) -> int:
+    """Characters left once page furniture (a line repeated on most pages: an e-signature
+    stamp, a running header, "Page n of m") is dropped, by the Documents reader's rule."""
+    blocks = [
+        ParsedBlock(text=line.strip(), page_number=number)
+        for number, page in enumerate(pages, start=1)
+        for line in page.splitlines()
+        if line.strip()
+    ]
+    kept, _ = _strip_furniture(blocks, len(pages))
+    return sum(len(block.text) for block in kept)
 
 
 def _cap_text(text: str, max_bytes: int) -> tuple[str, bool]:

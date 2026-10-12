@@ -2,7 +2,9 @@
 
 Reads the text of an uploaded legal notice and proposes the register fields —
 who sent it, what kind of notice it is, the date on it, and (the one that
-matters) the response deadline.
+matters) the WORDING of the response deadline. The model never returns a date
+it worked out: it copies the period and what it runs from, and code counts the
+date (service.compute_due) so a person sees the formula, not a guess.
 
 Two deliberate choices:
 
@@ -28,7 +30,13 @@ from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.deadlines import date_in_quote
 from app.notices.models import NOTICE_TYPES
+
+# The deadline vocabularies the model may answer with. Months and longer are rare
+# in a notice; "years" is left out on purpose, matching the system prompt.
+PERIOD_UNITS = ("days", "business_days", "weeks", "months")
+RUNS_FROM = ("notice_date", "receipt", "other")
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +69,35 @@ _SCHEMA = {
             "type": ["string", "null"],
             "description": "Date printed on the notice, as YYYY-MM-DD.",
         },
-        "response_due_date": {
-            "type": ["string", "null"],
-            "description": "Date by which a response is demanded, as YYYY-MM-DD. Only if the notice states a deadline or a period ('within 14 days') that can be resolved against the notice date.",
+        "deadline": {
+            "type": "object",
+            "description": "The notice's own wording of the response deadline. Copy it; never compute a date.",
+            "properties": {
+                "stated": {
+                    "type": "boolean",
+                    "description": "True only when the notice itself writes a deadline (a date or a period). False when none is written or one would come only from a statute or custom.",
+                },
+                "explicit_date": {
+                    "type": ["string", "null"],
+                    "description": "A calendar date the notice writes out as the deadline, as YYYY-MM-DD. Null when it gives a period.",
+                },
+                "period_count": {"type": ["integer", "null"], "minimum": 0},
+                "clear_days": {
+                    "type": "boolean",
+                    "description": "True only when the notice says the days are clear days.",
+                },
+                "period_unit": {"type": ["string", "null"], "enum": [*PERIOD_UNITS, None]},
+                "runs_from": {"type": ["string", "null"], "enum": [*RUNS_FROM, None]},
+                "runs_from_text": {
+                    "type": ["string", "null"],
+                    "description": "What the period runs from, in the notice's words.",
+                },
+                "quote": {
+                    "type": ["string", "null"],
+                    "description": "The sentence that states the deadline.",
+                },
+            },
+            "required": ["stated"],
         },
         "demanded_action": {
             "type": ["string", "null"],
@@ -83,9 +117,9 @@ def _prompt(text: str) -> str:
         "Extract the register fields from this legal notice.\n\n"
         "Rules:\n"
         "- Use only what the document states. Never invent a deadline.\n"
-        "- If the notice gives a period rather than a date (e.g. 'within 15 days "
-        "hereof'), resolve it against the notice's own date and return the "
-        "resulting date. If the notice date is itself unclear, return null.\n"
+        "- For the deadline, copy the wording: the period as written, whether it "
+        "says clear days, and what it runs from. Never work out a date from a "
+        "period; code does that.\n"
         "- counterparty_name is the OTHER side — the sender of a notice served on "
         "us, not our own company.\n\n"
         f"--- NOTICE TEXT ---\n{text[:_MAX_CHARS]}\n--- END ---"
@@ -95,9 +129,10 @@ def _prompt(text: str) -> str:
 # --- deterministic fallback (mock mode / LLM failure only) -----------------
 #
 # Deliberately conservative: it only reports what it can see literally. It will
-# not resolve "within 30 days" into a date — guessing a statutory deadline from
-# a regex is exactly the kind of confident-but-wrong behaviour that would make
-# the register untrustworthy.
+# not even read "within 30 days" as deadline wording — reading a statutory
+# deadline from a regex is exactly the kind of confident-but-wrong behaviour that
+# would make the register untrustworthy. No deadline reading at all (None) is
+# different from "the notice states none" ({"stated": False}).
 _DATE_PATTERNS = (
     re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b"),                       # 2026-07-28
     re.compile(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b"),             # 28/07/2026
@@ -141,7 +176,7 @@ def _heuristic(text: str) -> dict:
         "subject": None,
         "notice_date": notice_date,
         # Never guessed by the heuristic — see the note above.
-        "response_due_date": None,
+        "deadline": None,
         "demanded_action": None,
         "confidence": 0.2 if (notice_type or notice_date) else 0.0,
         "source": "heuristic",
@@ -165,6 +200,46 @@ def _clean_str(value, limit: int) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned[:limit] or None
+
+
+def clean_deadline(value, *, text: str | None = None) -> dict | None:
+    """The model's deadline wording, checked against the vocabularies, or None
+    when there is no reading. Only these facts are kept; they are what code
+    counts from, so a malformed value must not reach compute_due.
+
+    An explicit date survives only when its day and year are written in the
+    quote (not merely somewhere in the notice: almost any notice has the year and
+    some matching day number); otherwise the period (if any) is counted, or a
+    person sets the date. The period's own number is checked against the quote
+    by compute_due, which also sees facts a client sends back on create."""
+    if not isinstance(value, dict):
+        return None
+    if value.get("stated") is not True:
+        # Nothing else survives "not stated": a stray period here would read as
+        # a deadline the notice never gave.
+        return {"stated": False, "explicit_date": None, "period_count": None,
+                "period_unit": None, "clear_days": False, "runs_from": None,
+                "runs_from_text": None, "quote": None}
+    count = value.get("period_count")
+    count = count if isinstance(count, int) and not isinstance(count, bool) and count >= 0 else None
+    unit = value.get("period_unit") if value.get("period_unit") in PERIOD_UNITS else None
+    runs_from = value.get("runs_from") if value.get("runs_from") in RUNS_FROM else None
+    quote = _clean_str(value.get("quote"), 1000)
+    explicit = _clean_date(value.get("explicit_date"))
+    # A date the model worked out itself (a period it counted, a year it assumed)
+    # is not written in the notice, so it is no deadline.
+    if explicit and not date_in_quote(date.fromisoformat(explicit), quote):
+        explicit = None
+    return {
+        "stated": True,
+        "explicit_date": explicit,
+        "period_count": count,
+        "period_unit": unit,
+        "clear_days": value.get("clear_days") is True,
+        "runs_from": runs_from,
+        "runs_from_text": _clean_str(value.get("runs_from_text"), 300),
+        "quote": quote,
+    }
 
 
 def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=None) -> dict:
@@ -202,7 +277,7 @@ def extract_notice_fields(db: Session, *, org_id: str, text: str, claude_client=
             "notice_type": notice_type,
             "subject": _clean_str(data.get("subject"), 200),
             "notice_date": _clean_date(data.get("notice_date")),
-            "response_due_date": _clean_date(data.get("response_due_date")),
+            "deadline": clean_deadline(data.get("deadline"), text=text),
             "demanded_action": _clean_str(data.get("demanded_action"), 2000),
             "confidence": confidence,
             "source": "llm",

@@ -22,13 +22,20 @@ describe("runNoticeFor", () => {
 
   it("offers to retry a failed answer with the server's message", () => {
     const n = runNoticeFor(run({ status: "failed", has_answer: false, error_message: "Budget used up." }), q);
-    expect(n).toEqual({ message: "Budget used up.", retryText: "What is the notice period?" });
+    expect(n).toMatchObject({ message: "Budget used up.", retryText: "What is the notice period?" });
   });
 
   it("calls a partly written answer cut off", () => {
     const n = runNoticeFor(run({ status: "interrupted", has_answer: true }), q);
     expect(n?.message).toMatch(/cut off/);
     expect(n?.retryText).toBe("What is the notice period?");
+  });
+
+  it("retries an answer that wrote nothing as the same question, and one that was cut off as a new send", () => {
+    const empty = runNoticeFor(run({ id: "run-9", status: "failed", has_answer: false }), q);
+    expect(empty?.retryRunId).toBe("run-9");
+    expect(runNoticeFor(run({ id: "run-9", status: "cancelled", has_answer: false }), q)?.retryRunId).toBe("run-9");
+    expect(runNoticeFor(run({ id: "run-9", status: "interrupted", has_answer: true }), q)?.retryRunId).toBeNull();
   });
 
   it("only mentions a stop when nothing was written", () => {

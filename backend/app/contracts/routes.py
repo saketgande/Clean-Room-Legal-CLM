@@ -7,11 +7,10 @@ from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.service import ContractFilesService
 from app.contracts.dependencies import (
     get_contract_lifecycle_service,
-    get_contract_risk_service,
     get_contract_service,
 )
 from app.contracts.lifecycle import ContractLifecycleService, allowed_transitions_for
-from app.contracts.risk import ContractRiskService
+from app.contracts.risk import contract_risk, current_open_findings, refresh_contract_risk
 from app.contracts.schemas import (
     ContractActivityResponse,
     ContractPartyCreate,
@@ -23,6 +22,7 @@ from app.contracts.schemas import (
     CounterpartyOption,
     LifecycleOptionsResponse,
     LifecycleTransitionRequest,
+    ReviewRetryResponse,
     ReviewStatusResponse,
     SignerOption,
     VersionDiffResponse,
@@ -31,6 +31,7 @@ from app.contracts.service import (
     ContractService,
     list_counterparty_directory,
 )
+from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.deps import get_db, require_permission, require_screen_level
 from app.core.rate_limit import limiter
@@ -107,19 +108,15 @@ def get_contract(
 @router.get("/{contract_id}/risk")
 def get_contract_risk(
     contract_id: str,
+    db: Session = Depends(get_db),
     service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    """The stored weighted risk summary (score + drivers). Empty until computed."""
+    """The risk band computed now from the playbook review of the current text, with
+    the findings behind it (contracts.risk.contract_risk). Never the cached column,
+    which a missed refresh could leave describing older text."""
     contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
-    return contract.risk_summary or {
-        "score": contract.risk_score,
-        "band": contract.risk_band,
-        "drivers": [],
-        "counts": {"high": 0, "medium": 0, "low": 0},
-        "clause_count": 0,
-        "note": "Not computed yet.",
-    }
+    return contract_risk(db, contract)
 
 
 @router.get("/{contract_id}/deviations")
@@ -130,22 +127,16 @@ def get_contract_deviations(
     current_user=Depends(require_permission("contract:read")),
 ):
     """Open playbook deviations for the contract, severity-sorted — powers the
-    on-ticket AI analysis view."""
-    from sqlalchemy import select as _select
+    on-ticket AI analysis view and the editor's Review tab.
 
-    from app.playbooks.models import PlaybookDeviation
+    Only the findings of the review that counts for the current text
+    (contracts.risk.current_open_findings), the same set the risk band is computed from.
+    Listing every open row of every review ever run showed each unfixed problem twice
+    after a re-check, next to a header that counted it once."""
     from app.playbooks.schemas import PlaybookDeviationResponse
 
-    service.get_contract_for_user(contract_id=contract_id, user=current_user)
-    rows = db.scalars(
-        _select(PlaybookDeviation)
-        .where(
-            PlaybookDeviation.org_id == current_user.org_id,
-            PlaybookDeviation.contract_id == contract_id,
-            PlaybookDeviation.status.in_(["open", "needs_review"]),
-        )
-        .order_by(PlaybookDeviation.created_at.asc())
-    ).all()
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    rows = current_open_findings(db, contract)
     rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     rows = sorted(rows, key=lambda d: rank.get((d.severity or "").lower(), 9))
     return [PlaybookDeviationResponse.model_validate(d).model_dump() for d in rows]
@@ -168,40 +159,54 @@ async def contract_plain_summary(
     from app.playbooks.models import PlaybookDeviation
 
     contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
-    devs = db.scalars(
-        _select(PlaybookDeviation).where(
-            PlaybookDeviation.org_id == current_user.org_id,
-            PlaybookDeviation.contract_id == contract_id,
-            PlaybookDeviation.status.in_(["open", "needs_review"]),
-        )
-    ).all()
-    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    devs = sorted(devs, key=lambda d: rank.get((d.severity or "").lower(), 9))
-    rs = contract.risk_summary or {}
-    band = rs.get("band") or "unrated"
-    score = rs.get("score")
-    counts = rs.get("counts") or {}
+    risk = contract_risk(db, contract)
+    band = risk["band"]
+    counts = risk["counts"]
+    # The band's own findings, at the severity the band used: every version's open rows
+    # (the old query) mixed in stale issues and dropped the conceded highs that still
+    # drive the band, so the summary could disagree with the risk it states.
+    rows = {
+        d.id: d
+        for d in db.scalars(
+            _select(PlaybookDeviation).where(
+                PlaybookDeviation.org_id == current_user.org_id,
+                PlaybookDeviation.id.in_([d["deviation_id"] for d in risk["drivers"]]),
+            )
+        ).all()
+    } if risk["drivers"] else {}
 
     def _fallback() -> str:
-        if not devs:
-            return (f"Overall {band} risk. The review found no open issues — this looks like "
-                    "standard, safe paper you can proceed with.")
-        hi, md, lo = counts.get("high", 0), counts.get("medium", 0), counts.get("low", 0)
+        if band == "unknown":
+            # Nothing reviewed this text, so nothing here may read as "safe".
+            return (f"Risk not assessed: {risk['note']} Until a playbook review of this text "
+                    "runs, nothing here says it is safe to sign.")
+        hi = counts.get("critical", 0) + counts.get("high", 0)
+        md, lo = counts.get("medium", 0), counts.get("low", 0)
+        if not risk["drivers"]:
+            return (f"Overall {band} risk. The playbook review of this text found no "
+                    "unresolved issues.")
         head = f"Overall {band} risk — {hi} important, {md} moderate and {lo} minor point(s) worth knowing before signing."
-        pts = "\n".join(f"• {d.issue}" for d in devs[:3])
+        # Drivers include conceded issues: the wording is still in the contract.
+        pts = "\n".join(
+            f"• {d['issue']}" + (" (conceded — the wording stays)" if d["conceded"] else "")
+            for d in risk["drivers"][:3]
+        )
         tail = ("A lawyer should glance at the important items before you sign."
                 if hi else "Minor tweaks only — safe to proceed once they're addressed.")
         return f"{head}\n\n{pts}\n\n{tail}"
 
-    if settings.mock_claude or not devs:
+    if settings.mock_claude or band == "unknown" or not risk["drivers"]:
         return {"summary": _fallback(), "generated": False}
     try:
         dev_lines = "\n".join(
-            f"- [{d.severity or 'low'}] {d.clause_type}: {d.issue}"
-            + (f" (suggested fix: {d.suggested_fix})" if d.suggested_fix else "")
-            for d in devs[:12]
+            f"- [{d['severity']}] {getattr(rows.get(d['deviation_id']), 'clause_type', None) or 'clause'}: "
+            f"{d['issue']}"
+            + (" (conceded: the wording stays in the contract)" if d["conceded"] else "")
+            + (f" (suggested fix: {rows[d['deviation_id']].suggested_fix})"
+               if rows.get(d["deviation_id"]) and rows[d["deviation_id"]].suggested_fix else "")
+            for d in risk["drivers"]
         )
-        user_prompt = f"Contract: {contract.title}\nOverall risk: {band} (score {score}).\n\nPlaybook deviations found:\n{dev_lines}"
+        user_prompt = f"Contract: {contract.title}\nOverall risk: {band}.\n\nPlaybook deviations found:\n{dev_lines}"
         # Feature "plain_language_summary" via the AI gateway. An empty answer
         # raises into the except below, which keeps the deterministic summary.
         result = await gateway_for(claude_client).text(
@@ -221,22 +226,34 @@ async def contract_plain_summary(
 
 
 @router.post("/{contract_id}/risk")
-async def compute_contract_risk_route(
+def compute_contract_risk_route(
     contract_id: str,
     request: Request,
+    db: Session = Depends(get_db),
     service: ContractService = Depends(get_contract_service),
-    risk_service: ContractRiskService = Depends(get_contract_risk_service),
     current_user=Depends(require_permission("contract:read")),
     _screen=Depends(_CONTRACTS_VIEW),
 ):
-    """Compute (or recompute) the weighted, explainable risk score from the
-    contract's extracted clauses."""
+    """Recompute the cached risk band from the playbook findings. Free: no AI call
+    (the band is code over the review's findings; re-run the review to change them)."""
     contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
-    return await risk_service.compute_contract_risk(
-        contract=contract,
-        user=current_user,
-        request_id=getattr(request.state, "request_id", None),
+    before = contract.risk_band
+    summary = refresh_contract_risk(db, contract)
+    contract.updated_by_user_id = current_user.id
+    request_id = getattr(request.state, "request_id", None)
+    write_audit_log(
+        db, action="contract.risk_recomputed", resource_type="contract", resource_id=contract.id,
+        org_id=contract.org_id, actor_user_id=current_user.id, request_id=request_id,
+        before={"band": before}, after={"band": summary["band"]},
     )
+    write_timeline_event(
+        db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+        event_type="contract.risk_recomputed", title=f"Risk band recomputed: {summary['band']}",
+        actor_user_id=current_user.id, request_id=request_id,
+        details={"band": summary["band"], "note": summary["note"]},
+    )
+    db.commit()
+    return summary
 
 
 @router.patch("/{contract_id}", response_model=ContractResponse)
@@ -329,6 +346,34 @@ def get_review_status(
     return service.compute_review_status(contract=contract)
 
 
+@router.post("/{contract_id}/review/retry", response_model=ReviewRetryResponse)
+async def retry_contract_review(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    service: ContractService = Depends(get_contract_service),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """Run the AI review again when it was interrupted (or never produced a usable review). Safe to
+    press twice: while a review is in progress the second press returns it instead of starting
+    another. If the contract's workflow stopped to ask a person because the review never finished,
+    it is set going again to wait for this one."""
+    from app.contracts import auto_review
+
+    contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
+    result = auto_review.retry_review(db, contract=contract, actor=current_user)
+    resumed = False
+    if result["status"] in ("queued", "already_running", "not_needed"):
+        from app.workflows.service import reopen_review_step_for_contract
+
+        try:
+            resumed = await reopen_review_step_for_contract(db, contract=contract, actor=current_user)
+        except Exception:
+            # The review itself is queued; the workflow step can still be reopened from its own button.
+            db.rollback()
+            logger.warning("could not reopen the workflow's review step for %s", contract_id, exc_info=True)
+    return {**result, "workflow_resumed": resumed}
+
+
 @router.get(
     "/{contract_id}/versions/{base_version_id}/diff/{target_version_id}",
     response_model=VersionDiffResponse,
@@ -337,15 +382,19 @@ def get_version_diff(
     contract_id: str,
     base_version_id: str,
     target_version_id: str,
+    context: int | None = Query(default=None, ge=0, le=50),
     service: ContractService = Depends(get_contract_service),
     current_user=Depends(require_permission("contract:read")),
 ):
-    """Line-level diff between two versions (e.g. yours vs the counterparty's)."""
+    """Line-level diff between two versions (e.g. yours vs the counterparty's).
+    `context` keeps only that many unchanged lines around each change (see
+    ContractService.compute_version_diff); left out, every line comes back."""
     contract = service.get_contract_for_user(contract_id=contract_id, user=current_user)
     return service.compute_version_diff(
         contract=contract,
         base_version_id=base_version_id,
         target_version_id=target_version_id,
+        context=context,
     )
 
 

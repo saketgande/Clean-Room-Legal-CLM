@@ -251,7 +251,17 @@ class TabularReviewService:
         ).all()
         return {"review": review, "columns": columns, "cells": cells}
 
-    def create_review(self, *, payload, current_user: User) -> TabularReview:
+    def create_review(
+        self,
+        *,
+        payload,
+        current_user: User,
+        metadata_json: dict | None = None,
+        column_metadata: list[dict] | None = None,
+    ) -> TabularReview:
+        """``metadata_json`` / ``column_metadata`` (one dict per column) are for server-side
+        callers (the portfolio filter marks its review and its yes/no columns); the HTTP route
+        never passes them, so a client cannot label its own review as one."""
         db = self.db
         contract_ids = list(dict.fromkeys(payload.contract_ids))
         if not contract_ids:
@@ -266,12 +276,14 @@ class TabularReviewService:
             name=payload.name,
             source_contract_ids=contract_ids,
             status="running",
+            metadata_json=dict(metadata_json or {}),
             created_by_user_id=current_user.id,
             updated_by_user_id=current_user.id,
         )
         db.add(review)
         db.flush()
         columns = []
+        metas = column_metadata or []
         for position, column_payload in enumerate(payload.columns):
             column = TabularReviewColumn(
                 org_id=current_user.org_id,
@@ -279,6 +291,7 @@ class TabularReviewService:
                 name=column_payload.name,
                 prompt=column_payload.prompt,
                 position=position,
+                metadata_json=dict(metas[position]) if position < len(metas) else {},
                 created_by_user_id=current_user.id,
                 updated_by_user_id=current_user.id,
             )

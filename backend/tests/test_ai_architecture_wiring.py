@@ -288,8 +288,11 @@ def test_tool_call_arguments_and_result_are_redacted_before_persist():
 
     assert "arguments=redact_ai_payload(validated_args)" in source
     assert "call.result = redact_ai_payload(result)" in source
-    # idempotency must hash the raw args, not the redacted copy.
-    assert "_idempotency_key(tool_name, session_id, validated_args)" in source
+    # idempotency must hash the raw args, not the redacted copy. (A stage move adds the
+    # contract's current state to them, so the same words after it moved again are a new call.)
+    assert "key_args, card = validated_args, None" in source
+    assert "_idempotency_key(tool_name, session_id, key_args)" in source
+    assert "_idempotency_key(tool_name, session_id, redact" not in source
 
 
 def test_confirmed_tool_result_is_redacted_and_actor_stamped():
@@ -485,7 +488,9 @@ def test_every_external_action_tool_requires_confirmation():
 # Tools that change data but deliberately run without asking. Each one only
 # adds a new analysis record for the user to read and changes nothing that
 # exists; the reason is written next to its registration.
-NO_CONFIRMATION_BY_DESIGN = {"run_playbook_review", "create_tabular_review"}
+# query_contracts: a wording question starts a table review that reads each candidate
+# contract (spends tokens) -- the same new-record-only precedent as create_tabular_review.
+NO_CONFIRMATION_BY_DESIGN = {"run_playbook_review", "create_tabular_review", "query_contracts"}
 
 
 def test_every_tool_that_changes_data_asks_first_unless_listed():
@@ -524,7 +529,12 @@ def test_confirmation_card_shows_what_is_being_approved():
     assert len(details["note"]) == 300
     assert _confirmation_details(None) == {}
     src = inspect.getsource(ai_controller.stream_assistant_run) + inspect.getsource(ai_controller.resume_assistant_run)
-    assert src.count('"details": _confirmation_details(') == 2
+    # Both places that pause for a confirmation show the tool's own card when it has one
+    # (a stage move says which contract and what happens), else the action's arguments.
+    assert src.count('"details": _card_details(') == 2
+    from app.ai.controller import _card_details
+
+    assert inspect.getsource(_card_details).count("_confirmation_details(tool_input)") == 1
 
 
 def test_assistant_errors_shown_to_users_never_carry_internal_detail():

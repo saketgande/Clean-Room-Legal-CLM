@@ -22,7 +22,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseLabel, ClauseLabelingOutput, ClauseOutput, ClauseRiskOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, ContractRiskOutput, ObligationExtractionOutput, ObligationOutput, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, SkillInfo, TabularCellOutput, TabularChatOutput, TabularRowAnswer, TabularRowOutput
+AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerOutput, CitationInput, CitationValidationResult, ClauseExtractionOutput, ClauseLabel, ClauseLabelingOutput, ClauseOutput, ContractDocxGenerationOutput, ContractDocxSection, ContractEditSuggestion, ContractEditSuggestionsOutput, ContractMetadataOutput, DateRange, InitialTerm, ObligationExtractionOutput, ObligationOutput, ObligationTiming, PlaybookChatBuildOutput, PlaybookDeviationOutput, PlaybookGenerationOutput, PlaybookGenerationRule, PlaybookRecommendation, PlaybookRecommendationsOutput, PlaybookReviewOutput, PortfolioFilter, PortfolioFilterOutput, PrivacyIncidentAssessmentOutput, RenewalExtractionOutput, RenewalNoticeTerm, SkillInfo, TabularCellOutput, TabularChatOutput, TabularRowAnswer, TabularRowOutput, TermLength
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -30,6 +30,7 @@ AIPromptVersionResponse, AISkillRunResponse, AssistantAnswerOutput, BrainAnswerO
 - `0006_audit_hash_chain` (backend/alembic/versions/0006_audit_hash_chain.py)
 - `0044_approval_chains` (backend/alembic/versions/0044_approval_chains.py)
 - `0070_ai_call_log_cache_tokens` (backend/alembic/versions/0070_ai_call_log_cache_tokens.py)
+- `0071_ai_call_log_eval_run` (backend/alembic/versions/0071_ai_call_log_eval_run.py)
 
 ## Frontend counterpart
 

@@ -25,6 +25,7 @@ from app.contract_files.structure import (
 )
 from app.contract_files.text_extraction import TextExtractionResult, extract_text
 from app.contracts.models import Contract
+from app.contracts.risk import refresh_contract_risk
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import new_uuid, utcnow
@@ -281,6 +282,11 @@ class ContractFilesService:
         can't corrupt an upload."""
         db = self.db
         try:
+            # A copy of text this contract already has (restore, signed copy, replicate, a
+            # no-op save) takes that snapshot's elements: re-splitting flat text would lose
+            # the Documents reader's clause tree, and later clause labelling needs it.
+            if not elements and self._copy_same_text_elements(snapshot):
+                return
             if elements and "char_start" in elements[0]:
                 # Already placed by the Documents reader, offsets into this text.
                 rows, ok = [dict(e) for e in elements], True
@@ -292,6 +298,24 @@ class ContractFilesService:
                 )
             if not ok or not rows:
                 return
+            # Reducto returns a scan as ONE chunk and a .txt without blank lines reads as one
+            # paragraph. Stored as one element, clause labelling saw a 300-character excerpt
+            # (the cover page) and stored no clauses. Split such text ourselves instead.
+            text = snapshot.text or ""
+            biggest = max(
+                (r["char_end"] - r["char_start"] for r in rows if r["element_type"] != "table"),
+                default=0,
+            )
+            # Only when the rows carry no structure of their own: a Word file's clause tree,
+            # headings and tables are kept even if one paragraph in it is long.
+            structured = any(
+                r.get("parent_seq") is not None or r["element_type"] in ("heading", "table")
+                for r in rows
+            )
+            if not structured and len(text) > 2000 and biggest > len(text) // 2:
+                flat, flat_ok = elements_from_flat_text(text)
+                if flat_ok and len(flat) > len(rows):
+                    rows = flat
             # Idempotent: clear any prior elements for this snapshot before writing,
             # so re-running (e.g. a backfill) rebuilds cleanly instead of duplicating.
             db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
@@ -325,6 +349,54 @@ class ContractFilesService:
                 getattr(snapshot, "id", "?"),
                 exc_info=True,
             )
+
+    def _copy_same_text_elements(self, snapshot: ContractTextSnapshot) -> bool:
+        """Copy the elements of a structured snapshot of the SAME contract whose text is
+        byte-identical, onto ``snapshot``. Identical text means identical offsets, so seq,
+        char offsets and block_id carry over unchanged; only ids are new (parent_id
+        remapped). Same contract only: elements are never shared across contracts.
+        Returns False when there is no such snapshot, so the caller splits as before."""
+        db = self.db
+        donor_id = db.scalar(
+            select(ContractTextSnapshot.id)
+            .where(
+                ContractTextSnapshot.org_id == snapshot.org_id,
+                ContractTextSnapshot.contract_id == snapshot.contract_id,
+                ContractTextSnapshot.id != snapshot.id,
+                ContractTextSnapshot.structure_status == "structured",
+                ContractTextSnapshot.text == snapshot.text,
+            )
+            .order_by(ContractTextSnapshot.created_at.desc())
+            .limit(1)
+        )
+        if donor_id is None:
+            return False
+        donors = db.scalars(
+            select(ContractDocumentElement)
+            .where(ContractDocumentElement.text_snapshot_id == donor_id)
+            .order_by(ContractDocumentElement.seq)
+        ).all()
+        if not donors:
+            return False
+        db.query(ContractDocumentElement).filter_by(text_snapshot_id=snapshot.id).delete()
+        ids = {d.id: new_uuid() for d in donors}
+        skip = {"id", "parent_id", "contract_version_id", "text_snapshot_id", "created_at", "updated_at"}
+        columns = [c.key for c in ContractDocumentElement.__table__.columns if c.key not in skip]
+        # Seq order puts a parent before its children (the reader's tree only points back),
+        # so the self-referencing FK is satisfied row by row.
+        for d in donors:
+            db.add(
+                ContractDocumentElement(
+                    id=ids[d.id],
+                    parent_id=ids.get(d.parent_id),
+                    contract_version_id=snapshot.contract_version_id,
+                    text_snapshot_id=snapshot.id,
+                    **{k: getattr(d, k) for k in columns},
+                )
+            )
+        snapshot.structure_status = "structured"
+        snapshot.element_count = len(donors)
+        return True
 
     def backfill_document_elements(self, *, limit: int | None = None, batch_size: int = 200) -> dict:
         """Phase 2: give existing contracts a clause index by structuring snapshots
@@ -587,7 +659,7 @@ class ContractFilesService:
         return dispatched, errors
 
     def _advance_upload_to_review(
-        self, *, contract: Contract, user: User, request_id: str | None
+        self, *, contract: Contract, user: User, request_id: str | None, reason: str | None = None
     ) -> None:
         """An uploaded document is a real contract in flight, not a blank "intake"
         request you're about to draft, so send it straight to REVIEW, where the actual
@@ -603,7 +675,7 @@ class ContractFilesService:
                 contract=contract,
                 to_stage=ContractLifecycleStage.REVIEW,
                 actor_user_id=user.id,
-                reason="Uploaded document — moved to review automatically",
+                reason=reason or "Uploaded document — moved to review automatically",
                 request_id=request_id,
             )
             db.commit()
@@ -709,6 +781,7 @@ class ContractFilesService:
         request_id: str | None = None,
         defer_processing: bool = False,
         on_created: Callable[[Contract], None] | None = None,
+        advance_reason: str | None = None,
     ) -> dict:
         """Orchestrate a contract intake: validate, store, extract text, persist
         rows, queue AI jobs, audit, dispatch. Split into focused helpers so the
@@ -718,7 +791,10 @@ class ContractFilesService:
         ``on_created`` runs on the new contract inside the same transaction, before
         any job is dispatched — so what a caller already knows (a request's form
         facts, the auto-review flag) is on the row before the AI jobs read it,
-        instead of racing them with a second commit."""
+        instead of racing them with a second commit.
+
+        ``advance_reason`` is what the stage history says about the automatic move to Review. The default
+        ("Uploaded document") is right for a file someone attached; a draft the system wrote itself says so."""
         db = self.db
         mime_type = upload.content_type or "application/octet-stream"
         if mime_type not in settings.allowed_mime_types:
@@ -826,7 +902,7 @@ class ContractFilesService:
         )
 
         if not defer_processing:
-            self._advance_upload_to_review(contract=contract, user=user, request_id=request_id)
+            self._advance_upload_to_review(contract=contract, user=user, request_id=request_id, reason=advance_reason)
 
         db.refresh(contract)
         return {
@@ -1011,6 +1087,10 @@ class ContractFilesService:
         db.flush()
         contract.current_authoritative_version_id = version.id
         contract.updated_by_user_id = actor_user_id
+        # The only place an existing contract's current text moves: a band computed
+        # from the old text's review must not stay cached as if it were this text's.
+        db.flush()
+        refresh_contract_risk(db, contract)
 
     async def add_version_from_upload(
         self,
@@ -1196,6 +1276,7 @@ async def create_contract_from_upload(
     request_id: str | None = None,
     defer_processing: bool = False,
     on_created: Callable[[Contract], None] | None = None,
+    advance_reason: str | None = None,
 ) -> dict:
     return await ContractFilesService(db).create_contract_from_upload(
         upload=upload,
@@ -1206,6 +1287,7 @@ async def create_contract_from_upload(
         request_id=request_id,
         defer_processing=defer_processing,
         on_created=on_created,
+        advance_reason=advance_reason,
     )
 
 

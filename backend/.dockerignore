@@ -21,3 +21,10 @@ status_ok
 
 # Tests are not needed in the runtime image
 tests/
+
+# AI evaluation exam (specs/005-ai-eval-baseline, FR-36): client contracts, OCR
+# output, label sheets and the dedicated exam key must never be baked into an image
+eval/private/
+eval/contracts/
+eval/.work/
+eval/**/*.xlsx

@@ -66,6 +66,10 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.resume_workflow_runs",
         "schedule": crontab(minute="*/2"),  # progress runs without the ticket being open
     },
+    "intake-sla-sweep": {
+        "task": "app.jobs.tasks.run_intake_sla_sweep",
+        "schedule": crontab(minute="*/5"),  # close finished requests, escalate the ones that just went overdue
+    },
     "reconcile-tabular-reviews": {
         "task": "app.jobs.tasks.reconcile_tabular_reviews",
         "schedule": crontab(minute="*/5"),  # settle reviews and stuck cells without anyone opening them

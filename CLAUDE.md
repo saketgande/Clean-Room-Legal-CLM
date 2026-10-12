@@ -184,6 +184,29 @@ RUNNING/SUCCEEDED, so a redelivered broker message can't double-spend AI calls.
 Idempotency keys are `{job_type}:{version_id}:{snapshot_id}`. Periodic work is
 in `celery_app.conf.beat_schedule`.
 
+### Suggested changes for playbook issues
+
+A playbook review (`execute_playbook_run`) records issues (`PlaybookDeviation`). For an
+issue backed by a rule with usable document wording it also writes the tracked change
+itself, tagged with the issue (`playbook_deviation_id` in the edit's `citation`). The rest
+(no rule, or no wording to use) come out with no change, and
+`backend/app/contract_files/issue_fixes.py` fills them in: job type `issue_fix_drafting`,
+one AI request per issue (the assistant's edit engine, `tool_runtime._edit_contract`), one
+after another, each saved as it finishes and tied to its issue. One request for all the
+issues can't do that: its changes name no issue, so they show up in Review as loose cards.
+
+It starts after a review that made redlines (`POST /playbooks/{id}/runs`, the chat's
+`redline_against_playbook`, `auto_review_contract`; not for a `test_mode` run), or by hand
+from the Review tab (`POST /contracts/{id}/edits/draft-issue-fixes`; `GET` the same path
+for progress). `AUTO_DRAFT_ISSUE_FIXES` switches off only the automatic start;
+`AUTO_DRAFT_MAX_ISSUES` caps one job. Running it again is safe (an issue that already has a
+change is skipped), and one failing issue never stops the others. "Has a change" is
+decided as the page decides it (`frontend/src/lib/suggestions.ts`, `editsForIssue`), and
+`fix_instruction` in `issue_fixes.py` is the sentence the page's own button sends
+(`devInstruction` in `_clm-workspace.tsx`): change each pair together. In dev the worker restarts itself when
+`app/` changes (watchfiles); the API needs `docker compose restart backend` for a new module
+(see the reload caveat above). A production deploy restarts both.
+
 ### Retrieval (Contract Brain / Ask Aegis)
 
 `hybrid_sources` (`backend/app/contract_brain/retrieval.py`) is the **single**

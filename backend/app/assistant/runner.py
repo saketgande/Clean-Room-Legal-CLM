@@ -25,7 +25,7 @@ from datetime import timedelta
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.assistant import run_events
@@ -75,6 +75,8 @@ def citations_from_tool_result(result: dict | None) -> list[dict]:
             }
         )
     for match in result.get("matches") or []:
+        if not isinstance(match, dict) or not match.get("excerpt"):
+            continue  # a contract in a list (find_contracts, query_contracts), not a text match
         citations.append(
             {
                 "type": "match",
@@ -133,7 +135,9 @@ def accumulate_block(blocks: list[dict], event: dict) -> None:
         result = payload.get("result")
         for b in reversed(blocks):
             if b.get("type") == "tool" and b.get("status") == "running":
-                b["status"] = "error" if payload.get("error") else "done"
+                b["status"] = (
+                    "refused" if payload.get("error") and payload.get("refused") else "error" if payload.get("error") else "done"
+                )
                 if isinstance(result, dict):
                     art = {
                         k: result.get(k)
@@ -142,6 +146,7 @@ def accumulate_block(blocks: list[dict], event: dict) -> None:
                             "contract_id",
                             "edits",
                             "summary",
+                            "review_url",  # query_contracts: where its AI reading fills in
                         )
                         if result.get(k) is not None
                     }
@@ -395,19 +400,49 @@ def run_lease() -> timedelta:
     return timedelta(seconds=(celery_app.conf.task_time_limit or 900) + 300)
 
 
+LOST_WORKER_GRACE = timedelta(minutes=2)
+
+
+def stop_run_without_worker(db: Session, run_id: str) -> bool:
+    """Finish a run that Stop was pressed on when no worker is running it (it died, or it never
+    started). Nothing else would ever end it, so Stop used to do nothing. Returns whether this
+    call moved the run; False means it had already finished."""
+    moved = db.execute(
+        update(AssistantRun)
+        .where(AssistantRun.id == run_id, AssistantRun.status == AssistantRunStatus.RUNNING)
+        .values(status=AssistantRunStatus.CANCELLED, error_message=CANCELLED_MESSAGE, completed_at=utcnow())
+    ).rowcount
+    db.commit()
+    if not moved:
+        return False
+    _close_skill_runs(db, run_id)
+    db.commit()
+    _publish_end(run_id, AssistantRunStatus.CANCELLED)
+    run_events.release_claim(run_id)
+    return True
+
+
 def sweep_stale_runs(db: Session, *, now=None, limit: int = 200) -> int:
     """Mark runs whose worker died as interrupted and tell any watcher, so the
-    chat shows 'didn't finish — Retry' instead of 'Thinking…' forever."""
+    chat shows 'didn't finish — Retry' instead of 'Thinking…' forever.
+
+    A run is stale when it is past the lease (a worker cannot hold it longer), or sooner when its
+    worker claimed it and then stopped sending its heartbeat."""
     now = now or utcnow()
-    stale = db.scalars(
+    lease_cutoff = now - run_lease()
+    candidates = db.scalars(
         select(AssistantRun)
         .where(
             AssistantRun.status == AssistantRunStatus.RUNNING,
-            AssistantRun.updated_at < now - run_lease(),
+            AssistantRun.updated_at < now - LOST_WORKER_GRACE,
         )
         .limit(limit)
         .with_for_update(skip_locked=True)
     ).all()
+    stale = [
+        run for run in candidates
+        if run.updated_at < lease_cutoff or run_events.worker_state(run.id) == "lost"
+    ]
     for run in stale:
         run.status = AssistantRunStatus.INTERRUPTED
         run.error_message = INTERRUPTED_MESSAGE

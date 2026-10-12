@@ -17,7 +17,7 @@ from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.config import settings
 from app.core.deps import get_db, require_permission
-from app.core.enums import ContractLifecycleStage, UserStatus
+from app.core.enums import ApprovalStatus, ContractLifecycleStage, UserStatus
 from app.core.rate_limit import limiter
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
@@ -58,6 +58,14 @@ def _team_names(db: Session, ids: set[str]) -> dict[str, str]:
     return {t.id: t.name for t in db.scalars(select(IntakeTeam).where(IntakeTeam.id.in_(ids))).all()}
 
 
+def _user_names(db: Session, ids: set[str], *, org_id: str) -> dict[str, str]:
+    """Display names for the people approvals are assigned to, in one query (org-scoped)."""
+    if not ids:
+        return {}
+    rows = db.scalars(select(User).where(User.org_id == org_id, User.id.in_(ids))).all()
+    return {u.id: (u.full_name or u.email) for u in rows}
+
+
 def _user_brief(user: User) -> dict:
     return {
         "id": user.id,
@@ -88,13 +96,17 @@ def list_approvals(
     # per-row visibility check below doesn't fire one db.get() per approval (N+1).
     contracts = _load_contracts_for_approvals(db, approvals=rows, user=current_user)
     team_names = _team_names(db, {r.approver_team_id for r in rows if r.approver_team_id})
+    user_names = _user_names(db, {r.approver_user_id for r in rows if r.approver_user_id}, org_id=current_user.org_id)
+    intake_requests = _load_intake_requests_for_approvals(db, approvals=rows, org_id=current_user.org_id)
     return [
         _serialize_approval(
             row,
             approvals_service=approvals_service,
             can_decide=_can_decide_approval(db, approval=row, user=current_user, contracts=contracts),
             team_names=team_names,
+            user_names=user_names,
             contracts=contracts,
+            intake_requests=intake_requests,
         )
         for row in rows
         if _can_view_approval(db, approval=row, user=current_user, contracts=contracts)
@@ -107,10 +119,19 @@ def _serialize_approval(
     approvals_service: ApprovalsService,
     can_decide: bool,
     team_names: dict[str, str] | None = None,
+    user_names: dict[str, str] | None = None,
     contracts: dict[str, Contract] | None = None,
+    intake_requests: dict | None = None,
 ) -> dict:
     """Approval row + a server-computed can_decide (so the UI shows the
     Approve/Reject buttons for team members, not just role/user matches).
+
+    ``can_decide`` is true only while the row is still pending: eligibility is not
+    "actionable". An administrator is eligible for every row, so counting eligibility
+    made the page's "yours to action" include approved and rejected rows.
+
+    A row that hangs off an intake request (no contract) carries that request's
+    reference and title, so the page can name what is being approved.
 
     Carries the contract's own title and type: the queue previously resolved
     names against the contracts *list*, which excludes soft-deleted rows, so an
@@ -119,6 +140,7 @@ def _serialize_approval(
     """
     meta = req.metadata_json or {}
     contract = (contracts or {}).get(req.contract_id or "")
+    intake = (intake_requests or {}).get(req.intake_request_id or "")
     return {
         "id": req.id,
         "org_id": req.org_id,
@@ -127,9 +149,15 @@ def _serialize_approval(
         "contract_type": contract.contract_type if contract else None,
         "contract_archived": bool(contract is not None and contract.deleted_at is not None),
         "contract_version_id": req.contract_version_id,
+        "intake_request_id": req.intake_request_id,
+        "intake_ref": intake.ref if intake else None,
+        "intake_title": _intake_title(intake) if intake else None,
         "status": req.status,
         "requested_by_user_id": req.requested_by_user_id,
         "approver_user_id": req.approver_user_id,
+        # The person's name comes with the row: the queue used to look it up in the users list, which an
+        # ordinary approver may not read, so they saw "Assigned approver" instead of the name.
+        "approver_user_name": (user_names or {}).get(req.approver_user_id or ""),
         "approver_role": req.approver_role,
         "approver_team_id": req.approver_team_id,
         "approver_team_name": (team_names or {}).get(req.approver_team_id or ""),
@@ -147,8 +175,32 @@ def _serialize_approval(
         "metadata_json": req.metadata_json,
         "created_at": req.created_at,
         "updated_at": req.updated_at,
-        "can_decide": can_decide,
+        "can_decide": bool(can_decide)
+        and req.status == ApprovalStatus.PENDING
+        # A row that points at neither a contract nor a request has nothing to approve.
+        and bool(req.contract_id or req.intake_request_id),
     }
+
+
+def _intake_title(intake) -> str | None:
+    """The request's short title, else the first line of what was asked."""
+    if intake.subject and intake.subject.strip():
+        return intake.subject.strip()
+    first = (intake.description or "").strip().split("\n")[0].strip()
+    return first or None
+
+
+def _load_intake_requests_for_approvals(db: Session, *, approvals: list[ApprovalRequest], org_id: str) -> dict:
+    """The intake requests behind ``approvals`` in one org-scoped IN query."""
+    from app.intake.models import IntakeRequest
+
+    ids = {a.intake_request_id for a in approvals if a.intake_request_id}
+    if not ids:
+        return {}
+    rows = db.scalars(
+        select(IntakeRequest).where(IntakeRequest.org_id == org_id, IntakeRequest.id.in_(ids))
+    ).all()
+    return {r.id: r for r in rows}
 
 
 @router.get("/contracts/{contract_id}/chain")
@@ -299,6 +351,28 @@ async def decide_approval(
     return approval
 
 
+@router.get("/requests/{approval_request_id}/reassign-candidates")
+def reassign_candidates(
+    approval_request_id: str,
+    kind: str = Query(default="delegate"),
+    db: Session = Depends(get_db),
+    approvals_service: ApprovalsService = Depends(get_approvals_service),
+    current_user=Depends(require_permission("approval:decide")),
+):
+    """Who this approval may be delegated or escalated to — the same people the
+    reassign route will accept, so the pick list never offers a refusal."""
+    if kind not in ("delegate", "escalate"):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "kind must be 'delegate' or 'escalate'")
+    approval = db.get(ApprovalRequest, approval_request_id)
+    if approval is None or approval.org_id != current_user.org_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
+    if not _can_decide_approval(db, approval=approval, user=current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to move this approval")
+    if approval.status != ApprovalStatus.PENDING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Only a pending approval can be reassigned")
+    return [_user_brief(u) for u in approvals_service.reassign_candidates(approval=approval, kind=kind)]
+
+
 @router.post("/requests/{approval_request_id}/reassign")
 async def reassign_approval(
     approval_request_id: str,
@@ -427,7 +501,10 @@ def _can_view_approval(
     user,
     contracts: dict[str, Contract] | None = None,
 ) -> bool:
-    if _can_decide_approval(db, approval=approval, user=user):
+    # An approval assigned to this person (by name, role or team) stays on their list after it is decided
+    # and after the contract has moved on. "Can they decide it now" is a different question (the contract
+    # must be in the Approval stage) and is answered by ``can_decide`` on the row.
+    if _user_eligible_to_decide(db, approval=approval, user=user):
         return True
     if approval.requested_by_user_id == user.id:
         return True

@@ -9,8 +9,9 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, X } from "lucide-react";
-import { approvalsApi, contractsApi, usersApi } from "@/lib/endpoints";
-import { contractDisplayName, fmtDate, statusTone, titleCase } from "@/lib/utils";
+import { approvalsApi, contractsApi } from "@/lib/endpoints";
+import { contractDisplayName, statusTone, titleCase } from "@/lib/utils";
+import { dueText } from "@/lib/approval-due";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type { ApprovalRequest } from "@/lib/types";
@@ -38,7 +39,9 @@ export default function ApprovalsPage() {
   const { data: allReqs } = useQuery({ queryKey: ["approvals"], queryFn: approvalsApi.list });
   const pending = (allReqs ?? []).filter((r) => r.status === "pending").length;
   const overdue = (allReqs ?? []).filter((r) => r.overdue).length;
-  const mine = (allReqs ?? []).filter((r) => r.can_decide).length;
+  // Only rows still waiting count: "can decide" says who is eligible, and an
+  // administrator is eligible for rows that were decided long ago.
+  const mine = (allReqs ?? []).filter((r) => r.status === "pending" && r.can_decide).length;
 
   return (
     <div className="apprv">
@@ -82,17 +85,9 @@ function RequestsTab() {
     queryKey: ["approvals"],
     queryFn: approvalsApi.list,
   });
-  const { data: eligible } = useQuery({
-    queryKey: ["eligible-approvers"],
-    queryFn: approvalsApi.eligibleApprovers,
-  });
   const { data: contracts } = useQuery({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
-  });
-  const { data: orgUsers } = useQuery({
-    queryKey: ["org-users"],
-    queryFn: () => usersApi.list(),
   });
 
   const titleMap = useMemo(() => {
@@ -102,13 +97,17 @@ function RequestsTab() {
     for (const c of contracts ?? []) m.set(c.id, contractDisplayName(c));
     return m;
   }, [contracts]);
-  // Resolve approver ids to names (falls back to the eligible-approver pool).
-  const nameMap = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const a of eligible ?? []) m.set(a.id, a.full_name);
-    for (const u of orgUsers ?? []) m.set(u.id, u.full_name || u.email);
-    return m;
-  }, [eligible, orgUsers]);
+
+  /** What a row is about, in words: the agreement, or the request when it has no contract. */
+  function subjectName(req: ApprovalRequest): string {
+    if (req.contract_id) {
+      return req.contract_title
+        ? contractDisplayName({ title: req.contract_title, contract_type: req.contract_type })
+        : titleMap.get(req.contract_id) ?? "this contract";
+    }
+    if (req.intake_request_id) return [req.intake_ref, req.intake_title].filter(Boolean).join(" · ") || "this request";
+    return "this approval";
+  }
   const userRoles = useMemo(
     () => new Set([...(user?.roles ?? []), user?.active_role_name ?? ""].filter(Boolean)),
     [user],
@@ -132,7 +131,7 @@ function RequestsTab() {
     try {
       await approvalsApi.decide(req.id, decision, comment);
       qc.invalidateQueries({ queryKey: ["approvals"] });
-      notify(`Approval ${decision === "approve" ? "approved" : "rejected"}`, "success");
+      notify(`${decision === "approve" ? "Approved" : "Rejected"}: ${subjectName(req)}`, "success");
       setRejectFor(null);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Decision failed", "error");
@@ -146,7 +145,7 @@ function RequestsTab() {
     try {
       await approvalsApi.reassign(req.id, toUserId, kind);
       qc.invalidateQueries({ queryKey: ["approvals"] });
-      notify(kind === "delegate" ? "Delegated" : "Escalated", "success");
+      notify(`${kind === "delegate" ? "Delegated" : "Escalated"}: ${subjectName(req)}`, "success");
       setReassignFor(null);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Reassign failed", "error");
@@ -206,8 +205,12 @@ function RequestsTab() {
                               })
                             : titleMap.get(req.contract_id) ?? "Contract unavailable"}
                         </Link>
+                      ) : req.intake_request_id ? (
+                        <Link href={`/intake?open=${req.intake_request_id}`} className="lnk">
+                          {subjectName(req)}
+                        </Link>
                       ) : (
-                        <span className="dim">No contract linked</span>
+                        <span className="dim">Nothing linked to this approval</span>
                       )}
                       {req.contract_archived && <span className="pill neutral">archived</span>}
                     </td>
@@ -234,10 +237,10 @@ function RequestsTab() {
                           (req.approver_team_id
                             ? "Team"
                             : req.approver_user_id
-                              ? nameMap.get(req.approver_user_id) ?? "Assigned approver"
+                              ? req.approver_user_name ?? "Assigned approver"
                               : "—")}
                     </td>
-                    <td className={req.overdue ? "c-nw c-danger" : "c-nw"}>{fmtDate(req.due_at)}</td>
+                    <td className={req.overdue ? "c-nw c-danger" : "c-nw"}>{dueText(req)}</td>
                     <td className="c-r">
                       {req.status === "pending" && canDecide(req) ? (
                         <div className="rowact">
@@ -285,6 +288,7 @@ function RequestsTab() {
 
       <RejectModal
         request={rejectFor}
+        subject={rejectFor ? subjectName(rejectFor) : ""}
         onClose={() => setRejectFor(null)}
         busy={busyId === rejectFor?.id}
         onReject={(comment) => rejectFor && decide(rejectFor, "reject", comment)}
@@ -292,7 +296,7 @@ function RequestsTab() {
 
       <ReassignModal
         target={reassignFor}
-        approvers={eligible ?? []}
+        subject={reassignFor ? subjectName(reassignFor.req) : ""}
         onClose={() => setReassignFor(null)}
         busy={!!reassignFor && busyId === reassignFor.req.id}
         onConfirm={(toUserId) =>
@@ -337,13 +341,13 @@ function Modal({
 
 function ReassignModal({
   target,
-  approvers,
+  subject,
   onClose,
   onConfirm,
   busy,
 }: {
   target: { req: ApprovalRequest; kind: "delegate" | "escalate" } | null;
-  approvers: { id: string; full_name: string; email: string }[];
+  subject: string;
   onClose: () => void;
   onConfirm: (toUserId: string) => void;
   busy: boolean;
@@ -355,7 +359,15 @@ function ReassignModal({
   }, [target?.req.id, target?.kind]);
 
   const kind = target?.kind ?? "delegate";
-  const pool = approvers.filter((a) => a.id !== target?.req.approver_user_id);
+  // Only the people the server would accept: someone who can approve (delegate) or a senior
+  // approver (escalate). It used to be every active user, real mailboxes included.
+  const { data: pool, isLoading, error } = useQuery({
+    queryKey: ["reassign-candidates", target?.req.id, kind],
+    queryFn: () => approvalsApi.reassignCandidates(target!.req.id, kind),
+    enabled: !!target,
+    staleTime: 0,
+  });
+  const chosen = (pool ?? []).find((a) => a.id === toUserId);
 
   return (
     <Modal
@@ -374,33 +386,53 @@ function ReassignModal({
         </>
       }
     >
+      <p className="subj">
+        <span className="k">For</span> {subject}
+        {target?.req.step_order ? <span className="dim"> · step {target.req.step_order}</span> : null}
+      </p>
       <p className="hint">
         {kind === "delegate"
           ? "Reassign this pending step to another approver. They receive a fresh single-use approval link."
           : "Escalate this step to a senior approver. They take over the pending decision."}
       </p>
       <div className="field">
-        <label>{kind === "delegate" ? "Delegate to" : "Escalate to"}</label>
-        <select className="sel" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
-          <option value="">Select approver…</option>
-          {pool.map((a) => (
+        <label htmlFor="reassign-to">{kind === "delegate" ? "Delegate to" : "Escalate to"}</label>
+        <select id="reassign-to" className="sel" value={toUserId} onChange={(e) => setToUserId(e.target.value)}>
+          <option value="">{isLoading ? "Loading…" : "Select approver…"}</option>
+          {(pool ?? []).map((a) => (
             <option key={a.id} value={a.id}>
               {a.full_name} — {a.email}
             </option>
           ))}
         </select>
+        {error ? (
+          <span className="hint err" role="alert">{error instanceof Error ? error.message : "Couldn't load the list."}</span>
+        ) : !isLoading && (pool ?? []).length === 0 ? (
+          <span className="hint" role="status">
+            {kind === "delegate"
+              ? "No one else can take this approval."
+              : "No senior approver is available to take this. Try Delegate, or ask an administrator."}
+          </span>
+        ) : null}
       </div>
+      {chosen ? (
+        <p className="hint" role="status">
+          {chosen.full_name} ({chosen.email}) will get an email with a link to approve or reject.
+        </p>
+      ) : null}
     </Modal>
   );
 }
 
 function RejectModal({
   request,
+  subject,
   onClose,
   onReject,
   busy,
 }: {
   request: ApprovalRequest | null;
+  subject: string;
   onClose: () => void;
   onReject: (comment: string) => void;
   busy: boolean;
@@ -432,9 +464,14 @@ function RejectModal({
         </>
       }
     >
+      <p className="subj">
+        <span className="k">For</span> {subject}
+        {request?.step_order ? <span className="dim"> · step {request.step_order}</span> : null}
+      </p>
       <div className="field">
-        <label>Reason</label>
+        <label htmlFor="reject-reason">Reason</label>
         <input
+          id="reject-reason"
           autoFocus
           className="inp"
           placeholder="Why is this being rejected?"
@@ -540,6 +577,10 @@ const APPRV_CSS = `
 .apprv .inp,.apprv .sel{padding:8px 10px;border-radius:8px;border:1px solid var(--border-strong);background:var(--inset);color:var(--ink);font:inherit;outline:none}
 .apprv .inp:focus,.apprv .sel:focus{border-color:var(--accent)}
 .apprv .hint{font-size:11.5px;color:var(--ink-3);margin:0}
+.apprv .hint.err{color:var(--crit)}
+.apprv .subj{margin:0;font-size:12.5px;color:var(--ink);font-weight:600}
+.apprv .subj .k{font:600 10.5px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin-right:6px}
+.apprv .subj .dim{font-weight:500}
 
 .apprv .memlist{display:flex;flex-direction:column;gap:1px;max-height:320px;overflow-y:auto}
 .apprv .memrow{display:flex;align-items:center;gap:9px;padding:8px;border-radius:8px;cursor:pointer}

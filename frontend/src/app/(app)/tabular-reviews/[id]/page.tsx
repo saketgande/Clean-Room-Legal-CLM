@@ -35,7 +35,7 @@ import {
   THead,
   TR,
 } from "@/components/ui";
-import { fmtRelative, statusTone, titleCase } from "@/lib/utils";
+import { fmtRelative, plural, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { TabularReviewCell } from "@/lib/types";
 
@@ -118,8 +118,8 @@ export default function TabularReviewDetailPage({
                 {titleCase(review.status)}
               </Badge>
               <span className="text-sm text-slate-500">
-                {review.source_contract_ids.length} contracts ·{" "}
-                {sortedColumns.length} columns
+                {plural(review.source_contract_ids.length, "contract")} ·{" "}
+                {plural(sortedColumns.length, "column")}
               </span>
             </div>
           </div>

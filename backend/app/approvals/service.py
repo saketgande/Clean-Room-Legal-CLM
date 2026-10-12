@@ -15,6 +15,7 @@ from app.auth.models import Role, User, user_role_table
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.lifecycle import transition_contract_stage
 from app.contracts.models import Contract
+from app.core import org_access
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import new_uuid
@@ -230,33 +231,34 @@ _NDA_TYPES = {"nda", "non_disclosure_agreement", "non-disclosure agreement", "mu
 
 
 def _fast_lane_reason(db: Session, *, contract: Contract) -> str | None:
-    """Low-risk NDA under the value cap with no open high-severity deviations
-    → skip Approval, straight to Signature. Returns the audit reason, or None."""
-    from sqlalchemy import func as _func
+    """Low-risk NDA under the value cap → skip Approval, straight to Signature.
+    Returns the audit reason, or None.
 
-    from app.playbooks.models import PlaybookDeviation
+    "Low-risk" is contracts.risk.contract_risk's band, computed now -- never the cached
+    column. It is "low" only when Claude reviewed this text against the NDA playbook's
+    latest published rules and every finding is resolved or low (a conceded high still
+    counts, so whoever waived it can't send their own concession down the fast lane).
+    Unknown (no such review) fails closed: the NDA takes the normal Approval rung."""
+    from app.contracts.risk import contract_risk
 
     if not settings.nda_fast_lane_enabled:
         return None
     if (contract.contract_type or "").strip().lower() not in _NDA_TYPES:
         return None
-    band = (getattr(contract, "risk_band", None) or contract.risk_level or "").lower()
-    if band != "low":
+    # NDAs carry no money (the NDA form never asks), so no value is normal and the cap
+    # applies only to a stated one. The cap is in the default currency; a value in another
+    # currency can't be compared with it, so it doesn't qualify (as _grant_covers does).
+    # A stated value with no currency is unknown money, so it doesn't qualify either.
+    if contract.value_amount is not None and (
+        (contract.currency or "").upper() != settings.default_currency.upper()
+        or to_money(contract.value_amount) > to_money(settings.nda_fast_lane_max_value)
+    ):
         return None
-    if to_money(contract.value_amount) > to_money(settings.nda_fast_lane_max_value):
-        return None
-    open_high = db.scalar(
-        select(_func.count(PlaybookDeviation.id)).where(
-            PlaybookDeviation.contract_id == contract.id,
-            PlaybookDeviation.status.in_(["open", "needs_review"]),
-            PlaybookDeviation.severity.in_(["high", "critical"]),
-        )
-    )
-    if open_high:
+    if contract_risk(db, contract)["band"] != "low":
         return None
     return (
-        "Fast-lane: low-risk NDA auto-approved to signature "
-        f"(risk {band or 'low'}, value within cap, no open high-severity deviations)"
+        "Fast-lane: low-risk NDA auto-approved to signature (playbook-reviewed by Claude "
+        "on this text with no unresolved findings above low, value within cap)"
     )
 
 
@@ -624,6 +626,58 @@ class ApprovalsService:
             return max(1, len(member_users(db, team_id=approval.approver_team_id, org_id=approval.org_id)))
         return 1
 
+    @staticmethod
+    def _reassign_permission(kind: str) -> str:
+        """What a person must hold to receive the approval. Delegating sideways needs the
+        right to decide; escalating up needs the right to administer approvals."""
+        return "approval:admin" if kind == "escalate" else "approval:decide"
+
+    def reassign_target_problem(self, *, approval: ApprovalRequest, to_user: User, kind: str) -> str | None:
+        """Why ``to_user`` can't be handed this approval, or None when they can.
+
+        The one rule behind both the pick list (``reassign_candidates``) and the check
+        on the chosen person (``reassign_rung``), so the list never offers someone the
+        server then refuses. It asks what the person's roles grant, not whether RBAC is
+        switched on: with RBAC off every user passes every check, which is exactly when
+        a list of every account (real mailboxes included) is most dangerous.
+        """
+        name = to_user.full_name or to_user.email
+        if to_user.id == approval.requested_by_user_id:
+            return "The requester can't approve their own request"
+        if approval.approver_user_id and to_user.id == approval.approver_user_id:
+            return f"{name} already holds this approval"
+        if to_user.status != UserStatus.ACTIVE:
+            return f"{name}'s account is not active"
+        needed = self._reassign_permission(kind)
+        held = org_access.effective_permission_values_for_users(
+            self.db, org_id=approval.org_id, user_ids=[to_user.id]
+        ).get(to_user.id, set())
+        if needed in held or "*" in held:
+            return None
+        if kind == "escalate":
+            return (
+                f"{name} is not a senior approver, so this can't be escalated to them. "
+                "Escalate to someone who administers approvals, or use Delegate."
+            )
+        return f"{name} can't approve: their role does not include approving."
+
+    def reassign_candidates(self, *, approval: ApprovalRequest, kind: str) -> list[User]:
+        """Active people who may be handed this approval (see ``reassign_target_problem``)."""
+        people = self.db.scalars(
+            select(User)
+            .where(User.org_id == approval.org_id, User.status == UserStatus.ACTIVE)
+            .order_by(User.full_name)
+        ).all()
+        people = [
+            u for u in people
+            if u.id != approval.requested_by_user_id and u.id != approval.approver_user_id
+        ]
+        needed = self._reassign_permission(kind)
+        held = org_access.effective_permission_values_for_users(
+            self.db, org_id=approval.org_id, user_ids=[u.id for u in people]
+        )
+        return [u for u in people if needed in held[u.id] or "*" in held[u.id]]
+
     async def reassign_rung(
         self,
         *,
@@ -641,8 +695,9 @@ class ApprovalsService:
             raise HTTPException(status.HTTP_409_CONFLICT, "Only a pending approval can be reassigned")
         if to_user.org_id != approval.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Target user not found")
-        if to_user.id == approval.requested_by_user_id:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "The requester can't approve their own request")
+        problem = self.reassign_target_problem(approval=approval, to_user=to_user, kind=kind)
+        if problem:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
 
         prev = approval.approver_user_id
         approval.approver_user_id = to_user.id

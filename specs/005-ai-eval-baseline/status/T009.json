@@ -1,0 +1,7 @@
+{
+  "task": "T009",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "env.py done: ExamSettings, isolate, authenticate_owner, audit, exam_lock; ruff clean; verified by 49 out-of-repo scenario checks (fresh interpreters, scratch DB, no network, scratch DB dropped); repo tests are T013/T019",
+  "updated": "2026-10-06T17:36:32Z"
+}

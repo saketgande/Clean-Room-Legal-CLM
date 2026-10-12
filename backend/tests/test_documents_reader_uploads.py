@@ -96,3 +96,37 @@ def test_stored_elements_link_each_clause_to_its_parent():
     child = next(r for r in db.added if r.number_label == "1.2")
     assert by_id[child.parent_id].number_label.rstrip(".") == "1"
     assert all("parent_seq" in e for e in read["elements"])  # the reader's own list isn't mutated
+
+
+def test_a_document_handed_over_as_one_block_is_still_split_into_clauses():
+    """Reducto returns a scan as ONE chunk and a .txt with no blank lines reads as one
+    paragraph. Stored as a single element, clause labelling was sent one 300-character excerpt
+    (the cover page), the model labelled nothing, and the contract had no clauses: the
+    full-text fallback never ran because one segment counts as "segmented"."""
+    from types import SimpleNamespace
+
+    from app.ai.clause_segments import segments_from_elements
+    from app.contract_files.service import _persist_document_elements
+
+    class FakeDB:
+        def __init__(self):
+            self.added = []
+
+        def query(self, *_):
+            return SimpleNamespace(filter_by=lambda **_: SimpleNamespace(delete=lambda: 0))
+
+        def add(self, row):
+            self.added.append(row)
+
+    text = "EMPLOYMENT AGREEMENT\n" + "\n".join(
+        f"{n}. Clause {n} " + "word " * 60 for n in range(1, 15)
+    )
+    as_txt = read_with_documents_reader(text.encode(), mime_type="text/plain", filename="a.txt")
+    for elements in ([{"type": "text", "content": text}], as_txt["elements"]):
+        snap = SimpleNamespace(id="s", org_id="o", contract_id="c", contract_version_id="v",
+                               text=text, structure_status="flat_only", element_count=0)
+        db = FakeDB()
+        _persist_document_elements(db, snap, elements=elements)
+        rows = sorted(db.added, key=lambda r: r.seq)
+        assert all(text[r.char_start:r.char_end] == r.text for r in rows)
+        assert len(segments_from_elements(rows, text)) == 14

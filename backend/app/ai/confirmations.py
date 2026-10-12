@@ -261,6 +261,6 @@ def pending_confirmation_for_session(db: Session, *, session_id: str, org_id: st
         return None
     return {
         "confirmation_id": conf.id, "assistant_run_id": run.id, "tool_name": conf.tool_name,
-        "details": confirmation_details(conf.tool_input),
+        "details": (conf.policy or {}).get("card") or confirmation_details(conf.tool_input),
         "expires_at": conf.expires_at.isoformat() if conf.expires_at else None,
     }

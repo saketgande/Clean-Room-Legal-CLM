@@ -75,6 +75,21 @@ def accessible_contract_filter(user: User):
     )
 
 
+def sealed_off_filter(user: User):
+    """SQL: contracts this user is NOT sealed off from by a deny-override (an ethical wall, or
+    clearance for a non-admin). Only the deny half of accessible_contract_filter, without the
+    ownership allow-list: for records a whole team works on (notices) that must still stay
+    behind their contract's wall."""
+    not_walled = wall_block_filter(user)
+    return not_walled if is_org_admin(user) else and_(not_walled, _clearance_ok_sql(user))
+
+
+def is_sealed_off(db: Session, *, user: User, contract: Contract) -> bool:
+    """Row check matching sealed_off_filter: is this user walled off from the contract, or below
+    its clearance?"""
+    return user_is_walled(db, user=user, contract=contract) or not clearance_permits(user, contract)
+
+
 def _log_deny_override(user: User, contract: Contract, reason: str) -> None:
     """Method-8 audit: a Phase-3 deny-override sealed this user off. Best-effort;
     isolated session inside record_decision so it survives any rollback."""

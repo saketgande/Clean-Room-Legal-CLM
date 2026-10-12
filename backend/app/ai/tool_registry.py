@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app.ai.schemas import PortfolioFilter
 from app.core.enums import AssistantToolCategory
 
 
@@ -23,6 +24,22 @@ class ReadContractInput(ContractHandleInput):
 
 class FindInContractInput(ContractHandleInput):
     query: str = Field(min_length=1)
+
+
+class ListContractVersionsInput(ContractHandleInput):
+    pass
+
+
+class CompareContractVersionsInput(ContractHandleInput):
+    # People say "v6" and "v7": those are version_number. Two files of one contract can each have a v6,
+    # so the exact version can also be named by id (the ids come from list_contract_versions).
+    base_version_number: int | None = Field(default=None, ge=1, description="the older version, e.g. 6 for 'v6'. Leave out to use the version before the target")
+    target_version_number: int | None = Field(default=None, ge=1, description="the newer version, e.g. 7 for 'v7'. Leave out to use the current version")
+    base_version_id: str | None = Field(default=None, description="the older version by id, only when a number is ambiguous")
+    target_version_id: str | None = Field(default=None, description="the newer version by id, only when a number is ambiguous")
+    context_lines: int = Field(default=2, ge=0, le=10, description="unchanged lines to show around each change")
+    # Long comparisons come back in windows: when a result has_more, call again with its next_offset.
+    diff_offset: int = Field(default=0, ge=0)
 
 
 class PromptRunInput(BaseModel):
@@ -315,12 +332,32 @@ _register("get_signature_status", "Check the signature status of a request's con
 
 
 class AdvanceContractStageInput(BaseModel):
+    contract_handle: str | None = Field(default=None, description="the contract's handle, e.g. contract-0 (the contract this chat is about)")
     request_id: str | None = Field(default=None, description="intake request id or ref")
     contract_id: str | None = Field(default=None, description="contract id (use instead of request_id)")
-    to_stage: str = Field(description="target lifecycle stage, e.g. review, approval, signature, executed")
+    to_stage: str = Field(description="intake, drafting, review, approval, signature, active or closed")
+    reason: str | None = Field(default=None, description="why; required when pulling a contract back from Approval or Signature to Review")
 
 
-_register("advance_contract_stage", "Move a request's contract to a target lifecycle stage (respects the approval-before-signature gate).", AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput, confirmation_policy="required")
+_register(
+    "advance_contract_stage",
+    "Move a contract to another lifecycle stage. To send it for approval use to_stage='approval': that "
+    "completes the workflow's current review step and the workflow creates the approval chain. It needs a "
+    "workflow waiting on a review step, and every suggested change accepted or rejected first; if either is "
+    "missing it says so, so tell the user what is missing and where to fix it (Review tab, Lifecycle tab). "
+    "Pulling a contract back to Review from Approval or Signature needs a reason. Approval to Signature and "
+    "Signature to Active happen on their own when approval and signing finish. It never overrides a rule: "
+    "sending a contract on with suggestions still open is done by the user in the Lifecycle tab. Call it as "
+    "soon as the user asks for the move: the app shows its own Confirm / Cancel card before anything moves, "
+    "so do not ask \"shall I go ahead?\" in the chat first.",
+    AssistantToolCategory.MUTATING, "contract:update", AdvanceContractStageInput, confirmation_policy="required",
+)
+_register(
+    "list_contract_suggestions",
+    "List the suggested changes on a contract that nobody has accepted or rejected yet (before and after "
+    "wording, why, and who made them). Use it to answer what is still open before the contract can leave Review.",
+    AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput,
+)
 _register("list_my_approvals", "List approvals pending your decision.", AssistantToolCategory.READ_ONLY, "contract:approve", EmptyInput)
 _register("read_notice", "Read a legal notice's full details.", AssistantToolCategory.READ_ONLY, "contract:read", NoticeRef)
 _register("get_signature_link", "Get the link to sign a request's contract — the user clicks it to review and sign in the app.", AssistantToolCategory.READ_ONLY, "contract:read", SignatureLinkInput)
@@ -329,6 +366,27 @@ _register("send_for_negotiation", "Send a request's contract out for negotiation
 _register("read_contract", "Read a contract's full text and metadata. Long contracts return in windows: if the result has_more is true, call again with next_offset to keep reading until you've seen the whole document before analysing it.", AssistantToolCategory.READ_ONLY, "contract:read", ReadContractInput)
 _register("find_in_contract", "Find text in a contract.", AssistantToolCategory.READ_ONLY, "contract:read", FindInContractInput)
 _register("get_contract_status", "Read contract lifecycle and risk metadata.", AssistantToolCategory.READ_ONLY, "contract:read", ContractHandleInput)
+_register(
+    "list_contract_versions",
+    "List a contract's versions: number (the 'v6' people say), where it came from, whether it is the one in use "
+    "(current), an earlier one, or a newer proposal that was never applied, and whether its text was read. Call this "
+    "before comparing when the user names versions you are unsure of.",
+    AssistantToolCategory.READ_ONLY,
+    "contract_file:read",
+    ListContractVersionsInput,
+)
+_register(
+    "compare_contract_versions",
+    "Compare two versions of a contract line by line and return what changed (lines starting '+ ' were added in the "
+    "newer version, '- ' removed from the older, two spaces unchanged). Name the versions by number ('compare v6 and "
+    "v7' = base_version_number 6, target_version_number 7); with no numbers it compares the version before the current "
+    "one with the current one. Long comparisons come back in windows: while the result has_more is true, call again "
+    "with its next_offset as diff_offset until you have read it all, and never summarise a partial comparison as the "
+    "whole. If found is false, tell the user the reason in the message and use the versions it lists; do not guess.",
+    AssistantToolCategory.READ_ONLY,
+    "contract_file:read",
+    CompareContractVersionsInput,
+)
 _register("list_workflows", "List reusable workflows.", AssistantToolCategory.READ_ONLY, "workflow:read", EmptyInput)
 _register(
     "list_playbooks",
@@ -402,7 +460,15 @@ _register(
     confirmation_policy="required",
 )
 
-_register("ask_contract_brain", "Retrieve Contract Brain context for a legal question.", AssistantToolCategory.READ_ONLY, "assistant:use", BrainAskInput)
+_register(
+    "ask_contract_brain",
+    "Answer a legal question about what contracts SAY, from the best-matching passages. It looks at "
+    "a sample of passages, not every contract, so it cannot count or list contracts: for 'which / how "
+    "many contracts ...' use query_contracts.",
+    AssistantToolCategory.READ_ONLY,
+    "assistant:use",
+    BrainAskInput,
+)
 _register(
     "send_for_signature",
     "Send a contract to DocuSign for signature.",
@@ -441,7 +507,7 @@ _register(
 )
 _register(
     "find_contracts",
-    "Find contracts by title or counterparty name and return matches with handles for further tool use. Use to resolve a contract the user named (e.g. 'the TechCorp MSA').",
+    "Find contracts by title or counterparty name and return matches with handles for further tool use. Use to resolve a contract the user named (e.g. 'the TechCorp MSA'). Shows at most 8 matches; total says how many matched. For 'which / how many contracts ...' use query_contracts.",
     AssistantToolCategory.READ_ONLY,
     "contract:read",
     FindContractsInput,
@@ -452,4 +518,40 @@ _register(
     AssistantToolCategory.READ_ONLY,
     "obligation:read",
     ListObligationsInput,
+)
+
+
+class QueryContractsInput(PortfolioFilter):
+    question: str = Field(
+        min_length=3,
+        description="The user's question in a few words; it names the table when the AI has to read the contracts.",
+    )
+
+
+# Opt-out: when `wording` is set it starts a table review that reads each candidate contract
+# (it spends tokens). That is the same new-record-only precedent as create_tabular_review: it
+# changes no existing record and sends nothing, and the answer states the estimated cost.
+_register(
+    "query_contracts",
+    "Answer EVERY 'which contracts ...' / 'how many contracts ...' / 'list contracts ...' question. It checks "
+    "every contract the user can open (not a sample) and reports 'Checked N of M contracts' with the matches "
+    "and the ones it could not check. Fill only the conditions the user stated: contract_types (as said, e.g. "
+    "NDA, MSA), counterparty, governing_law (a place), stages, risk_bands, effective / expires (copy the "
+    "user's year, dates, 'next N days/months', 'last N days' or a period such as this quarter into the date "
+    "range; never work out dates yourself), value_min / value_max with the currency (a value needs one). "
+    "Anything about what a contract SAYS (renews automatically, notice period, termination for convenience, "
+    "liability cap, data protection ...) goes in `wording` as a yes/no question about ONE contract where YES "
+    "is what the user wants, e.g. 'Does this contract renew automatically?'. Something a contract must NOT "
+    "have ('no limitation of liability clause') goes in `lacks` as the presence question ('Does this contract "
+    "have a limitation of liability clause?'), never in `wording`. The AI then reads each candidate contract "
+    "(slower; costs per question; the result gives the estimate and progress); asking the same question again "
+    "follows that reading at no new cost. The reader does not know today's date, so anything about today "
+    "(a notice deadline this quarter) and anything no field or question can check goes in `not_checkable`, "
+    "in the user's words. Set count_only for 'how many'. Then report the counts, the matches, the contracts "
+    "that could not be checked, what was not checked and, when the AI read contracts, the cost estimate, "
+    "exactly as returned.",
+    AssistantToolCategory.MUTATING,
+    "assistant:use",
+    QueryContractsInput,
+    confirmation_policy="none",
 )

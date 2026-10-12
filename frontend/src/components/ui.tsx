@@ -32,6 +32,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { loadErrorText } from "@/lib/load-error";
 
 // ---- Button --------------------------------------------------------------
 type ButtonVariant =
@@ -406,6 +407,27 @@ export function ErrorState({ error }: { error: unknown }) {
       className="rounded-md border border-danger/30 bg-danger-subtle p-4 text-[13px] text-danger"
     >
       {message}
+    </div>
+  );
+}
+
+/** A page's data could not be loaded: says what and why, and offers the way out (try again, go back). */
+export function LoadError({ error, what, onRetry, onBack, backLabel = "Back" }: {
+  error: unknown;
+  what: string;
+  onRetry?: () => void;
+  onBack?: () => void;
+  backLabel?: string;
+}) {
+  const t = loadErrorText(error, what);
+  return (
+    <div role="alert" className="rounded-md border border-danger/30 bg-danger-subtle p-4 text-[13px] text-danger">
+      <p className="font-semibold">{t.title}</p>
+      {t.detail ? <p className="mt-1">{t.detail}</p> : null}
+      <div className="mt-3 flex gap-2">
+        {t.canRetry && onRetry ? <Button type="button" variant="outline" size="sm" onClick={onRetry}>Try again</Button> : null}
+        {onBack ? <Button type="button" variant="outline" size="sm" onClick={onBack}>{backLabel}</Button> : null}
+      </div>
     </div>
   );
 }

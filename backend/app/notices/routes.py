@@ -43,7 +43,7 @@ def list_notices(
     service: NoticesService = Depends(get_notices_service),
 ):
     return service.list_notices(
-        org_id=current_user.org_id,
+        user=current_user,
         status_filter=status_filter,
         direction=direction,
         notice_type=notice_type,
@@ -59,7 +59,7 @@ def notice_summary(
     current_user=Depends(_READ),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return service.summary(org_id=current_user.org_id)
+    return service.summary(user=current_user)
 
 
 @router.post("/run-reminders")
@@ -108,7 +108,7 @@ def get_notice(
     current_user=Depends(_READ),
     service: NoticesService = Depends(get_notices_service),
 ):
-    return service.get_notice(org_id=current_user.org_id, notice_id=notice_id)
+    return service.get_notice(user=current_user, notice_id=notice_id)
 
 
 @router.patch("/{notice_id}", response_model=NoticeDetailResponse)

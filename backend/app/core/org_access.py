@@ -331,6 +331,31 @@ def effective_permission_values(db: Session, *, user: User, at: datetime | None 
     return values
 
 
+def effective_permission_values_for_users(
+    db: Session, *, org_id: str, user_ids: Sequence[str], at: datetime | None = None
+) -> dict[str, set[str]]:
+    """``effective_permission_values`` for many users in one grants query.
+
+    For building a pick list ("who could take this approval?") without one query
+    per person. Same grant filter, same result per user; a user with no active
+    grant maps to an empty set.
+    """
+    out: dict[str, set[str]] = {uid: set() for uid in user_ids}
+    if not out:
+        return out
+    grants = db.scalars(
+        select(UserRoleGrant).where(
+            UserRoleGrant.org_id == org_id,
+            UserRoleGrant.user_id.in_(list(out)),
+            *_grant_validity_clause(at),
+        )
+    ).all()
+    for grant in grants:
+        if grant.role is not None:
+            out[grant.user_id].update(p.value for p in grant.role.permissions)
+    return out
+
+
 def users_holding_role(
     db: Session,
     *,

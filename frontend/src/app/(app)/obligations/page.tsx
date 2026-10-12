@@ -16,10 +16,11 @@ import {
   User2,
   X,
 } from "lucide-react";
-import { obligationsApi } from "@/lib/endpoints";
+import { contractsApi, obligationsApi } from "@/lib/endpoints";
 import { fmtDate, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { Obligation, ObligationStatus } from "@/lib/types";
+import { SETTLEABLE, anchorText, conflictChoices, conflictText, dateState, needsEventDate } from "./deadline";
 
 const STATUSES: ObligationStatus[] = [
   "open",
@@ -54,6 +55,15 @@ function timing(o: Obligation): {
       days < 0 ? `${Math.abs(days)}d overdue` : days === 0 ? "today" : `in ${days}d`;
     return { label: fmtDate(o.due_date), sub: rel, tone: "date" };
   }
+  // An ongoing duty's end is never a due date, so it can't show as overdue.
+  if (o.deadline?.ends_on) return { label: `Ends ${fmtDate(o.deadline.ends_on)}`, sub: null, tone: "recurring" };
+  // No date because code wouldn't guess one: the state line below says why.
+  if (o.deadline?.reason)
+    return {
+      label: o.deadline.reason.startsWith("starts when") ? "On trigger" : "Needs a person",
+      sub: null,
+      tone: "conditional",
+    };
   if (o.recurrence) return { label: o.recurrence, sub: "recurring / ongoing", tone: "recurring" };
   return { label: "On trigger", sub: "conditional — no fixed date", tone: "conditional" };
 }
@@ -126,6 +136,35 @@ export default function ObligationsPage() {
       notify("Obligation completed", "success");
     } catch (e) {
       notify(e instanceof Error ? e.message : "Complete failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function patch(o: Obligation, payload: Record<string, unknown>, done: string) {
+    setBusyId(o.id);
+    try {
+      await obligationsApi.update(o.id, payload);
+      qc.invalidateQueries({ queryKey: ["obligations"] });
+      notify(done, "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Update failed", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Settles a form-vs-text dispute on the contract itself: the date becomes a
+  // person-set one and the server recounts every deadline counted from it.
+  async function settleAnchor(o: Obligation, field: string, value: string) {
+    setBusyId(o.id);
+    try {
+      await contractsApi.update(o.contract_id, { [field]: value });
+      qc.invalidateQueries({ queryKey: ["obligations"] });
+      qc.invalidateQueries({ queryKey: ["renewals"] });
+      notify("Contract date set — deadlines recounted", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Could not set the contract date", "error");
     } finally {
       setBusyId(null);
     }
@@ -242,6 +281,11 @@ export default function ObligationsPage() {
                 const open = expanded === o.id;
                 const tone = STATUS_TONE[o.status];
                 const quote = (o.source_citation as { quote?: string } | null)?.quote;
+                const dl = o.deadline;
+                const state = dateState(o);
+                // A computed date waits for a person; a re-count after the anchor
+                // moved is accepted the same way.
+                const canConfirm = !!dl && !dl.set_by_person && (dl.needs_reconfirm || (!!dl.formula && !dl.confirmed));
                 const meta = o.metadata_json as {
                   source_clause_type?: string;
                   confidence?: string;
@@ -274,6 +318,8 @@ export default function ObligationsPage() {
                           )}
                           <div>
                             <p className={`pname${t.tone === "date" ? " strong" : ""}`}>{t.label}</p>
+                            {dl?.formula && <p className="fml">{dl.formula}</p>}
+                            {state && <p className={`st ${state.tone}`}>{state.text}</p>}
                             {t.sub && (
                               <p
                                 className="psub"
@@ -297,6 +343,15 @@ export default function ObligationsPage() {
                       </td>
                       <td className="right" onClick={(e) => e.stopPropagation()}>
                         <div className="rowacts">
+                          {canConfirm && (
+                            <button
+                              className="btn sm"
+                              disabled={busyId === o.id}
+                              onClick={() => patch(o, { confirm: true }, "Date confirmed")}
+                            >
+                              {dl?.needs_reconfirm ? "Accept new date" : "Confirm"}
+                            </button>
+                          )}
                           {o.status !== "completed" && (
                             <button className="btn sm pri" disabled={busyId === o.id} onClick={() => complete(o)}>
                               {busyId === o.id ? "…" : "Complete"}
@@ -335,9 +390,55 @@ export default function ObligationsPage() {
                                 value={
                                   o.due_date
                                     ? `Due ${fmtDate(o.due_date)}`
-                                    : o.recurrence ?? "Conditional — applies on trigger, no fixed date"
+                                    : dl?.ends_on
+                                      ? `Ends on ${fmtDate(dl.ends_on)}`
+                                      : o.recurrence ?? "Conditional — applies on trigger, no fixed date"
                                 }
                               />
+                              {dl?.formula && <DetailRow label="How it was counted" value={dl.formula} />}
+                              {state && <DetailRow label="Date status" value={state.text} />}
+                              {dl?.anchor?.conflict ? (
+                                <>
+                                  <DetailRow
+                                    label="Counts from"
+                                    value={conflictText(dl.anchor.name, dl.anchor.conflict, fmtDate)}
+                                  />
+                                  {SETTLEABLE.has(dl.anchor.name) && (
+                                    <div className="drow">
+                                      <span className="dk">Settle it</span>
+                                      <span className="evt">
+                                        {conflictChoices(dl.anchor.conflict, fmtDate).map((c) => (
+                                          <button
+                                            key={c.value}
+                                            className="btn sm"
+                                            disabled={busyId === o.id}
+                                            onClick={() => settleAnchor(o, dl.anchor!.name, c.value)}
+                                          >
+                                            {c.label}
+                                          </button>
+                                        ))}
+                                      </span>
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                anchorText(dl?.anchor ?? null, fmtDate) && (
+                                  <DetailRow label="Counts from" value={anchorText(dl?.anchor ?? null, fmtDate)} />
+                                )
+                              )}
+                              {dl?.needs_reconfirm && dl.recomputed && (
+                                <DetailRow
+                                  label="Re-counted"
+                                  value={dl.recomputed.formula ?? dl.recomputed.reason ?? "no date"}
+                                />
+                              )}
+                              {needsEventDate(o) && (
+                                <EventDateForm
+                                  initial={dl?.anchor_date ?? ""}
+                                  busy={busyId === o.id}
+                                  onSave={(day) => patch(o, { anchor_date: day }, "Event date logged — date counted")}
+                                />
+                              )}
                               <DetailRow label="Category" value={o.obligation_type} />
                               {meta?.source_clause_type && (
                                 <DetailRow label="From clause" value={meta.source_clause_type} />
@@ -373,6 +474,31 @@ export default function ObligationsPage() {
           setEditing(null);
         }}
       />
+    </div>
+  );
+}
+
+/** Logs the day the triggering event happened; the server counts the clause's
+ *  period from it and shows the formula. */
+function EventDateForm({
+  initial,
+  busy,
+  onSave,
+}: {
+  initial: string;
+  busy: boolean;
+  onSave: (day: string) => void;
+}) {
+  const [day, setDay] = useState(initial);
+  return (
+    <div className="drow">
+      <span className="dk">It happened on</span>
+      <span className="evt">
+        <input type="date" value={day} onChange={(e) => setDay(e.target.value)} aria-label="Date the trigger happened" />
+        <button className="btn sm" disabled={busy || !day || day === initial} onClick={() => onSave(day)}>
+          Log date
+        </button>
+      </span>
     </div>
   );
 }
@@ -455,7 +581,9 @@ function EditModal({
         responsible_party: responsibleParty || null,
         obligation_type: obligationType || null,
         status,
-        due_date: dueDate || null,
+        // Sending due_date records it as a date a person set (never recounted),
+        // so only send it when it was actually changed here.
+        ...((dueDate || null) !== obligation.due_date ? { due_date: dueDate || null } : {}),
         recurrence: recurrence || null,
       });
       onSaved();
@@ -513,7 +641,9 @@ function EditModal({
             <label className="fld">
               <span className="flabel">Due date</span>
               <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-              <span className="fhint">Leave blank for conditional / ongoing obligations</span>
+              <span className="fhint">
+                Changing it records the date as set by you; it is then never recounted.
+              </span>
             </label>
             <label className="fld">
               <span className="flabel">Recurrence / timing</span>
@@ -601,6 +731,11 @@ const OBLG_CSS = `
 .oblg .pname{margin:0;font-weight:600;font-size:12.5px;color:var(--ink-2)}
 .oblg .pname.strong{color:var(--ink)}
 .oblg .psub{margin:2px 0 0;font-size:11px;color:var(--ink-3)}
+.oblg .fml{margin:2px 0 0;font:11px var(--mono);color:var(--ink-3);max-width:260px}
+.oblg .st{margin:2px 0 0;font-size:11px;font-weight:600}
+.oblg .st.good{color:var(--good)} .oblg .st.warn{color:var(--warn)} .oblg .st.crit{color:var(--crit)} .oblg .st.muted{color:var(--ink-3)}
+.oblg .evt{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.oblg .evt input{border:1px solid var(--border-strong);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit;font-size:12.5px;padding:5px 8px}
 .oblg .clink{font-weight:600;color:var(--accent);text-decoration:none;font-size:12.5px}
 .oblg .clink:hover{text-decoration:underline}
 .oblg .rowacts{display:flex;justify-content:flex-end;gap:6px}

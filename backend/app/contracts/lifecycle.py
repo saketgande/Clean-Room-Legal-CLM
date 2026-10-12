@@ -1,4 +1,7 @@
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, status
@@ -63,6 +66,26 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 }
 
 
+# The reason a permitted user gave for sending a contract past Review with open
+# redlines, held while a workflow step is completed on their behalf. The workflow
+# engine makes that move, so the override can't be passed to the transition as an
+# argument; the route that completes the step sets it for the length of the call.
+_redline_override_reason: ContextVar[str | None] = ContextVar("redline_override_reason", default=None)
+
+
+@contextmanager
+def redline_override(reason: str | None) -> Iterator[None]:
+    """Within the block, leaving Review with open redlines is allowed and recorded
+    with this reason on the stage history. Only the redline gate is affected. The
+    caller must already have checked that the user holds contract:lifecycle_override
+    and gave a reason: this does not."""
+    token = _redline_override_reason.set(reason.strip() if reason and reason.strip() else None)
+    try:
+        yield
+    finally:
+        _redline_override_reason.reset(token)
+
+
 def parse_stage_slas(raw: str) -> dict[str, int]:
     """Parse the "stage:days,stage:days" SLA setting; malformed entries are
     skipped so a bad env value degrades to fewer SLAs, never a crash."""
@@ -78,18 +101,80 @@ def parse_stage_slas(raw: str) -> dict[str, int]:
     return out
 
 
-def _current_version_approved(db: Session, contract: Contract) -> bool:
-    """True when the current version has an approval chain and every live rung is approved."""
-    from app.approvals.models import ApprovalRequest
+def current_approval_chain(db: Session, contract: Contract, version_id: str | None = None) -> list:
+    """The approval rows of a version's LATEST submission (the contract's current version by default).
 
-    statuses = db.scalars(
-        select(ApprovalRequest.status).where(
+    A rejected submission is never cancelled, so it stays behind as history; anything that
+    asks where approval stands (the gate, the request page's chain) must look at the latest
+    submission only, or an old rejected row would speak for an approval that has since
+    succeeded. Empty when the version has not been submitted."""
+    from app.approvals.models import ApprovalRequest
+    from app.approvals.submissions import latest_submission
+
+    rows = db.scalars(
+        select(ApprovalRequest).where(
             ApprovalRequest.contract_id == contract.id,
-            ApprovalRequest.contract_version_id == contract.current_authoritative_version_id,
+            ApprovalRequest.contract_version_id == (version_id or contract.current_authoritative_version_id),
             ApprovalRequest.status != ApprovalStatus.CANCELLED,
         )
     ).all()
-    return bool(statuses) and all(s == ApprovalStatus.APPROVED for s in statuses)
+    return latest_submission(rows)
+
+
+def version_approval_state(db: Session, contract: Contract, version_id: str | None = None) -> str:
+    """Where approval stands for ONE version of the contract.
+
+    Approval belongs to a version: an edit makes a new version that nobody has approved. States:
+
+    * ``"none"``     — the contract never went through approval (a fast-lane NDA, or an override),
+                       so there is no approval to be out of date;
+    * ``"approved"`` — the version's latest submission is approved on every rung;
+    * ``"pending"``  — it is with the approvers;
+    * ``"rejected"`` — a rung rejected it;
+    * ``"changed"``  — the contract has been through approval but this version never was:
+                       it was edited (or replaced) afterwards.
+    """
+    from app.approvals.models import ApprovalRequest
+
+    ever_submitted = db.scalar(
+        select(ApprovalRequest.id).where(
+            ApprovalRequest.contract_id == contract.id,
+            ApprovalRequest.status != ApprovalStatus.CANCELLED,
+        ).limit(1)
+    )
+    if ever_submitted is None:
+        return "none"
+    chain = current_approval_chain(db, contract, version_id)
+    if not chain:
+        return "changed"
+    if any(row.status == ApprovalStatus.REJECTED for row in chain):
+        return "rejected"
+    if all(row.status == ApprovalStatus.APPROVED for row in chain):
+        return "approved"
+    return "pending"
+
+
+def _current_version_approved(db: Session, contract: Contract) -> bool:
+    """True when the current version's LATEST approval submission has every live rung approved.
+
+    Counting an old rejected submission would veto an approval that has since succeeded
+    (reject, resubmit the same version, approve) and strand the contract in Approval."""
+    current = current_approval_chain(db, contract)
+    return bool(current) and all(row.status == ApprovalStatus.APPROVED for row in current)
+
+
+def open_redline_count(db: Session, contract_id: str) -> int:
+    """Suggested changes on this contract that nobody has accepted or rejected yet.
+    The one number the Review gate, the readiness check and the chat all go by."""
+    return (
+        db.scalar(
+            select(func.count(ContractEdit.id)).where(
+                ContractEdit.contract_id == contract_id,
+                ContractEdit.status == "proposed",
+            )
+        )
+        or 0
+    )
 
 
 def allowed_transitions_for(stage: str) -> list[str]:
@@ -140,7 +225,7 @@ class ContractLifecycleService:
             if not override_authorized:
                 raise HTTPException(
                     status.HTTP_403_FORBIDDEN,
-                    "Lifecycle override requires the contract:lifecycle_override permission",
+                    "Your role can't override this rule. Ask an administrator, or follow the normal steps.",
                 )
         authorized_override = override and override_authorized
 
@@ -167,22 +252,19 @@ class ContractLifecycleService:
         # contract:lifecycle_override permission AND a stated reason — the
         # reason is what actually lands on the stage-history audit row.
         if from_stage in _PRE_APPROVAL_STAGES and to_stage not in _PRE_APPROVAL_STAGES:
-            pending_redlines = (
-                db.scalar(
-                    select(func.count(ContractEdit.id)).where(
-                        ContractEdit.contract_id == contract.id,
-                        ContractEdit.status == "proposed",
-                    )
-                )
-                or 0
-            )
+            pending_redlines = open_redline_count(db, contract.id)
             if pending_redlines > 0:
+                routed_reason = _redline_override_reason.get()
+                if routed_reason and not authorized_override:
+                    # Approved by the route that completed the workflow step.
+                    override = override_authorized = authorized_override = True
+                    reason = reason if reason and reason.strip() else routed_reason
                 if not authorized_override:
                     raise HTTPException(
                         status.HTTP_409_CONFLICT,
                         f"{pending_redlines} open redline(s) must be accepted or rejected before "
-                        "advancing past Review, or override with the contract:lifecycle_override "
-                        "permission.",
+                        "the contract can leave Review. Someone with override rights can send it "
+                        "on with a reason.",
                     )
                 if not reason or not reason.strip():
                     raise HTTPException(
@@ -193,7 +275,7 @@ class ContractLifecycleService:
         if to_stage == ContractLifecycleStage.ACTIVE and signed_confirmation and not authorized_override:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                "Signed confirmation activation requires contract:lifecycle_override",
+                "Marking a contract active without a signed copy needs override rights.",
             )
         if to_stage == ContractLifecycleStage.ACTIVE and not authorized_override:
             has_signed_version = (

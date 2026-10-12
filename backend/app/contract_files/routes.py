@@ -22,7 +22,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from starlette.background import BackgroundTask
 
-from app.contract_files import revisions
+from app.contract_files import issue_fixes, redline_edits, revisions
 from app.contract_files.dependencies import get_contract_files_service
 from app.contract_files.models import (
     ContractDocumentElement,
@@ -44,9 +44,11 @@ from app.contract_files.schemas import (
     ContractShareResponse,
     ContractTextSnapshotResponse,
     ContractVersionResponse,
+    DraftIssueFixesResponse,
     ExternalCommentCreate,
     ExternalCommentResponse,
     ExternalShareResponse,
+    IssueFixJobResponse,
 )
 from app.contract_files.service import (
     ContractFilesService,
@@ -55,17 +57,23 @@ from app.contract_files.service import (
     promote_version,
     requeue_contract_ai_jobs,
 )
+from app.contracts import auto_review
 from app.contracts.comments_service import add_counterparty_comment, list_shared_comments
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core import org_access
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import ContractVersionSource, ShareAccessMode, StorageBackend
 from app.core.rate_limit import limiter
+from app.core.rbac import has_permission as _has_permission
 from app.core.security import hash_password, verify_password
 from app.integrations.dependencies import get_storage_service
+from app.playbooks.dependencies import get_playbooks_service
+from app.playbooks.models import PlaybookDeviation
+from app.playbooks.service import PlaybooksService, is_high_risk
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +218,7 @@ async def log_counterparty_revision(
             )
         except Exception:
             pass
-    meta = dict(contract.metadata_json or {})
-    meta["auto_review_pending"] = True
-    contract.metadata_json = meta
+    auto_review.request_review(contract)
     round_id = None
     if sent_version_id:
         storage = db.get(StorageObject, version.storage_object_id) if version.storage_object_id else None
@@ -414,6 +420,9 @@ async def finish_revision_round(
         metadata={"contract_id": contract.id, "outcome": rnd.outcome, "pushed_back": len(pushed)},
     )
     db.commit()
+    if rnd.outcome == "counter":
+        # Our reply is the new current version: analyse it like any other.
+        requeue_contract_ai_jobs(db, user=current_user, contract=contract, version=version)
     if rnd.outcome == "agreed":
         # The text is settled: the negotiation step is done and the workflow moves on.
         run = db.scalar(select(WorkflowRun).where(
@@ -584,6 +593,40 @@ def list_contract_edits(
     if status_filter:
         query = query.where(ContractEdit.status == status_filter)
     return db.scalars(query.order_by(ContractEdit.created_at.desc())).all()
+
+
+@router.get("/edits/draft-issue-fixes", response_model=IssueFixJobResponse | None)
+def get_issue_fix_drafting(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """The latest job that drafted suggested changes for this contract's playbook issues
+    (the one that ran after a review, or after 'Draft fixes for all'), or null. The Review tab
+    polls this while it runs."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    job = issue_fixes.latest_job(db, contract=contract)
+    return issue_fixes.job_status(job) if job is not None else None
+
+
+@router.post(
+    "/edits/draft-issue-fixes",
+    response_model=DraftIssueFixesResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def draft_issue_fixes(
+    contract_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("contract:redline")),
+):
+    """Start drafting a suggested change for every open playbook issue that has none, in the
+    background, one AI request per issue (so each change is tied to its issue). Returns the job
+    to poll; if one is already running that one is returned instead of starting another."""
+    contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
+    job = issue_fixes.enqueue_issue_fix_drafting(db, contract=contract, actor=current_user, automatic=False)
+    if job is None:
+        return DraftIssueFixesResponse(job=None, reason="nothing_to_draft")
+    return DraftIssueFixesResponse(job=issue_fixes.job_status(job))
 
 
 class ManualEditProposal(BaseModel):
@@ -944,6 +987,8 @@ def propose_contract_edit(
 
 class AiRedlineRequest(BaseModel):
     instructions: str = Field(min_length=1, max_length=4000)
+    # The playbook issue these edits are meant to fix. Deciding them closes the issue.
+    playbook_deviation_id: str | None = Field(default=None, max_length=64)
 
 
 @router.post("/edits/ai-redline", status_code=status.HTTP_201_CREATED)
@@ -958,19 +1003,16 @@ async def ai_redline_contract(
     buttons produce real, anchored redlines — not a chat answer. Raises 422 when
     the model can't locate specific language to revise."""
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-    from app.ai.tool_registry import EditContractInput
-    from app.ai.tool_runtime import tool_runtime
-
-    result = await tool_runtime._edit_contract(
-        db,
-        payload=EditContractInput(
-            contract_id=contract.id, instructions=payload.instructions
-        ),
-        user=current_user,
-        session_id=f"clm-redline:{contract.id}",
+    deviation = None
+    if payload.playbook_deviation_id:
+        deviation = db.get(PlaybookDeviation, payload.playbook_deviation_id)
+        if deviation is None or deviation.org_id != current_user.org_id or deviation.contract_id != contract.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Playbook issue not found")
+        if deviation.status not in _OPEN_ISSUE_STATUSES:
+            raise HTTPException(status.HTTP_409_CONFLICT, "This issue is already closed")
+    return await issue_fixes.redline_with_ai(
+        db, contract=contract, user=current_user, instructions=payload.instructions, deviation=deviation
     )
-    db.commit()
-    return result
 
 
 class ManualTextUpdate(BaseModel):
@@ -1104,6 +1146,9 @@ def update_contract_text(
         contract_file=contract_file, text=payload.text, summary=summary, user=current_user,
     )
     db.commit()
+    # Like every other new current version: metadata, clauses and embeddings for the
+    # new text (free when it repeats text this contract already had analysed).
+    requeue_contract_ai_jobs(db, user=current_user, contract=contract, version=new_version)
     db.refresh(new_version)
     return new_version
 
@@ -1155,6 +1200,7 @@ def accept_contract_edit(
     payload: ContractEditDecisionRequest,
     db: Session = Depends(get_db),
     files_service: ContractFilesService = Depends(get_contract_files_service),
+    playbooks_service: PlaybooksService = Depends(get_playbooks_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
@@ -1177,7 +1223,7 @@ def accept_contract_edit(
             "version, then accept it.",
         )
     proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
-    batch = _redline_batch(db, edit=edit, proposal_version=proposal_version)
+    batch = _redline_batch(db, edit=edit)
     blocker = _accept_blocker(edit, batch)
     if blocker:
         raise HTTPException(status.HTTP_409_CONFLICT, blocker)
@@ -1211,6 +1257,15 @@ def accept_contract_edit(
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
     )
+    _close_paired_issue(
+        db,
+        service=playbooks_service,
+        contract=contract,
+        edit=edit,
+        batch=batch,
+        comment=payload.comment,
+        user=current_user,
+    )
     _apply_decided_redline(
         db,
         contract=contract,
@@ -1230,6 +1285,7 @@ def reject_contract_edit(
     edit_id: str,
     payload: ContractEditDecisionRequest,
     db: Session = Depends(get_db),
+    playbooks_service: PlaybooksService = Depends(get_playbooks_service),
     current_user=Depends(require_permission("contract:redline")),
 ):
     contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
@@ -1238,7 +1294,7 @@ def reject_contract_edit(
     if edit.status != "proposed":
         raise HTTPException(status.HTTP_409_CONFLICT, "Only proposed edits can be rejected")
     proposal_version = _proposal_version_for_edit(db, edit=edit, org_id=current_user.org_id)
-    batch = _redline_batch(db, edit=edit, proposal_version=proposal_version)
+    batch = _redline_batch(db, edit=edit)
     proposal_version.change_summary = _decision_summary(
         proposal_version.change_summary,
         decision="rejected",
@@ -1269,6 +1325,15 @@ def reject_contract_edit(
         title="Assistant tracked change rejected",
         actor_user_id=current_user.id,
         details={"contract_edit_id": edit.id, "contract_version_id": proposal_version.id},
+    )
+    _close_paired_issue(
+        db,
+        service=playbooks_service,
+        contract=contract,
+        edit=edit,
+        batch=batch,
+        comment=payload.comment,
+        user=current_user,
     )
     _apply_decided_redline(
         db,
@@ -1333,6 +1398,8 @@ def restore_contract_version(
         db.add(restored_snapshot)
         db.flush()
         restored_version.text_snapshot_id = restored_snapshot.id
+        # Same text as the version restored, so it takes that version's clause tree.
+        files_service._persist_document_elements(restored_snapshot, elements=[])
 
     promote_version(db, contract=contract, version=restored_version, actor_user_id=current_user.id)
     contract_file.current_version_id = restored_version.id
@@ -1798,11 +1865,7 @@ def _get_contract_edit(db: Session, *, contract_id: str, edit_id: str, org_id: s
 
 
 def _proposal_version_for_edit(db: Session, *, edit: ContractEdit, org_id: str) -> ContractVersion:
-    proposal_version_id = None
-    for citation in edit.citation or []:
-        if isinstance(citation, dict) and citation.get("type") == "assistant_edit_version":
-            proposal_version_id = citation.get("contract_version_id")
-            break
+    proposal_version_id = redline_edits.proposal_version_id(edit.citation)
     if not proposal_version_id:
         # Never guess which proposal an edit belongs to: falling back to "the
         # newest proposal" made a different document authoritative.
@@ -1825,55 +1888,132 @@ def _decision_summary(summary: str | None, *, decision: str, comment: str | None
     return f"{summary}\n{suffix}"
 
 
-def _edit_anchor(edit: ContractEdit) -> dict:
-    for citation in edit.citation or []:
-        if isinstance(citation, dict) and citation.get("type") == "anchor":
-            return citation
-    return {}
-
-
 def _anchor_span(edit: ContractEdit) -> tuple[int, int] | None:
     """The edit's [start, end) in its base version's text, or None if it was never located."""
-    anchor = _edit_anchor(edit)
-    start, end = anchor.get("start", -1), anchor.get("end", -1)
-    if not anchor.get("matched") or not isinstance(start, int) or not isinstance(end, int):
-        return None
-    if start < 0 or end < start:
-        return None
-    return start, end
+    return redline_edits.anchor_span(edit.citation)
 
 
 def _is_appended_insertion(edit: ContractEdit) -> bool:
     # Playbook redlines append new clauses they couldn't place to the end of the document.
-    return edit.edit_type == "playbook_redline" and _anchor_span(edit) is None and bool(edit.replacement_text)
+    return redline_edits.is_appended_insertion(edit.edit_type, edit.citation, edit.replacement_text)
 
 
-def _redline_batch(db: Session, *, edit: ContractEdit, proposal_version: ContractVersion) -> list[ContractEdit]:
-    """Every edit produced by the same redline run: same base version, same proposal version."""
-    rows = db.scalars(
-        select(ContractEdit).where(
-            ContractEdit.org_id == edit.org_id,
-            ContractEdit.contract_id == edit.contract_id,
-            ContractEdit.contract_version_id == edit.contract_version_id,
-        )
-    ).all()
-    batch = [
-        row
-        for row in rows
-        if any(
-            isinstance(c, dict)
-            and c.get("type") == "assistant_edit_version"
-            and c.get("contract_version_id") == proposal_version.id
-            for c in row.citation or []
-        )
-    ]
+def _redline_batch(db: Session, *, edit: ContractEdit) -> list[ContractEdit]:
+    """Every suggestion made on the same version of the contract.
+
+    Playbook fixes, assistant edits from chat and manual redlines each come with
+    their own proposal version, but they are all anchored to the same base text.
+    Applying one group would move the contract on and leave the others pointing at
+    text that no longer exists, so the whole base is decided together: the new
+    version is built once every suggestion on it has been accepted or rejected.
+    """
+    rows = _edits_on_base(
+        db, org_id=edit.org_id, contract_id=edit.contract_id, base_version_id=edit.contract_version_id
+    )
+    batch = [row for row in rows if redline_edits.proposal_version_id(row.citation) is not None]
     if edit not in batch:
         batch.append(edit)
     return batch
 
 
+def _edits_on_base(db: Session, *, org_id: str, contract_id: str, base_version_id: str) -> list[ContractEdit]:
+    return list(
+        db.scalars(
+            select(ContractEdit).where(
+                ContractEdit.org_id == org_id,
+                ContractEdit.contract_id == contract_id,
+                ContractEdit.contract_version_id == base_version_id,
+            )
+        ).all()
+    )
+
+
+_OPEN_ISSUE_STATUSES = issue_fixes.OPEN_ISSUE_STATUSES
+
+
+def _close_paired_issue(
+    db: Session,
+    *,
+    service: PlaybooksService,
+    contract: Contract,
+    edit: ContractEdit,
+    batch: list[ContractEdit],
+    comment: str | None,
+    user,
+) -> None:
+    """Deciding the change that fixes a playbook issue decides the issue too, in
+    the same transaction, so a failure can't leave a change accepted and its issue
+    still open. The issue closes once none of its changes is still undecided:
+    "fixed" if any was accepted, otherwise "waived" (the original wording stays) -- except
+    a high or critical issue, which stays open: keeping that risk needs a reason of its own.
+    Accepting our wording holds the rule, it doesn't concede it: "accepted" means we
+    took the counterparty's deviation, and insights would count it as a reason to
+    loosen the very rule the lawyer just enforced.
+
+    It is left open when the change was made for an older version of the contract
+    (the issue may still apply to the current text, and a fresh fix can be drafted),
+    or when the user may decide redlines but not run playbooks (that permission
+    guards playbook decisions).
+    """
+    deviation_id = redline_edits.paired_deviation_id(edit.citation)
+    if deviation_id is None:
+        return
+    if edit.contract_version_id != contract.current_authoritative_version_id:
+        return
+    if not _has_permission(org_access.effective_permission_values(db, user=user), "playbook:run"):
+        return
+    paired = [e for e in batch if redline_edits.paired_deviation_id(e.citation) == deviation_id]
+    if edit not in paired:
+        paired.append(edit)
+    if any(e.status == "proposed" for e in paired):
+        return
+    deviation = db.get(PlaybookDeviation, deviation_id)
+    if (
+        deviation is None
+        or deviation.org_id != user.org_id
+        or deviation.contract_id != contract.id
+        or deviation.status not in _OPEN_ISSUE_STATUSES
+    ):
+        return
+    accepted = any(e.status == "accepted" for e in paired)
+    if not accepted and is_high_risk(deviation.severity):
+        # Rejecting our wording is not agreeing to carry the risk. A high or critical
+        # issue stays open (and counted) until a person closes it with a reason; the
+        # Review tab offers that. Closing it here cleared the risk with a click.
+        return
+    rationale = "Accepted the proposed change" if accepted else "Kept the original wording"
+    if comment:
+        rationale = f"{rationale}. {comment}"
+    service.record_deviation_decision(
+        deviation=deviation,
+        decision="fixed" if accepted else "waived",
+        rationale=rationale,
+        user=user,
+    )
+
+
+def _batch_source(accepted: list[ContractEdit]) -> str:
+    """Where a version built from accepted edits says it came from. A batch used to
+    be one run, so the proposal version's source answered this; it now mixes runs."""
+    kinds = {e.edit_type for e in accepted}
+    if kinds == {"playbook_redline"}:
+        return ContractVersionSource.PLAYBOOK_REDLINE
+    if kinds == {"manual"}:
+        return ContractVersionSource.USER_REDLINE
+    return ContractVersionSource.ASSISTANT_EDIT
+
+
 def _accept_blocker(edit: ContractEdit, batch: list[ContractEdit]) -> str | None:
     """Why this edit can't be accepted on its own, or None if it can."""
+    blank = redline_edits.blank_in(edit.edit_type, edit.replacement_text)
+    if blank:
+        # Accepted, it would put the blank in the contract: the automatic re-review then flags it
+        # and proposes another fix (and another paid call). Proposals made before the edit
+        # engine learned to leave blanks out are caught here.
+        return (
+            f"This change would write a blank into the contract ({blank}). Reject it, and type "
+            "the real wording into the clause yourself."
+        )
     span = _anchor_span(edit)
     if span is None:
         if _is_appended_insertion(edit):
@@ -1975,7 +2115,7 @@ def _apply_decided_redline(
         contract_file_id=contract_file.id,
         version_number=next_version_number(db, contract_file.id),
         storage_object_id=storage_object.id,
-        source=proposal_version.source,
+        source=_batch_source(accepted),
         change_summary=summary,
         is_authoritative=False,
         created_by_user_id=user.id,
@@ -2031,6 +2171,12 @@ def _apply_decided_redline(
         actor_user_id=user.id,
         details={"contract_version_id": new_version.id, "accepted_edits": len(accepted)},
     )
+    # Accepted wording is new text, so the old review no longer covers it and the risk
+    # band reads unknown. Re-run the playbook review once clause extraction is done
+    # (_maybe_auto_review) instead of leaving every fixed contract at unknown. It is a
+    # re-check only: it lists what still applies but writes no new redlines or AI fixes, so
+    # deciding the last suggestion no longer starts another round of suggestions to decide.
+    auto_review.request_review(contract, after=auto_review.AFTER_ACCEPT)
     requeue_contract_ai_jobs(db, user=user, contract=contract, version=new_version)
     return new_version
 

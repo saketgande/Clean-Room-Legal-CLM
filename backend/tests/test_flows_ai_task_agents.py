@@ -8,7 +8,12 @@ import inspect
 
 from app.ai.registry import skill_registry
 from app.ai.schemas import PrivacyIncidentAssessmentOutput
-from app.workflows.service import _AGENT_KEY_MAP, _ai_agent_failed, _execute_step
+from app.workflows.service import (
+    _AGENT_KEY_MAP,
+    _PLAYBOOK_REVIEW_AGENTS,
+    _ai_agent_failed,
+    _execute_step,
+)
 
 
 def test_agent_key_map_routes_litigation_variants_to_the_same_intake_agent():
@@ -64,31 +69,28 @@ def test_ai_task_step_only_trusts_litigation_confidence_from_a_real_model_call()
     assert degraded_conf < 0.7
 
 
-def test_ai_task_step_waits_for_the_real_risk_score_before_falling_back():
-    """contract_review_agent must use the genuine weighted risk score
-    (contracts/risk.py) once the background clause-extraction + risk job has
-    landed, keep yielding while it's still pending, and only fall back to the
-    regex classifier once that's clearly not going to happen in time — never
-    settle for the regex guess just because the real score isn't ready yet."""
+def test_ai_task_step_reads_the_computed_band_and_waits_on_a_pending_review():
+    """contract_review_agent used to key on `contract.risk_score is not None` -- a
+    cached AI score with no check that it described the current text, so a 'low'
+    carried over from v1 cleared the step on a counterparty revision. It must ask
+    contracts.risk.contract_risk for the band now, keep yielding while the playbook
+    review is pending, and give no confidence (a person decides) when the band is
+    unknown. The regex classifier must never stand in for the review."""
     source = inspect.getsource(_execute_step)
 
-    assert 'mapped == "contract_review_agent"' in source
-    contract_review_branch = source.split('mapped == "contract_review_agent"', 1)[1].split(
-        "elif mapped:", 1
-    )[0]
+    # The review gate serves every agent that reviews the contract itself (the NDA flows' "AI review of their
+    # NDA against our NDA playbook" step too), so it keys on the group, not on one agent's name.
+    assert "contract_review_agent" in _PLAYBOOK_REVIEW_AGENTS
+    assert "mapped in _PLAYBOOK_REVIEW_AGENTS" in source
+    branch = source.split("mapped in _PLAYBOOK_REVIEW_AGENTS", 1)[1].split("elif mapped:", 1)[0]
 
-    ready_branch, rest = contract_review_branch.split("contract.risk_score is not None", 1)[1].split(
-        "elif sr and sr.updated_at", 1
-    )
-    waiting_clause, fallback_branch = rest.split("return \"yield\"", 1)
-
-    # Real score present -> derive confidence from the risk band, not a regex guess.
-    assert '{"low": 0.95, "medium": 0.65, "high": 0.3}' in ready_branch
-    # Still pending -> bounded wait (yield again), not an immediate fallback.
-    assert "total_seconds() < 60" in waiting_clause
-    # Only past the bound -> fall back, and say so honestly.
-    assert "intake_agents.classify(" in fallback_branch
-    assert "not ready in time" in fallback_branch
+    assert "risk_score" not in branch
+    assert "contract_risk(db, contract)" in branch
+    pending, rest = branch.split('.get("auto_review_pending")', 1)[1].split('return "yield"', 1)
+    assert "_REVIEW_WAIT_SECONDS" in pending
+    # "unknown" isn't in the map, so .get gives None and the gate asks a person.
+    assert '{"low": 0.95, "medium": 0.65, "high": 0.3}.get(band)' in rest
+    assert "intake_agents.classify(" not in branch
 
 
 def test_privacy_incident_assessment_skill_is_registered_with_a_numeric_confidence():

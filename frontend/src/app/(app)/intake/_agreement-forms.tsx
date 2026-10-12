@@ -17,8 +17,10 @@ import { Button, Card, CardBody, Input } from "@/components/ui";
 import { contractsApi, intakeApi, partiesApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
-import { cn } from "@/lib/utils";
+import { cn, fmtDate } from "@/lib/utils";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment } from "@/lib/intake";
+import { approvalsText } from "@/lib/request-facts";
+import { answerProblem, EMAIL_PROBLEM, looksLikeEmail } from "@/lib/form-checks";
 import type { Counterparty, IntakeDraft, LegalEntity, RequestFormDef, RequestFormRule } from "@/lib/types";
 
 // ---------------------------------------------------------------- layout ----
@@ -193,6 +195,15 @@ export function useRequestForms() {
 
 /** The "What kind of agreement?" choices a form offers — what "Used for" can narrow to. */
 
+/** What a question that is required and empty says. */
+const NEEDED = "Needed before you continue.";
+
+/** The earliest day a date question can take: the answer to the date it must not come before, if given. */
+function notBeforeValue(field: RequestFormDef["fields"][number] | undefined, values: Values): string | undefined {
+  const earlier = field?.not_before ? values[field.not_before] : undefined;
+  return typeof earlier === "string" && earlier ? earlier : undefined;
+}
+
 const blank = (v: Value | undefined) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
 
 const DRAFT_OF: Record<string, string> = {
@@ -272,11 +283,14 @@ function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
   function pick(r: RegisterRecord) {
     setText(r.name); setOpen(false); setCreating(false); onPick(r);
   }
+  // A new counterparty must say where it is and how to reach it (round 2, bug 46): the server refuses one without.
+  const emailGiven = form.contact_email.trim() !== "";
+  const detailsMissing = !form.jurisdiction.trim() || !looksLikeEmail(form.contact_email);
   async function create() {
     setBusy(true);
     try {
       const made = await partiesApi.createCounterparty({
-        name: text.trim(), jurisdiction: form.jurisdiction || null, contact_email: form.contact_email || null,
+        name: text.trim(), jurisdiction: form.jurisdiction.trim(), contact_email: form.contact_email.trim(),
       });
       qc.invalidateQueries({ queryKey: ["party-lookup"] });
       notify(`Added ${made.name} to the counterparty register`, "success");
@@ -338,13 +352,18 @@ function RegisterLookup({ kind, name, recordId, onPick, bad, label }: {
         <div className="mt-2 space-y-2 rounded-lg border border-brand-200 bg-brand-50 p-3">
           <div className="text-[12.5px] font-medium text-slate-800">New counterparty: {text.trim() || "—"}</div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <Input aria-label="Jurisdiction" placeholder="Jurisdiction (e.g. India)" value={form.jurisdiction}
+            <Input aria-label="Jurisdiction" placeholder="Jurisdiction, e.g. India (required)" value={form.jurisdiction}
               onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))} />
-            <Input aria-label="Contact email" type="email" placeholder="Contact email (for signature)" value={form.contact_email}
+            <Input aria-label="Contact email" type="email" placeholder="Contact email (required)" value={form.contact_email}
               onChange={(e) => setForm((f) => ({ ...f, contact_email: e.target.value }))} />
           </div>
+          <p className={cn("text-[11.5px]", emailGiven && !looksLikeEmail(form.contact_email) ? "text-danger" : "text-slate-500")}>
+            {emailGiven && !looksLikeEmail(form.contact_email)
+              ? EMAIL_PROBLEM
+              : "A new counterparty needs a jurisdiction and a contact email, so the register is complete from the start."}
+          </p>
           <div className="flex gap-2">
-            <Button size="sm" loading={busy} disabled={!text.trim()} onClick={create}>Create counterparty</Button>
+            <Button size="sm" loading={busy} disabled={!text.trim() || detailsMissing} onClick={create}>Create counterparty</Button>
             <Button size="sm" variant="ghost" onClick={() => setCreating(false)}>Cancel</Button>
           </div>
         </div>
@@ -373,8 +392,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   const [visited, setVisited] = useState(draft?.visited ?? 0);
   const [values, setValues] = useState<Values>(draft?.values ?? { currency: "INR" });
   const [files, setFiles] = useState<Record<string, File | null>>({});
-  const [errors, setErrors] = useState<Set<string>>(new Set());
-  const [errBar, setErrBar] = useState("");
+  // The questions the last Continue refused on. Whether each STILL has a problem is read fresh from the answers
+  // (problemOf), so the banner above the form shrinks as they are fixed instead of listing fields already filled.
+  const [flagged, setFlagged] = useState<Set<string>>(new Set());
+  // A refusal that is not about one question (a file that is too large).
+  const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(draft?.id ?? null);
   const [savedAt, setSavedAt] = useState<string | null>(draft?.updated_at ?? null);
@@ -393,11 +415,6 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   const set = (patch: Values) => {
     setDirty(true);
     setValues((prev) => ({ ...prev, ...patch }));
-    setErrors((prev) => {
-      const next = new Set(prev);
-      Object.keys(patch).forEach((k) => next.delete(k));
-      return next.size === prev.size ? prev : next;
-    });
   };
 
   const labelOf = (k: string) => UI[k]?.label ?? q.get(k)?.label ?? k;
@@ -405,13 +422,42 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   const required = (k: string) => (UI[k]?.kind === "file" ? !!UI[k].req : !!q.get(k)?.required);
   const visible = (i: number) => (steps[i]?.fields ?? []).filter((k) => (q.has(k) || FILE_KEYS.includes(k)) && isShown(k));
 
-  function missing(i: number): string[] {
-    return visible(i).filter((k) => {
-      if (!required(k)) return false;
-      if (UI[k]?.kind === "file") return !files[k];
-      if ((COMPANION[k] ?? []).some((c) => blank(values[c]))) return true;
-      return blank(values[k]);
-    });
+  const isBlankAnswer = (k: string) => {
+    if (UI[k]?.kind === "file") return !files[k];
+    if ((COMPANION[k] ?? []).some((c) => blank(values[c]))) return true;
+    return blank(values[k]);
+  };
+
+  /** What stops this question being accepted right now, or null. A required question left empty, an email that
+   *  can never be delivered, an end date before its start date: the server refuses the same answers when the
+   *  request is filed (round 2, bug 7). */
+  function problemOf(k: string): string | null {
+    if (!isShown(k)) return null;
+    if (isBlankAnswer(k)) return required(k) ? NEEDED : null;
+    const field = q.get(k);
+    const earlier = field?.not_before && isShown(field.not_before) ? field.not_before : null;
+    return answerProblem(field?.kind ?? UI[k]?.kind, values[k], earlier ? { label: labelOf(earlier), value: values[earlier] } : undefined);
+  }
+
+  const blocking = (i: number) => visible(i).filter((k) => problemOf(k));
+
+  /** The line above the form: what is still wrong with the questions the last Continue refused on. */
+  function barText(): string {
+    if (notice) return notice;
+    const open = [...flagged].filter((k) => problemOf(k));
+    const needed = open.filter((k) => problemOf(k) === NEEDED);
+    return [
+      needed.length ? `${needed.length === 1 ? "1 answer" : `${needed.length} answers`} still needed: ${needed.map(labelOf).join(", ")}.` : "",
+      ...open.filter((k) => problemOf(k) !== NEEDED).map((k) => `${labelOf(k)}: ${problemOf(k)}`),
+    ].filter(Boolean).join(" ");
+  }
+
+  /** Stop on step `i`, mark what is wrong there. */
+  function refuse(i: number, keys: string[]) {
+    setStep(i);
+    setNotice("");
+    setFlagged(new Set(keys));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   // What gets filed. Check-approvers and the routing preview send exactly this.
@@ -446,16 +492,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   function go(target: number) {
     if (target > step) {
       for (let i = step; i < target; i++) {
-        const miss = missing(i);
-        if (miss.length) {
-          setStep(i);
-          setErrors(new Set(miss));
-          setErrBar(`${miss.length === 1 ? "1 answer" : `${miss.length} answers`} still needed: ${miss.map(labelOf).join(", ")}.`);
-          return;
-        }
+        const miss = blocking(i);
+        if (miss.length) { refuse(i, miss); return; }
       }
     }
-    setErrBar(""); setErrors(new Set());
+    setNotice(""); setFlagged(new Set());
     setVisited((v) => Math.max(v, target));
     setStep(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -486,13 +527,14 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
 
   async function submit() {
     for (let i = 0; i < def.steps.length; i++) {
-      if (missing(i).length) { go(i + 1); return; }
+      const miss = blocking(i);
+      if (miss.length) { refuse(i, miss); return; }
     }
     // The document that IS the contract goes last: the server takes the newest
     // readable attachment as the contract.
     const ordered = ["attachments", "their_draft", "executed"].map((k) => files[k]).filter((f): f is File => !!f);
     const bad = ordered.map(attachmentProblem).find(Boolean);
-    if (bad) { setErrBar(bad); return; }
+    if (bad) { setNotice(bad); return; }
     setBusy(true);
     try {
       const created = await intakeApi.create({
@@ -521,13 +563,18 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
 
   const isReview = step === steps.length - 1;
   const shownNow = visible(step);
+  const bar = barText();
 
   const routing: [string, string][] = [
     ["Workflow", def.key === "cancellation" ? "None: the request is withdrawn"
       : preview.data?.workflow?.name ?? (preview.isFetching ? "Working it out…"
         : preview.isSuccess ? "None fits yet: a person picks one after filing" : "Pick the kind of agreement")],
     ["Draft", draftFor(def.key, values)],
-    ["Approvals", (preview.data?.approvers ?? []).map((a) => `${a.step_name}: ${a.approver}`).join("\n") || "None on this workflow"],
+    ["Approvals", approvalsText({
+      approvers: preview.data?.approvers ?? [], fetching: preview.isFetching, loaded: preview.isSuccess,
+      noWorkflow: preview.isSuccess && !preview.data?.workflow && def.key !== "cancellation",
+      valueMissing: def.steps.some((_, i) => visible(i).includes("value")) && !String(values.value ?? "").trim(),
+    })],
     ["Priority", priorityOf(values) === "High" ? "High: needed within 7 days" : "Medium"],
     ["Owner", "Assigned when filed, never you"],
   ];
@@ -543,6 +590,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
       const shown = UI[k]?.kind === "file" ? files[k]?.name
         : UI[k]?.kind === "money" ? money(values.currency, v)
         : k === "parent_contract_id" ? parent?.title
+        : q.get(k)?.kind === "date" && typeof v === "string" && v ? fmtDate(v) // the box they typed in shows dd/mm/yyyy
         : Array.isArray(v) ? v.join(", ") : v;
       if (shown) summary.push([labelOf(k), String(shown)]);
     }));
@@ -593,9 +641,9 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
               <div className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-brand-600">Step {step + 1} of {steps.length}</div>
               <h3 className="mt-1.5 text-[19px] font-semibold tracking-[-0.015em] text-slate-900">{steps[step].title}</h3>
             </div>
-            {errBar && (
-              <div className="flex gap-2.5 rounded-lg border border-danger/40 bg-danger-subtle px-3.5 py-3 text-[12.5px] text-danger">
-                <TriangleAlert className="mt-px h-4 w-4 shrink-0" /><span>{errBar}</span>
+            {bar && (
+              <div role="alert" className="flex gap-2.5 rounded-lg border border-danger/40 bg-danger-subtle px-3.5 py-3 text-[12.5px] text-danger">
+                <TriangleAlert className="mt-px h-4 w-4 shrink-0" /><span>{bar}</span>
               </div>
             )}
 
@@ -626,8 +674,9 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
               <div className="space-y-5">
                 {shownNow.map((k) => (
                   <Question key={k} k={k} label={labelOf(k)} req={required(k)} kind={UI[k]?.kind} field={q.get(k)}
-                    help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={values} set={set} bad={errors.has(k)}
-                    file={files[k] ?? null} onFile={(f) => { setFiles((p) => ({ ...p, [k]: f })); setDirty(true); setErrors((p) => { const n = new Set(p); n.delete(k); return n; }); }}
+                    help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={values} set={set} bad={flagged.has(k) && !!problemOf(k)} problem={problemOf(k)}
+                    min={notBeforeValue(q.get(k), values)}
+                    file={files[k] ?? null} onFile={(f) => { setFiles((p) => ({ ...p, [k]: f })); setDirty(true); setNotice(""); }}
                     currencies={q.get("currency")?.options ?? ["INR"]}
                     contracts={contracts ?? []} requests={myRequests ?? []} />
                 ))}
@@ -682,9 +731,13 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   );
 }
 
-function Question({ k, label, req, kind, field, help, placeholder, values, set, bad, file, onFile, currencies, contracts, requests }: {
+function Question({ k, label, req, kind, field, help, placeholder, values, set, bad, problem, min, file, onFile, currencies, contracts, requests }: {
   k: string; label: string; req: boolean; kind?: UiKind; field?: RequestFormDef["fields"][number];
   help?: string; placeholder?: string; values: Values; set: (p: Values) => void; bad: boolean;
+  /** What is wrong with the answer, in words (shown under the question when `bad`). */
+  problem?: string | null;
+  /** Date questions: the earliest day the date picker offers. */
+  min?: string;
   file: File | null; onFile: (f: File | null) => void; currencies: string[];
   contracts: { id: string; title: string; counterparty_name: string | null; expiration_date: string | null }[];
   requests: { id: string; ref: string; subject: string | null; type_label: string; status: string }[];
@@ -710,7 +763,7 @@ function Question({ k, label, req, kind, field, help, placeholder, values, set, 
     );
   } else if (kind === "contract") {
     control = select(str, contracts.map((c) => ({ value: c.id,
-      label: [c.title, c.counterparty_name, c.expiration_date ? `ends ${c.expiration_date}` : null].filter(Boolean).join(" · ") })),
+      label: [c.title, c.counterparty_name, c.expiration_date ? `ends ${fmtDate(c.expiration_date)}` : null].filter(Boolean).join(" · ") })),
     (x) => set({ [k]: x }));
   } else if (kind === "request") {
     control = select(str, requests.filter((r) => r.status !== "closed").map((r) => ({ value: r.ref,
@@ -762,6 +815,7 @@ function Question({ k, label, req, kind, field, help, placeholder, values, set, 
   } else {
     const type = field?.kind === "date" ? "date" : kind === "email" ? "email" : field?.kind === "number" ? "number" : "text";
     control = <input aria-label={label} type={type} className={cn(CONTROL, border, type === "date" && "max-w-[240px]")}
+      min={type === "date" ? min : undefined}
       value={str} placeholder={placeholder} onChange={(e) => set({ [k]: e.target.value })} />;
   }
 
@@ -769,7 +823,7 @@ function Question({ k, label, req, kind, field, help, placeholder, values, set, 
     <div className="space-y-1.5">
       <FieldLabel label={label} req={req} />
       {control}
-      {(bad || help) && <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>{bad ? "Needed before you continue." : help}</p>}
+      {(bad || help) && <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>{bad ? problem ?? NEEDED : help}</p>}
     </div>
   );
 }

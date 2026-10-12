@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
 from app.ai.schemas import PlaybookReviewOutput
+from app.contract_files import issue_fixes
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contract_files.service import _resolve_extracted_text, ingest_upload
 from app.contracts.access import accessible_contract_filter
@@ -43,7 +44,12 @@ from app.playbooks.schemas import (
     PlaybookVersionCreate,
     PlaybookVersionResponse,
 )
-from app.playbooks.service import PlaybooksService, execute_playbook_run, generated_default_rules
+from app.playbooks.service import (
+    PlaybooksService,
+    decision_problem,
+    execute_playbook_run,
+    generated_default_rules,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -367,6 +373,9 @@ def decide_deviation(
     if deviation is None or deviation.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Playbook deviation not found")
     get_contract_for_user(db, contract_id=deviation.contract_id, user=current_user)
+    problem = decision_problem(severity=deviation.severity, decision=payload.decision, rationale=payload.rationale)
+    if problem:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, problem)
     decision = service.record_deviation_decision(
         deviation=deviation,
         decision=payload.decision,
@@ -722,6 +731,12 @@ async def run_playbook(
         ai_error=ai_error,
     )
     db.commit()
+    if payload.create_redline and not payload.test_mode:
+        # The review has the issues; queue the background job that drafts a change for the ones
+        # that came out without one (an issue the playbook has no wording for). Best-effort.
+        issue_fixes.start_after_review(
+            db, contract=contract, actor_user_id=current_user.id, playbook_run_id=artifacts.run.id
+        )
     db.refresh(artifacts.run)
     return artifacts.run
 

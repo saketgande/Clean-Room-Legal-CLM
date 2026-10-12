@@ -42,6 +42,8 @@ RENEWAL = SimpleNamespace(id="ren-1", notice_date=None, expiration_date=None)
 CONTRACT = SimpleNamespace(
     id="c-1", title="MSA — Globex", contract_type="MSA", counterparty_name="Globex",
     value_amount=None, risk_band="high", risk_score=None,
+    # The playbook rule's cached band (a summary from the deleted AI score is not one).
+    risk_summary={"band": "high", "playbook_run_ids": ["run-1"]},
 )
 
 

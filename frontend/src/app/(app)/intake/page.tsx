@@ -19,6 +19,7 @@ import { RequestOverview } from "./_request-overview";
 import { AGREEMENT_FORMS, AgreementWizard, type AgreementFormDef } from "./_agreement-forms";
 import { LegalQuestionForm } from "./_legal-question-form";
 import { useScreenAccess } from "@/lib/screen-access";
+import { isOpenRequest } from "@/lib/request-status";
 
 // Worklists don't need background polling — refetch when the tab regains
 // focus (covers "left it open, came back") and rely on each mutation's own
@@ -93,7 +94,7 @@ export default function IntakePage() {
     queryKey: ["intake-list"], queryFn: () => intakeApi.list(), enabled: isStaff, ...LIVE_POLL,
   });
   // Count-pills on the tabs — the reference's at-a-glance queue signal.
-  const openCount = (listData ?? []).filter((r) => r.status !== "closed" && r.status !== "approved").length;
+  const openCount = (listData ?? []).filter(isOpenRequest).length;
   const atRiskCount = (listData ?? []).filter((r) => r.sla_status === "at_risk").length;
   const overdueCount = (listData ?? []).filter((r) => r.sla_status === "overdue").length;
 
@@ -101,7 +102,7 @@ export default function IntakePage() {
     <MockupShell
       title="Legal Intake"
       subtitle="one front door — every request lands here"
-      stats={isStaff ? (
+      stats={isStaff && listData ? (
         <span className="stat">
           <span><b>{openCount}</b> open</span>
           {atRiskCount > 0 ? <span className="warn"><b>{atRiskCount}</b> at risk</span> : null}

@@ -111,29 +111,63 @@ def run_ai_job(self, job_id: str) -> dict:
         raise
 
 
+def _review_holds_for_current_text(db, *, contract: Contract) -> bool:
+    """A review that the risk band already counts exists for this exact text: Claude
+    reviewed a version of the same-text chain against this contract type's playbook
+    at its latest PUBLISHED rules (contracts.risk.contract_risk's qualifying run).
+    Re-running can't change the band -- the findings of every qualifying run count --
+    so a second review of the same text would be paid for nothing."""
+    from app.contracts.risk import contract_risk
+
+    return bool(contract_risk(db, contract)["playbook_run_ids"])
+
+
 async def _maybe_auto_review(db, *, job) -> None:
     """After clause extraction, if the contract was flagged for auto AI review
-    (freshly drafted from intake, or a counterparty revision just landed), run the
-    weighted risk score + the matching playbook's deviation analysis so the REVIEW
-    stage is ready without a manual click. Best-effort — never fails the job."""
+    (freshly drafted from intake, a counterparty revision just landed, or accepted
+    edits made a new version), run the matching playbook's deviation analysis so the
+    REVIEW stage is ready without a manual click. The review refreshes the risk band
+    itself (execute_playbook_run). Best-effort — never fails the job."""
     contract = db.get(Contract, job.resource_id)
     if contract is None or not (contract.metadata_json or {}).get("auto_review_pending"):
-        return
+        return "skipped"
+    owner = (contract.metadata_json or {}).get("auto_review_attempt")
+    if owner and owner != job.id:
+        # "Retry review" gave this review to its own job (contracts.auto_review); that job runs it.
+        return "skipped"
 
-    from app.auth.models import User
-    from app.contracts.risk import ContractRiskService
+    from app.contracts import auto_review
     from app.core.audit import write_timeline_event
     from app.playbooks.service import PlaybooksService
 
-    user = db.get(User, job.created_by_user_id) if job.created_by_user_id else None
-    try:
-        if user is not None:
-            await ContractRiskService(db).compute_contract_risk(contract=contract, user=user, request_id=None)
-    except Exception as exc:
-        logger.warning("auto risk failed for %s: %s", contract.id, exc)
+    # A re-check of text the person just changed by accepting suggestions lists what still
+    # applies but writes no new redlines or AI fixes: each round of those had to be decided
+    # again, and deciding them started the next round.
+    follows_accept = not auto_review.proposes_changes(contract)
+    carried_from = (getattr(job, "metadata_json", None) or {}).get("carried_from_snapshot_id")
+    if carried_from and _review_holds_for_current_text(db, contract=contract):
+        # The text is unchanged since a qualifying review, so a new playbook
+        # review would be paid for the same answer. Their rows stay on
+        # the earlier version; same_text_version_ids makes them count for this one.
+        meta = dict(contract.metadata_json or {})
+        meta.pop("auto_review_pending", None)
+        meta.pop("auto_review_attempt", None)
+        meta.pop(auto_review.REASON_KEY, None)
+        contract.metadata_json = meta
+        write_timeline_event(
+            db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
+            event_type="contract.auto_review",
+            title="AI review still holds — text unchanged since the last review",
+            details={"carried_from_snapshot_id": carried_from},
+            actor_user_id=job.created_by_user_id,
+        )
+        db.commit()
+        return "ok"
+
+    res = None  # stays None when auto_review_contract itself raises
     try:
         res = await PlaybooksService(db).auto_review_contract(
-            contract=contract, actor_user_id=job.created_by_user_id, create_redline=True
+            contract=contract, actor_user_id=job.created_by_user_id, create_redline=not follows_accept
         )
         logger.info("auto playbook review for %s: %s", contract.id, res)
     except Exception as exc:
@@ -143,14 +177,27 @@ async def _maybe_auto_review(db, *, job) -> None:
     if contract is not None:
         meta = dict(contract.metadata_json or {})
         meta.pop("auto_review_pending", None)
+        meta.pop("auto_review_attempt", None)
+        meta.pop(auto_review.REASON_KEY, None)
         contract.metadata_json = meta
         db.commit()
+        # Claim "complete" only when the playbook review really ran without error;
+        # otherwise say plainly that it didn't, so nobody reads the timeline as a pass.
+        if res and res.get("ran") and not res.get("error"):
+            if follows_accept:
+                title, details = "AI re-check of your changes complete — findings listed, no changes were drafted", None
+            else:
+                title, details = "AI review complete — risk + playbook deviations", None
+        else:
+            title = "AI review incomplete — the playbook review did not run"
+            details = {"error": (res or {}).get("error") or "auto review raised; see worker logs"}
         write_timeline_event(
             db, org_id=contract.org_id, resource_type="contract", resource_id=contract.id,
-            event_type="contract.auto_review", title="AI review complete — risk + playbook deviations",
+            event_type="contract.auto_review", title=title, details=details,
             actor_user_id=job.created_by_user_id,
         )
         db.commit()
+    return "ok" if res and res.get("ran") and not res.get("error") else "incomplete"
 
 
 async def _run_ai_job(job_id: str) -> dict:
@@ -171,6 +218,21 @@ async def _run_ai_job(job_id: str) -> dict:
         job.attempt_count += 1
         job.progress = max(job.progress, 5)
         db.commit()
+
+        # Checked here, not where jobs are queued: every path that queues
+        # analysis (uploads, versions, lifecycle, risk self-heal, the assistant,
+        # devtools) runs through this one place, and the lookup stays in the
+        # worker instead of a request's transaction.
+        carried_from = ai_controller.carry_forward_job(db, job=job)
+        if carried_from is not None:
+            _mark_job_succeeded(job)
+            job.metadata_json = {**(job.metadata_json or {}), "carried_from_snapshot_id": carried_from}
+            db.commit()
+            if job.job_type != "metadata_extraction":
+                _queue_contract_brain_ingestion(db, job=job, reason=f"after_{job.job_type}")
+            if job.job_type == "clause_extraction":
+                await _maybe_auto_review(db, job=job)
+            return {"job_id": job_id, "status": db.get(JobRun, job_id).status}
 
         if job.job_type == "metadata_extraction":
             await ai_controller.run_job_skill(
@@ -284,6 +346,22 @@ async def _run_ai_job(job_id: str) -> dict:
             job = db.get(JobRun, job_id)
             _mark_job_succeeded(job)
             db.commit()
+        elif job.job_type == "contract_review":
+            # "Retry review" (contracts.auto_review): the automatic AI review on its own, for a contract
+            # whose review never finished. It reads the contract text, so no clause extraction first.
+            if await _maybe_auto_review(db, job=job) == "incomplete":
+                job.status = JobStatus.FAILED
+                job.error_message = "The playbook review did not run."
+                job.finished_at = utcnow()
+            else:
+                _mark_job_succeeded(job)
+            db.commit()
+        elif job.job_type == "issue_fix_drafting":
+            from app.contract_files.issue_fixes import run_issue_fix_job
+
+            # Many AI requests, one after another, each saved as it finishes (the job
+            # keeps its own progress and its final state).
+            await run_issue_fix_job(db, job)
         elif job.job_type in _TABULAR_JOB_TYPES:
             await _run_tabular_job(db, job)
         else:
@@ -401,15 +479,17 @@ def run_assistant_turn(
             run.updated_at = utcnow()  # the stale-run lease counts from the worker's start
             db.commit()
         try:
-            return asyncio.run(
-                drive_run(
-                    db,
-                    run_id=run_id,
-                    mode="resume" if mode == "resume" else "start",
-                    confirmation_id=confirmation_id,
-                    request_id=request_id,
+            # The heartbeat lets Stop and the sweep tell a running answer from one whose worker died.
+            with run_events.heartbeat(run_id):
+                return asyncio.run(
+                    drive_run(
+                        db,
+                        run_id=run_id,
+                        mode="resume" if mode == "resume" else "start",
+                        confirmation_id=confirmation_id,
+                        request_id=request_id,
+                    )
                 )
-            )
         finally:
             run_events.release_claim(run_id)
     finally:
@@ -656,6 +736,28 @@ def reconcile_tabular_reviews() -> dict:
         db.close()
 
 
+@celery_app.task
+def run_intake_sla_sweep() -> dict:
+    """Every few minutes: judge every open intake request against its SLA clock.
+
+    Closes requests whose contract workflow already finished, then records each request that has
+    just gone overdue (an audit row, an escalation and an in-app note to its assignee). Until this
+    was scheduled the sweep only ran when an admin pressed "Run breach scan", so the page's
+    "Breaches" figure stayed at 0 and overdue requests were never escalated. Idempotent: only the
+    upward edge into "overdue" fires."""
+    from app.intake.service import IntakeService
+
+    db = SessionLocal()
+    try:
+        return IntakeService(db).run_sla_sweep()
+    except Exception:
+        db.rollback()
+        logger.warning("intake SLA sweep failed", exc_info=True)
+        return {"error": True}
+    finally:
+        db.close()
+
+
 _RESUME_BATCH = 200
 
 
@@ -826,6 +928,7 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
     from app.auth.models import User
     from app.integrations.dependencies import get_resend_client
     from app.obligations.models import Obligation, ObligationReminder
+    from app.obligations.service import reminder_email
 
     resend = resend or get_resend_client()
     db = SessionLocal()
@@ -881,16 +984,10 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
             reminder.sent_at = today
             db.commit()
             if owner is not None:
-                obligation_label = ob.obligation_type or "contract obligation"
+                # Same wording as the manual run, incl. "calculated - not yet confirmed".
+                subject, html = reminder_email(ob)
                 try:
-                    await resend.send_email(
-                        to=owner.email,
-                        subject=f"Obligation due: {obligation_label}",
-                        html=(
-                            f"<p>You have a <b>{obligation_label}</b> due on {ob.due_date}.</p>"
-                            f"<p>Open the contract workspace to review the details.</p>"
-                        ),
-                    )
+                    await resend.send_email(to=owner.email, subject=subject, html=html)
                 except Exception:
                     logger.exception(
                         "obligation reminder email failed",
@@ -1109,6 +1206,7 @@ async def _run_renewal_window_check(*, resend=None) -> dict:
     from app.core.enums import ContractLifecycleStage
     from app.integrations.dependencies import get_resend_client
     from app.renewals.models import RenewalEvent
+    from app.renewals.service import unconfirmed_note
 
     resend = resend or get_resend_client()
     db = SessionLocal()
@@ -1132,6 +1230,9 @@ async def _run_renewal_window_check(*, resend=None) -> dict:
             .order_by(window_opens.asc())
             .limit(_RENEWAL_BATCH)
         ).all()
+        # An event read before Step 3d holds dates the model computed itself; it is not
+        # alerted on until a re-read or a person gives it code-counted dates.
+        events = [e for e in events if (e.metadata_json or {}).get("dates")]
         moved = 0
         notify_failed = 0
         for event in events:
@@ -1167,13 +1268,17 @@ async def _run_renewal_window_check(*, resend=None) -> dict:
             owner = db.get(User, event.owner_user_id or contract.owner_user_id)
             if owner is not None:
                 safe_title = html.escape(contract.title or "Untitled contract")
+                # Dates code counted and no person confirmed still go out (owner
+                # decision), but say so: this daily sweep is the email people get.
+                note = unconfirmed_note(event)
                 try:
                     await resend.send_email(
                         to=owner.email,
-                        subject=f"Renewal window open: {contract.title}",
+                        subject=f"Renewal window open: {contract.title}{note}",
                         html=(
                             f"<p><b>{safe_title}</b> has entered its renewal window "
-                            f"(notice date {event.notice_date}, expires {event.expiration_date}).</p>"
+                            f"(notice date {event.notice_date}, expires {event.expiration_date})"
+                            f"{html.escape(note)}.</p>"
                         ),
                     )
                 except Exception:

@@ -29,8 +29,10 @@ def test_the_models_carry_the_same_rules():
     assert JobRun.__table__.c.idempotency_key.unique is not True  # per-org now, not global
 
 
-def test_promoting_a_version_demotes_the_others_first():
+def test_promoting_a_version_demotes_the_others_first(monkeypatch):
     calls = []
+    # The risk refresh promote_version runs is its own concern (test_one_risk_signal).
+    monkeypatch.setattr(contract_service, "refresh_contract_risk", lambda db, contract: None)
 
     class DB:
         def execute(self, stmt):

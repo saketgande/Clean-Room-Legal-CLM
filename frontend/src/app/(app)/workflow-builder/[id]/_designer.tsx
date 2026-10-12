@@ -370,7 +370,7 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                         {cur.type === "ai_task" && (
                           <div className="fld"><label className="lab">AI agent</label>
                             <select className="inp" value={cfgStr(cur.config, "agent")} onChange={(e) => patchCfg(sel!, "agent", e.target.value)}>
-                              <option value="">Auto-pick by request type</option>
+                              <option value="">None — system step (nothing is checked)</option>
                               {["nda-agent", "contract-review-agent", "litigation-agent", "vendor-intake-agent", "privacy-assessment-agent", "trademark-agent"].map((a) => <option key={a} value={a}>{a}</option>)}
                             </select></div>
                         )}

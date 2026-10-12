@@ -100,7 +100,36 @@ def _primary_counterparty(r: IntakeRequest) -> str:
         parties[0] if parties else None
     )
     name = (primary or {}).get("name") if primary else None
-    return (name or "").strip() or "the Counterparty"
+    return (name or "").strip() or UNNAMED_COUNTERPARTY
+
+
+# What the draft's own sentences call the other side when the request names no one ("the Counterparty shall...").
+# It is wording for the text of a draft only. It must never become the contract's title, file name or recorded
+# counterparty: it did, and the contract list filled up with "Mutual NDA — the Counterparty".
+UNNAMED_COUNTERPARTY = "the Counterparty"
+
+# The stage history's reason when a draft the system wrote moves to Review by itself. A drafted contract goes
+# through the same intake path as an attached file, and its history used to say "Uploaded document" (round 3).
+DRAFTED_MOVE_REASON = "Drafted from the template — moved to review automatically"
+
+
+def _named(counterparty: str | None) -> str | None:
+    """The counterparty's real name, or None when all we have is the stand-in wording."""
+    name = (counterparty or "").strip()
+    return None if not name or name == UNNAMED_COUNTERPARTY else name
+
+
+def _with_counterparty(label: str, counterparty: str | None, *, sep: str = " — ") -> str:
+    """`label — Name`, or just `label` when the other side is not named."""
+    name = _named(counterparty)
+    return f"{label}{sep}{name}" if name else label
+
+
+def _long_date(value) -> str:
+    """A date as a contract writes it ("1 November 2026"), from a date or its ISO text. Anything that is not a
+    date is returned as written. The form's date arrives as "2026-11-01", and that read oddly in legal text."""
+    day = _as_date(value)
+    return f"{day.day} {day:%B %Y}" if day else str(value or "")
 
 
 def template_values(doc_type: str, *, company: str, counterparty: str, effective: str,
@@ -112,7 +141,11 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
     days (30 for consultancy)."""
     f = fields or {}
     one_way = f.get("nda_kind") == "One-way"
-    purpose = str(f.get("purpose") or "").strip()
+    # The form asks "What is this agreement for?" in free text, and the template completes "The Parties wish to …"
+    # with it, so a typed sentence ("Managed hosting for the data platform.") used to read "wish to Managed hosting
+    # …." Typed text is therefore introduced rather than spliced into the sentence, on one line and without its
+    # closing full stop (the template's own sentence ends with one).
+    purpose = " ".join(str(f.get("purpose") or "").split()).rstrip(" .;:,")
     nda_term = str(f.get("nda_term") or "").strip()
     survival = str(f.get("survival_years") or "").strip()
     if one_way:
@@ -127,13 +160,13 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
     facts = request_facts(f)
     end = facts.get("expiration_date")
     value = facts.get("value_amount")
-    term = f"continues until {end.isoformat()}" if end else "continues until terminated"
+    term = f"continues until {_long_date(end)}" if end else "continues until terminated"
     if end and f.get("term") == "Renews automatically":
         term += (f", and then renews automatically for successive periods of {f.get('renewal_term') or '1 year'}"
                  f" unless either Party gives {f.get('notice_days') or '60 days'}' written notice of non-renewal")
     default_days = "30 days" if doc_type == "consultancy" else "45 days"
     return {
-        "company": company, "counterparty": counterparty, "effective_date": effective,
+        "company": company, "counterparty": counterparty, "effective_date": _long_date(effective),
         "governing_law": str(f.get("governing_law") or "").strip() or "the State of Delaware",
         "agreement_term": term,
         "payment_days": str(f.get("payment_terms") or default_days).split()[0],
@@ -141,7 +174,8 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
                            if value else ""),
         "nda_kind_title": "ONE-WAY " if one_way else "MUTUAL ",
         "nda_kind_word": "One-Way" if one_way else "Mutual",
-        "purpose_phrase": purpose or "explore a potential business relationship",
+        "purpose_phrase": (f"exchange confidential information for the following purpose: {purpose}"
+                           if purpose else "explore a potential business relationship"),
         "direction_recital": direction_recital,
         "term_clause": f"continues for the term of {nda_term}" if nda_term else "continues for three (3) years",
         "survival_clause": f"continue for {survival} year(s)" if survival else "continue for five (5) years",
@@ -332,12 +366,14 @@ class DraftingService:
         return company, counterparty, lines
 
     async def _ai_draft_text(self, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str,
-                             fields: dict, party_lines: list[str] | tuple = ()) -> str | None:
+                             fields: dict, party_lines: list[str] | tuple = ()) -> tuple[str | None, list[str]]:
         """Generate a REAL bespoke draft with the drafting skill (the same
         contract_docx_generation the assistant uses), grounded on the intake
         request's type, counterparty and captured requirements. Returns the rendered
-        body text, or None so the caller can fall back to the skeleton if the model
-        is unavailable — intake must never hard-fail on a drafting miss."""
+        body text and the model's assumptions (kept out of the text: they are a note
+        for the drafter, not terms), or (None, []) so the caller can fall back to the
+        skeleton if the model is unavailable — intake must never hard-fail on a
+        drafting miss."""
         import logging
 
         db = self.db
@@ -359,36 +395,36 @@ class DraftingService:
                 (
                     "Produce complete, professional contract sections with real operative "
                     "language a lawyer can review and refine. Where a term wasn't specified, "
-                    "use a sensible market-standard default and record it as an assumption."
+                    "do not invent one: write [TO BE CONFIRMED: <what is needed>] in the "
+                    "text and list it in assumptions."
                 ),
             ]
             if line
         )
         try:
             from app.ai.controller import ai_controller
-            from app.ai.tool_runtime import _render_structured_contract_docx
+            from app.ai.tool_runtime import _drafting_assumptions, _render_structured_contract_docx
 
             drafted = await ai_controller.run_structured_skill(
                 db,
                 skill_name="contract_docx_generation",
                 org_id=actor.org_id,
                 created_by_user_id=actor.id,
-                input_payload={"title": f"{label} — {counterparty or 'Counterparty'}", "instructions": instructions},
+                input_payload={"title": _with_counterparty(label, counterparty), "instructions": instructions},
                 commit=False,
             )
             if drafted is None or not getattr(drafted, "sections", None):
-                return None
+                return None, []
             body_text, _content = _render_structured_contract_docx(
-                title=getattr(drafted, "title", None) or f"{label} — {counterparty or 'Counterparty'}",
+                title=getattr(drafted, "title", None) or _with_counterparty(label, counterparty),
                 sections=[(s.heading, s.body) for s in drafted.sections],
-                assumptions=list(getattr(drafted, "assumptions", []) or []),
             )
-            return body_text
+            return body_text, _drafting_assumptions(drafted)
         except Exception:
             logging.getLogger(__name__).warning(
                 "intake AI drafting failed for request %s; falling back to skeleton", request.id, exc_info=True
             )
-            return None
+            return None, []
 
     async def draft_contract_for_request(
         self, *, actor, request: IntakeRequest, http_request_id: str | None = None, custom: bool = False
@@ -421,10 +457,11 @@ class DraftingService:
         company, counterparty, party_lines = self._party_details(
             request, org.name if org and org.name else "Company")
         effective = str(fv.get("start_date") or fv.get("services_start") or "").strip() or utcnow().date().isoformat()
+        assumptions: list[str] = []
         if custom:
             # Real AI generation for bespoke drafts (was a placeholder skeleton).
             # Skeleton only survives as the safety net if the model is unavailable.
-            text = await self._ai_draft_text(
+            text, assumptions = await self._ai_draft_text(
                 actor=actor, request=request, company=company,
                 counterparty=counterparty, label=spec["label"], fields=fv, party_lines=party_lines,
             )
@@ -451,23 +488,24 @@ class DraftingService:
             label = "One-Way NDA"
         if custom:
             label = f"{label} (Custom draft)"
-        title = f"{label} — {counterparty}"
+        title = _with_counterparty(label, counterparty)
 
         data = text.encode("utf-8")
         upload = UploadFile(
             file=io.BytesIO(data),
             size=len(data),
-            filename=f"{spec['label']} - {counterparty}.txt",
+            filename=f"{_with_counterparty(spec['label'], counterparty, sep=' - ')}.txt",
             headers=Headers({"content-type": "text/plain"}),
         )
         result = await self.files.create_contract_from_upload(
             upload=upload,
             user=actor,
             title=title,
-            counterparty_name=counterparty,
+            counterparty_name=_named(counterparty),
             contract_type=spec["contract_type"],
             request_id=http_request_id,
             on_created=lambda c: apply_request_facts(c, request),
+            advance_reason=DRAFTED_MOVE_REASON,
         )
         contract = result["contract"]
 
@@ -483,8 +521,22 @@ class DraftingService:
             db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
             event_type="intake.contract_drafted", title=f"Drafted the {spec['label']}",
             actor_user_id=actor.id, request_id=http_request_id,
-            details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"]},
+            details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"],
+                     **({"assumptions": assumptions} if assumptions else {})},
         )
+        if assumptions:
+            # The drafter works from the workflow's thread on the request page (the
+            # only place a note is shown today); actor=None posts it as "system" so
+            # the AI's guesses are never read as a person's words.
+            from app.workflows.service import add_run_comment, get_run_for_request
+
+            run = get_run_for_request(db, request_id=request.id, org_id=request.org_id)
+            if run is not None:
+                add_run_comment(
+                    db, run=run, actor=None,
+                    text="Aegis drafting assumptions (not in the contract; confirm or replace):\n"
+                    + "\n".join(f"- {a}" for a in assumptions),
+                )
         db.commit()
         db.refresh(request)
         return contract
@@ -525,7 +577,7 @@ class DraftingService:
         doc_type = resolve_doc_type(request)
         contract_type = _DOC_TYPES[doc_type]["contract_type"] if doc_type else None
         base = doc.filename.rsplit(".", 1)[0] if "." in doc.filename else doc.filename
-        title = base.strip() or f"Contract — {counterparty}"
+        title = base.strip() or _with_counterparty("Contract", counterparty)
 
         data = (doc.extracted_text or "").encode("utf-8")
         upload = UploadFile(
@@ -534,7 +586,7 @@ class DraftingService:
         )
         result = await self.files.create_contract_from_upload(
             upload=upload, user=actor, title=title,
-            counterparty_name=counterparty, contract_type=contract_type, request_id=http_request_id,
+            counterparty_name=_named(counterparty), contract_type=contract_type, request_id=http_request_id,
             on_created=lambda c: apply_request_facts(c, request),
         )
         contract = result["contract"]
@@ -575,9 +627,19 @@ class DraftingService:
         for k, v in cols.items():
             setattr(parent, k, v)
             sources[k] = "form"
+        if "expiration_date" in cols:
+            # A finished change is a decided end date: renewal counting takes it
+            # as given, and code never replaces it with its own arithmetic.
+            sources["expiration_date"] = "change_request"
         meta["field_sources"] = sources
         meta.update(notes)
         parent.metadata_json = meta
+        if "expiration_date" in cols:
+            from app.core.deadlines import recompute_contract_deadlines
+
+            # Notice deadlines, the renewal window and obligations counted from
+            # the old end date would otherwise keep alerting on it.
+            recompute_contract_deadlines(db, parent)
         after = {k: str(v) for k, v in cols.items()}
         write_audit_log(db, action="contract.changed_by_request", resource_type="contract", resource_id=parent.id,
                         org_id=parent.org_id, actor_user_id=actor_id, before=before,

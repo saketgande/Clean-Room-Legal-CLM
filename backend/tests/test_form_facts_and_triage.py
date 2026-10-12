@@ -47,7 +47,7 @@ def test_the_msa_template_states_the_form_s_term_and_value():
     text = drafting.render_document("msa", company="Us", counterparty="Them", effective="2026-10-01",
                                     fields={"value": "4500000", "end_date": "2027-09-30", "payment_terms": "60 days",
                                             "term": "Renews automatically", "renewal_term": "1 year", "notice_days": "90 days"})
-    assert "continues until 2027-09-30, and then renews automatically" in text
+    assert "continues until 30 September 2027, and then renews automatically" in text
     assert "90 days' written notice of non-renewal" in text
     assert "undisputed invoices within 60 days" in text
     assert "INR 4,500,000.00" in text
@@ -57,7 +57,7 @@ def test_the_msa_template_states_the_form_s_term_and_value():
 
 def test_a_form_request_is_triaged_by_the_form_not_the_model(monkeypatch):
     """No guessing: the form's category, the requester's priority, nothing held
-    for info, and the workflow set up for its type confident enough to auto-start."""
+    for info, and the workflow set up for its type ("Used for"), so it auto-starts."""
     monkeypatch.setattr(flow_agent, "used_for_suggestion", lambda db, r: {
         "flow_id": "wf-msa", "flow_name": "MSA", "confidence": 1.0, "needs_human": False, "source": "used_for"})
     monkeypatch.setattr(triage_agent, "aegis_read", lambda db, r, claude_client=None: {"summary": "note"})
@@ -102,3 +102,40 @@ def test_a_finished_change_request_says_what_changes_on_the_contract():
     assert cols == {"expiration_date": date(2027, 1, 31)} and notes["terminated"]["on"] == "2027-01-31"
     cols, _ = drafting._change_facts({"request_form": "novation", "incoming_party": "Initech Software Ltd"})
     assert cols == {"counterparty_name": "Initech Software Ltd"}
+
+
+def test_a_confident_model_pick_never_starts_a_workflow(monkeypatch):
+    """The model's 0.92 workflow pick used to start the run by itself, recorded as the
+    requester's own start; only an admin's "Used for" pick may start without a person."""
+    from app.intake.service import IntakeService
+    from app.workflows import service as workflows_service
+
+    started: list[str] = []
+
+    async def fake_start(db, *, actor, request, flow):
+        started.append(flow.id)
+
+    monkeypatch.setattr(workflows_service, "start_flow", fake_start)
+    db = SimpleNamespace(get=lambda model, fid: SimpleNamespace(id=fid, org_id="org-1"),
+                         commit=lambda: None, rollback=lambda: None)
+    fs = {"flow_id": "wf-1", "confidence": 0.92, "needs_human": False, "source": "llm"}
+    r = SimpleNamespace(id="req-1", org_id="org-1", ai_triage={"flow_suggestion": fs})
+
+    IntakeService(db)._maybe_autostart_workflow(r, SimpleNamespace(id="u-1"))
+    assert started == []
+    fs["source"] = "used_for"
+    IntakeService(db)._maybe_autostart_workflow(r, SimpleNamespace(id="u-1"))
+    assert started == ["wf-1"]
+
+
+def test_the_ai_urgency_is_a_suggestion_not_the_priority(monkeypatch):
+    """Free-text triage overwrote the requester's priority (and an escalated notice's
+    'Critical') with the model's urgency, silently; it must stay the requester's, with
+    the AI's read kept beside it."""
+    from app.intake.service import IntakeService
+
+    monkeypatch.setattr(triage_agent, "triage", lambda db, r: {"understanding": {"urgency": "High"}})
+    r = SimpleNamespace(priority="Low", ai_triage=None)
+    IntakeService(None)._apply_ai_triage(r)
+    assert r.priority == "Low"
+    assert r.ai_triage["understanding"]["urgency"] == "High"

@@ -57,6 +57,9 @@ class AICallContext:
     assistant_run_id: str | None = None
     tool_call_id: str | None = None
     skill_run_id: str | None = None
+    # Set only by the AI exam (backend/eval/exam) on its own direct calls, so its
+    # spend is viewable apart from real usage. App code never sets it: NULL = real.
+    eval_run_id: str | None = None
 
 
 def _default_sessions() -> Session:
@@ -92,6 +95,7 @@ def record_call(
         session_id=ctx.session_id,
         assistant_run_id=ctx.assistant_run_id,
         tool_call_id=ctx.tool_call_id,
+        eval_run_id=ctx.eval_run_id,
         resource_type=resource_type,
         resource_id=resource_id,
         provider="claude",

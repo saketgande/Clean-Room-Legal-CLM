@@ -190,6 +190,14 @@ def _coerce_field(f, raw):
                 422, f'Field "{f.label}" must be a date in YYYY-MM-DD form'
             ) from exc
 
+    if kind == "email":
+        # A signer's address goes onto the signature request, so one that cannot be delivered is refused
+        # here, while the person filing the request can still fix it.
+        text = str(raw).strip()
+        if not looks_like_email(text):
+            raise HTTPException(422, f'Field "{f.label}" must be a full email address, like name@company.com')
+        return text
+
     if kind == "multiselect":
         allowed = [str(o.get("value")) for o in (f.options or []) if isinstance(o, dict)]
         picked = raw if isinstance(raw, list) else [x.strip() for x in str(raw).split(",") if x.strip()]
@@ -220,6 +228,16 @@ def _coerce_field(f, raw):
 
 
 _FIELD_TEXT_MAX = 20_000
+_EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+
+
+def looks_like_email(text: str) -> bool:
+    """One "@", something either side of it, a dot in the domain, no spaces. Whether the mailbox exists is
+    something only sending can tell; this catches the typos that can never be delivered."""
+    if len(text) > 254 or not _EMAIL.fullmatch(text):
+        return False
+    domain = text.split("@", 1)[1]
+    return not domain.startswith(".") and ".." not in domain
 
 
 def _validate_field_values(fields: list, values: dict | None) -> dict | None:
@@ -258,7 +276,21 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
             cleaned.pop(f.key, None)
             continue
         cleaned[f.key] = _coerce_field(f, raw)
+    _check_dates_in_order(fields, cleaned)
     return cleaned
+
+
+def _check_dates_in_order(fields: list, cleaned: dict) -> None:
+    """A date that must not come before another (an end date against its start date), checked once both are
+    known to be dates. They are stored as ISO strings, so comparing the strings compares the days."""
+    labels = {f.key: f.label for f in fields}
+    for f in fields:
+        earlier = getattr(f, "not_before", None)
+        if not earlier:
+            continue
+        end, start = cleaned.get(f.key), cleaned.get(earlier)
+        if isinstance(end, str) and isinstance(start, str) and end < start:
+            raise HTTPException(422, f'"{f.label}" cannot be before "{labels.get(earlier, earlier)}"')
 
 
 # --- request create / list / get -------------------------------------------
@@ -736,9 +768,10 @@ class IntakeService:
                 return
 
     def _maybe_autostart_workflow(self, request: IntakeRequest, actor: User) -> None:
-        """Confidence-gated auto-start: when the triage is confident about the
-        workflow pick (and didn't flag it for a human), kick the workflow off
-        automatically; otherwise it stays a one-click suggestion on the ticket.
+        """Start the workflow an admin set up for this request's type ("Used for")
+        without waiting for a person. Every other pick — the model's, however
+        confident, the litigation agent's or a word match — stays a one-click
+        suggestion on the ticket, so a person starts it and the run is theirs.
         Best-effort and post-commit — never breaks the create path."""
         db = self.db
         at = request.ai_triage or {}
@@ -748,7 +781,10 @@ class IntakeService:
             return
         fs = at.get("flow_suggestion") or {}
         fid = fs.get("flow_id")
-        if not fid or fs.get("needs_human") or (fs.get("confidence") or 0.0) < 0.75:
+        # Only an admin's "Used for" pick starts by itself: it is a decision, not a guess.
+        # A model pick at 0.92 used to start here too, recorded as the requester's own
+        # start, so nobody had actually chosen the workflow.
+        if not fid or fs.get("source") != "used_for":
             return
         try:
             from app.integrations.claude import run_coro_blocking
@@ -850,9 +886,10 @@ class IntakeService:
             stage_timestamps=[{"stage": "new", "at": now.isoformat()}],
             created_by_user_id=actor.id, updated_by_user_id=actor.id,
         )
-        # Context-aware triage first: the AI reads the WHOLE request and decides
-        # category/complexity/risk/urgency + the workflow pick, driving the gates,
-        # priority and owner below. Falls back to the keyword classifier on failure.
+        # Context-aware triage first: the AI reads the WHOLE request for category/
+        # complexity/risk/urgency + a workflow pick. Category picks the owner below;
+        # urgency and the pick are suggestions a person applies. Falls back to the
+        # keyword classifier on failure.
         # Seed the parties list with EVERY party the form captured. Only the first
         # counterparty used to be added, so a second counterparty or a novation's
         # incoming party never appeared on the request's parties.
@@ -906,16 +943,15 @@ class IntakeService:
         return self.serialize_request(r)
 
     def _apply_ai_triage(self, r: IntakeRequest) -> None:
-        """Context-aware triage: the AI reads the WHOLE request and decides category,
-        complexity, risk, urgency and the workflow pick, which drive priority and
-        owner."""
+        """Context-aware triage: the AI reads the WHOLE request for category,
+        complexity, risk, urgency and a workflow pick. The request keeps the
+        requester's priority (an escalated notice's "Critical" included); the AI's
+        urgency stays in ``ai_triage.understanding.urgency`` as a suggestion the
+        request page offers to apply. Form requests are unaffected: ``form_triage``
+        sets urgency to the requester's priority."""
         from app.intake import triage_agent
 
-        db = self.db
-        r.ai_triage = triage_agent.triage(db, r)
-        _urgency = (r.ai_triage.get("understanding") or {}).get("urgency")
-        if _urgency in ("Low", "Medium", "High"):
-            r.priority = _urgency
+        r.ai_triage = triage_agent.triage(self.db, r)
 
     def _assign_and_notify(self, r: IntakeRequest, actor: User) -> None:
         """Auto-assign the owner from the triage read: expertise picks the team,
@@ -927,7 +963,7 @@ class IntakeService:
 
     def _enrich_after_commit(self, r: IntakeRequest, actor: User) -> None:
         """Enrichment once the request is safely persisted: the deep litigation
-        assessment and the confidence-gated workflow autostart.
+        assessment and the "Used for" workflow autostart.
 
         Screening is NOT here any more — it is a durable job queued in the
         request's own transaction and dispatched at creation, so it can no longer
@@ -940,7 +976,8 @@ class IntakeService:
 
     def run_intake_triage(self, *, request_id: str, actor_id: str | None) -> None:
         """The background half of a web-form submission: AI triage, owner
-        assignment, screening and workflow autostart. A no-op once triage has run."""
+        assignment, screening and the "Used for" workflow autostart. A no-op once
+        triage has run."""
         db = self.db
         r = db.get(IntakeRequest, request_id)
         actor = db.get(User, actor_id) if actor_id else None
@@ -1350,26 +1387,38 @@ class IntakeService:
         """The request's approval rungs. If a chain is live, its real rows (RAG). If
         not yet submitted, the PLANNED rungs (status 'planned'): one per Approval
         step of the request's workflow (its run, else the workflow it would get) —
-        exactly who the workflow will ask."""
+        exactly who the workflow will ask.
+
+        Once a request has a contract it is approved ON THE CONTRACT, so those rows carry
+        ``contract_id`` and no ``intake_request_id``: the chain is the latest submission for
+        the contract's current version (what the approval gate itself checks), not the
+        request's own rows, which stay empty. A request without a contract reads its own."""
         from app.approvals.models import ApprovalRequest
+        from app.contracts.lifecycle import current_approval_chain
+        from app.contracts.models import Contract
+        from app.workflows.service import get_run_for_request, planned_approvals, select_flow
 
         db = self.db
         r = self.get_request(user=actor, request_id=request_id)
-        rows = db.scalars(
-            select(ApprovalRequest)
-            .where(
-                ApprovalRequest.org_id == actor.org_id,
-                ApprovalRequest.intake_request_id == r.id,
-            )
-            .order_by(ApprovalRequest.created_at, ApprovalRequest.step_order)
-        ).all()
+        run = get_run_for_request(db, request_id=r.id, org_id=actor.org_id)
+        rows: list = []
+        contract_id = r.contract_id or (run.contract_id if run else None)
+        contract = db.get(Contract, contract_id) if contract_id else None
+        if contract is not None and contract.org_id == actor.org_id:
+            rows = sorted(current_approval_chain(db, contract), key=lambda a: (a.step_order, a.created_at))
+        if not rows:
+            rows = db.scalars(
+                select(ApprovalRequest)
+                .where(
+                    ApprovalRequest.org_id == actor.org_id,
+                    ApprovalRequest.intake_request_id == r.id,
+                )
+                .order_by(ApprovalRequest.created_at, ApprovalRequest.step_order)
+            ).all()
         if rows:
             return self._serialize_chain(rows)
         if r.status in ("closed", "approved"):
             return []
-        from app.workflows.service import get_run_for_request, planned_approvals, select_flow
-
-        run = get_run_for_request(db, request_id=r.id, org_id=actor.org_id)
         flow = None if run else select_flow(db, request=r)
         steps = (run.steps if run else (flow.steps if flow else None)) or []
         targets = planned_approvals(db, org_id=actor.org_id, steps=steps, request=r)
@@ -1742,6 +1791,11 @@ class IntakeService:
         (Part 0.11/0.16). Idempotent. Returns a counter dict."""
         db = self.db
         now = utcnow()
+        # Finished work first: a request whose contract workflow already completed must not be
+        # judged against the clock (and escalated) as if it were still waiting.
+        from app.workflows.service import close_finished_requests
+
+        completed = close_finished_requests(db, org_id=org_id)
         q = select(IntakeRequest).where(IntakeRequest.status.in_(OPEN_STATUSES))
         if org_id:
             q = q.where(IntakeRequest.org_id == org_id)
@@ -1771,7 +1825,7 @@ class IntakeService:
                 elif new != "overdue":
                     downgraded += 1
         db.commit()
-        return {"escalated": escalated, "breached": breached, "downgraded": downgraded}
+        return {"escalated": escalated, "breached": breached, "downgraded": downgraded, "completed": completed}
 
     def list_assignees(self, *, org_id: str) -> list[dict]:
         from app.core.enums import UserStatus

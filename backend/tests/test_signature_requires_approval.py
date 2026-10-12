@@ -2,6 +2,7 @@
 version's approval chain is fully approved, unless the approval engine itself
 moves it with an authorized override."""
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -23,13 +24,17 @@ class _Rows:
 class FakeDB:
     def __init__(self, contract, statuses):
         self.contract = contract
-        self.statuses = statuses
+        # The approval rows of ONE submission (created together, no batch id), the
+        # way the real query returns them: the gate reads each row's status and
+        # works out which submission is the latest from created_at.
+        now = datetime.now(UTC)
+        self.rows = [SimpleNamespace(status=s, created_at=now, metadata_json={}) for s in statuses]
 
     def scalar(self, _stmt):
         return self.contract
 
     def scalars(self, _stmt):
-        return _Rows(self.statuses)
+        return _Rows(self.rows)
 
     def add(self, _obj):
         pass

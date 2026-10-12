@@ -66,6 +66,25 @@ def planned_approvals(db: Session, *, org_id: str, steps: list, request: IntakeR
     ]
 
 
+# How long a contract_review_agent step waits on a pending playbook review before
+# taking the band as it stands. Clause extraction then a Claude review of a long
+# contract takes minutes. ponytail: fixed bound; a review-done signal that wakes the
+# step would replace it if steps sit waiting too long.
+_REVIEW_WAIT_SECONDS = 600  # keep equal to contracts.auto_review.STALL_SECONDS (a test checks)
+_INTERRUPTED_REVIEW_NOTE = "The AI review didn't finish — it was interrupted. Retry it, or review the contract yourself."
+
+
+def _review_state_or_none(db: Session, contract) -> dict | None:
+    """contracts.auto_review.review_state, for a message only: if it can't be worked out the step
+    behaves as it did before (it asks a person) rather than failing."""
+    from app.contracts.auto_review import review_state
+
+    try:
+        return review_state(db, contract)
+    except Exception:
+        logger.warning("could not tell whether the AI review finished for %s", getattr(contract, "id", "?"), exc_info=True)
+        return None
+
 # Registered AI agents for ai_task steps: maps the ported library's agent keys
 # (github.com/Letscode82/aegis) AND our own ids/short names onto an intake
 # specialist agent id (app.intake.agents). Running the agent yields a real
@@ -81,6 +100,14 @@ _AGENT_KEY_MAP = {
     "trademark-agent": "trademark_agent", "trademark_agent": "trademark_agent", "trademark": "trademark_agent",
     "faq-agent": "faq_agent", "faq_agent": "faq_agent", "policy_answer": "faq_agent", "policy/faq": "faq_agent",
 }
+
+# Agents that review the contract itself against the playbook. An NDA flow's "AI review of their NDA
+# against our NDA playbook" step is one of them: it used to fall through to the keyword classifier, so
+# on every NDA flow the step only read the request text, said so, and waited for a person.
+_PLAYBOOK_REVIEW_AGENTS = frozenset({"contract_review_agent", "nda_agent"})
+
+# Marker on a drafting step's result: the workflow was sent back to it, so a person redoes the draft.
+_RETURNED_FOR_REWORK = "returned_for_rework"
 
 
 # --------------------------------------------------------------------------- selection
@@ -555,9 +582,7 @@ def _record_step_finding(run: WorkflowRun, step: dict, sr: WorkflowStepRun | Non
     stype = step.get("type") or sr.step_type
     name = step.get("name") or sr.step_name or stype or "step"
     if res.get("risk_band"):
-        summary = f"Risk {res['risk_band']}" + (
-            f" ({res.get('risk_score')})" if res.get("risk_score") is not None else ""
-        ) + (f" — {res['summary']}" if res.get("summary") else "")
+        summary = f"Risk {res['risk_band']}" + (f" — {res['summary']}" if res.get("summary") else "")
     elif res.get("matter_type"):
         summary = str(res["matter_type"]) + (" · legal hold required" if res.get("legal_hold_required") else "")
     elif stype == "clm_draft" and res.get("contract_id"):
@@ -609,6 +634,7 @@ async def advance_run(db: Session, *, run: WorkflowRun, actor) -> WorkflowRun:
             )
             _finalize_intake_if_approved(db, run=run, actor=actor)
             _apply_change_request(db, run=run, actor=actor)
+            close_request_when_contract_flow_done(db, run=run, actor=actor)
             break
         # Execute every not-yet-terminal step in the current parallel group (a
         # size-1 group is a plain sequential step). The group holds the run until
@@ -688,6 +714,68 @@ def _finalize_intake_if_approved(db: Session, *, run: WorkflowRun, actor) -> Non
 
     subject = build_intake_subject(db, run.request_id, org_id=run.org_id)
     subject.finalize_approved(db, actor_user_id=actor.id if actor else None)
+
+
+def close_request_when_contract_flow_done(db: Session, *, run: WorkflowRun, actor) -> bool:
+    """A request whose contract workflow has finished is finished work: close it.
+
+    ``_finalize_intake_if_approved`` leaves contract flows to "the contract lifecycle", but nothing
+    in the contract lifecycle ever closed the request. It stayed open for ever with its SLA clock
+    still running, so finished requests were counted as open and as overdue (and escalated).
+
+    Closing is skipped while another run for the same request is still going (closing would
+    cancel it). Idempotent: a request that is already approved or closed is left alone.
+    """
+    if run.status != "complete" or not run.contract_id or not run.request_id:
+        return False
+    request = db.get(IntakeRequest, run.request_id)
+    if request is None or request.org_id != run.org_id or request.status in ("approved", "closed"):
+        return False
+    other_running = db.scalar(
+        select(WorkflowRun.id).where(
+            WorkflowRun.request_id == run.request_id,
+            WorkflowRun.id != run.id,
+            WorkflowRun.status.in_(("running", "waiting")),
+        ).limit(1)
+    )
+    if other_running is not None:
+        return False
+    from app.intake.service import IntakeService
+
+    IntakeService(db)._transition(
+        request=request, actor=actor, actor_type="system", to_status="closed", to_stage="complete",
+        audit_action="intake.completed", after={"flow_run_id": run.id, "flow": run.flow_name},
+        timeline_title="Workflow complete — request closed",
+    )
+    return True
+
+
+def close_finished_requests(db: Session, *, org_id: str | None = None, limit: int = 200) -> int:
+    """Repair: close the open requests whose latest run is a finished contract workflow.
+
+    Requests that finished before ``close_request_when_contract_flow_done`` existed are still
+    open. Safe to run repeatedly; returns how many it closed. The caller commits.
+    """
+    query = (
+        select(IntakeRequest.id)
+        .join(WorkflowRun, WorkflowRun.request_id == IntakeRequest.id)
+        .where(
+            IntakeRequest.status.in_(("open", "escalated")),
+            WorkflowRun.status == "complete",
+            WorkflowRun.contract_id.is_not(None),
+        )
+        .distinct()
+        .limit(limit)
+    )
+    if org_id:
+        query = query.where(IntakeRequest.org_id == org_id)
+    closed = 0
+    for request_id in db.scalars(query).all():
+        request = db.get(IntakeRequest, request_id)
+        latest = get_run_for_request(db, request_id=request_id, org_id=request.org_id)
+        if latest is not None and close_request_when_contract_flow_done(db, run=latest, actor=None):
+            closed += 1
+    return closed
 
 
 def _ai_agent_failed(sr: WorkflowStepRun | None, exc: Exception, label: str) -> str:
@@ -806,6 +894,18 @@ def _commit_before_slow_work(db: Session) -> None:
     db.commit()
 
 
+def _step_threshold(raw) -> float | None:
+    """A step's auto-advance bar, or None when it is missing or unreadable. confidence_score
+    reads garbage ("70%", "") as 0.0 -- safe for a confidence, but as a bar it lets every
+    answer through. An unreadable bar must mean "ask a person"."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        return confidence_score(float(raw))
+    except (TypeError, ValueError):
+        return confidence_score(str(raw)) or None  # a level word ("high"), else unreadable
+
+
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
     """Returns 'advance' | 'wait'. Each branch is a thin call into an existing
     subsystem."""
@@ -855,45 +955,55 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         mapped = _AGENT_KEY_MAP.get(agent_val.lower())
         conf = None
         ran_analysis = True  # False when only the keyword classifier ran
-        if mapped == "contract_review_agent" and run.contract_id:
-            # The weighted risk score (contracts/risk.py) is genuinely real — but
-            # it depends on clause extraction having already run, and both that
-            # and the risk assessment itself happen in a background job after
-            # drafting, so it isn't ready the instant this step starts. Keep
-            # yielding (bounded) rather than settle for a regex guess the moment
-            # we're asked; only fall back once the job clearly isn't landing in
-            # a reasonable time — that's still better than staying stuck forever.
+        if mapped in _PLAYBOOK_REVIEW_AGENTS and run.contract_id:
+            # The risk band (contracts/risk.py) is computed from the playbook review of
+            # the current text, which runs in a background job after drafting, a
+            # counterparty revision or accepted edits (auto_review_pending). Keep
+            # yielding while that review is pending rather than judge text it hasn't
+            # read. Bounded, so a dead worker can't hold the step forever; past the
+            # bound the band is taken as it stands, and unknown asks a person.
+            from app.contracts.risk import contract_risk
             from app.core.database import utcnow
 
             try:
                 contract = _get_contract(db, run.contract_id)
-                if contract.risk_score is not None:
-                    band = contract.risk_band or "medium"
-                    # Confidence here means "safe to auto-advance without a human
-                    # pausing on this step" — inversely related to risk, not a
-                    # restatement of it.
-                    conf = {"low": 0.95, "medium": 0.65, "high": 0.3}.get(band, 0.5)
-                    if sr:
-                        sr.result = {
-                            "agent": mapped, "source": "ai", "confidence": conf,
-                            "risk_score": contract.risk_score, "risk_band": band,
-                            "summary": (contract.risk_summary or {}).get("summary"),
-                            "top_drivers": (contract.risk_summary or {}).get("drivers", [])[:3],
-                        }
-                elif sr and sr.updated_at and (utcnow() - sr.updated_at).total_seconds() < 60:
-                    return "yield"  # still waiting on the background clause/risk job
-                else:
-                    from app.intake import agents as intake_agents
-                    request = db.get(IntakeRequest, run.request_id)
-                    cls = intake_agents.classify(request.type_label or "", request.description or "")
-                    conf = cls.get("confidence")
-                    ran_analysis = False  # a keyword match on the ticket text is not a review
-                    if sr:
-                        sr.result = {
-                            "agent": mapped, "category": cls.get("category"), "confidence": conf,
-                            "source": cls.get("source", "regex"),
-                            "note": "risk score not ready in time — used the fallback classifier",
-                        }
+                if (
+                    (contract.metadata_json or {}).get("auto_review_pending")
+                    and sr and sr.updated_at
+                    and (utcnow() - sr.updated_at).total_seconds() < _REVIEW_WAIT_SECONDS
+                ):
+                    return "yield"  # still waiting on the background playbook review
+                risk = contract_risk(db, contract)
+                band = risk["band"]
+                # Still flagged past the wait: the review didn't finish. Say that, instead of "never
+                # reviewed" (which reads as if nobody asked), and let the page offer "Retry review".
+                interrupted = False
+                if (contract.metadata_json or {}).get("auto_review_pending"):
+                    review = _review_state_or_none(db, contract)
+                    if review and review["state"] == "running":
+                        return "yield"  # a retry started since: wait for that review instead
+                    interrupted = bool(review)
+                    if interrupted:
+                        risk = {**risk, "note": _INTERRUPTED_REVIEW_NOTE}
+                # Confidence here means "safe to auto-advance without a human
+                # pausing on this step" — inversely related to risk, not a
+                # restatement of it. Unknown (no review of this text) gives no
+                # confidence, so the gate below asks a person.
+                conf = {"low": 0.95, "medium": 0.65, "high": 0.3}.get(band)
+                if sr:
+                    counts = risk["counts"]
+                    sr.result = {
+                        "agent": mapped, "source": "playbook_review", "confidence": conf,
+                        "risk_band": band,
+                        "summary": risk["note"] or (
+                            f"{counts['critical'] + counts['high']} high, {counts['medium']} medium, "
+                            f"{counts['low']} low unresolved finding(s)"
+                        ),
+                        "note": risk["note"],
+                        "top_drivers": risk["drivers"][:3],
+                    }
+                    if interrupted:
+                        sr.result["review_state"] = "interrupted"
             except Exception as exc:
                 return _ai_agent_failed(sr, exc, "Contract review agent")
         elif mapped:
@@ -1001,12 +1111,28 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 detail = (sr.result or {}).get("note") if isinstance(sr.result, dict) else None
                 sr.note = f"{base} ({detail})" if detail else base
             return "wait"
-        thr = confidence_score(cfg.get("escalate_below_confidence"))
+        thr = _step_threshold(cfg.get("escalate_below_confidence"))
         conf = confidence_score(conf)
-        if thr is not None and conf is not None and conf < thr:
+        if not agent_val and thr is None:
+            # No agent and no bar: a system step ("Activate & track") -- the AI was
+            # asked nothing, so there is no verdict to trust or distrust.
+            return "advance"
+        # The AI suggests, the workflow decides: the step clears itself only when a
+        # real analysis gave a number AND the step sets a bar AND the number meets
+        # it. Any missing piece means nobody decided -- ask a person, and say why.
+        if thr is None or conf is None or conf < thr:
             if sr:
                 sr.status = "waiting_human"
-                base = f"AI confidence {conf} < {thr} — escalated to {_team_name(db, cfg.get('team_id')) or 'a human'}"
+                who = _team_name(db, cfg.get("team_id")) or "a human"
+                if not agent_val:
+                    why = "No AI agent is set for this step, so nothing was checked"
+                elif conf is None:
+                    why = "The agent gave no confidence"
+                elif thr is None:
+                    why = f"AI confidence {conf}, but this step sets no auto-advance threshold"
+                else:
+                    why = f"AI confidence {conf} < {thr}"
+                base = f"{why} — escalated to {who}"
                 # A branch may have already left a more specific explanation in
                 # sr.result (e.g. "risk score not ready in time" for the contract
                 # review fallback) — surface it instead of only the generic number.
@@ -1016,6 +1142,15 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         return "advance"
 
     if t == "clm_draft" and run.contract_id:
+        # Sent back to this step on purpose (return_run): a person has to redo the draft. Skipping it
+        # again, as for a contract that merely exists, made "send back" a success message that changed
+        # nothing (round 2, bug 9).
+        if sr is not None and isinstance(sr.result, dict) and sr.result.get(_RETURNED_FOR_REWORK):
+            sr.result = {**sr.result, _RETURNED_FOR_REWORK: False}  # used up: a later pass skips as usual
+            sr.status = "waiting_human"
+            _assign_step(db, run=run, sr=sr, cfg=cfg)
+            sr.note = f"Sent back for rework: {sr.result.get('returned_reason') or 'no reason given'}. Revise the draft, then complete this step."
+            return "wait"
         # The document already exists (uploaded, or drafted before a send-back):
         # nothing to draft.
         if sr:
@@ -1160,16 +1295,92 @@ def _require_step_actor(db: Session, *, sr: WorkflowStepRun | None, actor) -> No
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Only this step's assignee or its team can act on it")
 
 
+_REWORK = "rework"  # key in run.context: the reply a rejected approval is owed
+
+
+def pending_rework_reply(run) -> dict | None:
+    """What the run still owes after a rejected approval, or None.
+
+    A rejected approval sends the request back to Review and leaves
+    ``run.context["rework"] = {"reply_required": True, "reason": ...}``. The first
+    human step completed after that must come with a written reply (see
+    ``complete_human_step``), which clears it. The request page reads this to show
+    the approver's reason and ask for the reply."""
+    state = (getattr(run, "context", None) or {}).get(_REWORK)
+    if not isinstance(state, dict) or not state.get("reply_required"):
+        return None
+    return {"reply_required": True, "reason": state.get("reason") or "no reason given"}
+
+
+def _take_rework_reply(db: Session, *, run: WorkflowRun, actor, idx: int, reply: str | None,
+                       request_id: str | None) -> None:
+    """Take the written reply a rejected approval is owed, or refuse the step.
+
+    Without this, "Approve & advance" on the Review step sent the SAME draft straight
+    back to the approver. Only the dedicated ``reply`` counts: a step ``note`` is also
+    filled in by the chat and the counterparty-agreed paths, so it proves nothing.
+    Nothing is changed when the step is refused."""
+    owed = pending_rework_reply(run)
+    if owed is None:
+        return
+    text = (reply or "").strip()
+    if not text:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"The approval was rejected: {owed['reason'][:300].rstrip('. ')}. "
+            "Write a reply to that before sending it on: say what you changed, or why it stands.",
+        )
+    add_run_comment(db, run=run, actor=actor, idx=idx, text=text, kind="reply")
+    ctx = dict(run.context or {})
+    ctx[_REWORK] = {**ctx[_REWORK], "reply_required": False,
+                    "replied_at": utcnow().isoformat(), "replied_by": actor.id}
+    run.context = ctx  # reassign so SQLAlchemy tracks the JSON change
+    write_audit_log(
+        db, action="workflow.rejection_replied", resource_type="workflow_run", resource_id=run.id,
+        org_id=run.org_id, actor_user_id=actor.id, request_id=request_id,
+        after={"step_idx": idx, "reason": owed["reason"], "reply": text[:2000]},
+    )
+
+
+def _step_to_complete(db: Session, run: WorkflowRun, actor) -> int:
+    """Which step "complete this step" means when the caller did not say.
+
+    ``current_index`` points at the FIRST step of the current group (see ``_group_end``). For a single step
+    that is the step itself. For steps that run side by side it is only the first of them: once that one is
+    done, "the current step" is finished and a default of ``current_index`` would complete nothing while the
+    others still wait for a person. So pick, among the group's steps that are waiting for a person, the one
+    this actor owns, else one they may act on, else the first."""
+    start = run.current_index
+    end = _group_end(list(run.steps or []), start)
+    if end <= start + 1:
+        return start
+    waiting = [s for s in _step_runs(db, run) if start <= s.idx < end and s.status == "waiting_human"]
+    if not waiting:
+        return start
+    me = getattr(actor, "id", None)
+    mine = [s for s in waiting if me and s.assignee_user_id == me]
+    if mine:
+        return mine[0].idx
+    for s in waiting:
+        try:
+            _require_step_actor(db, sr=s, actor=actor)
+        except HTTPException:
+            continue
+        return s.idx
+    return waiting[0].idx
+
+
 def complete_human_step(
     db: Session, *, run: WorkflowRun, actor, note: str | None = None, step_idx: int | None = None,
-    request_id: str | None = None,
+    request_id: str | None = None, rework_reply: str | None = None,
 ):
     # In a parallel group the human may resolve any of the concurrent steps, so
-    # accept an explicit idx; default to the current step for sequential flows.
-    idx = step_idx if step_idx is not None else run.current_index
+    # accept an explicit idx; without one, take the step of the group that is waiting for this person.
+    idx = step_idx if step_idx is not None else _step_to_complete(db, run, actor)
     sr = _sr_at(db, run, idx)
     if sr and sr.status == "waiting_human":
         _require_step_actor(db, sr=sr, actor=actor)
+        _take_rework_reply(db, run=run, actor=actor, idx=idx, reply=rework_reply, request_id=request_id)
         sr.status = "done"; sr.note = note or sr.note
         steps = list(run.steps or [])
         start = run.current_index
@@ -1193,6 +1404,82 @@ def complete_human_step(
         )
         db.flush()
     return run
+
+
+def _interrupted_review_step(db: Session, run: WorkflowRun) -> WorkflowStepRun | None:
+    """The run's current step when it is the contract review agent's and stopped for a person because the
+    review it waited for never finished (see _execute_step); else None."""
+    steps = list(run.steps or [])
+    if run.status != "waiting" or run.current_index >= len(steps):
+        return None
+    step = steps[run.current_index] or {}
+    cfg = step.get("config") or {}
+    agent = (cfg.get("agent") or cfg.get("skill") or "").strip().lower()
+    if step.get("type") != "ai_task" or _AGENT_KEY_MAP.get(agent) not in _PLAYBOOK_REVIEW_AGENTS:
+        return None
+    sr = _sr_at(db, run, run.current_index)
+    if sr is None or sr.status != "waiting_human" or not isinstance(sr.result, dict):
+        return None
+    return sr if sr.result.get("review_state") == "interrupted" else None
+
+
+async def _reopen_review_step(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun, actor, request_id: str | None) -> WorkflowRun:
+    """Put the escalated review step back to work: it waits for the review, then judges it, as it did
+    the first time. The old result is dropped from the step (the timeline keeps the retry)."""
+    idx = sr.idx
+    sr.status = "pending"
+    sr.note = None
+    sr.result = None
+    run.status = "running"
+    run.error = None
+    write_timeline_event(
+        db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+        event_type="flow.review_retried", title="AI review restarted", actor_user_id=actor.id,
+        request_id=request_id, details={"flow_run_id": run.id, "idx": idx},
+    )
+    return await advance_run(db, run=run, actor=actor)
+
+
+async def retry_ai_review(db: Session, *, run: WorkflowRun, actor, request_id: str | None = None) -> WorkflowRun:
+    """The "Retry review" button on a review step that stopped because its AI review was interrupted:
+    run the review again and set the step going again to wait for it."""
+    from app.contracts import auto_review
+
+    sr = _interrupted_review_step(db, run)
+    if sr is None or not run.contract_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This workflow isn't waiting on an interrupted AI review.")
+    _require_step_actor(db, sr=sr, actor=actor)
+    result = auto_review.retry_review(db, contract=_get_contract(db, run.contract_id), actor=actor)
+    if result["status"] == "no_playbook":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "No playbook covers this contract type, so there is nothing to review it against."
+        )
+    sr = _interrupted_review_step(db, run)  # re-read: retry_review committed
+    if sr is None:
+        return run
+    return await _reopen_review_step(db, run=run, sr=sr, actor=actor, request_id=request_id)
+
+
+async def reopen_review_step_for_contract(db: Session, *, contract, actor) -> bool:
+    """After the contract's AI review was restarted from its own page: if its workflow stopped to ask a
+    person because that review never finished, set the step going again. False when there is no such step
+    or this person may not act on it."""
+    run = db.scalars(
+        select(WorkflowRun)
+        .where(WorkflowRun.contract_id == contract.id, WorkflowRun.status == "waiting")
+        .order_by(WorkflowRun.created_at.desc())
+        .limit(1)
+        .with_for_update()
+    ).first()
+    sr = _interrupted_review_step(db, run) if run is not None else None
+    if sr is None:
+        return False
+    try:
+        _require_step_actor(db, sr=sr, actor=actor)
+    except HTTPException:
+        return False
+    await _reopen_review_step(db, run=run, sr=sr, actor=actor, request_id=None)
+    return True
 
 
 def _configured_return_to(steps: list, current: int) -> int:
@@ -1227,6 +1514,8 @@ async def return_run(
     for sr in _step_runs(db, run):
         if sr.idx >= to_idx:
             sr.status = "pending"
+        if sr.idx == to_idx and (steps[to_idx] or {}).get("type") == "clm_draft" and run.contract_id:
+            sr.result = {**(sr.result or {}), _RETURNED_FOR_REWORK: True, "returned_reason": (note or "").strip()[:300]}
     add_run_comment(db, run=run, actor=actor, idx=to_idx, text=note or "Returned for rework", kind="return")
     run.current_index = to_idx
     run.status = "running"
@@ -1434,12 +1723,27 @@ def _send_back_after_rejection(db: Session, *, run: WorkflowRun, steps: list, ac
     if to_idx is None:
         return False
     from_idx = run.current_index
+    # Only a rejected APPROVAL owes the approver a reply; a signature pulled back does
+    # not. Read before the loop below resets every step's status.
+    group_end = _group_end(steps, from_idx)
+    rejected_approval = any(
+        sr.status == "failed" and from_idx <= sr.idx < group_end and (steps[sr.idx] or {}).get("type") == "approval"
+        for sr in _step_runs(db, run)
+    )
     for sr in _step_runs(db, run):
         if sr.idx >= to_idx:
             sr.status = "pending"
     actor = db.get(User, actor_user_id) if actor_user_id else None
-    note = f"Sent back to Review — {(steps[from_idx] or {}).get('name', 'approval')} was rejected: {_rejection_note(db, run=run)}"
+    reason = _rejection_note(db, run=run)
+    note = f"Sent back to Review — {(steps[from_idx] or {}).get('name', 'approval')} was rejected: {reason}"
     add_run_comment(db, run=run, actor=actor, idx=to_idx, text=note, kind="return")
+    if rejected_approval:
+        # Until someone answers the rejection, the next human step cannot be completed
+        # (see complete_human_step): the same draft must not go back unanswered.
+        ctx = dict(run.context or {})
+        ctx[_REWORK] = {"reply_required": True, "reason": reason, "from_idx": from_idx, "to_idx": to_idx,
+                        "at": utcnow().isoformat()}
+        run.context = ctx  # reassign so SQLAlchemy tracks the JSON change
     run.current_index = to_idx
     run.status = "running"
     run.error = None
@@ -1858,10 +2162,54 @@ def _authority_notes(db: Session, run: WorkflowRun, cfgs: list) -> dict[int, str
     return out
 
 
+def _live_approval_view(db: Session, run: WorkflowRun) -> dict | None:
+    """Who the run's current approval is with, and when it is due — read from the
+    approval itself, which is what Delegate and Escalate change. The step only knows its
+    planned team and "started + SLA hours", so after a hand-over the request page said
+    something different from the Approvals page. None when nothing is pending."""
+    from app.approvals.models import ApprovalRequest
+    from app.approvals.submissions import latest_submission
+    from app.auth.models import User
+    from app.core.enums import ApprovalStatus
+
+    subject = (
+        ApprovalRequest.contract_id == run.contract_id
+        if run.contract_id
+        else ApprovalRequest.intake_request_id == run.request_id
+    )
+    rows = db.scalars(select(ApprovalRequest).where(ApprovalRequest.org_id == run.org_id, subject)).all()
+    pending = sorted(
+        (r for r in latest_submission(rows) if r.status == ApprovalStatus.PENDING),
+        key=lambda r: r.step_order,
+    )
+    if not pending:
+        return None
+    rung = pending[0]
+    team = db.get(IntakeTeam, rung.approver_team_id) if rung.approver_team_id else None
+    person = db.get(User, rung.approver_user_id) if rung.approver_user_id else None
+    label = (
+        (team.name if team else None)
+        or ((person.full_name or person.email) if person else None)
+        or (rung.approver_role.replace("_", " ").title() if rung.approver_role else None)
+        or "Approver"
+    )
+    return {
+        "approver_label": label,
+        "step_order": rung.step_order,
+        "due_at": rung.due_at.isoformat() if rung.due_at else None,
+        "overdue": bool(rung.due_at is not None and rung.due_at < utcnow()),
+    }
+
+
 def serialize_run(db: Session, run: WorkflowRun) -> dict:
     from app.auth.models import User
 
     srs = _step_runs(db, run)
+    live_approval = (
+        _live_approval_view(db, run)
+        if any(s.step_type == "approval" and (s.status or "").startswith("waiting") for s in srs)
+        else None
+    )
     # Resolve the labels the UI needs (who / which team) in two batched lookups.
     uids = {s.assignee_user_id for s in srs if s.assignee_user_id}
     cfgs = list(run.steps or [])
@@ -1876,6 +2224,8 @@ def serialize_run(db: Session, run: WorkflowRun) -> dict:
         "status": run.status, "current_index": run.current_index, "contract_id": run.contract_id,
         "error": run.error,
         "comments": list((run.context or {}).get("comments") or []),
+        # Set after a rejected approval until someone replies to it; the page asks for the reply.
+        "rework": pending_rework_reply(run),
         # The multi-agent hand-off trace: what each agent/step established, in order.
         "brief": list((run.context or {}).get("brief") or []),
         "steps": [
@@ -1886,6 +2236,7 @@ def serialize_run(db: Session, run: WorkflowRun) -> dict:
                 "team_id": s.team_id, "team_label": teams.get(s.team_id) if s.team_id else None,
                 "planned_team_label": teams.get(planned.get(s.idx)) if planned.get(s.idx) else None,
                 "authority_note": authority.get(s.idx),
+                "approval": live_approval if (s.step_type == "approval" and (s.status or "").startswith("waiting")) else None,
                 "sla_hours": ((cfgs[s.idx].get("config") or {}).get("sla_hours") if s.idx < len(cfgs) else None),
                 "note": s.note, "result": s.result,
                 "updated_at": s.updated_at.isoformat() if s.updated_at else None,
@@ -1953,11 +2304,22 @@ class WorkflowService:
     def _finalize_intake_if_approved(self, *, run: WorkflowRun, actor) -> None:
         return _finalize_intake_if_approved(self.db, run=run, actor=actor)
 
+    def can_act_on_step(self, *, run: WorkflowRun, step_idx: int, actor) -> bool:
+        """Whether ``actor`` may complete this step (its assignee, its team, or intake
+        staff): the same rule completing it enforces, asked without acting."""
+        try:
+            _require_step_actor(self.db, sr=_sr_at(self.db, run, step_idx), actor=actor)
+        except HTTPException:
+            return False
+        return True
+
     def complete_human_step(
-        self, *, run: WorkflowRun, actor, note: str | None = None, step_idx: int | None = None, request_id: str | None = None
+        self, *, run: WorkflowRun, actor, note: str | None = None, step_idx: int | None = None,
+        request_id: str | None = None, rework_reply: str | None = None,
     ):
         return complete_human_step(
             self.db, run=run, actor=actor, note=note, step_idx=step_idx, request_id=request_id,
+            rework_reply=rework_reply,
         )
 
     async def return_run(
@@ -1974,6 +2336,9 @@ class WorkflowService:
 
     async def refresh_run(self, *, run: WorkflowRun, actor) -> WorkflowRun:
         return await refresh_run(self.db, run=run, actor=actor)
+
+    async def retry_ai_review(self, *, run: WorkflowRun, actor, request_id: str | None = None) -> WorkflowRun:
+        return await retry_ai_review(self.db, run=run, actor=actor, request_id=request_id)
 
     def advance_flow_for_contract(self, *, contract, actor_user_id: str | None) -> None:
         return advance_flow_for_contract(self.db, contract=contract, actor_user_id=actor_user_id)

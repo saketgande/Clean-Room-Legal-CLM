@@ -1,0 +1,115 @@
+{
+ "name": "Common Paper DPA review (exam)",
+ "description": "Exam playbook for the Common Paper Data Processing Agreement. Each rule's severity is the one set on the platform playbook rule it names in severity_from.",
+ "source": "Common Paper standard agreements, CC BY 4.0",
+ "rules": [
+  {
+   "clause_type": "breach_notification",
+   "rule_type": "standard_position",
+   "preferred_position": "Security incidents are notified within 72 hours.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "critical",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "no later than 72 hours after becoming aware of the Security Incident",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "breach_notification"
+   }
+  },
+  {
+   "clause_type": "subprocessor_notice",
+   "rule_type": "standard_position",
+   "preferred_position": "At least 10 business days' notice before a new subprocessor.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "high",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Provider will inform Customer at least 10 business days in advance",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "sub_processors"
+   }
+  },
+  {
+   "clause_type": "subprocessor_liability",
+   "rule_type": "standard_position",
+   "preferred_position": "Provider stays fully liable for its subprocessors.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "high",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "d. Provider remains fully liable for all obligations subcontracted to its Subprocessors, including the acts and omissions of its Subprocessors in Processing Customer Personal Data. Provider will notify Customer of any failure by its Subprocessors to fulfill a material obligation about Customer Personal Data under the agreement between Provider and the Subprocessor.",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "sub_processors"
+   }
+  },
+  {
+   "clause_type": "audit_rights",
+   "rule_type": "standard_position",
+   "preferred_position": "Customer has audit rights.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "1. Audit Rights.  Provider will give Customer all information reasonably necessary to demonstrate its compliance with this DPA and Provider will allow for and contribute to audits, including inspections by Customer, to assess Provider’s compliance with this DPA. However, Provider may restrict access to data or information if Customer’s access to the information would negatively impact Provider’s intellectual property rights, confidentiality obligations, or other obligations under Applicable Laws. Customer acknowledges and agrees that it will only exercise its audit rights under this DPA and any audit rights granted by Applicable Data Protection Laws by instructing Provider to comply with the reporting and due diligence requirements below. Provider will maintain records of its compliance with this DPA for 3 years after the DPA ends.",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "audit"
+   }
+  },
+  {
+   "clause_type": "deletion_at_expiry",
+   "rule_type": "standard_position",
+   "preferred_position": "Personal data is returned or deleted when the DPA ends.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "a. After the DPA expires, Provider will return or delete Customer Personal Data at Customer’s instruction unless further storage of Customer Personal Data is required or authorized by Applicable Law. If return or destruction is impracticable or prohibited by Applicable Laws, Provider will make reasonable efforts to prevent additional Processing of Customer Personal Data and will continue to protect the Customer Personal Data remaining in its possession, custody, or control. For example, Applicable Laws may require Provider to continue hosting or Processing Customer Personal Data.",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "return_or_deletion"
+   }
+  },
+  {
+   "clause_type": "inquiry_notice",
+   "rule_type": "standard_position",
+   "preferred_position": "Provider notifies Customer and does not answer third-party requests without consent.",
+   "fallback_position": null,
+   "required_language": null,
+   "prohibited_language": null,
+   "risk_level": "medium",
+   "rationale": "Common Paper standard position (CC BY 4.0), as the exam reads it.",
+   "negotiation_guidance": null,
+   "approval_required": false,
+   "escalation_role": null,
+   "sample_clause": "Provider will notify Customer about the request and Provider will not respond to the request without Customer’s prior consent.",
+   "severity_from": {
+    "playbook": "Data Processing Agreement Playbook",
+    "clause_type": "data_subject_rights"
+   }
+  }
+ ]
+}

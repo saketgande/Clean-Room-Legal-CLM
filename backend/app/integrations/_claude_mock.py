@@ -41,7 +41,13 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "obligations": [],
             "extraction_notes": "Mock Claude mode returned no obligations.",
         },
-        "return_renewal_extraction": {"confidence": "low", "needs_review": True},
+        "return_renewal_extraction": {
+            "term_kind": "unclear",
+            "notice_terms": [],
+            "confidence": "low",
+            "needs_review": True,
+            "citations": [],
+        },
         "return_tabular_cell_extraction": {
             "answer": "",
             "not_found": True,
@@ -59,6 +65,8 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "confidence": "low",
             "limitations": "Mock mode: no model reasoning performed.",
         },
+        # Not a list question, so mock-mode /ask keeps going to search as it always did.
+        "return_portfolio_filter": {"is_list_question": False},
         "return_assistant_streaming": {
             "answer": "Mock Claude mode is enabled, so no live legal answer was generated.",
             "citations": [],

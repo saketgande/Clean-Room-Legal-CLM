@@ -14,7 +14,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { searchApi } from "@/lib/endpoints";
-import { titleCase } from "@/lib/utils";
+import { clauseConfidenceLabel } from "@/lib/clause-confidence";
+import { titleCase, riskBand, RISK_UNKNOWN_LABEL, type RiskBand } from "@/lib/utils";
 import type {
   ClauseSearchResult,
   ContractResponse,
@@ -108,7 +109,8 @@ function ContractsTab() {
       searchApi.contracts({
         q: q || undefined,
         stage: stage || undefined,
-        risk: risk || undefined,
+        // The route's parameter is risk_level; sending "risk" was silently ignored.
+        risk_level: risk || undefined,
         counterparty: counterparty || undefined,
       }),
     );
@@ -140,12 +142,13 @@ function ContractsTab() {
         </div>
         <div className="fld">
           <label>Risk</label>
-          <input
-            className="plain"
-            placeholder="e.g. high"
-            value={risk}
-            onChange={(e) => setRisk(e.target.value)}
-          />
+          <select className="plain" value={risk} onChange={(e) => setRisk(e.target.value)}>
+            <option value="">Any risk</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="unknown">Not reviewed</option>
+          </select>
         </div>
         <div className="fld">
           <label>Counterparty</label>
@@ -180,7 +183,7 @@ function ContractsTab() {
                 </div>
               </div>
               <span className="pill blue">{titleCase(c.lifecycle_stage)}</span>
-              {c.risk_level && <span className="pill slate">{titleCase(c.risk_level)}</span>}
+              <RiskPill band={riskBand(c.risk_summary, c.current_authoritative_version_id)} />
               <ArrowRight className="rarr" />
             </Link>
           ))}
@@ -188,6 +191,12 @@ function ContractsTab() {
       )}
     </div>
   );
+}
+
+function RiskPill({ band }: { band: RiskBand }) {
+  return band === "unknown"
+    ? <span className="pill slate" title={RISK_UNKNOWN_LABEL}>Not reviewed</span>
+    : <span className="pill slate">{titleCase(band)} risk</span>;
 }
 
 // ---- Full text -------------------------------------------------------------
@@ -327,7 +336,7 @@ function ClausesTab() {
                 <div className="rmeta excerpt">{r.excerpt}</div>
               </div>
               <span className="pill blue">{titleCase(r.clause_type)}</span>
-              <span className="conf">{Math.round(r.confidence * 100)}%</span>
+              {r.confidence && <span className="conf">{clauseConfidenceLabel(r.confidence)}</span>}
             </Link>
           ))}
         </div>

@@ -218,7 +218,7 @@ def test_agent_call_runs_all_steps_and_records_one_row(monkeypatch):
     assert sent["system_prompt"] == (
         prompt_versions.DEFAULT_SKILL_PROMPTS["notice_extraction_agent"] + "\n\n" + UNTRUSTED_INPUT_GUARD
     )
-    assert (sent["tool_name"], sent["max_tokens"], sent["temperature"]) == ("extract_notice_fields", 700, 0.0)
+    assert (sent["tool_name"], sent["max_tokens"], sent["temperature"]) == ("extract_notice_fields", 1200, 0.0)
     assert sent["org_id"] == "org-1" and sent["user_prompt"] == "NOTICE TEXT"
 
     assert result.data == {"subject": "Breach"}

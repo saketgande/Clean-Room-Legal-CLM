@@ -18,6 +18,7 @@ import {
   TR,
 } from "@/components/ui";
 import { cn, fmtRelative, statusTone, titleCase, truncate } from "@/lib/utils";
+import { eventLabel } from "@/lib/event-label";
 import { useToast } from "@/components/toast";
 import type { Notification } from "@/lib/types";
 
@@ -122,7 +123,7 @@ export default function NotificationsPage() {
                         {isUnread && (
                           <span className="h-2 w-2 shrink-0 rounded-full bg-brand-600" />
                         )}
-                        {titleCase(n.event_type.replace(/\./g, " "))}
+                        {eventLabel(n.event_type)}
                       </span>
                     </TD>
                     <TD className={cn(isUnread && "font-medium")}>
