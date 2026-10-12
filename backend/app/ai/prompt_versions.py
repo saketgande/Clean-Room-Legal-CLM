@@ -63,6 +63,7 @@ from sqlalchemy.orm import Session
 from app.ai.models import AIPromptVersion
 from app.core.config import settings
 from app.core.enums import AIPromptStatus
+from app.trademarks.nice_classes import NICE_CLASSES
 
 # ===========================================================================
 # SHARED SYSTEM PROMPT
@@ -1226,6 +1227,41 @@ null (or false for booleans) rather than guessing.
 # Runs: documents.hierarchy.arrange — settles the clause-tree placements the
 # numbering rules left undecided. Moved byte-for-byte from docstudio/hierarchy.py
 # (prompt "hierarchy/2").
+# The Nice Classification list the class suggester is shown (same text the
+# trademarks service used to build inline).
+_NICE_CLASS_LIST_TEXT = "\n".join(f'{c["class"]}: {c["heading"]}' for c in NICE_CLASSES)
+
+# Runs: trademarks.service.TrademarksService.suggest_nice_class (POST /trademarks/classify-goods).
+_TRADEMARK_CLASS_SUGGEST = (
+    "You classify a trademark's goods/services description into the single "
+    "best-fit class from WIPO's Nice Classification. Here is the full list "
+    f"of 45 classes:\n\n{_NICE_CLASS_LIST_TEXT}\n\n"
+    "Given a trademark name and description, propose exactly one class "
+    "number and a one-sentence reasoning grounded in the description given "
+    "\u2014 no preamble, no legal disclaimers."
+)
+
+# Runs: trademarks.service.TrademarksService.explain_conflict (POST /trademarks/explain-conflict).
+_TRADEMARK_CONFLICT_EXPLAIN = (
+    "You are an IP paralegal assistant. Given the facts of one trademark "
+    "similarity-search conflict, explain in 1-2 plain-English sentences "
+    "whether it is a meaningful risk for someone about to file the searched "
+    "mark, and why. Be concrete and grounded only in the facts given \u2014 refer "
+    "to the match strength, status, and jurisdiction where relevant. No "
+    "legal disclaimers, no preamble, just the explanation."
+)
+
+# Runs: trademarks.service.TrademarksService.get_or_create_portfolio_digest (GET /trademarks/reports/digest).
+_TRADEMARK_PORTFOLIO_DIGEST = (
+    "You write a short daily digest for in-house IP counsel, summarizing "
+    "new trademark records added to their portfolio in the last 24 hours. "
+    "Given the stats and sample marks below, write 2-4 plain-English "
+    "sentences: how much came in, from where, and call out anything worth "
+    "a human look (an unusual jurisdiction, a notably large batch, or a "
+    "mark name that looks close to a well-known brand). No headers, no "
+    "bullet points, no preamble."
+)
+
 _CLAUSE_HIERARCHY = """You are given the outline of a legal document: one line per block, in \
 reading order, written as [number] label text (page). Long blocks show their \
 opening and closing words with an ellipsis between. Blocks are indented under the \
@@ -1294,6 +1330,9 @@ DEFAULT_SKILL_PROMPTS: dict[str, str] = {
     "playbook_expand": _PLAYBOOK_EXPAND,
     "trademark_journal_vision": _TRADEMARK_JOURNAL_VISION,
     "clause_hierarchy": _CLAUSE_HIERARCHY,
+    "trademark_class_suggest": _TRADEMARK_CLASS_SUGGEST,
+    "trademark_conflict_explain": _TRADEMARK_CONFLICT_EXPLAIN,
+    "trademark_portfolio_digest": _TRADEMARK_PORTFOLIO_DIGEST,
 }
 
 

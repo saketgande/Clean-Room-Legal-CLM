@@ -132,7 +132,10 @@ def test_registry_has_every_skill_agent_and_task_once():
     keys = [f.key for f in feature_registry.all()]
     assert len(keys) == len(set(keys))
     tasks = {f.key for f in feature_registry.all() if f.kind == FeatureKind.TASK}
-    assert tasks == {"renewal_recommendation", "playbook_expand", "trademark_journal_vision", "clause_hierarchy"}
+    assert tasks == {
+        "renewal_recommendation", "playbook_expand", "trademark_journal_vision", "clause_hierarchy",
+        "trademark_class_suggest", "trademark_conflict_explain", "trademark_portfolio_digest",
+    }
     assert {s.name for s in skill_registry.all()} | {a.id for a in STANDALONE_AGENTS} | tasks == set(keys)
 
 
@@ -190,6 +193,10 @@ def test_task_features_use_the_prompts_moved_out_of_their_modules():
         ("playbook_expand", "draft_playbook_rules"),
         ("trademark_journal_vision", "extract_journal_entries"),
         ("clause_hierarchy", "clause_parents"),
+        ("trademark_class_suggest", "suggest_nice_class"),
+        # Plain-text answers: no forced tool (called with gateway.text()).
+        ("trademark_conflict_explain", None),
+        ("trademark_portfolio_digest", None),
     ]:
         feature = feature_registry.get(key)
         assert feature.kind == FeatureKind.TASK and feature.tool_name == tool and feature.guard

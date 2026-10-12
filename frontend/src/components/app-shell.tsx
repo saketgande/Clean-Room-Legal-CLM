@@ -53,7 +53,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // exactly like the mockup screens, so it renders edge-to-edge here — wrapping
   // it in the old box double-pads it and leaves a stray "Home > X" breadcrumb
   // bar that no mockup screen has. Shrink this list as more pages get reskinned.
-  const needsOldChrome = usesOldChrome(pathname);
+  const needsOldChrome =
+    pathname === "/admin" || pathname.startsWith("/admin/") ||
+    pathname === "/jobs" || pathname.startsWith("/jobs/") ||
+    pathname === "/notifications" || pathname.startsWith("/notifications/") ||
+    pathname.startsWith("/notices/") ||
+    pathname.startsWith("/tabular-reviews/") ||
+    (pathname.startsWith("/playbooks/") && pathname !== "/playbooks/build") ||
+    pathname === "/trademarks" || pathname.startsWith("/trademarks/");
   const fullBleed = mockupRoute || oldFullBleed || !needsOldChrome;
 
   return (

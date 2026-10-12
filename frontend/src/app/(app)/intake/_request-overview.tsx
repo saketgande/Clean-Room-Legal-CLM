@@ -8,8 +8,9 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { intakeApi, workflowsApi, brainApi, contractsApi } from "@/lib/endpoints";
+import { intakeApi, workflowsApi, brainApi, contractsApi, trademarksApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
 import { LoadError } from "@/components/ui";
 import { REVIEW_NOTICE_CSS, StepReviewNotice } from "@/components/review-notice";
@@ -68,8 +69,21 @@ const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("")
 
 // Which doc type this request can auto-draft (mirrors the intake service's
 // heuristic). null ⇒ not a draft-able contract request.
-// The server decides what (if anything) a request drafts — see resolve_doc_type.
-const draftableDocType = (r: IntakeRequest): string | null => r.draftable_doc_label ?? null;
+function draftableDocType(r: IntakeRequest): string | null {
+  const t = `${r.type_label} ${r.description ?? ""}`.toLowerCase();
+  if (/nda|non-disclosure|non disclosure/.test(t)) return "NDA";
+  if (/\b(dpa|data processing|data protection|gdpr)\b/.test(t)) return "DPA";
+  if (/\b(msa|master service|master services|services agreement|statement of work|sow)\b/.test(t)) return "MSA";
+  if (/vendor|supplier|procurement/.test(t)) return "Vendor agreement";
+  return null;
+}
+
+// Mirrors draftableDocType's shape — a request whose subject reads as a
+// trademark matter, eligible for "Continue as Trademark".
+function isTrademarkRequest(r: IntakeRequest): boolean {
+  const t = `${r.type_label} ${r.description ?? ""}`.toLowerCase();
+  return /trademark|\btm\b|brand name|logo mark/.test(t);
+}
 
 function counterpartyOf(r: IntakeRequest): string | null {
   const parties = (r.parties ?? []) as { name?: string; role?: string }[];
@@ -82,6 +96,7 @@ function counterpartyOf(r: IntakeRequest): string | null {
 
 export function RequestOverview({ id, onBack, canManage }: { id: string; onBack: () => void; canManage: boolean }) {
   const qc = useQueryClient();
+  const router = useRouter();
   const { notify } = useToast();
   const { user } = useAuth();
   // Poll only while the AI triage is still running (its result lands a few
@@ -177,6 +192,11 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const applyPriority = useMutation({ mutationFn: (p: string) => intakeApi.update(id, { priority: p }), onSuccess: done("Priority updated"), onError: fail });
   const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
+  const continueAsTrademark = useMutation({
+    mutationFn: () => trademarksApi.continueFromIntake(id, {}),
+    onSuccess: (tm) => { notify("Continued as a trademark", "success"); router.push(`/trademarks/${tm.id}`); },
+    onError: fail,
+  });
   // Engine actions — start the workflow, complete a human step, or poll an approval/signature.
   const { data: allFlows } = useQuery({ queryKey: ["flows"], queryFn: workflowsApi.listFlows, enabled: canManage });
   // Start the flow shown as "Suggested" by passing its id: the backend's own
@@ -218,7 +238,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     onSuccess: (res) => setChat((c) => [...c, { role: "ai", text: res.answer, cites: res.citations?.length ?? 0 }]),
     onError: (e) => setChat((c) => [...c, { role: "ai", text: e instanceof Error ? e.message : "Couldn't answer that." }]),
   });
-  const busy = reassign.isPending || draft.isPending || ingest.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending || retryReview.isPending;
+  const busy = reassign.isPending || draft.isPending || ingest.isPending || continueAsTrademark.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending || retryReview.isPending;
   function sendChat() {
     const text = q.trim();
     if (!text || ask.isPending) return;
@@ -720,6 +740,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
                   ) : (
                     <button className="btn pri wide" disabled={busy} onClick={() => draft.mutate()}>Approve &amp; draft the {docType} →</button>
                   )}
+                </div>
+              ) : null}
+              {/* Continue a trademark-flavored request into the Trademark Suite. */}
+              {isTrademarkRequest(r) ? (
+                <div className="act">
+                  <div className="lbl">Trademark</div>
+                  <button className="btn pri wide" disabled={busy} onClick={() => continueAsTrademark.mutate()}>Continue as Trademark →</button>
                 </div>
               ) : null}
               {/* Reassign the owner. */}

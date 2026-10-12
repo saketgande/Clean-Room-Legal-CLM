@@ -109,6 +109,10 @@ _LABELS: dict[str, tuple[str, str]] = {
     "playbook_expand": ("Playbook expansion", "Redlining"),
     "trademark_journal_vision": ("Trademark journal reading", "Analysis & extraction"),
     "clause_hierarchy": ("Clause hierarchy", "Analysis & extraction"),
+    # Trademark Suite (moved onto the gateway when the suite was merged in).
+    "trademark_class_suggest": ("Trademark class suggestion", "Analysis & extraction"),
+    "trademark_conflict_explain": ("Trademark conflict explanation", "Analysis & extraction"),
+    "trademark_portfolio_digest": ("Trademark portfolio digest", "Analysis & extraction"),
 }
 
 # Each standalone agent's call shape (forced tool name, reply budget). These
@@ -129,8 +133,9 @@ _AGENT_CALL_SHAPE: dict[str, tuple[str | None, int]] = {
 
 
 # Task features: (key, tool_name, max_tokens, temperature). Values are what the
-# call sites sent before they moved onto the gateway.
-_TASKS: tuple[tuple[str, str, int, float], ...] = (
+# call sites sent before they moved onto the gateway. tool_name None = a
+# plain-text answer (called with gateway.text()), like the plain-text agents.
+_TASKS: tuple[tuple[str, str | None, int, float], ...] = (
     ("renewal_recommendation", "recommend_renewal", 400, 0.2),
     ("playbook_expand", "draft_playbook_rules", 2500, 0.3),
     ("trademark_journal_vision", "extract_journal_entries", 4000, 0.0),
@@ -138,6 +143,11 @@ _TASKS: tuple[tuple[str, str, int, float], ...] = (
     # call sized it as 512 + 24 per question; a cut-off answer now fails the
     # call (rules only) instead of leaving the unanswered rows undecided.
     ("clause_hierarchy", "clause_parents", 4000, 0.0),
+    # Trademark Suite: a class number + reason (forced tool), then two short
+    # plain-text answers. Budgets are what the suite sent before the move.
+    ("trademark_class_suggest", "suggest_nice_class", 120, 0.1),
+    ("trademark_conflict_explain", None, 120, 0.3),
+    ("trademark_portfolio_digest", None, 200, 0.4),
 )
 
 

@@ -65,12 +65,23 @@ def search_similar(db: Session, *, org_id: str, request: SearchSimilarRequest, s
         "web_search": web_result,
         "internal_portfolio": internal_result,
     }
+    if request.min_match_score > 0:
+        sources = {key: _apply_min_score(value, request.min_match_score) for key, value in sources.items()}
 
     return SearchSimilarResponse(
         query_id=f"srch_{uuid.uuid4().hex[:8]}",
         sources=sources,
         summary=_build_summary(sources),
     )
+
+
+def _apply_min_score(source: SourceResult, min_score: float) -> SourceResult:
+    """Drops results below the user's minimum-match threshold. Only filters
+    items that actually carry a numeric similarity_score — web search
+    results don't, so they pass through untouched regardless of the
+    threshold (ported from the source module's own _apply_min_score)."""
+    kept = [r for r in source.results if "similarity_score" not in r or r["similarity_score"] >= min_score]
+    return SourceResult(status=source.status, provider=source.provider, results=kept, error_message=source.error_message)
 
 
 def _safe_result(future: Future, timeout: float) -> SourceResult:
