@@ -106,7 +106,10 @@ import type {
   TrademarkUpdatePayload,
   IntakeSubmitPayload,
   TrademarkDashboardMetrics,
-  RenewalCalendarEntry,
+  PortfolioRenewalsResponse,
+  TrademarkSummary,
+  TrademarkComment,
+  TrademarkCommentCreate,
   SearchSimilarRequest,
   SearchSimilarResponse,
   UploadDocumentResponse,
@@ -116,6 +119,13 @@ import type {
   IngestResponse,
   IntegrationStatusResponse,
   IntegrationTestResponse,
+  ClassSuggestionRequest,
+  ClassSuggestionResponse,
+  ExplainConflictRequest,
+  ExplainConflictResponse,
+  PortfolioDigestResponse,
+  PortfolioStatsResponse,
+  TrademarkFromIntakeRequest,
   OrgUnitResponse,
   OrgUnitDeleteResponse,
   RoleGrantResponse,
@@ -1263,8 +1273,7 @@ export const trademarksApi = {
   intake: (payload: IntakeSubmitPayload) =>
     apiFetch<Trademark>("/trademarks/intake", { method: "POST", body: payload }),
   dashboard: () => apiFetch<TrademarkDashboardMetrics>("/trademarks/dashboard"),
-  calendar: (within_days?: number) =>
-    apiFetch<RenewalCalendarEntry[]>(`/trademarks/calendar${qs({ within_days })}`),
+  calendar: () => apiFetch<PortfolioRenewalsResponse>("/trademarks/calendar"),
   searchSimilar: (payload: SearchSimilarRequest) =>
     apiFetch<SearchSimilarResponse>("/trademarks/search-similar", {
       method: "POST",
@@ -1288,6 +1297,34 @@ export const trademarksApi = {
     apiFetch<IntegrationTestResponse>(`/trademarks/integrations/test/${service}`, {
       method: "POST",
     }),
+  classifyGoods: (payload: ClassSuggestionRequest) =>
+    apiFetch<ClassSuggestionResponse>("/trademarks/classify-goods", {
+      method: "POST",
+      body: payload,
+    }),
+  explainConflict: (payload: ExplainConflictRequest) =>
+    apiFetch<ExplainConflictResponse>("/trademarks/explain-conflict", {
+      method: "POST",
+      body: payload,
+    }),
+  digest: () => apiFetch<PortfolioDigestResponse>("/trademarks/reports/digest"),
+  regenerateDigest: () =>
+    apiFetch<PortfolioDigestResponse>("/trademarks/reports/digest/regenerate", { method: "POST" }),
+  portfolioStats: () => apiFetch<PortfolioStatsResponse>("/trademarks/reports/stats"),
+  atRisk: () => apiFetch<TrademarkSummary[]>("/trademarks/reports/at-risk"),
+  continueFromIntake: (intakeRequestId: string, payload: TrademarkFromIntakeRequest) =>
+    apiFetch<Trademark>(`/trademarks/from-intake/${intakeRequestId}`, {
+      method: "POST",
+      body: payload,
+    }),
+  comments: (trademarkId: string) =>
+    apiFetch<TrademarkComment[]>(`/trademarks/${trademarkId}/comments`),
+  postComment: (trademarkId: string, payload: TrademarkCommentCreate) =>
+    apiFetch<TrademarkComment>(`/trademarks/${trademarkId}/comments`, {
+      method: "POST",
+      body: payload,
+    }),
+  commentCounts: () => apiFetch<Record<string, number>>("/trademarks/comments/counts"),
 };
 
 // ---- Contract Brain ------------------------------------------------------

@@ -29,6 +29,7 @@ import {
   ChevronRight,
   Info,
   Loader2,
+  Moon,
   X,
   XCircle,
 } from "lucide-react";
@@ -671,7 +672,18 @@ export function PageHeader({
           <p className="mt-1 text-[13px] text-slate-500">{description}</p>
         )}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      <div className="flex items-center gap-2">
+        {actions}
+        {/* Same theme toggle already used on the Legal Intake header (_legal-intake.tsx) — reflected here, not reimplemented. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          title="Theme"
+          onClick={() => document.documentElement.classList.toggle("dark")}
+        >
+          <Moon className="h-4 w-4" />
+        </Button>
+      </div>
     </div>
   );
 }

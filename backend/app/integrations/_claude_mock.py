@@ -71,6 +71,12 @@ def structured_payload_by_tool() -> dict[str, dict[str, Any]]:
             "summary": "Mock Claude mode returned no playbook deviations.",
             "citations": [],
         },
+        "suggest_nice_class": {
+            "nice_class": "35",
+            "reasoning": "Mock Claude mode default — class 35 (advertising and business "
+            "management) covers most general business marks when no live classification "
+            "was performed.",
+        },
     }
 
 

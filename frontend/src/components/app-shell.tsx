@@ -462,7 +462,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     pathname === "/notifications" || pathname.startsWith("/notifications/") ||
     pathname.startsWith("/notices/") ||
     pathname.startsWith("/tabular-reviews/") ||
-    (pathname.startsWith("/playbooks/") && pathname !== "/playbooks/build");
+    (pathname.startsWith("/playbooks/") && pathname !== "/playbooks/build") ||
+    pathname === "/trademarks" || pathname.startsWith("/trademarks/");
   const fullBleed = mockupRoute || oldFullBleed || !needsOldChrome;
 
   return (

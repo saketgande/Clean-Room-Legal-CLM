@@ -1,8 +1,9 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Trash2, Users, Mail, MessageSquare, X } from "lucide-react";
+import { Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Stamp, Trash2, Users, Mail, MessageSquare, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import {
   Badge, Button, Card, CardBody, CardHeader, CardTitle, CenterSpinner, EmptyState,
@@ -503,7 +504,7 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
               <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{group}</h2>
               <span className="h-px flex-1 bg-slate-200" />
               <span className="text-[11px] text-slate-400">
-                {AGREEMENT_FORMS.filter((f) => f.group === group).length} types
+                {AGREEMENT_FORMS.filter((f) => f.group === group).length + (group === "New paper" ? 1 : 0)} types
               </span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -522,6 +523,22 @@ function NewRequestTab({ onFiled, seed = "" }: { onFiled: (id: string) => void; 
                   </span>
                 </button>
               ))}
+              {group === "New paper" && (
+                <Link
+                  href="/trademarks/intake"
+                  className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-100 p-4 text-left shadow-card transition-all hover:-translate-y-px hover:border-brand-300 hover:shadow-pop focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35"
+                >
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-100 bg-brand-50 text-brand-700">
+                    <Stamp className="h-[18px] w-[18px]" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-[13.5px] font-semibold text-slate-900">Trademark</span>
+                    <span className="mt-1 block text-[12.2px] leading-snug text-slate-500">
+                      File a new trademark — opens the Trademark Suite's own intake wizard, with similarity search.
+                    </span>
+                  </span>
+                </Link>
+              )}
             </div>
           </section>
         ))}
