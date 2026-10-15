@@ -6431,8 +6431,8 @@
       "ts_interface": 280,
       "ui_primitive": 29
     },
-    "generated_at": "2026-10-15T11:50:39Z",
-    "git_head": "1079ce9ab63b425eb22309d750730aa40aa51ccb",
+    "generated_at": "2026-10-15T12:26:54Z",
+    "git_head": "3375e62d4c3bb1b438e0475a828df43d9a42f802",
     "warnings": [
       "49 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
