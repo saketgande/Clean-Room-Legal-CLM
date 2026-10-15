@@ -13,15 +13,19 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronLeft, Info, Paperclip, Search, TriangleAlert, X } from "lucide-react";
-import { Button, Card, CardBody, Input } from "@/components/ui";
+import { Button, Card, CardBody, Input, LoadError } from "@/components/ui";
 import { contractsApi, intakeApi, partiesApi } from "@/lib/endpoints";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/toast";
 import { cn, fmtDate } from "@/lib/utils";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment } from "@/lib/intake";
 import { approvalsText } from "@/lib/request-facts";
-import { answerProblem, EMAIL_PROBLEM, looksLikeEmail } from "@/lib/form-checks";
-import type { Counterparty, IntakeDraft, LegalEntity, RequestFormDef, RequestFormRule } from "@/lib/types";
+import { answerProblem, EMAIL_PROBLEM, looksLikeEmail, rowsProblems, shown, shownColumns, tidiedRows, tidyCell } from "@/lib/form-checks";
+import type { Counterparty, FormRow, FormValue, IntakeDraft, LegalEntity, RequestFormDef, RequestFormRule } from "@/lib/types";
+import { EarlierAnswer, RowsTable, useRequestForms } from "./_deliverables";
+
+// Both are used by other screens (the workflow builder, the tests) through this file.
+export { shown, useRequestForms };
 
 // ---------------------------------------------------------------- layout ----
 
@@ -53,7 +57,7 @@ export const AGREEMENT_FORMS: AgreementFormDef[] = [
   { key: "sow", name: "Statement of Work", group: "New paper", desc: "New scope and fees under a signed master agreement.",
     steps: [
       { title: "The master agreement", fields: ["parent_contract_id", "cp_signer_name", "cp_signer_email", "needed_by", "department"] },
-      { title: "Scope and fees", fields: ["sow_title", "services_start", "services_end", "value", "pricing", "scope", "deliverables"] },
+      { title: "Scope and fees", fields: ["sow_title", "services_start", "services_end", "value", "pricing", "scope", "deliverable_rows"] },
       { title: "Risk checks and files", fields: ["personal_data", "gxp", "attachments"] },
     ] },
   { key: "dpa", name: "Data Processing Agreement", group: "New paper", desc: "Personal data moves between us and a partner.",
@@ -139,7 +143,7 @@ const UI: Record<string, { kind?: UiKind; label?: string; req?: boolean; show?: 
   services_start: { uses: "Effective date of the SoW." },
   services_end: { uses: "Expiry of the SoW." },
   pricing: { uses: "Fees clause in the SoW." },
-  deliverables: { placeholder: "Name the thing, the date and who signs it off.", uses: "Deliverables and acceptance clause." },
+  deliverable_rows: { uses: "The Deliverables, Key personnel, Acceptance and Milestone payments clauses of the Statement of Work, one entry per row in this order (D1, D2, …)." },
   our_role: { uses: "Which side carries which duties in the DPA." },
   processing_purpose: { uses: "Processing description in the DPA annex." },
   data_types: { uses: "Health or special category data flags a DPIA before signature." },
@@ -179,19 +183,12 @@ const COMPANION: Record<string, string[]> = {
   renew_value: ["currency"],
 };
 
-type Value = string | string[];
+type Value = FormValue;
 type Values = Record<string, Value>;
 
-export function shown(rules: RequestFormRule[] | undefined, values: Values): boolean {
-  return (rules ?? []).every((r) => {
-    const a = values[r.field];
-    return (Array.isArray(a) ? a : [a]).some((x) => typeof x === "string" && r.in.includes(x));
-  });
-}
-
-export function useRequestForms() {
-  return useQuery({ queryKey: ["intake-forms"], queryFn: intakeApi.forms, staleTime: Infinity });
-}
+/** The rows a table question holds, or the one empty row a form starts with. */
+const rowsOf = (v: Value | undefined): FormRow[] =>
+  Array.isArray(v) && v.length > 0 && typeof v[0] === "object" ? (v as FormRow[]) : [{}];
 
 /** The "What kind of agreement?" choices a form offers — what "Used for" can narrow to. */
 
@@ -204,7 +201,10 @@ function notBeforeValue(field: RequestFormDef["fields"][number] | undefined, val
   return typeof earlier === "string" && earlier ? earlier : undefined;
 }
 
-const blank = (v: Value | undefined) => (Array.isArray(v) ? v.length === 0 : !String(v ?? "").trim());
+const blank = (v: Value | undefined) =>
+  Array.isArray(v)
+    ? v.every((x) => (typeof x === "string" ? !x.trim() : Object.values(x).every((c) => tidyCell(c) === "")))
+    : !String(v ?? "").trim();
 
 const DRAFT_OF: Record<string, string> = {
   NDA: "NDA template", "Services (MSA)": "MSA template", Consultancy: "MSA template",
@@ -221,7 +221,7 @@ const FINISH: Record<string, string> = {
 function draftFor(key: string, v: Values): string {
   if (v.paper === "Their paper") return "Their draft becomes the contract; the AI review runs on it";
   if (key === "new_agreement") return DRAFT_OF[String(v.agreement_type)] ?? "Chosen by the kind of agreement";
-  return ({ sow: "MSA template (SoW schedule)", dpa: "DPA template", regularize: "The signed document is the record",
+  return ({ sow: "Statement of Work template", dpa: "DPA template", regularize: "The signed document is the record",
     cancellation: "Nothing is drafted" } as Record<string, string>)[key] ?? "Legal drafts the letter or deed";
 }
 
@@ -383,9 +383,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   const qc = useQueryClient();
   const { notify } = useToast();
   const { user } = useAuth();
-  const { data: forms, isLoading: formsLoading } = useRequestForms();
+  const { data: forms, isLoading: formsLoading, error: formsError, refetch: refetchForms } = useRequestForms();
   const server = forms?.find((f) => f.key === def.key);
   const q = useMemo(() => new Map((server?.fields ?? []).map((f) => [f.key, f])), [server]);
+  // Question labels by key: a table's window message names "Services start" and "Services end".
+  const labels = useMemo(() => Object.fromEntries([...q].map(([k, f]) => [k, f.label])), [q]);
 
   const steps = [...def.steps, { title: REVIEW, fields: [] as string[] }];
   const [step, setStep] = useState(Math.min(draft?.page_index ?? 0, steps.length - 1));
@@ -433,10 +435,12 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
    *  request is filed (round 2, bug 7). */
   function problemOf(k: string): string | null {
     if (!isShown(k)) return null;
-    if (isBlankAnswer(k)) return required(k) ? NEEDED : null;
     const field = q.get(k);
+    if (field?.kind === "rows") return rowsProblems(field, values[k], values, labels)[0]?.message ?? null;
+    if (isBlankAnswer(k)) return required(k) ? NEEDED : null;
     const earlier = field?.not_before && isShown(field.not_before) ? field.not_before : null;
-    return answerProblem(field?.kind ?? UI[k]?.kind, values[k], earlier ? { label: labelOf(earlier), value: values[earlier] } : undefined);
+    return answerProblem(field?.kind ?? UI[k]?.kind, values[k], earlier ? { label: labelOf(earlier), value: values[earlier] } : undefined,
+      { no_blanks: field?.no_blanks, min_exclusive: field?.min_exclusive });
   }
 
   const blocking = (i: number) => visible(i).filter((k) => problemOf(k));
@@ -445,10 +449,13 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   function barText(): string {
     if (notice) return notice;
     const open = [...flagged].filter((k) => problemOf(k));
+    const isTable = (k: string) => q.get(k)?.kind === "rows";
     const needed = open.filter((k) => problemOf(k) === NEEDED);
     return [
       needed.length ? `${needed.length === 1 ? "1 answer" : `${needed.length} answers`} still needed: ${needed.map(labelOf).join(", ")}.` : "",
-      ...open.filter((k) => problemOf(k) !== NEEDED).map((k) => `${labelOf(k)}: ${problemOf(k)}`),
+      ...open.filter((k) => problemOf(k) !== NEEDED && !isTable(k)).map((k) => `${labelOf(k)}: ${problemOf(k)}`),
+      // A table's messages already name the row and the column, so they are listed as they are.
+      ...open.filter(isTable).flatMap((k) => rowsProblems(q.get(k)!, values[k], values, labels).map((p) => p.message)),
     ].filter(Boolean).join(" ");
   }
 
@@ -463,6 +470,16 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   // What gets filed. Check-approvers and the routing preview send exactly this.
   const body = useMemo(() => {
     const fv: Values = { ...values, request_form: def.key };
+    for (const f of server?.fields ?? []) {
+      if (f.kind !== "rows") continue;
+      // Only the columns that apply to the pricing chosen (shares are never filed unless Milestones); empty rows
+      // stay, so the row numbers in a filing error are the ones on the page. The old free-text key is never sent.
+      if (f.legacy_key) delete fv[f.legacy_key];
+      if (Array.isArray(values[f.key])) {
+        const keep = shownColumns(f, values).map((c) => c.key);
+        fv[f.key] = rowsOf(values[f.key]).map((r) => Object.fromEntries(keep.map((c) => [c, r[c] ?? ""])));
+      }
+    }
     if (parent) {
       fv.parent_contract_title = parent.title;
       if (!fv.counterparty) fv.counterparty = parent.counterparty_name ?? "";
@@ -477,7 +494,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
       description: text ?? def.name,
       field_values: fv,
     };
-  }, [values, parent, def]);
+  }, [values, parent, def, server]);
 
   const preview = useQuery({
     queryKey: ["approval-preview", body],
@@ -584,8 +601,12 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   if (FINISH[def.key]) routing.push(["When the workflow finishes", FINISH[def.key]]);
 
   const summary: [string, string][] = [];
+  const tables = isReview
+    ? def.steps.flatMap((_, i) => visible(i)).flatMap((k) => { const f = q.get(k); return f?.kind === "rows" ? [f] : []; })
+    : [];
   if (isReview) {
     def.steps.forEach((_, i) => visible(i).forEach((k) => {
+      if (q.get(k)?.kind === "rows") return; // a table is shown as one, below
       const v = values[k];
       const shown = UI[k]?.kind === "file" ? files[k]?.name
         : UI[k]?.kind === "money" ? money(values.currency, v)
@@ -596,7 +617,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
     }));
   }
 
-  if (formsLoading || !server) {
+  if (!server) {
+    // No half-built form while the questions load or when they could not be loaded.
+    if (formsError && !formsLoading) {
+      return <LoadError error={formsError} what="the form" onRetry={() => refetchForms()} onBack={onBack} backLabel="All request types" />;
+    }
     return <div className="py-16 text-center text-[13px] text-slate-500">{formsLoading ? "Loading the form…" : "This form isn't available."}</div>;
   }
 
@@ -663,6 +688,12 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
                     </div>
                   ))}
                 </dl>
+                {tables.map((f) => (
+                  <div key={f.key} className="space-y-1.5">
+                    <div className="text-[11.5px] text-slate-500">{f.label}</div>
+                    <RowsTable field={f} rows={tidiedRows(f, values[f.key], values)} values={values} labels={labels} />
+                  </div>
+                ))}
                 <label className="block space-y-1.5">
                   <FieldLabel label="Note to approvers (optional)" />
                   <textarea rows={3} className={cn(CONTROL, "h-auto border-slate-300 py-2.5 leading-relaxed")}
@@ -675,6 +706,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
                 {shownNow.map((k) => (
                   <Question key={k} k={k} label={labelOf(k)} req={required(k)} kind={UI[k]?.kind} field={q.get(k)}
                     help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={values} set={set} bad={flagged.has(k) && !!problemOf(k)} problem={problemOf(k)}
+                    labels={labels}
                     min={notBeforeValue(q.get(k), values)}
                     file={files[k] ?? null} onFile={(f) => { setFiles((p) => ({ ...p, [k]: f })); setDirty(true); setNotice(""); }}
                     currencies={q.get("currency")?.options ?? ["INR"]}
@@ -731,9 +763,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   );
 }
 
-function Question({ k, label, req, kind, field, help, placeholder, values, set, bad, problem, min, file, onFile, currencies, contracts, requests }: {
+function Question({ k, label, req, kind, field, help, placeholder, values, labels, set, bad, problem, min, file, onFile, currencies, contracts, requests }: {
   k: string; label: string; req: boolean; kind?: UiKind; field?: RequestFormDef["fields"][number];
   help?: string; placeholder?: string; values: Values; set: (p: Values) => void; bad: boolean;
+  /** Every question's label by key (a table's window message names the dates it falls between). */
+  labels: Record<string, string>;
   /** What is wrong with the answer, in words (shown under the question when `bad`). */
   problem?: string | null;
   /** Date questions: the earliest day the date picker offers. */
@@ -794,8 +828,19 @@ function Question({ k, label, req, kind, field, help, placeholder, values, set, 
         <span className="text-[12px] text-slate-500">{ATTACHMENT_LIMITS_TEXT}</span>
       </div>
     );
+  } else if (field?.kind === "rows") {
+    const earlier = field.legacy_key ? values[field.legacy_key] : undefined;
+    control = (
+      <div role="group" aria-label={label} className="space-y-3">
+        {typeof earlier === "string" && earlier.trim() && (
+          <EarlierAnswer text={earlier} title="Your earlier free-text answer (kept for reference, not filed)" />
+        )}
+        <RowsTable field={field} rows={rowsOf(v)} values={values} labels={labels}
+          problems={bad ? rowsProblems(field, v, values, labels) : []} onChange={(rows) => set({ [k]: rows })} />
+      </div>
+    );
   } else if (field?.kind === "multiselect") {
-    const picked = Array.isArray(v) ? v : [];
+    const picked = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
     control = (
       <div className={cn("flex flex-wrap gap-x-5 gap-y-2 rounded-lg border px-3 py-2.5", border)}>
         {opts.map((o) => (
@@ -823,7 +868,7 @@ function Question({ k, label, req, kind, field, help, placeholder, values, set, 
     <div className="space-y-1.5">
       <FieldLabel label={label} req={req} />
       {control}
-      {(bad || help) && <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>{bad ? problem ?? NEEDED : help}</p>}
+      {field?.kind !== "rows" && (bad || help) && <p className={cn("text-[11.5px]", bad ? "text-danger" : "text-slate-500")}>{bad ? problem ?? NEEDED : help}</p>}
     </div>
   );
 }

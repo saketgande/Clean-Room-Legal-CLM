@@ -49,16 +49,46 @@ export interface Counterparty {
 }
 /** A request form's questions as the server validates them (agreement_forms.json). */
 export interface RequestFormRule { field: string; in: string[] }
+export interface RequestFormColumn {
+  key: string;
+  label: string;
+  kind: "text" | "date" | "percent";
+  max_length?: number;
+  unique?: boolean;
+  no_blanks?: boolean;
+  /** Date columns: the two date questions of the same form the date must fall between, both included. */
+  within?: [string, string];
+  /** Percent columns: what the column must add up to across the rows. */
+  total?: number;
+  /** The column applies only when every rule matches the form's answers (same shape as a question's `show`). */
+  show?: RequestFormRule[];
+}
 export interface RequestFormField {
-  key: string; label: string; kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number";
+  key: string; label: string;
+  kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number" | "rows";
   required: boolean; options?: string[]; show?: RequestFormRule[];
   /** A date that must not come before the date answered under this key (an end date against its start date). */
   not_before?: string;
+  /** Text answers: refused when they hold a blank bracket such as "[TBD]". */
+  no_blanks?: boolean;
+  /** Number answers: must be more than this. */
+  min_exclusive?: number;
+  /** `rows` questions only. */
+  columns?: RequestFormColumn[];
+  min_rows?: number;
+  max_rows?: number;
+  /** `rows` questions: the key older requests kept a free-text answer under, and that question's label. */
+  legacy_key?: string;
+  legacy_label?: string;
 }
 export interface RequestFormDef { key: string; name: string; fields: RequestFormField[] }
+/** One row of a table question, by column key. Every cell is text (a stored share reads "40.00"). */
+export type FormRow = Record<string, string>;
+/** Any answer the wizard holds. */
+export type FormValue = string | string[] | FormRow[];
 /** A half-filled agreement-wizard form saved with "Save as Draft". */
 export interface IntakeDraft {
-  id: ID; form_key: string; title: string | null; values: Record<string, string | string[]>;
+  id: ID; form_key: string; title: string | null; values: Record<string, FormValue>;
   parent_contract_id: ID | null; page_index: number; visited: number;
   created_at: string; updated_at: string;
 }
