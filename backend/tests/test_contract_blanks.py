@@ -97,6 +97,17 @@ def test_no_text_has_no_blanks():
     assert blanks.first_blank(None) is None
 
 
+def test_a_long_drafting_note_is_a_blank():
+    """A bracket over the old 120-character limit went unseen, so a long drafting note (the
+    Consultancy schedule's key-individuals line, 134 characters inside) could go out for signature."""
+    note = (
+        "[Name each individual who will perform the Services. The Consultant shall not replace them "
+        "without the Company's prior written consent.]"
+    )
+    assert len(note) - 2 > 120
+    assert blanks.find_blanks(f"Key individual(s): {note}") == [note]
+
+
 def test_each_blank_is_listed_once_in_the_order_it_appears_and_the_list_is_capped():
     text = "A [INSERT DATE]. B [●]. C [INSERT DATE]. D [TBD]."
     assert blanks.find_blanks(text) == ["[INSERT DATE]", "[●]", "[TBD]"]

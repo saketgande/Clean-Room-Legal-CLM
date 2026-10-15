@@ -31,7 +31,7 @@ export const EMAIL_PROBLEM = "Enter a full email address, like name@company.com.
 // spelled out (\p{L}\p{N}_ and \p{Nd}); \b after an article becomes "not followed by a word character".
 // ponytail: JS trim()/\s differ from Python strip()/\s only for \x1c-\x1f, \x85 and ﻿; no case needs them.
 const MAX_LISTED = 20;
-const BRACKET = /\[([^\[\]\n]{1,120})\]/gu;
+const BRACKET = /\[([^\[\]\n]{1,2000})\]/gu; // same bound as blanks.py _MAX_INSIDE
 const MARKER = /^(?:[●•]+|_{2,})$/u;
 const EDITORIAL: RegExp[] = [
   /^[^\p{L}\p{N}_]*$/u,

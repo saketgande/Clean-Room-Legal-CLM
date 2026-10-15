@@ -516,10 +516,11 @@ def test_no_other_template_changes_for_the_sow_fields(key, fields):
 
 def test_the_blanks_the_other_templates_already_had_are_untouched():
     """AC-39: NDA, MSA, SaaS and Vendor have none; Consultancy and the DPA keep theirs, for the later spec
-    that owns them (FR-36)."""
+    that owns them (FR-36). 5 and 6 since the detector also sees brackets over 120 characters inside
+    (Consultancy's key-individuals note, the DPA's processing note)."""
     blanks = {k: len(find_blanks(drafting.render_document(
         k, company=COMPANY, counterparty=COUNTERPARTY, effective="2026-10-01", fields={}))) for k in TEMPLATES}
-    assert blanks == {"nda": 0, "msa": 0, "consultancy": 4, "sow": 0, "vendor": 0, "saas": 0, "dpa": 5}
+    assert blanks == {"nda": 0, "msa": 0, "consultancy": 5, "sow": 0, "vendor": 0, "saas": 0, "dpa": 6}
 
 
 def test_a_free_text_request_that_says_sow_is_still_drafted_from_the_msa_template():
