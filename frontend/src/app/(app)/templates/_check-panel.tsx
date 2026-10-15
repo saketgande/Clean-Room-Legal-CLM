@@ -61,7 +61,7 @@ export const CHECK_POLL_MS = 3000;
 export const FR10_STATEMENTS = [
   "A check is an AI review, and it can report different findings on identical wording.",
   "Passes means the latest review found nothing. It is not a guarantee about any contract.",
-  "A check reads the template as a request with no form answers would be drafted. It does not judge the answers a requester picks.",
+  "A check reads the template filled in with example details, as a draft would read. It does not judge the answers a requester picks.",
 ] as const;
 
 export function CheckStatements() {

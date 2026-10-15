@@ -108,7 +108,7 @@ describe("what the page must say (FR-10) and what it shows about the last check"
     mount();
     expect(screen.getByText(/can report different findings on identical wording/)).toBeInTheDocument();
     expect(screen.getByText(/Passes means the latest review found nothing\. It is not a guarantee about any contract/)).toBeInTheDocument();
-    expect(screen.getByText(/with no form answers would be drafted\. It does not judge the answers a requester picks/)).toBeInTheDocument();
+    expect(screen.getByText(/filled in with example details, as a draft would read\. It does not judge the answers a requester picks/)).toBeInTheDocument();
     expect(screen.getByText("Status: Has findings. 1 finding, highest High.")).toBeInTheDocument();
     expect(screen.getByText(/Last completed check: finished .*, against SaaS Playbook version 3, of version 3\./)).toBeInTheDocument();
     await screen.findByRole("table");

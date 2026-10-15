@@ -338,7 +338,7 @@ describe("what the page must say about a check (FR-10)", () => {
     for (const sentence of [
       /can report different findings on identical wording/,
       /Passes means the latest review found nothing\. It is not a guarantee about any contract/,
-      /with no form answers would be drafted\. It does not judge the answers a requester picks/,
+      /filled in with example details, as a draft would read\. It does not judge the answers a requester picks/,
     ]) {
       expect(screen.getAllByText(sentence)[0]).toBeVisible();
     }
