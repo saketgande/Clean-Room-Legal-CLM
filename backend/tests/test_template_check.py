@@ -441,9 +441,10 @@ READ_RUN = ["playbook:read", "playbook:run"]
 
 
 def _bare_draft(key: str, body: str) -> str:
-    """What a request with no form answers drafts from ``body``."""
+    """What the check reads for ``body``: a request with no form answers, with the Statement of Work fields
+    read as the example request (the only way a check differs from a bare draft, FR-23)."""
     return drafting.render_document(key, company=SAMPLE_VALUES["company"], counterparty=SAMPLE_VALUES["counterparty"],
-                                    effective=SAMPLE_VALUES["effective_date"], fields={}, body=body)
+                                    effective=SAMPLE_VALUES["effective_date"], fields={}, body=body, example=True)
 
 
 def _counts(db: Session) -> tuple[int, int, int]:

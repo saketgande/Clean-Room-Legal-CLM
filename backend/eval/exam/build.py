@@ -2260,6 +2260,17 @@ def make_deals() -> dict[str, Deal]:
     return deals
 
 
+# The Statement of Work wording the exam was built from (2026-10-15): the app's shipped SOW has since been
+# rewritten to be filled from the request, and the exam's committed documents, planted-change offsets and
+# baseline all depend on this text, so it is rendered from a byte-for-byte copy instead of the live template.
+_SOW_WORDING = Path(__file__).with_name("sow_2026-10-15.txt")
+
+
+def _template_body(kind: str) -> str | None:
+    """The wording the exam renders ``kind`` from: the frozen SOW copy, else None (the app's shipped default)."""
+    return _SOW_WORDING.read_text(encoding="utf-8") if kind == "sow" else None
+
+
 def _render(deal: Deal) -> str:
     """The deal as the app would draft it, plus the registered-office recital Indian paper carries
     (and, for Indian law, the city whose courts have jurisdiction), plus the schedules of a long
@@ -2271,7 +2282,7 @@ def _render(deal: Deal) -> str:
     def draft(kind: str) -> str:
         return render_document(
             kind, company=deal.company, counterparty=deal.counterparty, effective=deal.written,
-            fields=deal.fields(),
+            fields=deal.fields(), body=_template_body(kind),
         )
 
     recital = (
@@ -2785,7 +2796,7 @@ def make_manifest(public: PublicBuild, built: ConstructedBuild) -> dict:
         "public": public.report,
         "constructed": built.report,
         "templates": {
-            key: hashlib.sha256(default_body(key).encode("utf-8")).hexdigest()
+            key: hashlib.sha256((_template_body(key) or default_body(key)).encode("utf-8")).hexdigest()
             for key in sorted(TEMPLATES)
         },
         "severity_source": {

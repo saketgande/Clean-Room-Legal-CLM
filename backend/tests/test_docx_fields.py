@@ -20,6 +20,7 @@ re-opened with python-docx, which is the cheapest proof the package is still loa
 """
 
 import io
+import re
 import types
 import zipfile
 
@@ -669,7 +670,13 @@ def test_a_conversion_or_format_spec_is_an_unknown_field_in_word(code):
 def test_every_shipped_template_fills_in_word_exactly_as_it_does_as_text(key):
     """The shipped wordings are the real corpus of codes. Word must accept all of them and
     produce the very text ``str.format`` does, or a Word-based copy of a shipped template
-    would draft differently from the original."""
+    would draft differently from the original.
+
+    ``fill`` puts a value on one line, so the expected text is built from values with their
+    line breaks collapsed. That keeps this test proving the WORDING is identical on both paths.
+    It also means a multi-line value (the Statement of Work lists from spec 007) fills as ONE
+    Word paragraph today, not one paragraph per entry. 006 Phase 3 (T023) must split such
+    values into separate paragraphs before Word-based drafts ship."""
     body = default_body(key)
     doc = Document()
     for line in body.split("\n"):
@@ -680,7 +687,8 @@ def test_every_shipped_template_fills_in_word_exactly_as_it_does_as_text(key):
 
     assert problems == []
     assert {u.name for u in uses} <= {p["name"] for p in PLACEHOLDERS}
-    assert _body_texts(dxf.fill(data, SAMPLE_VALUES)) == body.format(**SAMPLE_VALUES).split("\n")
+    one_line = {name: re.sub(r"[\r\n\t]+", " ", value) for name, value in SAMPLE_VALUES.items()}
+    assert _body_texts(dxf.fill(data, SAMPLE_VALUES)) == body.format(**one_line).split("\n")
 
 
 # --- paragraphs ------------------------------------------------------------------------------

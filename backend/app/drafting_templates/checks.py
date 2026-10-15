@@ -50,6 +50,7 @@ from app.drafting_templates.service import (
     list_types,
     reviewing_playbook,
 )
+from app.intake import sow
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 
@@ -379,15 +380,16 @@ def on_playbooks_published(db: Session, *, org_id: str, playbook_ids: Sequence[s
 
 
 def check_values(key: str) -> dict[str, str]:
-    """What the check fills the template with: a request with no form answers."""
+    """What the check fills the template with: a request with no form answers, read as the example
+    request for the Statement of Work fields (FR-23). Only a check passes ``example``: a draft never does."""
     from app.intake.drafting import template_values as fill_values
 
     return fill_values(key, company=SAMPLE_VALUES["company"], counterparty=SAMPLE_VALUES["counterparty"],
-                       effective=SAMPLE_VALUES["effective_date"], fields={})
+                       effective=SAMPLE_VALUES["effective_date"], fields={}, example=True)
 
 
 _CODED = ("company", "counterparty", "effective_date", "governing_law", "agreement_term", "purpose_phrase",
-          "direction_recital", "term_clause", "survival_clause")
+          "direction_recital", "term_clause", "survival_clause", *sow.FIELDS)
 _MIN_CODED_LENGTH = 12  # a shorter value ("Mutual", "45") is as likely to be ordinary wording as a field
 
 
@@ -410,13 +412,18 @@ def _enrich(findings: list[dict], values: dict[str, str]) -> list[dict]:
     for index, f in enumerate(findings):
         quote, fix = f.get("quote"), f.get("suggested_fix")
         severity = f["severity"]
+        fix_template = template_form_of(fix, values) if fix else None
+        # A fix that still quotes the example request (a deliverable name, a person, an amount the code
+        # could not turn back into a field) must never be applied: it would write example content into our
+        # own paper (FR-24). It stays on the page as advice.
+        quotes_example = any(marker in fix_template for marker in sow.EXAMPLE_MARKERS) if fix_template else False
         out.append({
             "index": index, "rule_index": f.get("rule_index"), "clause_type": f["clause_type"],
             "severity": str(getattr(severity, "value", severity)), "issue": f["issue"],
             "quote": quote, "quote_template": template_form_of(quote, values) if quote else None,
             "suggested_fix": fix,
-            "suggested_fix_template": template_form_of(fix, values) if fix else None,
-            "suggestion_is_wording": is_document_wording(fix),
+            "suggested_fix_template": fix_template,
+            "suggestion_is_wording": is_document_wording(fix) and not quotes_example,
             "approval_required": bool(f.get("approval_required")),
         })
     return out
@@ -511,7 +518,7 @@ async def _review(db: Session, check: DraftingTemplateCheck) -> dict:
     except HTTPException as exc:
         raise _Failed("unfillable", str(exc.detail)) from None
     text = render_document(key, company=SAMPLE_VALUES["company"], counterparty=SAMPLE_VALUES["counterparty"],
-                           effective=SAMPLE_VALUES["effective_date"], fields={}, body=body)
+                           effective=SAMPLE_VALUES["effective_date"], fields={}, body=body, example=True)
 
     user = _asker(db, check)
     try:

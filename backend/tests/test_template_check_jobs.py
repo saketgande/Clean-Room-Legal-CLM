@@ -250,7 +250,7 @@ def _contract_side(db: Session) -> tuple[int, int, int]:
 
 def _bare_draft(key: str, body: str) -> str:
     return drafting.render_document(key, company=SAMPLE_VALUES["company"], counterparty=SAMPLE_VALUES["counterparty"],
-                                    effective=SAMPLE_VALUES["effective_date"], fields={}, body=body)
+                                    effective=SAMPLE_VALUES["effective_date"], fields={}, body=body, example=True)
 
 
 def _deviation(**kw) -> PlaybookDeviationOutput:

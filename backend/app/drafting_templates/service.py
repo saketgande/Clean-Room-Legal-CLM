@@ -46,6 +46,7 @@ from app.drafting_templates.models import (
     DraftingTemplateVersion,
 )
 from app.drafting_templates.schemas import AppliedFindingIn
+from app.intake import sow
 from app.intake.agreement_forms import form_def
 from app.playbooks.library import CONTRACT_TYPE_OF_FORM, CONTRACT_TYPE_OF_KIND
 from app.playbooks.models import Playbook, PlaybookVersion
@@ -101,7 +102,7 @@ PLACEHOLDERS: list[dict] = [
     {"name": "payment_days", "label": "Payment days", "about": "Payment terms in days", "sample": "45"},
     {"name": "value_sentence", "label": "Total value sentence",
      "about": "A sentence on the total value, or nothing when no value was given",
-     "sample": " The total value of this Agreement shall not exceed INR 4,500,000.00."},
+     "sample": " The total value of this Agreement shall not exceed INR 1,200,000.00."},
     {"name": "nda_kind_title", "label": "NDA kind (title)",
      "about": "NDA: “MUTUAL ” or “ONE-WAY ” before the title", "sample": "MUTUAL "},
     {"name": "nda_kind_word", "label": "NDA kind", "about": "NDA: “Mutual” or “One-Way”",
@@ -114,6 +115,35 @@ PLACEHOLDERS: list[dict] = [
      "sample": "continues for two (2) years"},
     {"name": "survival_clause", "label": "Survival period", "about": "NDA: completes “obligations shall …”",
      "sample": "continue for three (3) years"},
+    # The Statement of Work's nine fields (spec 007). Their samples are the example reading drafting
+    # itself would produce (intake.sow), so the preview, the check and this list show one SOW.
+    {"name": "sow_title", "label": "SoW title",
+     "about": "Statement of Work: the SoW title from the request", "sample": sow.EXAMPLE_VALUES["sow_title"]},
+    {"name": "services", "label": "Services",
+     "about": "Statement of Work: the scope of services as the requester wrote it",
+     "sample": sow.EXAMPLE_VALUES["services"]},
+    {"name": "deliverables_list", "label": "Deliverables list",
+     "about": "Statement of Work: one entry per deliverable row (D1, D2, …) with its name, due date and both owners",
+     "sample": sow.EXAMPLE_VALUES["deliverables_list"]},
+    {"name": "key_personnel_list", "label": "Key personnel list",
+     "about": "Statement of Work: each Provider owner once, with the deliverables they own",
+     "sample": sow.EXAMPLE_VALUES["key_personnel_list"]},
+    {"name": "acceptance_list", "label": "Acceptance criteria list",
+     "about": "Statement of Work: one entry per deliverable (D1, D2, …) the acceptance criteria apply to",
+     "sample": sow.EXAMPLE_VALUES["acceptance_list"]},
+    {"name": "pricing_model", "label": "Pricing model",
+     "about": "Statement of Work: the pricing statement for the request's pricing answer",
+     "sample": sow.EXAMPLE_VALUES["pricing_model"]},
+    {"name": "fee_amount", "label": "Fee amount",
+     "about": "Statement of Work: the total value with its currency (the fixed fee, or the not-to-exceed amount)",
+     "sample": sow.EXAMPLE_VALUES["fee_amount"]},
+    {"name": "milestone_payments_list", "label": "Milestone payments list",
+     "about": "Statement of Work: one payment per deliverable, each payable on written acceptance; "
+              "for time and materials, that none apply",
+     "sample": sow.EXAMPLE_VALUES["milestone_payments_list"]},
+    {"name": "provider_representative", "label": "Provider representative",
+     "about": "Statement of Work: their signer's name and email, as authorised signatory",
+     "sample": sow.EXAMPLE_VALUES["provider_representative"]},
 ]
 SAMPLE_VALUES = {p["name"]: p["sample"] for p in PLACEHOLDERS}
 _LABELS = {p["name"]: p["label"] for p in PLACEHOLDERS}

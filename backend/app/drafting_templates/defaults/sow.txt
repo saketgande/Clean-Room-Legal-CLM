@@ -20,31 +20,27 @@ This Statement of Work (the "SOW") is entered into as of {effective_date} (the "
 
 4. SCOPE AND DELIVERABLES
 
-4.1 Background and objectives: [Describe the business need and the outcome the Customer expects.]
+4.1 Background and objectives: This SOW is issued under the Master Agreement for the work titled "{sow_title}". The Customer expects the Services and Deliverables in this SOW to be performed, delivered and accepted as this SOW provides.
 
-4.2 Services. The Provider shall perform the following Services: [Describe each activity the Provider will carry out.]
+4.2 Services. The Provider shall perform the following Services:
+
+{services}
 
 4.3 Deliverables. The Provider shall deliver each of the following Deliverables by its due date. Each Deliverable has a named owner responsible for its delivery:
 
-D1. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+{deliverables_list}
 
-D2. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+4.4 Out of scope. Any service, deliverable or activity not expressly listed in Clauses 4.2 and 4.3 is out of scope. The Provider shall not perform, and the Customer is not obliged to pay for, any out-of-scope work unless it is added through a Change Order under Clause 7. No further exclusions have been agreed at the SOW Effective Date.
 
-D3. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+4.5 Customer dependencies. No Customer dependency is listed at the SOW Effective Date. The Provider may rely on a failure by the Customer to provide information, access, facilities or decisions to excuse a delay only where that dependency is recorded in a signed Change Order. If the Customer fails to meet a dependency so recorded and that failure prevents the Provider from meeting a due date, the Provider shall notify the Customer promptly in writing and the affected due date shall be extended by a reasonable period agreed through a Change Order.
 
-4.4 Out of scope. Any service, deliverable or activity not expressly listed in Clauses 4.2 and 4.3 is out of scope. The Provider shall not perform, and the Customer is not obliged to pay for, any out-of-scope work unless it is added through a Change Order under Clause 7. Without limiting this, the following are out of scope: [List known exclusions, if any.]
-
-4.5 Customer dependencies. The Customer shall provide the following, by the dates stated: [List the information, access, facilities or decisions the Provider needs from the Customer.] If the Customer fails to meet a listed dependency and that failure prevents the Provider from meeting a due date, the Provider shall notify the Customer promptly in writing and the affected due date shall be extended by a reasonable period agreed through a Change Order.
-
-4.6 Location and working hours: [State where and when the Services will be performed.]
+4.6 Location and working hours. The Provider shall perform the Services at its own premises or remotely, during its normal business hours. It shall perform Services at the Customer's premises only where the Customer asks in writing, and shall then comply with the Customer's site rules.
 
 5. KEY PERSONNEL
 
 5.1 The following individuals are key personnel for this SOW (the "Key Personnel"):
 
-[Name] - [Role] - [Responsibilities]
-
-[Name] - [Role] - [Responsibilities]
+{key_personnel_list}
 
 5.2 The Provider shall ensure that the Key Personnel devote the time necessary to perform their roles. The Provider shall not remove or replace any Key Personnel without the Customer's prior written consent, except where the individual leaves the Provider's employment or is unavailable through illness or other circumstances beyond the Provider's reasonable control.
 
@@ -54,13 +50,9 @@ D3. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: 
 
 6. ACCEPTANCE
 
-6.1 The Customer shall test each Deliverable against the acceptance criteria below within ten (10) working days of receiving it:
+6.1 The Customer shall test each Deliverable against its acceptance criteria within ten (10) working days of receiving it. The acceptance criteria of each Deliverable listed below are that it conforms in all material respects to its description in Clause 4.3 and to any specification the Parties agree in writing before its due date:
 
-D1: [Acceptance criteria]
-
-D2: [Acceptance criteria]
-
-D3: [Acceptance criteria]
+{acceptance_list}
 
 6.2 A Deliverable is accepted only when the Customer confirms acceptance in writing. Use of a Deliverable, payment of any invoice, or the passing of the testing period without a written confirmation does not constitute acceptance.
 
@@ -80,11 +72,11 @@ D3: [Acceptance criteria]
 
 8. FEES AND PRICING
 
-8.1 Pricing model: [Fixed fee / Time and materials] (delete as appropriate).
+8.1 Pricing model: {pricing_model}
 
-8.2 Fixed fee. Where this SOW is priced as a fixed fee, the total fee for the Services and Deliverables is [currency and amount], inclusive of all Provider costs and exclusive only of applicable taxes.
+8.2 Fixed fee. Where this SOW is priced as a fixed fee (including a fixed fee payable in instalments), the total fee for the Services and Deliverables is {fee_amount}, inclusive of all Provider costs and exclusive only of applicable taxes.
 
-8.3 Time and materials. Where this SOW is priced on a time-and-materials basis, the Provider shall charge for time actually and properly worked at the rates set out in the Master Agreement, supported by timesheets approved by the Customer. Total charges under this SOW shall not exceed the not-to-exceed amount of [currency and amount]. The Provider shall notify the Customer in writing when seventy-five percent (75%) of that amount has been reached. The Customer is not liable for any charges above the not-to-exceed amount unless it is increased by a signed Change Order.
+8.3 Time and materials. Where this SOW is priced on a time-and-materials basis, the Provider shall charge for time actually and properly worked at the rates set out in the Master Agreement, supported by timesheets approved by the Customer. Total charges under this SOW shall not exceed the not-to-exceed amount of {fee_amount}. The Provider shall notify the Customer in writing when seventy-five percent (75%) of that amount has been reached. The Customer is not liable for any charges above the not-to-exceed amount unless it is increased by a signed Change Order.
 
 8.4 Rates are as set out in the Master Agreement and are fixed for the term of this SOW. No rate increase applies to this SOW.
 
@@ -94,11 +86,7 @@ D3: [Acceptance criteria]
 
 9.1 Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to calendar dates. The Provider may invoice each milestone payment only after the Customer has accepted in writing every Deliverable linked to that milestone under Clause 6:
 
-M1: Acceptance of D1. Payment: [amount or percentage of the fixed fee].
-
-M2: Acceptance of D2. Payment: [amount or percentage of the fixed fee].
-
-M3: Acceptance of D3. Payment: [amount or percentage of the fixed fee].
+{milestone_payments_list}
 
 9.2 Where this SOW is priced on a time-and-materials basis, the Provider shall invoice monthly in arrears for time worked, and the Customer may hold back ten percent (10%) of each invoice until it has accepted all Deliverables in writing.
 
@@ -106,9 +94,9 @@ M3: Acceptance of D3. Payment: [amount or percentage of the fixed fee].
 
 10. GOVERNANCE AND REPORTING
 
-10.1 The Provider shall report progress against the Deliverables, due dates and Fees to the Customer's owner [weekly / fortnightly], including risks, issues and any forecast delay.
+10.1 The Provider shall report progress against the Deliverables, due dates and Fees to the Customer owners named in Clause 4.3 weekly, including risks, issues and any forecast delay.
 
-10.2 The Parties' representatives for this SOW are: Customer: [name, role, email]. Provider: [name, role, email].
+10.2 The Parties' representatives for this SOW are: Customer: the Customer owner named for each Deliverable in Clause 4.3 is the Customer's representative for that Deliverable, and the Customer may notify the Provider in writing of the name, role and email of an overall representative. Provider: {provider_representative}.
 
 11. TERMINATION
 
