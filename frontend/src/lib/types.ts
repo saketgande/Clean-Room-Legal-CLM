@@ -2511,58 +2511,163 @@ export interface ContractClause {
 }
 
 // ---- Drafting templates ------------------------------------------------------
+export type TemplateSource = "default" | "text" | "docx" | "pdf" | "scan";
+export type TemplateStatusState =
+  | "passes" | "has_findings" | "checking" | "out_of_date"
+  | "partly_checked" | "couldnt_check" | "never_checked" | "no_playbook";
+export type TemplateCheckTrigger =
+  | "saved" | "uploaded" | "restored" | "reset" | "type_created" | "type_reactivated"
+  | "playbook_published" | "playbook_changed" | "manual" | "check_all" | "retry";
+export type TemplateCheckState = "queued" | "running" | "completed" | "failed" | "superseded";
+export type TemplateCheckError =
+  | "ai_unavailable" | "cost_cap" | "no_rules" | "no_playbook" | "unfillable" | "wording_changed" | "interrupted";
+export type FindingSeverity = "low" | "medium" | "high" | "critical";
+export type TemplatePlace = "body" | "table" | "header" | "footer" | "text_box" | "footnote" | "endnote";
+
+export interface TemplateBinding { form_key: string; form_name: string; agreement_kind: string | null; label: string; }
+export interface TemplatePlaybookRef {
+  id: string;
+  name: string;
+  version_id: string | null;       // its latest published version (null when it has none)
+  version_number: number | null;
+  pinned: boolean;                 // false = today's name match, locked at the template's first check or draft
+  available: boolean;              // false = deleted, or no published version
+}
+export interface TemplateFileRef { id: string; filename: string; mime_type: string; size_bytes: number; }
+
+export interface TemplateCheckSummary {
+  id: string;
+  state: TemplateCheckState;
+  trigger: TemplateCheckTrigger;
+  unsaved: boolean;
+  template_version: number;
+  playbook_name: string | null;
+  playbook_version_number: number | null;
+  finding_count: number | null;        // null until completed
+  highest_severity: FindingSeverity | null;
+  text_was_truncated: boolean | null;
+  error_code: TemplateCheckError | null;
+  error_message: string | null;        // plain words
+  requested_by: string | null;         // display name of the person
+  on_behalf: boolean;                  // true = the system, on behalf of requested_by
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface TemplateCheckFinding {
+  index: number;                       // position in the check; what applied_findings names
+  rule_index: number | null;
+  clause_type: string;
+  severity: FindingSeverity;
+  issue: string;
+  quote: string | null;                // as the review quoted it (filled text)
+  quote_template: string | null;       // the same with sample values turned back into {codes}
+  suggested_fix: string | null;
+  suggested_fix_template: string | null;
+  suggestion_is_wording: boolean;      // false = advice, never applied
+  approval_required: boolean;
+}
+
+export interface TemplateCheck extends TemplateCheckSummary {
+  template_key: string;
+  trigger_detail: Record<string, unknown> | null;
+  wording_sha256: string;
+  playbook_id: string | null;
+  playbook_version_id: string | null;
+  rule_count: number | null;
+  findings: TemplateCheckFinding[];
+  summary: string | null;
+  text_length: number | null;
+  read_length: number | null;
+}
+
+export interface TemplateStatus {
+  state: TemplateStatusState;
+  label: string;                       // "Has findings"
+  reason: string;                      // "2 findings, highest High."
+  finding_count: number | null;
+  highest_severity: FindingSeverity | null;
+  changed: "wording" | "playbook" | "both" | null;   // out_of_date only
+  error_code: TemplateCheckError | null;             // couldnt_check only
+  results_vary: boolean;
+  decided_by: TemplateCheckSummary | null;
+  last_completed: TemplateCheckSummary | null;
+  active_check: TemplateCheckSummary | null;
+}
+
 export interface DraftingTemplateSummary {
   key: string;
   name: string;
+  label: string;
   contract_type: string;
-  playbook: string | null; // the playbook that reviews contracts drafted from it
-  customized: boolean; // false = the shipped default text
-  version: number; // 0 = never edited
+  binding: TemplateBinding;
+  playbook: TemplatePlaybookRef | null;   // the playbook that reviews its drafts (null = none)
+  shipped: boolean;
+  active: boolean;
+  source: TemplateSource;
+  version: number;                        // 0 = shipped wording, never saved
+  original_filename: string | null;
   updated_at: string | null;
   updated_by: string | null;
+  editable: boolean;                      // false for a Word-based template (FR-40)
+  status: TemplateStatus;
 }
 
-export interface DraftingTemplatePlaceholder {
-  name: string;
-  about: string;
-  sample: string;
-}
+export interface DraftingTemplatePlaceholder { name: string; label: string; about: string; sample: string; }
+export interface TemplateFieldUse { name: string; label: string; place: TemplatePlace; count: number; }
 
 export interface DraftingTemplate extends DraftingTemplateSummary {
   body: string;
-  default_body: string;
+  default_body: string | null;            // null for a type that was not shipped
   placeholders: DraftingTemplatePlaceholder[];
+  fields: TemplateFieldUse[];
+  original_file: TemplateFileRef | null;
 }
+
+export interface AppliedFinding { check_id: string; finding_index: number; clause_type: string; severity: FindingSeverity; }
 
 export interface DraftingTemplateVersion {
   version: number;
   note: string | null;
+  source: TemplateSource;
   is_default: boolean;
   body: string;
-  created_at: string;
+  created_at: string | null;              // null for the synthetic version 0
   created_by: string | null;
+  original_file: TemplateFileRef | null;
+  applied_findings: AppliedFinding[];
+  restored_from_version: number | null;
+  ocr_confirmed_by: string | null;
+  ocr_confirmed_at: string | null;
+  checks: TemplateCheckSummary[];
 }
 
-// POST /drafting-templates/{key}/check — the playbook's AI review run on the template text.
-export interface TemplateCheckFinding {
-  rule_index: number | null; // which playbook rule (1-based, as the review numbers them); null = no matching rule
-  clause_type: string;
-  severity: "low" | "medium" | "high" | "critical";
-  issue: string;
-  quote: string | null; // the template wording the finding is about
-  suggested_fix: string | null;
-  approval_required: boolean;
+export interface TemplateSavePayload {
+  body: string;
+  note?: string;
+  expected_version: number;
+  applied_findings?: { check_id: string; finding_index: number }[];
+  acknowledge_missing_parties?: boolean;
+}
+export interface TemplateVersionAction { note?: string; expected_version: number; }
+export interface TemplatePlaybookChange { playbook_id: string; note?: string; }
+export interface TemplateMutationResult { template: DraftingTemplate; changed: boolean; check: TemplateCheckSummary | null; }
+export interface CheckAllResult {
+  started: { key: string; check_id: string }[];
+  skipped: { key: string; reason: "checking" | "no_playbook" }[];
 }
 
-export interface TemplateCheckResult {
-  key: string;
-  name: string;
-  checked: "saved" | "unsaved"; // whether the editor's unsaved text was the one checked
-  playbook_id: string;
-  playbook_name: string;
-  playbook_version_id: string;
-  rule_count: number;
-  findings: TemplateCheckFinding[];
-  summary: string | null;
-  text_was_truncated: boolean;
+// Phase 1 (playbooks, for Change playbook) / Phase 2 (bindings, for New template type)
+export interface TemplateBindingOption {
+  form_key: string;
+  agreement_kind: string | null;
+  label: string;
+  contract_type: string;
+  held_by: { key: string; name: string } | null;
+  suggested_playbook: { id: string; name: string } | null;   // today's name match; preselect only
 }
+export interface TemplateTypeOptions { bindings: TemplateBindingOption[]; playbooks: { id: string; name: string; version_number: number }[]; }
+
+// Intake — POST /intake/requests/{id}/draft-contract
+export interface DraftContractResult extends IntakeRequest { template_notice: string | null; }

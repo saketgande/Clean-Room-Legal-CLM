@@ -2,10 +2,17 @@
 import { apiFetch, apiDownload } from "./api";
 import type {
   AdminSetting,
+  CheckAllResult,
+  DraftContractResult,
   DraftingTemplate,
   DraftingTemplateSummary,
   DraftingTemplateVersion,
-  TemplateCheckResult,
+  TemplateCheck,
+  TemplateMutationResult,
+  TemplatePlaybookChange,
+  TemplateSavePayload,
+  TemplateTypeOptions,
+  TemplateVersionAction,
   AiUsageSummary,
   AiUsageTraffic,
   ApprovalChainStep,
@@ -953,18 +960,28 @@ export const workflowsApi = {
 // ---- Playbooks -----------------------------------------------------------
 // ---- Drafting templates (our standard paper, one per playbook) -------------
 export const draftingTemplatesApi = {
-  list: () => apiFetch<DraftingTemplateSummary[]>("/drafting-templates"),
+  // `=== true`: react-query hands a bare `queryFn: draftingTemplatesApi.list` its context object.
+  list: (includeRetired = false) =>
+    apiFetch<DraftingTemplateSummary[]>(`/drafting-templates${includeRetired === true ? "?include_retired=true" : ""}`),
   get: (key: string) => apiFetch<DraftingTemplate>(`/drafting-templates/${key}`),
   versions: (key: string) => apiFetch<DraftingTemplateVersion[]>(`/drafting-templates/${key}/versions`),
   preview: (key: string, body: string) =>
     apiFetch<{ text: string }>(`/drafting-templates/${key}/preview`, { method: "POST", body: { body } }),
-  save: (key: string, body: string, note?: string) =>
-    apiFetch<DraftingTemplate>(`/drafting-templates/${key}`, { method: "PUT", body: { body, note } }),
-  reset: (key: string, note?: string) =>
-    apiFetch<DraftingTemplate>(`/drafting-templates/${key}/reset`, { method: "POST", body: { note } }),
-  // One real AI review (costs credits); nothing is saved. `body` = the editor's unsaved text, left out = the saved template.
+  save: (key: string, payload: TemplateSavePayload) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}`, { method: "PUT", body: payload }),
+  reset: (key: string, payload: TemplateVersionAction) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/reset`, { method: "POST", body: payload }),
+  restore: (key: string, version: number, payload: TemplateVersionAction) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/versions/${version}/restore`, { method: "POST", body: payload }),
+  // Queues one paid AI review and returns the recorded check (202). `body` = the editor's unsaved text; left out = the saved wording.
   check: (key: string, body?: string) =>
-    apiFetch<TemplateCheckResult>(`/drafting-templates/${key}/check`, { method: "POST", body: body === undefined ? {} : { body } }),
+    apiFetch<TemplateCheck>(`/drafting-templates/${key}/checks`, { method: "POST", body: body === undefined ? {} : { body } }),
+  checks: (key: string) => apiFetch<TemplateCheck[]>(`/drafting-templates/${key}/checks`),
+  checkDetail: (key: string, checkId: string) => apiFetch<TemplateCheck>(`/drafting-templates/${key}/checks/${checkId}`),
+  checkAll: () => apiFetch<CheckAllResult>("/drafting-templates/check-all", { method: "POST", body: {} }),
+  setPlaybook: (key: string, payload: TemplatePlaybookChange) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/playbook`, { method: "PUT", body: payload }),
+  options: () => apiFetch<TemplateTypeOptions>("/drafting-templates/options"),
 };
 
 export const playbooksApi = {
@@ -1524,7 +1541,7 @@ export const intakeApi = {
     apiFetch<IntakeRequest>(`/intake/requests/${id}/promote`, {
       method: "POST", body: { target, target_id: targetId } }),
   draftContract: (id: string) =>
-    apiFetch<IntakeRequest>(`/intake/requests/${id}/draft-contract`, { method: "POST" }),
+    apiFetch<DraftContractResult>(`/intake/requests/${id}/draft-contract`, { method: "POST" }),
   ingestAttachment: (id: string) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/ingest-attachment`, { method: "POST" }),
 
