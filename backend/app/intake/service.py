@@ -14,6 +14,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import date, timedelta
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import cast, func, select
@@ -162,6 +163,13 @@ def _coerce_field(f, raw):
     if kind == "number":
         if isinstance(raw, bool):  # bool is an int subclass; not a number here
             raise HTTPException(422, f'Field "{f.label}" must be a number')
+        if getattr(f, "max_decimals", None) is not None:
+            # A question that limits decimals reads only what the wizard reads as a number: Python's own
+            # int()/float() would also take "1e3", "+25" and non-ASCII digits.
+            plain = _plain_number(raw)
+            if plain is None:
+                raise HTTPException(422, f'Field "{f.label}" must be a number')
+            return int(plain) if re.fullmatch(r"-?[0-9]+", plain) else float(plain)
         if isinstance(raw, int | float):
             return raw
         try:
@@ -230,6 +238,16 @@ def _coerce_field(f, raw):
 
 _FIELD_TEXT_MAX = 20_000
 _EMAIL = re.compile(r"[^\s@]+@[^\s@]+\.[^\s@]+")
+_PLAIN_NUMBER = re.compile(r"-?[0-9]+(?:\.[0-9]+)?")
+
+
+def _plain_number(raw) -> str | None:
+    """The answer as typed (commas removed, ends trimmed) when it is a plain ASCII number, else None.
+    A JSON number is read through Decimal so 1e16 is the digits it stands for."""
+    from app.intake.agreement_forms import tidy
+
+    text = format(Decimal(str(raw)), "f") if isinstance(raw, int | float) else tidy(str(raw).replace(",", ""))
+    return text if _PLAIN_NUMBER.fullmatch(text) else None
 
 
 def looks_like_email(text: str) -> bool:
@@ -259,7 +277,7 @@ def _validate_field_values(fields: list, values: dict | None, *, stored: dict | 
     filed never refuses an answer the update leaves as it was: a total value of 0 or a bracketed scope
     from before the rule is not the reason an unrelated edit fails.
     """
-    from app.intake.agreement_forms import shown
+    from app.intake.agreement_forms import shown, tidy
 
     if not fields:
         return values
@@ -276,17 +294,23 @@ def _validate_field_values(fields: list, values: dict | None, *, stored: dict | 
             tables.append(f)  # judged after the dates: a table's due dates sit in the services window
             continue
         raw = cleaned.get(f.key)
-        missing = raw is None or (isinstance(raw, str) and not raw.strip())
+        # [] is no answer: a multi-tick with nothing ticked is as unanswered as an empty text box.
+        missing = raw is None or raw == [] or (isinstance(raw, str) and not raw.strip())
         if missing:
-            if f.required:
+            if f.required and not _may_stay_unanswered(f, cleaned, stored):
                 raise HTTPException(422, f'Field "{f.label}" is required')
             # An optional field left blank is absent, not an empty string —
             # otherwise "" would later fail the type check it skipped here.
             cleaned.pop(f.key, None)
             continue
-        cleaned[f.key] = _coerce_field(f, raw)
-        if stored is None or cleaned[f.key] != stored.get(f.key):
-            _refuse_unsound_answer(f, cleaned[f.key])
+        if (getattr(f, "legacy_single", False) and stored is not None and isinstance(raw, str)
+                and raw == stored.get(f.key)):
+            continue  # an older single choice ("Several" too) sent back as it was: kept verbatim
+        cleaned[f.key] = value = _coerce_field(f, raw)
+        if getattr(f, "max_length", None) and isinstance(value, str):
+            cleaned[f.key] = value = tidy(value)
+        if stored is None or value != stored.get(f.key):
+            _refuse_unsound_answer(f, value, raw, cleaned)
     _check_dates_in_order(fields, cleaned)
     labels = {f.key: f.label for f in fields}
     for f in tables:
@@ -294,8 +318,19 @@ def _validate_field_values(fields: list, values: dict | None, *, stored: dict | 
     return cleaned
 
 
-def _refuse_unsound_answer(f, value) -> None:
-    """The two rules a question can add to its type: no blank brackets, and a number above a floor."""
+def _refuse_unsound_answer(f, value, raw, values: dict) -> None:
+    """The rules a question can add to its type, in this order: not too long, no blank brackets, a number
+    above a floor, no more decimals than allowed. ``raw`` is the answer as sent (the decimals are counted on
+    what was typed) and ``values`` the form's answers: a question with ``rules_when`` is judged by none of
+    these unless every rule matches. ponytail: the number type check for ``max_decimals`` and the tidying for
+    ``max_length`` run regardless of ``rules_when`` (no question combines them yet)."""
+    from app.intake.agreement_forms import rules_match
+
+    if not rules_match(getattr(f, "rules_when", None), values):
+        return
+    longest = getattr(f, "max_length", None)
+    if longest and isinstance(value, str) and len(value) > longest:
+        raise HTTPException(422, f'Field "{f.label}" is longer than {longest} characters')
     blank = first_blank(value) if getattr(f, "no_blanks", False) and isinstance(value, str) else None
     if blank:
         raise HTTPException(
@@ -304,6 +339,20 @@ def _refuse_unsound_answer(f, value) -> None:
     floor = getattr(f, "min_exclusive", None)
     if floor is not None and isinstance(value, int | float) and not value > floor:
         raise HTTPException(422, f'Field "{f.label}" must be more than {floor}')
+    places = getattr(f, "max_decimals", None)
+    plain = _plain_number(raw) if places is not None else None
+    if plain and len(plain.partition(".")[2]) > places:
+        raise HTTPException(422, f'Field "{f.label}" can have at most {places} decimal places')
+
+
+def _may_stay_unanswered(f, cleaned: dict, stored: dict | None) -> bool:
+    """``older_may_lack``: on an update, a question added after the request was filed may stay unanswered
+    while the request has no answer to it and nothing its ``show`` rules read has changed. The moment one of
+    those answers changes (a fee basis switched to a rate, a "Will data leave India?" switched to Yes, the
+    paper switched to ours) the question is required like on a new filing."""
+    if stored is None or not getattr(f, "older_may_lack", False) or stored.get(f.key) not in (None, "", []):
+        return False
+    return all((cleaned.get(r["field"]) or None) == (stored.get(r["field"]) or None) for r in f.show or [])
 
 
 def _check_table(f, cleaned: dict, labels: dict, stored: dict | None) -> None:
@@ -324,7 +373,7 @@ def _check_table(f, cleaned: dict, labels: dict, stored: dict | None) -> None:
     raw = cleaned.get(f.key)
     if raw is None or (isinstance(raw, str) and not raw.strip()):
         older_without_rows = stored is not None and old in stored and f.key not in stored
-        if f.required and not older_without_rows:
+        if f.required and not (older_without_rows or _may_stay_unanswered(f, cleaned, stored)):
             raise too_few_rows(f)
         cleaned.pop(f.key, None)
         return
@@ -957,12 +1006,16 @@ class IntakeService:
         # so triage can read what was attached.
         for att in attachments:
             self._attach(actor=actor, r=r, att=att)
-        facts = {}
-        if (field_values or {}).get("request_form") == "sow":
+        form = (field_values or {}).get("request_form")
+        if form == "sow":
             # What the requester filed for the SOW, exactly as stored (FR-38): the rows, and the pricing,
             # window and money they were checked against.
             facts = {k: field_values.get(k) for k in ("deliverable_rows", "pricing", "services_start",
                                                       "services_end", "value", "currency")}
+        else:
+            # What the requester filed for the draft, exactly as stored: every answer a template field is
+            # built from (a form without any adds nothing).
+            facts = {f.key: field_values[f.key] for f in form_fields(form) if f.fills and f.key in field_values}
         write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
                         org_id=actor.org_id, actor_user_id=actor.id, request_id=request_id,
                         after={"ref": r.ref, "type": r.type_label, "priority": r.priority, **facts})
@@ -1935,6 +1988,7 @@ class IntakeService:
                             resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                             before=before, after={"priority": r.priority, "work_status": r.work_status})
         self._record_deliverables_change(actor=actor, r=r, stored=stored, request_id=http_request_id)
+        self._record_answer_changes(actor=actor, r=r, stored=stored, request_id=http_request_id)
         db.commit()
         db.refresh(r)
         return self.serialize_request(r)
@@ -1956,6 +2010,30 @@ class IntakeService:
             event_type="intake.deliverables_changed", actor_user_id=actor.id, request_id=request_id,
             title="Deliverables changed" if stored.get("deliverable_rows") else "Deliverables entered as rows",
             details={"before": before, "after": after})
+
+    def _record_answer_changes(self, *, actor: User, r: IntakeRequest, stored: dict,
+                               request_id: str | None) -> None:
+        """Who changed the answers a draft is made from, and what they were before and after, in the
+        request's own transaction. Covers an answer dropped or newly required because another answer
+        changed (a rate when the basis goes to Fixed fee; the countries when "leave India" goes to No), and
+        an older request's first entry. Nothing is written when none of them changed."""
+        from app.intake.agreement_forms import form_fields
+
+        now = r.field_values or {}
+        keys = [f.key for f in form_fields(now.get("request_form") or stored.get("request_form")) if f.fills]
+        changed = [k for k in keys if stored.get(k) != now.get(k)]
+        if not changed:
+            return
+        before, after = ({k: answers.get(k) for k in keys} for answers in (stored, now))
+        write_audit_log(self.db, action="intake.answers_changed", resource_type="intake_request",
+                        resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                        request_id=request_id, before=before, after=after)
+        write_timeline_event(
+            self.db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
+            event_type="intake.answers_changed", actor_user_id=actor.id, request_id=request_id,
+            title="Answers for the draft entered" if all(stored.get(k) is None for k in changed)
+            else "Answers for the draft changed",
+            details={"before": before, "after": after, "changed": changed})
 
     def _attach(self, *, actor: User, r: IntakeRequest, att: _PreparedAttachment):
         from app.intake.models import IntakeDocument
