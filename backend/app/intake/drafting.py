@@ -19,6 +19,7 @@ import io
 import re
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 
 from fastapi import HTTPException, status
 from starlette.datastructures import Headers, UploadFile
@@ -29,7 +30,8 @@ from app.core.config import settings
 from app.core.database import utcnow
 from app.drafting_templates.service import TEMPLATES as _DOC_TYPES
 from app.drafting_templates.service import current_wording, default_body, field_uses, get_type
-from app.intake import sow
+from app.intake import consultancy, dpa, sow
+from app.intake.agreement_forms import form_fields, shown
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
 
@@ -142,9 +144,9 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
     playbook accepts: NDA term 3 years with 5 years' survival, payment in 45
     days (30 for consultancy).
 
-    ``example`` fills the nine Statement of Work fields with the example reading instead of the
-    request's answers. Only the Templates page check passes it (FR-24): a draft for a request never
-    contains example content, whatever the request left unanswered."""
+    ``example`` fills the Statement of Work, Consultancy and DPA fields (nine, four and six) with the
+    example reading instead of the request's answers. Only the Templates page check passes it (FR-24):
+    a draft for a request never contains example content, whatever the request left unanswered."""
     f = fields or {}
     one_way = f.get("nda_kind") == "One-way"
     # The form asks "What is this agreement for?" in free text, and the template completes "The Parties wish to …"
@@ -186,8 +188,10 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
         "term_clause": f"continues for the term of {nda_term}" if nda_term else "continues for three (3) years",
         "survival_clause": f"continue for {survival} year(s)" if survival else "continue for five (5) years",
         # Every template is given these; str.format ignores the ones its wording does not use, so only
-        # the SOW wording changes (FR-36).
+        # the SOW, Consultancy and DPA wording changes (FR-36, spec 008 FR-47).
         **sow.sow_values(f, example=example),
+        **consultancy.consultancy_values(f, example=example),
+        **dpa.dpa_values(f, example=example),
     }
 
 
@@ -200,30 +204,112 @@ def render_document(doc_type: str, *, company: str, counterparty: str, effective
                                          effective=effective, fields=fields, example=example))
 
 
-class DraftHeld(HTTPException):
-    """A draft that is not made yet: the request has its deliverables only as free text and the wording in
-    effect is built from deliverable rows (FR-33). 409 and not 422: the request is valid, but its state does
-    not allow drafting until the rows are entered."""
+# A draft step held for answers (not the SOW's rows) says so after its reason, and a person is told why it
+# cannot be marked done by hand (spec 008 FR-44).
+ANSWERS_STEP_SUFFIX = " This step carries on by itself once the answers are saved on the request."
+ANSWERS_STEP_NOT_MANUAL = (
+    "This step makes the draft from the request's answers, so it can't be marked done by hand. "
+    "Its note says what the draft is waiting for."
+)
 
-    def __init__(self) -> None:
-        super().__init__(status.HTTP_409_CONFLICT, sow.DRAFT_HELD)
+
+class DraftHeld(HTTPException):
+    """A draft that is not made yet: the request lacks answers the wording in effect is built from (the SOW's
+    deliverable rows, FR-33; the Consultancy schedule's and the DPA annexes' answers, spec 008 FR-43). 409
+    and not 422: the request is valid, but its state does not allow drafting until they are entered.
+    ``DraftHeld()`` still means the SOW."""
+
+    def __init__(self, detail: str = sow.DRAFT_HELD) -> None:
+        super().__init__(status.HTTP_409_CONFLICT, detail)
+
+
+class TemplateSkip(NamedTuple):
+    """Why a request is given no draft from our template: a short ``reason`` for the step's result, the
+    ``title`` of its history entry and the ``note`` the person (or the step) is shown."""
+
+    reason: str
+    title: str
+    note: str
+
+
+def template_skip(request: IntakeRequest) -> TemplateSkip | None:
+    """The reason this request gets no draft from our template, or None (spec 008 FR-53). A DPA request that
+    says we are the Processor is one: our DPA template is written for the Controller, so drafting it would
+    put the wrong party's paper in front of the other side. Recognised by "Our role" only (A-18), and never
+    once a contract exists (that contract is what the draft call returns).
+
+    The one place a "no draft from our template" rule goes: a person's draft call refuses with the note,
+    and a workflow's draft step is skipped with it, before the bespoke-draft fallback. 006 Phase 2's "no
+    active template" rule is added here."""
+    if (resolve_doc_type(request) != "dpa" or (request.field_values or {}).get("our_role") != dpa.PROCESSOR_ROLE
+            or request.contract_id):
+        return None
+    return TemplateSkip("processor_role", dpa.PROCESSOR_TITLE, dpa.PROCESSOR_NOTE)
+
+
+def _lacks(field, fv: dict) -> bool:
+    """Whether a question has no answer the draft can use: nothing, blank, an empty list, no row, or a
+    multi-tick question holding an older single choice that is not one of its options (such as "Several").
+    The request page mirrors this (lib/form-checks.ts ``lacksAnswer``)."""
+    value = fv.get(field.key)
+    if field.kind == "rows":
+        return not consultancy.rows_of(fv, field.key)
+    if field.kind == "multiselect" and isinstance(value, str):
+        return value not in [o["value"] for o in field.options or []]
+    return value is None or value == [] or (isinstance(value, str) and not value.strip())
 
 
 def draft_hold(db, *, org_id: str, request: IntakeRequest) -> str | None:
-    """The reason a draft must wait, or None. It holds only a Statement of Work request with no deliverable
-    rows whose wording in effect uses a field built from them, so an organisation's own wording that does not
-    keeps drafting as before. A pure read: it never pins a template, so a held draft leaves nothing behind."""
-    if resolve_doc_type(request) != "sow" or sow.rows_of(request.field_values):
+    """The reason a draft must wait, or None. A pure read: it never pins a template, so a held draft leaves
+    nothing behind.
+
+    * A Statement of Work request with no deliverable rows whose wording in effect uses a field built from
+      them (007, unchanged).
+    * A Consultancy or DPA request on our paper that lacks answers the wording in effect is built from. An
+      organisation's own wording that uses none of the new fields is never held, so it keeps drafting as
+      before. A Processor DPA request is skipped, not held (``template_skip``), and their paper is neither.
+    * An emailed or chat DPA request has none of the form's answers: filing it on the form comes first."""
+    doc = resolve_doc_type(request)
+    if doc == "sow":
+        if sow.rows_of(request.field_values):
+            return None
+        wording = current_wording(db, org_id, get_type(db, org_id, "sow"))
+        if {f["name"] for f in field_uses(wording.body)} & set(sow.ROW_FIELDS):
+            return sow.DRAFT_HELD
         return None
-    wording = current_wording(db, org_id, get_type(db, org_id, "sow"))
-    if {f["name"] for f in field_uses(wording.body)} & set(sow.ROW_FIELDS):
-        return sow.DRAFT_HELD
-    return None
+    fv = request.field_values or {}
+    if doc not in ("consultancy", "dpa") or fv.get("paper") == "Their paper" or template_skip(request):
+        return None
+    used = {f["name"] for f in field_uses(current_wording(db, org_id, get_type(db, org_id, doc)).body)}
+    form = fv.get("request_form")
+    if not form:  # email or chat: only a DPA gets here, and it has none of the form's answers
+        return dpa.FREE_TEXT_HELD if used & set(dpa.FIELDS) else None
+    missing = [f.label for f in form_fields(form)
+               if f.fills and f.required and shown(f, fv) and _lacks(f, fv) and used & set(f.fills)]
+    if not missing:
+        return None
+    return (consultancy if doc == "consultancy" else dpa).held_message(missing)
 
 
-def _sow_facts(record: dict) -> dict:
-    """The FR-37 keys of a Statement of Work's record (what the draft was filled from); none for any other."""
-    return {k: record[k] for k in ("deliverable_rows", "pricing") if k in record}
+def held_step(message: str) -> tuple[str, dict]:
+    """The note and result a draft step shows while its draft is held (``message`` is what ``draft_hold``
+    gave). The SOW's stay exactly as frozen in 007; an emailed request needs the form, not answers."""
+    if message == sow.DRAFT_HELD:
+        return sow.HELD_STEP_NOTE, {"held": "deliverable_rows"}
+    if message == dpa.FREE_TEXT_HELD:
+        return message, {"held": "form"}
+    return message + ANSWERS_STEP_SUFFIX, {"held": "answers"}
+
+
+# What a draft was filled from, beside what 006 FR-46 records: the SOW's (FR-37) and the Consultancy and DPA
+# counts (spec 008 FR-49). Another template's record has none of these keys.
+_FILL_FACT_KEYS = ("deliverable_rows", "pricing", "fee_basis", "key_individuals",
+                   "countries_outside_india", "subprocessors", "special_category_data")
+
+
+def _fill_facts(record: dict) -> dict:
+    """The keys of a record that say what the draft was filled from; none for a template that has them not."""
+    return {k: record[k] for k in _FILL_FACT_KEYS if k in record}
 
 
 # Form answers that are contract facts. The forms ask these outright, so they are
@@ -454,7 +540,7 @@ class DraftingService:
                 "template_key": record["key"], "template_version": record["version"],
                 "template_source": record["source"], "status": record["status"], "reason": record["reason"],
                 "notice": record["notice"], "review_playbook_id": record["review_playbook_id"],
-                "review_playbook_name": record["review_playbook_name"], **_sow_facts(record),
+                "review_playbook_name": record["review_playbook_name"], **_fill_facts(record),
             },
         )
 
@@ -539,9 +625,16 @@ class DraftingService:
                 status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "This request type has no draft template — handle it manually.",
             )
-        # Before the template is pinned, rendered, stored or recorded: a held draft changes nothing (FR-33).
-        if doc_type == "sow" and not custom and draft_hold(db, org_id=actor.org_id, request=request):
-            raise DraftHeld()
+        # Before the template is pinned, rendered, stored or recorded: a refused or held draft changes nothing
+        # (FR-33, spec 008 FR-43 and FR-53). The skip comes first: a request that gets no draft from our
+        # template is not asked for answers the draft would never use. A bespoke draft has neither.
+        if not custom:
+            skip = template_skip(request)
+            if skip is not None:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, skip.note)
+            held = draft_hold(db, org_id=actor.org_id, request=request)
+            if held:
+                raise DraftHeld(held)
         # A custom draft doesn't need a template doc_type — it gets a generic shell.
         spec = _DOC_TYPES[doc_type] if doc_type else {"label": (request.type_label or "Agreement"), "contract_type": "other"}
 
@@ -579,6 +672,10 @@ class DraftingService:
                 # FR-37: what the draft was filled from, beside what 006 FR-46 records.
                 record["deliverable_rows"] = len(sow.rows_of(fv))
                 record["pricing"] = fv.get("pricing")
+            elif doc_type == "consultancy":
+                record.update(consultancy.record_facts(fv))  # FR-49
+            elif doc_type == "dpa":
+                record.update(dpa.record_facts(fv))
             text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective,
                                    fields=fv, body=body)
         # One-way NDAs get a clearer label than the generic template label.
@@ -627,7 +724,7 @@ class DraftingService:
                 "template_key": record["key"], "template_version": record["version"],
                 "template_source": record["source"], "template_status": record["status"],
                 "template_status_reason": record["reason"], "review_playbook_id": record["review_playbook_id"],
-                **_sow_facts(record),
+                **_fill_facts(record),
             }
             template_details = {"template_version": record["version"], "template_status": record["status"]}
             self._record_drafted_from_template(actor=actor, contract=contract, record=record,

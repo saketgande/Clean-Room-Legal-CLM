@@ -109,14 +109,16 @@ _PLAYBOOK_REVIEW_AGENTS = frozenset({"contract_review_agent", "nda_agent"})
 
 # Marker on a drafting step's result: the workflow was sent back to it, so a person redoes the draft.
 _RETURNED_FOR_REWORK = "returned_for_rework"
-# step.result["held"] on a draft step that waits for the SOW's deliverable rows (FR-45).
+# step.result["held"] on a draft step stopped for what the request lacks: "deliverable_rows" (the SOW's rows,
+# FR-45), "answers" (a Consultancy or DPA request's answers) or "form" (a DPA request that came in by email
+# or chat), spec 008 FR-44. A step skipped for a Processor request carries {"skipped": "processor_role"}.
 _HELD_FOR_ROWS = "deliverable_rows"
 
 
 def _is_held(sr) -> bool:
-    """True for a draft step stopped because the request has no deliverable rows yet (FR-45)."""
+    """True for a draft step stopped because the request lacks what the draft is made from (FR-45, 008 FR-44)."""
     result = getattr(sr, "result", None)
-    return isinstance(result, dict) and result.get("held") == _HELD_FOR_ROWS
+    return isinstance(result, dict) and bool(result.get("held"))
 
 
 # --------------------------------------------------------------------------- selection
@@ -915,6 +917,22 @@ def _step_threshold(raw) -> float | None:
         return confidence_score(str(raw)) or None  # a level word ("high"), else unreadable
 
 
+def _record_draft_skipped(db: Session, *, run: WorkflowRun, sr: WorkflowStepRun | None, skip) -> None:
+    """The record of a draft step skipped because the request gets no draft from our template (spec 008
+    FR-55): an audit row and a line in the request's history, both by the system (no actor) since nobody
+    chose it. Written on the run's own session, in the run's own transaction."""
+    facts = {"flow_run_id": run.id, "step_idx": sr.idx if sr is not None else run.current_index,
+             "reason": skip.reason, "note": skip.note}
+    write_audit_log(
+        db, action="workflow.draft_skipped", resource_type="intake_request", resource_id=run.request_id,
+        org_id=run.org_id, actor_user_id=None, after=facts,
+    )
+    write_timeline_event(
+        db, org_id=run.org_id, resource_type="intake_request", resource_id=run.request_id,
+        event_type="flow.draft_skipped", title=skip.title, actor_user_id=None, details=facts,
+    )
+
+
 async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: WorkflowStepRun | None, actor) -> str:
     """Returns 'advance' | 'wait'. Each branch is a thin call into an existing
     subsystem."""
@@ -1175,8 +1193,18 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         req = db.get(IntakeRequest, run.request_id)
         path = str(((req.field_values or {}).get("draft_path")) or cfg.get("mode") or "fast_lane").lower()
         if path not in ("custom", "attach"):
-            from app.intake.drafting import resolve_doc_type
+            from app.intake.drafting import resolve_doc_type, template_skip
 
+            # A request our template is not written for gets no draft: this runs BEFORE the fallback below,
+            # which would otherwise make a bespoke one and wait for an attorney (spec 008 FR-54).
+            skip = template_skip(req)
+            if skip is not None:
+                if sr:
+                    sr.status = "skipped"
+                    sr.note = skip.note
+                    sr.result = {"skipped": skip.reason}
+                _record_draft_skipped(db, run=run, sr=sr, skip=skip)
+                return "advance"
             if resolve_doc_type(req) is None:
                 # No standard template for this kind (a distribution or licence agreement,
                 # say): draft it fresh instead of failing the flow on its first step.
@@ -1201,18 +1229,19 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 sr.status = "waiting_human"
                 sr.note = "Upload the document on the ticket — it becomes the contract."
             return "wait"
-        from app.intake.drafting import DraftHeld
+        from app.intake.drafting import DraftHeld, held_step
 
         try:
             contract = await _draft_contract(db, run=run, mode="template", actor=actor)
-        except DraftHeld:
-            # An older SOW request with its deliverables only as free text (FR-45): stop here for a person
-            # and say why. Not skipped, not done, no contract; _resolve_waiting_group lets it go on once the
-            # rows exist. The hold is set before _assign_step, which adds its own keys to sr.result.
+        except DraftHeld as held:
+            # A request that lacks what the draft is made from (an older SOW with its deliverables only as
+            # free text, FR-45; a Consultancy or DPA request without the schedule's or annexes' answers, or a
+            # DPA that came in by email, spec 008 FR-44): stop here for a person and say why. Not skipped, not
+            # done, no contract; _resolve_waiting_group lets it go on once the request has them. The hold is
+            # set before _assign_step, which adds its own keys to sr.result.
             if sr:
                 sr.status = "waiting_human"
-                sr.note = sow.HELD_STEP_NOTE
-                sr.result = {"held": _HELD_FOR_ROWS}
+                sr.note, sr.result = held_step(held.detail)
                 _assign_step(db, run=run, sr=sr, cfg=cfg)
             return "wait"
         run.contract_id = contract.id
@@ -1403,8 +1432,13 @@ def complete_human_step(
     if sr and sr.status == "waiting_human":
         _require_step_actor(db, sr=sr, actor=actor)
         if _is_held(sr):
+            from app.intake.drafting import ANSWERS_STEP_NOT_MANUAL
+
             # Before _take_rework_reply, which writes a comment: a refused step changes nothing.
-            raise HTTPException(status.HTTP_409_CONFLICT, sow.HELD_STEP_NOT_MANUAL)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                sow.HELD_STEP_NOT_MANUAL if sr.result.get("held") == _HELD_FOR_ROWS else ANSWERS_STEP_NOT_MANUAL,
+            )
         _take_rework_reply(db, run=run, actor=actor, idx=idx, reply=rework_reply, request_id=request_id)
         sr.status = "done"; sr.note = note or sr.note
         steps = list(run.steps or [])
