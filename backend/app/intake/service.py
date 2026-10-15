@@ -22,6 +22,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.contracts.blanks import first_blank
 from app.core.access import is_org_admin
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
@@ -240,7 +241,7 @@ def looks_like_email(text: str) -> bool:
     return not domain.startswith(".") and ".." not in domain
 
 
-def _validate_field_values(fields: list, values: dict | None) -> dict | None:
+def _validate_field_values(fields: list, values: dict | None, *, stored: dict | None = None) -> dict | None:
     """Enforce what the request's form declares, and return the cleaned values.
 
     Previously this checked required-ness and nothing else, so a `number` field
@@ -253,18 +254,26 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
     legitimately stores `channel_from`, `counterparty` and `gmail_thread_id`
     alongside the declared fields, and rejecting them would break email and
     Gmail ingestion.
+
+    ``stored`` is what an update is replacing (None for a new filing). A rule added after a request was
+    filed never refuses an answer the update leaves as it was: a total value of 0 or a bracketed scope
+    from before the rule is not the reason an unrelated edit fails.
     """
     from app.intake.agreement_forms import shown
 
     if not fields:
         return values
     cleaned = dict(values or {})
+    tables = []
     for f in fields:
         if not shown(f, cleaned):
             # A question that doesn't apply (an NDA has no value) is neither
             # required nor kept: a stale answer from an earlier choice would
             # otherwise reach the contract.
             cleaned.pop(f.key, None)
+            continue
+        if f.kind == "rows":
+            tables.append(f)  # judged after the dates: a table's due dates sit in the services window
             continue
         raw = cleaned.get(f.key)
         missing = raw is None or (isinstance(raw, str) and not raw.strip())
@@ -276,8 +285,50 @@ def _validate_field_values(fields: list, values: dict | None) -> dict | None:
             cleaned.pop(f.key, None)
             continue
         cleaned[f.key] = _coerce_field(f, raw)
+        if stored is None or cleaned[f.key] != stored.get(f.key):
+            _refuse_unsound_answer(f, cleaned[f.key])
     _check_dates_in_order(fields, cleaned)
+    labels = {f.key: f.label for f in fields}
+    for f in tables:
+        _check_table(f, cleaned, labels, stored)
     return cleaned
+
+
+def _refuse_unsound_answer(f, value) -> None:
+    """The two rules a question can add to its type: no blank brackets, and a number above a floor."""
+    blank = first_blank(value) if getattr(f, "no_blanks", False) and isinstance(value, str) else None
+    if blank:
+        raise HTTPException(
+            422, f'Field "{f.label}" contains {blank}, which reads as a blank to fill in later. '
+                 "Reword it without square brackets.")
+    floor = getattr(f, "min_exclusive", None)
+    if floor is not None and isinstance(value, int | float) and not value > floor:
+        raise HTTPException(422, f'Field "{f.label}" must be more than {floor}')
+
+
+def _check_table(f, cleaned: dict, labels: dict, stored: dict | None) -> None:
+    """A table question (the SOW's deliverables) in place in ``cleaned``.
+
+    A new filing may not carry the old free-text answer. An older request keeps it exactly as filed and
+    may stay without rows until someone sets them — an unrelated update is not refused for that."""
+    from app.intake.agreement_forms import clean_rows, not_a_table, too_few_rows
+
+    old = f.legacy_key
+    if stored is None:
+        if old in cleaned:
+            raise not_a_table(f)
+    elif old in stored:
+        cleaned[old] = stored[old]
+    elif old in cleaned:
+        raise not_a_table(f)
+    raw = cleaned.get(f.key)
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        older_without_rows = stored is not None and old in stored and f.key not in stored
+        if f.required and not older_without_rows:
+            raise too_few_rows(f)
+        cleaned.pop(f.key, None)
+        return
+    cleaned[f.key] = clean_rows(f, raw, cleaned, labels)
 
 
 def _check_dates_in_order(fields: list, cleaned: dict) -> None:
@@ -906,9 +957,15 @@ class IntakeService:
         # so triage can read what was attached.
         for att in attachments:
             self._attach(actor=actor, r=r, att=att)
+        facts = {}
+        if (field_values or {}).get("request_form") == "sow":
+            # What the requester filed for the SOW, exactly as stored (FR-38): the rows, and the pricing,
+            # window and money they were checked against.
+            facts = {k: field_values.get(k) for k in ("deliverable_rows", "pricing", "services_start",
+                                                      "services_end", "value", "currency")}
         write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
                         org_id=actor.org_id, actor_user_id=actor.id, request_id=request_id,
-                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority})
+                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority, **facts})
         write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
                              event_type="intake.created", title=f"Request filed — {r.type_label}",
                              actor_user_id=actor.id, request_id=request_id)
@@ -1844,6 +1901,7 @@ class IntakeService:
         if r.status == "closed":
             raise HTTPException(409, "Request is closed — file a follow-up")
         before = {"stage": r.stage, "priority": r.priority, "work_status": r.work_status}
+        stored = dict(r.field_values or {})
         for attr in ("priority", "department", "description", "work_status"):
             val = getattr(payload, attr, None)
             if val is not None:
@@ -1855,7 +1913,7 @@ class IntakeService:
             from app.intake.agreement_forms import form_fields
 
             form = (r.field_values or {}).get("request_form") or (payload.field_values or {}).get("request_form")
-            r.field_values = _validate_field_values(form_fields(form), payload.field_values)
+            r.field_values = _validate_field_values(form_fields(form), payload.field_values, stored=stored)
         if payload.stage is not None and payload.stage != r.stage:
             valid = stages_for()
             if payload.stage not in valid:
@@ -1876,9 +1934,28 @@ class IntakeService:
             write_audit_log(db, action="intake.updated", resource_type="intake_request",
                             resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                             before=before, after={"priority": r.priority, "work_status": r.work_status})
+        self._record_deliverables_change(actor=actor, r=r, stored=stored, request_id=http_request_id)
         db.commit()
         db.refresh(r)
         return self.serialize_request(r)
+
+    def _record_deliverables_change(self, *, actor: User, r: IntakeRequest, stored: dict,
+                                    request_id: str | None) -> None:
+        """Who changed a SOW's deliverable rows and what they were before and after (FR-38), in the
+        request's own transaction. Pricing rides along: it is why a share column appears or goes."""
+        now = r.field_values or {}
+        if stored.get("deliverable_rows") == now.get("deliverable_rows"):
+            return
+        before = {"deliverable_rows": stored.get("deliverable_rows"), "pricing": stored.get("pricing")}
+        after = {"deliverable_rows": now.get("deliverable_rows"), "pricing": now.get("pricing")}
+        write_audit_log(self.db, action="intake.deliverables_changed", resource_type="intake_request",
+                        resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
+                        request_id=request_id, before=before, after=after)
+        write_timeline_event(
+            self.db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
+            event_type="intake.deliverables_changed", actor_user_id=actor.id, request_id=request_id,
+            title="Deliverables changed" if stored.get("deliverable_rows") else "Deliverables entered as rows",
+            details={"before": before, "after": after})
 
     def _attach(self, *, actor: User, r: IntakeRequest, att: _PreparedAttachment):
         from app.intake.models import IntakeDocument

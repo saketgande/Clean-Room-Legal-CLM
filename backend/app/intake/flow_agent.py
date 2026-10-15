@@ -24,6 +24,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from app.intake.agreement_forms import answer_text
 from app.intake.models import IntakeRequest
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,9 @@ def _prompt_for(request: IntakeRequest, catalog: list[dict]) -> str:
             entry += f"\n    AI condition (weigh this heavily): {condition}"
         lines.append(entry)
     fv = request.field_values or {}
-    field_txt = "\n".join(f"  {k}: {v}" for k, v in fv.items() if not str(k).startswith("_")) or "  (none)"
+    form = fv.get("request_form")
+    field_txt = "\n".join(f"  {k}: {answer_text(form, k, v)}" for k, v in fv.items()
+                          if not str(k).startswith("_")) or "  (none)"
     lines += [
         "\nINTAKE REQUEST:",
         f"  Type: {request.type_label}",
