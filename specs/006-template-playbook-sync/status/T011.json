@@ -1,0 +1,1 @@
+{"task": "T011", "agent": "backend-dev", "status": "done", "detail": "follow-up done: list_checks/get_check moved into checks.py (routes make one call each), check_against_playbook deleted (no leftovers in app/ tests/); ruff clean; 246 pass in 4 template files; restart + smoke OK (login 200, list 200 x7, nda/checks 200)", "updated": "2026-10-15T08:59:16Z"}

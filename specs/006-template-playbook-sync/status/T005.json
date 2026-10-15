@@ -1,0 +1,1 @@
+{"task": "T005", "agent": "backend-dev", "status": "done", "detail": "strict bare-name field rule in service.check_body and docx_fields; 233 pass in the 4 target files (425 with playbook/exam/intake suites); ruff clean", "updated": "2026-10-15T08:11:35Z"}

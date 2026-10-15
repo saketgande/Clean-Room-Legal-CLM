@@ -6,7 +6,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Models
 
-- `Contract` (table `contract`, org_scoped=True, soft_delete=True) -- FKs: owner_user_id->user.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id, current_contract_file_id->contract_file.id, current_authoritative_version_id->contract_version.id
+- `Contract` (table `contract`, org_scoped=True, soft_delete=True) -- FKs: owner_user_id->user.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id, current_contract_file_id->contract_file.id, current_authoritative_version_id->contract_version.id, review_playbook_id->playbook.id
 - `ContractParty` (table `contract_party`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id
 - `ContractStageHistory` (table `contract_stage_history`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, changed_by_user_id->user.id
 

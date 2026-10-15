@@ -86,6 +86,9 @@ needs to change any of those stops with `blocked` and says why; it does not impr
 #### Wave 12 — Final verification
 - [ ] T024 (qa-engineer) Full verification: CI gates, every AC-1..AC-75 mapped to a test id or a recorded stack walk, AC-37 in real Microsoft Word (draft opens, formatting kept, fields filled), AC-19 row counts around Check all, AC-70 permission-table diff; complete `verification.md` — dependsOn: T023 — files: specs/006-template-playbook-sync/verification.md
 
+### Follow-ups found during the run (added by the orchestrator)
+- [ ] T025 (backend-dev + frontend-dev, after T021) Retry review on a contract whose pinned playbook is deleted or unpublished says "No playbook covers this contract type…", which is false for a pinned contract (found by T006, which fixed the same wording in `contracts/risk.py`). `contracts/auto_review.retry_review` should return the `_no_playbook_note` reason with `status="no_playbook"`; `workflows/service.py` (~l.1455) raises the 409 with that reason; `frontend/src/lib/review-retry.ts` (~l.113) shows the server's reason when given. Tests for both wordings (FR-51) — dependsOn: T021 — files: backend/app/contracts/auto_review.py, backend/app/workflows/service.py, frontend/src/lib/review-retry.ts, backend/tests/test_playbook_pin.py, frontend/src/lib/review-retry.test.ts
+
 ## Task detail notes
 
 - **Hotspot serialization (checked):** `backend/app/models.py` only T001. `jobs/tasks.py` only T009.

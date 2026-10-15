@@ -45,7 +45,7 @@ Owner agents: backend-dev, db-engineer
 - `POST /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: RequestCreate -- response: RequestResponse
 - `POST /intake/requests/{request_id}/assign-to-me` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: dict -- response: ?
-- `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
+- `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: DraftContractResponse
 - `POST /intake/requests/{request_id}/handoff` -- permission: `*(none -- verify manual auth)*` -- request: HandoffCreate -- response: RequestResponse
 - `POST /intake/requests/{request_id}/ingest-attachment` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/pause` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
@@ -63,7 +63,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+AssigneeResponse, AttachmentIn, DraftContractResponse, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 

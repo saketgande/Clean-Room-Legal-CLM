@@ -1,0 +1,1 @@
+{"task": "T003", "agent": "backend-dev", "status": "done", "detail": "schemas.py + test_template_schemas.py; 62 tests pass; ruff check . clean", "updated": "2026-10-15T07:36:27Z"}
