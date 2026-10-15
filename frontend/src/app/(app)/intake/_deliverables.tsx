@@ -6,8 +6,9 @@
  * Exports
  *  - `RowsTable`: any table question the server declares (`kind: "rows"`). With `onChange` it is the editor
  *    (labelled cells, add and remove, a cap, errors beside the cell, the running share total, the
- *    past-date note); without it, the same rows read-only. The rules it shows come from
- *    `@/lib/form-checks`, which the server's filing validator mirrors.
+ *    past-date note); without it, the same rows read-only (a table with one column reads as a list). The
+ *    question names its own thing: `item` for "Add a …" and the cap, `ref_prefix` for the reference column.
+ *    The rules it shows come from `@/lib/form-checks`, which the server's filing validator mirrors.
  *  - `RequestDeliverables`: the block for the request page. Props:
  *      request    the request (its `field_values` hold `deliverable_rows`, and for an older request the
  *                 free-text `deliverables`)
@@ -65,6 +66,7 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
   const uid = useId();
   const cols = shownColumns(field, values);
   const edit = !!onChange;
+  const [one, many] = field.item ?? ["deliverable", "deliverables"];
   const max = field.max_rows ?? Infinity;
   const atMax = rows.length >= max;
   const totalCol = cols.find((c) => c.total !== undefined);
@@ -79,10 +81,19 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
     ? pastDueRows(field, rows, today ?? todayIso()).filter((n) => {
       // A date outside the window gets the window's error, not "already passed" on top of it.
       const due = tidyCell(rows[n - 1][dateCol.key]);
-      return !win || (due >= win.start && due <= win.end);
+      return !win || (due >= win.start && (win.end === null || due <= win.end));
     })
     : [];
   const total = edit && totalCol ? shareTotal(field, rows) : null;
+
+  // Key individuals and countries are a list of names, not a grid: read-only, they read as one.
+  if (!edit && cols.length === 1) {
+    return (
+      <ul aria-label={field.label} className="list-disc space-y-0.5 pl-5 text-[13px] text-slate-900">
+        {rows.map((row, i) => <li key={i}>{row[cols[0].key] || "—"}</li>)}
+      </ul>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -100,7 +111,7 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
             const n = i + 1;
             return (
               <TR key={i}>
-                <TD className="align-top text-[12px] text-slate-500">{edit ? n : `D${n}`}</TD>
+                <TD className="align-top text-[12px] text-slate-500">{edit ? n : `${field.ref_prefix ?? "D"}${n}`}</TD>
                 {cols.map((c) => {
                   const value = row[c.key] ?? "";
                   if (!edit) {
@@ -122,7 +133,7 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
                         type={c.kind === "date" ? "date" : "text"}
                         inputMode={c.kind === "percent" ? "decimal" : undefined}
                         min={c.kind === "date" ? win?.start : undefined}
-                        max={c.kind === "date" ? win?.end : undefined}
+                        max={c.kind === "date" ? win?.end ?? undefined : undefined}
                         value={value}
                         className={cn(bad && "border-danger bg-danger-subtle")}
                         onChange={(e) => change(rows.map((r, j) => (j === i ? { ...r, [c.key]: e.target.value } : r)))}
@@ -158,7 +169,9 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
 
       {edit && win && (
         <p id={hintId} className="text-[11.5px] text-slate-500">
-          Due dates must fall between {longDate(win.start)} and {longDate(win.end)} ({labels[win.startKey] ?? win.startKey} to {labels[win.endKey] ?? win.endKey}).
+          {win.end === null
+            ? <>Due dates must be on or after {longDate(win.start)} ({labels[win.startKey] ?? win.startKey}).</>
+            : <>Due dates must fall between {longDate(win.start)} and {longDate(win.end)} ({labels[win.startKey] ?? win.startKey} to {labels[win.endKey] ?? win.endKey}).</>}
         </p>
       )}
       {passed.length > 0 && (
@@ -175,9 +188,9 @@ export function RowsTable({ field, rows, values, labels, onChange, problems = []
         <div className="flex flex-wrap items-center gap-3">
           <Button type="button" variant="outline" size="sm" disabled={atMax} aria-describedby={atMax ? `${uid}-cap` : undefined}
             onClick={() => change([...rows, {}])}>
-            <Plus className="h-3.5 w-3.5" />Add a deliverable
+            <Plus className="h-3.5 w-3.5" />Add a {one}
           </Button>
-          {atMax && <span id={`${uid}-cap`} className="text-[12px] text-slate-500">A table holds at most {max} deliverables.</span>}
+          {atMax && <span id={`${uid}-cap`} className="text-[12px] text-slate-500">A table holds at most {max} {many}.</span>}
         </div>
       )}
     </div>

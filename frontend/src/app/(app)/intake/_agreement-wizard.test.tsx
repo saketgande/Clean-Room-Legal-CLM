@@ -619,3 +619,603 @@ describe("the form definitions the wizard reads", () => {
     expect(within(document.body).queryByRole("alert")).toBeNull();
   });
 });
+
+// ---- Consultancy and DPA (008) -------------------------------------------------------------------------------
+// The Consultancy form asks for its deliverables, fee, key individuals and company contact; the DPA asks for what
+// kind of data and whose, the countries it goes to and the sub-processors. Each is checked by the rules the server
+// applies when the request is filed (lib/form-checks.ts, pinned by one shared cases file).
+
+const draftOf = (form: string, page: number, values: IntakeDraft["values"]): IntakeDraft => ({
+  id: "d-2", form_key: form, title: null, values, parent_contract_id: form === "dpa" ? "c-1" : null, page_index: page, visited: page,
+  created_at: "2026-10-01T00:00:00Z", updated_at: "2026-10-01T00:00:00Z",
+});
+
+const ADVICE = "There are no separate deliverables (advice only)";
+const CONSULT: IntakeDraft["values"] = {
+  agreement_type: "Consultancy", entity: "Acme Ltd", entity_id: "e-1", counterparty: "Northwind Ltd", counterparty_id: "cp-1",
+  cp_signer_name: "Maya Chen", cp_signer_email: "maya@example.com", paper: "Our template",
+  purpose: "Advice on quality processes", department: "Quality",
+  value: "1800000", currency: "INR", start_date: "2026-11-01", term: "Fixed end date", end_date: "2027-04-30",
+  scope: "Advise on the design of the new quality-management process.", payment_terms: "30 days",
+  consultancy_deliverables: [{ name: "Current-state review", due: "2026-12-15" }, { name: "Process design report", due: "2027-03-15" }],
+  fee_basis: "Fixed fee", key_individuals: [{ name: "Anita Rao" }, { name: "Dev Menon" }],
+  company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality", personal_data: "No", gxp: "No",
+};
+const CONTROLLER = "Controller: we decide how the data is used";
+const PROCESSOR = "Processor: we act on their instructions";
+const DPA: IntakeDraft["values"] = {
+  parent_contract_id: "c-1", cp_signer_name: "Maya Chen", cp_signer_email: "maya@example.com", paper: "Our template",
+  our_role: CONTROLLER, processing_purpose: "Hosting and support of the clinical-trial site portal.",
+  data_types: ["Contact and identity", "Health or other special category"], data_subjects: ["Customers", "Patients or trial subjects"],
+  transfer: "No", subprocessors: "No",
+};
+
+const NEW_QUESTIONS = ["How is the consultant paid?", "Company contact: name", "Company contact: role"];
+const termsOf = async (over: IntakeDraft["values"] = {}) => {
+  const handles = mount("new_agreement", draftOf("new_agreement", 1, { ...CONSULT, ...over }));
+  await screen.findByRole("heading", { name: "Commercial terms" });
+  return handles;
+};
+const dataOf = async (over: IntakeDraft["values"] = {}) => {
+  const handles = mount("dpa", draftOf("dpa", 1, { ...DPA, ...over }));
+  await screen.findByRole("heading", { name: "The data" });
+  return handles;
+};
+const tableOf = (name: string) => screen.getByRole("table", { name });
+const cellIn = (table: string, label: string) => within(tableOf(table)).getByLabelText(label);
+const typeIn = (table: string, label: string, value: string) => fireEvent.change(cellIn(table, label), { target: { value } });
+
+describe("the Consultancy questions show for Consultancy on our template only (AC-16)", () => {
+  it("asks for the fee, the deliverables, the key individuals and the company contact", async () => {
+    await termsOf();
+    for (const label of NEW_QUESTIONS) expect(screen.getByLabelText(label)).toBeInTheDocument();
+    expect(screen.getByLabelText(ADVICE)).not.toBeChecked();
+    expect(tableOf("Deliverables")).toBeInTheDocument();
+    expect(tableOf("Consultant's key individuals")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Rate per day or hour")).toBeNull(); // a fixed fee has no rate
+    expect(screen.getByText(/Deliverables and timetable in the Engagement Schedule/)).toBeInTheDocument(); // what the answer does
+  });
+
+  it("asks for none of it on their paper", async () => {
+    await termsOf({ paper: "Their paper" });
+    for (const label of [...NEW_QUESTIONS, ADVICE, "Rate per day or hour"]) expect(screen.queryByLabelText(label)).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it.each(["Services (MSA)", "Buying from a vendor", "Software or SaaS", "Selling to a customer", "Something else"])("asks for none of it for %s", async (kind) => {
+    await termsOf({ agreement_type: kind, hosting: "India", buying: "Goods" });
+    for (const label of [...NEW_QUESTIONS, ADVICE]) expect(screen.queryByLabelText(label)).toBeNull();
+    expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("lets a complete step go on", async () => {
+    await termsOf();
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+    expect(banner()).toBeNull();
+  });
+});
+
+describe("the Consultancy deliverables table (AC-17, AC-18)", () => {
+  it("refuses an incomplete row beside the cell and in the line above the form, naming the row and the column", async () => {
+    await termsOf({ consultancy_deliverables: [{ name: "Report", due: "" }] });
+    next();
+    expect(banner()).toHaveTextContent('"Deliverables", row 1: "Due date" is required.');
+    expect(screen.getByRole("heading", { name: "Commercial terms" })).toBeInTheDocument();
+    const cell = cellIn("Deliverables", "Row 1, Due date");
+    expect(cell).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(cell.getAttribute("aria-describedby")!.split(" ")[0])).toHaveTextContent('"Due date" is required.');
+  });
+
+  it("refuses a blank bracket, a repeated name and a date before the start, all listed", async () => {
+    await termsOf({ end_date: "", term: "No end date (evergreen)" });
+    typeIn("Deliverables", "Row 1, Deliverable name", "Report [TBD]");
+    typeIn("Deliverables", "Row 1, Due date", "2026-10-31");
+    typeIn("Deliverables", "Row 2, Deliverable name", "report");
+    typeIn("Deliverables", "Row 2, Due date", "2026-12-01");
+    fireEvent.click(within(tableOf("Deliverables")).getByRole("button", { name: "Remove row 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add a deliverable" }));
+    typeIn("Deliverables", "Row 2, Deliverable name", "Report [TBD]");
+    typeIn("Deliverables", "Row 2, Due date", "2026-12-01");
+    next();
+    expect(banner()).toHaveTextContent('"Deliverables", row 1: "Due date" must be on or after 1 November 2026 (Start date).');
+    expect(banner()).toHaveTextContent('"Deliverables", row 1: "Deliverable name" contains [TBD], which reads as a blank to fill in later.');
+    expect(banner()).toHaveTextContent('"Deliverables", rows 1 and 2 have the same "Deliverable name" ("Report [TBD]").');
+  });
+
+  it("stops at twenty rows and says why, then offers a row again once one is removed", async () => {
+    await termsOf();
+    const add = () => screen.getByRole("button", { name: "Add a deliverable" });
+    for (let i = 2; i < 20; i++) fireEvent.click(add());
+    expect(cellIn("Deliverables", "Row 20, Deliverable name")).toBeInTheDocument();
+    expect(add()).toBeDisabled();
+    expect(screen.getByText("A table holds at most 20 deliverables.")).toBeInTheDocument();
+    fireEvent.click(within(tableOf("Deliverables")).getByRole("button", { name: "Remove row 20" }));
+    expect(add()).toBeEnabled();
+  });
+
+  it("offers only the days from the start to the end, and says what they are", async () => {
+    await termsOf();
+    const due = cellIn("Deliverables", "Row 1, Due date");
+    expect([due.getAttribute("min"), due.getAttribute("max")]).toEqual(["2026-11-01", "2027-04-30"]);
+    expect(screen.getByText(/between 1 November 2026 and 30 April 2027 \(Start date to End date\)/)).toBeInTheDocument();
+  });
+
+  it("with no end date checks the start alone, and an end date typed earlier no longer counts", async () => {
+    await termsOf({ consultancy_deliverables: [{ name: "Report", due: "2030-01-01" }] }); // beyond the typed end 2027-04-30
+    next();
+    expect(banner()).toHaveTextContent('"Deliverables", row 1: "Due date" must be between 1 November 2026 and 30 April 2027');
+    type("Term", "No end date (evergreen)");
+    expect(screen.queryByLabelText("End date")).toBeNull();
+    expect(banner()).toBeNull();
+    const due = cellIn("Deliverables", "Row 1, Due date");
+    expect(due).toHaveAttribute("min", "2026-11-01");
+    expect(due).not.toHaveAttribute("max");
+    expect(screen.getByText("Due dates must be on or after 1 November 2026 (Start date).")).toBeInTheDocument();
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+  });
+
+  it("flags the row again when the end date is moved in front of it", async () => {
+    await termsOf();
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    await screen.findByRole("heading", { name: "Commercial terms" });
+    type("End date", "2027-02-01");
+    next();
+    expect(banner()).toHaveTextContent('"Deliverables", row 2: "Due date" must be between 1 November 2026 and 1 February 2027 (Start date to End date).');
+    expect(cellIn("Deliverables", "Row 2, Due date")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByRole("heading", { name: "Commercial terms" })).toBeInTheDocument();
+  });
+
+  it("notes a due date that has already passed, and does not stop the request", async () => {
+    await termsOf({ start_date: "2020-01-01", end_date: "2030-12-31", consultancy_deliverables: [{ name: "Report", due: "2020-06-01" }] });
+    expect(screen.getByText("Row 1: this due date has already passed.")).toBeInTheDocument();
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+  });
+});
+
+describe("advice only (AC-19)", () => {
+  it("hides the deliverables table when ticked, brings the rows back when unticked, and does not need them", async () => {
+    await termsOf({ consultancy_deliverables: [{ name: "Current-state review", due: "2026-12-15" }, { name: "", due: "" }] });
+    fireEvent.click(screen.getByLabelText(ADVICE));
+    expect(screen.queryByRole("table", { name: "Deliverables" })).toBeNull();
+    fireEvent.click(screen.getByLabelText(ADVICE));
+    expect(cellIn("Deliverables", "Row 1, Deliverable name")).toHaveValue("Current-state review");
+    fireEvent.click(screen.getByLabelText(ADVICE));
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument(); // no rows asked for
+  });
+
+  it("needs a table once it is not advice only", async () => {
+    await termsOf({ consultancy_deliverables: [{}] });
+    next();
+    expect(banner()).toHaveTextContent('"Deliverables" needs at least 1 row.');
+  });
+});
+
+describe("how the consultant is paid (AC-20)", () => {
+  it("asks for a rate only for a day or hourly rate, and brings a typed rate back", async () => {
+    await termsOf();
+    type("How is the consultant paid?", "Day rate");
+    type("Rate per day or hour", "25000");
+    type("How is the consultant paid?", "Fixed fee");
+    expect(screen.queryByLabelText("Rate per day or hour")).toBeNull();
+    type("How is the consultant paid?", "Hourly rate");
+    expect(screen.getByLabelText("Rate per day or hour")).toHaveValue("25000");
+    expect(screen.getByText(/The day or hourly rate in the Fees entry/)).toBeInTheDocument();
+  });
+
+  it("will not go on without the rate for a rate basis, naming it", async () => {
+    await termsOf({ fee_basis: "Day rate" });
+    next();
+    expect(banner()).toHaveTextContent("1 answer still needed: Rate per day or hour.");
+    type("Rate per day or hour", "25000");
+    expect(banner()).toBeNull();
+  });
+
+  it.each([
+    ["25.001", "Rate per day or hour: Can have at most 2 decimal places."],
+    ["3,500.125", "Rate per day or hour: Can have at most 2 decimal places."],
+    ["1e3", "Rate per day or hour: Must be a number."],
+    [".5", "Rate per day or hour: Must be a number."],
+    ["5.", "Rate per day or hour: Must be a number."],
+    ["+25", "Rate per day or hour: Must be a number."],
+    ["２５０００", "Rate per day or hour: Must be a number."],
+    ["0", "Rate per day or hour: Must be more than 0."],
+    ["-5", "Rate per day or hour: Must be more than 0."],
+  ])("refuses a rate of %s", async (rate, message) => {
+    await termsOf({ fee_basis: "Day rate", fee_rate: rate });
+    next();
+    expect(banner()).toHaveTextContent(message);
+    expect(screen.getByRole("heading", { name: "Commercial terms" })).toBeInTheDocument();
+  });
+
+  it.each(["25000", "25000.50", "1,500.25", " 25000 "])("accepts a rate of %j", async (rate) => {
+    await termsOf({ fee_basis: "Day rate", fee_rate: rate });
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+  });
+
+  it("types a rate with the decimal keypad, not a number box that would drop a comma", async () => {
+    await termsOf({ fee_basis: "Day rate" });
+    const rate = screen.getByLabelText("Rate per day or hour");
+    expect(rate).toHaveAttribute("type", "text");
+    expect(rate).toHaveAttribute("inputmode", "decimal");
+  });
+});
+
+describe("key individuals and the company contact (AC-22, AC-23, AC-24)", () => {
+  it("needs at least one key individual, refuses a repeat and a blank bracket, and lists every problem", async () => {
+    await termsOf({ key_individuals: [{}] });
+    next();
+    expect(banner()).toHaveTextContent('"Consultant\'s key individuals" needs at least 1 row.');
+    typeIn("Consultant's key individuals", "Row 1, Name", "Anita Rao");
+    fireEvent.click(screen.getByRole("button", { name: "Add a key individual" }));
+    typeIn("Consultant's key individuals", "Row 2, Name", "anita  rao");
+    next();
+    expect(banner()).toHaveTextContent('"Consultant\'s key individuals", rows 1 and 2 have the same "Name" ("Anita Rao"). Give each row its own.');
+    typeIn("Consultant's key individuals", "Row 2, Name", "[Name]");
+    next();
+    expect(banner()).toHaveTextContent('"Consultant\'s key individuals", row 2: "Name" contains [Name], which reads as a blank');
+  });
+
+  it("stops at ten key individuals and says why", async () => {
+    await termsOf({ key_individuals: Array.from({ length: 10 }, (_, i) => ({ name: `Person ${i}` })) });
+    expect(screen.getByRole("button", { name: "Add a key individual" })).toBeDisabled();
+    expect(screen.getByText("A table holds at most 10 key individuals.")).toBeInTheDocument();
+  });
+
+  it("refuses a contact name or role of more than 120 characters, or in brackets, beside the question", async () => {
+    await termsOf({ company_contact_name: "n".repeat(121), company_contact_role: "[Role]" });
+    next();
+    expect(banner()).toHaveTextContent("Company contact: name: Is longer than 120 characters.");
+    expect(banner()).toHaveTextContent("Company contact: role: Contains [Role], which reads as a blank to fill in later.");
+    type("Company contact: name", "n".repeat(120));
+    type("Company contact: role", "Head of Quality (acting)");
+    expect(banner()).toBeNull();
+  });
+
+  it("needs both halves of the company contact", async () => {
+    await termsOf({ company_contact_name: "", company_contact_role: "" });
+    next();
+    expect(banner()).toHaveTextContent("2 answers still needed: Company contact: name, Company contact: role.");
+  });
+});
+
+describe("the scope and the total value hold the new rules for Consultancy on our paper only (AC-21)", () => {
+  it("refuses a blank bracket in the scope and a total value of zero", async () => {
+    await termsOf({ scope: "Advise on [TBD] processes", value: "0" });
+    next();
+    expect(banner()).toHaveTextContent("Scope of services: Contains [TBD], which reads as a blank to fill in later.");
+    expect(banner()).toHaveTextContent("Total contract value: Must be more than 0.");
+  });
+
+  it.each([["Services (MSA)", "Our template"], ["Consultancy", "Their paper"]])("keeps accepting both for %s on %s paper", async (kind, paper) => {
+    await termsOf({ agreement_type: kind, paper, scope: "Advise on [TBD] processes", value: "0" });
+    next();
+    expect(await screen.findByRole("heading", { name: "Risk checks and files" })).toBeInTheDocument();
+  });
+});
+
+describe("the review step for a Consultancy request (AC-27)", () => {
+  beforeEach(() => {
+    h.intakeApi.deleteDraft.mockResolvedValue(undefined);
+    h.intakeApi.create.mockResolvedValue({ id: "q-1", ref: "REQ-1" });
+  });
+  const reviewConsult = async (over: IntakeDraft["values"] = {}) => {
+    const handles = mount("new_agreement", draftOf("new_agreement", 3, { ...CONSULT, ...over }));
+    await screen.findByRole("heading", { name: "Review and submit" });
+    return handles;
+  };
+  const filed = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    await waitFor(() => expect(h.intakeApi.create).toHaveBeenCalled());
+    return h.intakeApi.create.mock.calls[0][0] as { field_values: Record<string, unknown> };
+  };
+
+  it("says the Consultancy Agreement template will be drafted, shows the deliverables as rows and the individuals as a list", async () => {
+    await reviewConsult();
+    expect(screen.getByText("Consultancy Agreement template")).toBeInTheDocument();
+    const rows = within(tableOf("Deliverables")).getAllByRole("row");
+    expect(rows).toHaveLength(3);
+    expect(rows[1]).toHaveTextContent("D1");
+    expect(rows[1]).toHaveTextContent("Current-state review");
+    expect(rows[2]).toHaveTextContent(fmtDate("2027-03-15"));
+    const list = screen.getByRole("list", { name: "Consultant's key individuals" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Anita Rao", "Dev Menon"]);
+    expect(screen.queryByRole("table", { name: "Consultant's key individuals" })).toBeNull();
+    expect(screen.getByText("Fixed fee")).toBeInTheDocument();
+    expect(screen.getByText("Ravi Shah")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("[object Object]");
+  });
+
+  it("shows the rate with the currency of the total value", async () => {
+    await reviewConsult({ fee_basis: "Day rate", fee_rate: "25000", currency: "USD" });
+    const rate = screen.getByText("Rate per day or hour").closest("div")!;
+    expect(rate).toHaveTextContent("USD 25,000");
+  });
+
+  it("shows advice only instead of a table", async () => {
+    await reviewConsult({ advice_only: [ADVICE] });
+    expect(screen.getByText(ADVICE)).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Deliverables" })).toBeNull();
+  });
+
+  it("files the answers as entered, with the rate only for a rate basis and no table for advice only", async () => {
+    await reviewConsult({ fee_basis: "Day rate", fee_rate: "25000" });
+    const day = (await filed()).field_values;
+    expect(day).toMatchObject({ request_form: "new_agreement", fee_basis: "Day rate", fee_rate: "25000",
+      key_individuals: [{ name: "Anita Rao" }, { name: "Dev Menon" }], company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality" });
+    expect(day.consultancy_deliverables).toEqual(CONSULT.consultancy_deliverables);
+  });
+
+  it("does not file a rate typed earlier once the fee is fixed, or rows once it is advice only", async () => {
+    await reviewConsult({ fee_basis: "Fixed fee", fee_rate: "25000", advice_only: [ADVICE] });
+    const fv = (await filed()).field_values;
+    expect("fee_rate" in fv).toBe(false);
+    expect("consultancy_deliverables" in fv).toBe(false);
+    expect(fv.advice_only).toEqual([ADVICE]);
+    expect(fv.fee_basis).toBe("Fixed fee");
+  });
+
+  it("when filing fails, keeps every entry, shows the server's message, and files nothing", async () => {
+    const message = '"Deliverables", row 2: "Due date" must be between 1 November 2026 and 30 April 2027 (Start date to End date).';
+    h.intakeApi.create.mockRejectedValue(new Error(message));
+    const { onFiled } = await reviewConsult();
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(message, "error"));
+    expect(onFiled).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    await screen.findByRole("heading", { name: "Risk checks and files" });
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    await screen.findByRole("heading", { name: "Commercial terms" });
+    expect(cellIn("Deliverables", "Row 2, Deliverable name")).toHaveValue("Process design report");
+    expect(cellIn("Consultant's key individuals", "Row 2, Name")).toHaveValue("Dev Menon");
+  });
+
+  it("is refused at Submit when a saved form's table is no longer valid", async () => {
+    await reviewConsult({ company_contact_name: "[Name]" });
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    expect(await screen.findByRole("heading", { name: "Commercial terms" })).toBeInTheDocument();
+    expect(banner()).toHaveTextContent("Company contact: name: Contains [Name]");
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("a Consultancy form saved before these questions existed (AC-50)", () => {
+  it("shows the new questions empty and required, and does not let the person on", async () => {
+    const {
+      consultancy_deliverables: _a, fee_basis: _b, key_individuals: _c, company_contact_name: _d, company_contact_role: _e, ...older
+    } = CONSULT;
+    mount("new_agreement", draftOf("new_agreement", 1, older));
+    await screen.findByRole("heading", { name: "Commercial terms" });
+    expect(screen.getByLabelText("How is the consultant paid?")).toHaveValue("");
+    expect(cellIn("Deliverables", "Row 1, Deliverable name")).toHaveValue("");
+    expect(cellIn("Consultant's key individuals", "Row 1, Name")).toHaveValue("");
+    next();
+    expect(banner()).toHaveTextContent("3 answers still needed: How is the consultant paid?, Company contact: name, Company contact: role.");
+    expect(banner()).toHaveTextContent('"Deliverables" needs at least 1 row.');
+    expect(banner()).toHaveTextContent('"Consultant\'s key individuals" needs at least 1 row.');
+    expect(screen.getByRole("heading", { name: "Commercial terms" })).toBeInTheDocument();
+  });
+});
+
+// ---- The DPA ----------------------------------------------------------------------------------------------------
+
+describe("what kind of data and whose (AC-28, AC-29)", () => {
+  it("asks for both as ticks, with the options of the form", async () => {
+    await dataOf({ data_types: [], data_subjects: [] });
+    const types = screen.getByRole("group", { name: "What kind of personal data?" });
+    expect(within(types).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label") ?? c.parentElement!.textContent))
+      .toEqual(["Contact and identity", "Employee / HR", "Health or other special category", "Financial"]);
+    const subjects = screen.getByRole("group", { name: "Whose data?" });
+    expect(within(subjects).getAllByRole("checkbox")).toHaveLength(4);
+    expect(screen.getByText(/Types of personal data and the special-category entry in Annex 1 of the DPA/)).toBeInTheDocument();
+  });
+
+  it("refuses none ticked, naming both, and lets the person on once each has a tick", async () => {
+    await dataOf({ data_types: [], data_subjects: [] });
+    next();
+    expect(banner()).toHaveTextContent("2 answers still needed: What kind of personal data?, Whose data?.");
+    fireEvent.click(within(screen.getByRole("group", { name: "What kind of personal data?" })).getByLabelText("Financial"));
+    expect(banner()).toHaveTextContent("1 answer still needed: Whose data?.");
+    fireEvent.click(within(screen.getByRole("group", { name: "Whose data?" })).getByLabelText("Customers"));
+    fireEvent.click(within(screen.getByRole("group", { name: "Whose data?" })).getByLabelText("Suppliers"));
+    expect(banner()).toBeNull();
+    next();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("takes a tick back off, and needs one again when the last is gone", async () => {
+    await dataOf({ data_subjects: ["Customers"] });
+    next();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    await screen.findByRole("heading", { name: "The data" });
+    fireEvent.click(within(screen.getByRole("group", { name: "Whose data?" })).getByLabelText("Customers"));
+    next();
+    expect(banner()).toHaveTextContent("1 answer still needed: Whose data?.");
+  });
+});
+
+describe("the countries and the sub-processors (AC-30 to AC-33)", () => {
+  it("asks for neither while the answers are No, and for each once its answer is Yes", async () => {
+    await dataOf();
+    expect(screen.queryByRole("table")).toBeNull();
+    type("Will data leave India?", "Yes");
+    expect(tableOf("Countries outside India")).toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Sub-processors" })).toBeNull();
+    type("Will they use sub-processors?", "Yes");
+    expect(tableOf("Sub-processors")).toBeInTheDocument();
+    expect(screen.getByText(/Processing locations in Annex 1 of the DPA, after India/)).toBeInTheDocument();
+  });
+
+  it("keeps the entries when the answer goes to No and back to Yes", async () => {
+    await dataOf({ transfer: "Yes", subprocessors: "Yes",
+      transfer_countries: [{ country: "Singapore" }, { country: "Germany" }],
+      subprocessor_rows: [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting of the portal database" }] });
+    type("Will data leave India?", "No");
+    type("Will they use sub-processors?", "No");
+    expect(screen.queryByRole("table")).toBeNull();
+    type("Will data leave India?", "Yes");
+    type("Will they use sub-processors?", "Yes");
+    expect(cellIn("Countries outside India", "Row 2, Country")).toHaveValue("Germany");
+    expect(cellIn("Sub-processors", "Row 1, Sub-processor name")).toHaveValue("CloudHost Pte Ltd");
+  });
+
+  it("needs at least one country and one sub-processor for a Yes", async () => {
+    await dataOf({ transfer: "Yes", subprocessors: "Yes" });
+    next();
+    expect(banner()).toHaveTextContent('"Countries outside India" needs at least 1 row.');
+    expect(banner()).toHaveTextContent('"Sub-processors" needs at least 1 row.');
+  });
+
+  it("refuses India in the countries list, a repeat and a blank bracket", async () => {
+    await dataOf({ transfer: "Yes", transfer_countries: [{ country: "India" }, { country: "Singapore" }, { country: "singapore" }, { country: "[Country]" }] });
+    next();
+    expect(banner()).toHaveTextContent('"Countries outside India", row 1: "Country" is India. List only the countries outside India.');
+    expect(banner()).toHaveTextContent('"Countries outside India", rows 2 and 3 have the same "Country" ("Singapore").');
+    expect(banner()).toHaveTextContent('"Countries outside India", row 4: "Country" contains [Country]');
+    expect(cellIn("Countries outside India", "Row 1, Country")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("asks a sub-processor's country to be India when the data does not leave India, and says what to change", async () => {
+    await dataOf({ transfer: "No", subprocessors: "Yes",
+      subprocessor_rows: [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }] });
+    next();
+    expect(banner()).toHaveTextContent('"Sub-processors", row 1: "Country" is "Singapore", but the answer to "Will data leave India?" is No. Enter India, or change that answer.');
+    typeIn("Sub-processors", "Row 1, Country", "India"); // either way out clears it
+    expect(banner()).toBeNull();
+    typeIn("Sub-processors", "Row 1, Country", "Singapore");
+    expect(banner()).toHaveTextContent("Enter India, or change that answer.");
+    type("Will data leave India?", "Yes");
+    expect(banner()).toBeNull();
+  });
+
+  it("accepts a sub-processor in Singapore once the data does leave India, and one in India either way", async () => {
+    await dataOf({ transfer: "Yes", subprocessors: "Yes",
+      transfer_countries: [{ country: "Singapore" }],
+      subprocessor_rows: [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }, { name: "Mumbai Hosting", country: " india ", processing: "Support" }] });
+    next();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("numbers the sub-processors 1, 2 on the review step and lists the countries", async () => {
+    h.intakeApi.deleteDraft.mockResolvedValue(undefined);
+    mount("dpa", draftOf("dpa", 3, { ...DPA, transfer: "Yes", subprocessors: "Yes", transfer_countries: [{ country: "Singapore" }, { country: "Germany" }],
+      subprocessor_rows: [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }, { name: "SupportDesk GmbH", country: "Germany", processing: "Support" }] }));
+    await screen.findByRole("heading", { name: "Review and submit" });
+    const list = screen.getByRole("list", { name: "Countries outside India" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Singapore", "Germany"]);
+    const rows = within(tableOf("Sub-processors")).getAllByRole("row");
+    expect(rows[1].querySelector("td")!.textContent).toBe("1");
+    expect(rows[2]).toHaveTextContent("SupportDesk GmbH");
+    expect(screen.getByText("Contact and identity, Health or other special category")).toBeInTheDocument();
+    expect(screen.getByText("DPA template")).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent("[object Object]");
+  });
+});
+
+describe("the draft a DPA gets, said on the review step (AC-36)", () => {
+  const reviewDpa = async (over: IntakeDraft["values"]) => {
+    mount("dpa", draftOf("dpa", 3, { ...DPA, ...over }));
+    await screen.findByRole("heading", { name: "Review and submit" });
+  };
+  it("is the DPA template when we are the Controller", async () => {
+    await reviewDpa({});
+    expect(screen.getByText("DPA template")).toBeInTheDocument();
+  });
+  it("says no draft is made from our template when we are the Processor, and to attach the other side's DPA", async () => {
+    await reviewDpa({ our_role: PROCESSOR });
+    expect(screen.getByText("No draft from our template: attach the other side's DPA")).toBeInTheDocument();
+    expect(screen.queryByText("DPA template")).toBeNull();
+  });
+  it("is their draft on their paper, whatever the role", async () => {
+    await reviewDpa({ our_role: PROCESSOR, paper: "Their paper" });
+    expect(screen.getByText("Their draft becomes the contract; the AI review runs on it")).toBeInTheDocument();
+  });
+  it("no longer says the answers only fill a DPA annex: it names what each one does", async () => {
+    await dataOf();
+    expect(screen.getByText(/Controller: drafted from our DPA template\. Processor: no draft is made from it; attach the other side's DPA/)).toBeInTheDocument();
+    expect(screen.getByText("Nature and purpose of the Processing in Annex 1 of the DPA.")).toBeInTheDocument();
+  });
+});
+
+describe("a saved DPA form that holds the old 'Several' answers (AC-50)", () => {
+  const OLD = { data_types: "Several of these", data_subjects: "Several" };
+
+  it("opens with the ticks empty and the earlier answers beside them, labelled as not filed", async () => {
+    await dataOf(OLD);
+    for (const name of ["What kind of personal data?", "Whose data?"]) {
+      for (const box of within(screen.getByRole("group", { name })).getAllByRole("checkbox")) expect(box).not.toBeChecked();
+    }
+    expect(screen.getByText("Several of these")).toBeInTheDocument();
+    expect(screen.getByText("Several")).toBeInTheDocument();
+    expect(screen.getAllByText("Your earlier answer (kept for reference, not filed)")).toHaveLength(2);
+  });
+
+  it("cannot be submitted until each has a tick, and keeps the earlier answer visible while the person ticks", async () => {
+    await dataOf(OLD);
+    next();
+    expect(banner()).toHaveTextContent("2 answers still needed: What kind of personal data?, Whose data?.");
+    fireEvent.click(within(screen.getByRole("group", { name: "Whose data?" })).getByLabelText("Customers"));
+    expect(screen.getByText("Several")).toBeInTheDocument();
+    expect(banner()).toHaveTextContent("1 answer still needed: What kind of personal data?.");
+    fireEvent.click(within(screen.getByRole("group", { name: "What kind of personal data?" })).getByLabelText("Financial"));
+    expect(banner()).toBeNull();
+    next();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+
+  it("is refused at Submit when the form is saved on the review step with 'Several'", async () => {
+    mount("dpa", draftOf("dpa", 3, { ...DPA, ...OLD }));
+    await screen.findByRole("heading", { name: "Review and submit" });
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    expect(await screen.findByRole("heading", { name: "The data" })).toBeInTheDocument();
+    expect(banner()).toHaveTextContent("What kind of personal data?");
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+  });
+
+  it("files the ticks as a list", async () => {
+    h.intakeApi.deleteDraft.mockResolvedValue(undefined);
+    h.intakeApi.create.mockResolvedValue({ id: "q-2", ref: "REQ-2" });
+    mount("dpa", draftOf("dpa", 3, DPA));
+    await screen.findByRole("heading", { name: "Review and submit" });
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    await waitFor(() => expect(h.intakeApi.create).toHaveBeenCalled());
+    const fv = (h.intakeApi.create.mock.calls[0][0] as { field_values: Record<string, unknown> }).field_values;
+    expect(fv.data_types).toEqual(["Contact and identity", "Health or other special category"]);
+    expect(fv.data_subjects).toEqual(["Customers", "Patients or trial subjects"]);
+    expect("transfer_countries" in fv).toBe(false); // transfer is No, so the countries are not asked or filed
+    expect("subprocessor_rows" in fv).toBe(false);
+  });
+});
+
+describe("the DPA purpose on our paper (AC-34)", () => {
+  it("refuses a blank bracket in the purpose, in the line above the form", async () => {
+    await dataOf({ processing_purpose: "Hosting of [TBD] systems" });
+    next();
+    expect(banner()).toHaveTextContent("Why is the data processed?: Contains [TBD], which reads as a blank to fill in later.");
+  });
+  it("accepts round brackets in it", async () => {
+    await dataOf({ processing_purpose: "Hosting of (phase 1) systems" });
+    next();
+    expect(await screen.findByRole("heading", { name: "Files" })).toBeInTheDocument();
+  });
+});
+
+describe("while the Consultancy and DPA questions load, and when they cannot (AC-26)", () => {
+  it.each(["new_agreement", "dpa"])("%s: shows no table and no question until the form has loaded, and an error with Try again when it cannot", async (key) => {
+    h.intakeApi.forms.mockRejectedValueOnce(new Error("The server is busy"));
+    mount(key, draftOf(key, 1, key === "dpa" ? DPA : CONSULT));
+    expect(screen.getByText("Loading the form…")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(await screen.findByText("Couldn't load the form.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: key === "dpa" ? "The data" : "Commercial terms" })).toBeInTheDocument();
+  });
+});

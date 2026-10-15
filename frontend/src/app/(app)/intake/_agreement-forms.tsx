@@ -20,8 +20,12 @@ import { useToast } from "@/components/toast";
 import { cn, fmtDate } from "@/lib/utils";
 import { ATTACHMENT_ACCEPT, ATTACHMENT_LIMITS_TEXT, attachmentProblem, toAttachment } from "@/lib/intake";
 import { approvalsText } from "@/lib/request-facts";
-import { answerProblem, EMAIL_PROBLEM, looksLikeEmail, rowsProblems, shown, shownColumns, tidiedRows, tidyCell } from "@/lib/form-checks";
-import type { Counterparty, FormRow, FormValue, IntakeDraft, LegalEntity, RequestFormDef, RequestFormRule } from "@/lib/types";
+import {
+  answerProblem, EMAIL_PROBLEM, looksLikeEmail, PROCESSOR_ROLE, rowsProblems, rulesFor, shown, shownColumns, tidiedRows, tidyCell,
+} from "@/lib/form-checks";
+import type {
+  Counterparty, FormRow, FormValue, IntakeDraft, LegalEntity, RequestFormDef, RequestFormField, RequestFormRule,
+} from "@/lib/types";
 import { EarlierAnswer, RowsTable, useRequestForms } from "./_deliverables";
 
 // Both are used by other screens (the workflow builder, the tests) through this file.
@@ -51,7 +55,8 @@ export const AGREEMENT_FORMS: AgreementFormDef[] = [
     steps: [
       { title: "Agreement and parties", fields: WHO },
       { title: "Commercial terms", fields: ["nda_kind", "nda_direction", "nda_term", "governing_law", "value", ...TERM,
-        "scope", "buying", "hosting", "payment_terms", "nonstandard"] },
+        "scope", "advice_only", "consultancy_deliverables", "buying", "hosting", "payment_terms", "fee_basis", "fee_rate",
+        "key_individuals", "company_contact_name", "company_contact_role", "nonstandard"] },
       { title: "Risk checks and files", fields: ["personal_data", "gxp", "attachments"] },
     ] },
   { key: "sow", name: "Statement of Work", group: "New paper", desc: "New scope and fees under a signed master agreement.",
@@ -63,7 +68,8 @@ export const AGREEMENT_FORMS: AgreementFormDef[] = [
   { key: "dpa", name: "Data Processing Agreement", group: "New paper", desc: "Personal data moves between us and a partner.",
     steps: [
       { title: "The agreement", fields: ["parent_contract_id", "cp_signer_name", "cp_signer_email", "paper", "their_draft", "needed_by"] },
-      { title: "The data", fields: ["our_role", "processing_purpose", "data_types", "data_subjects", "transfer", "subprocessors"] },
+      { title: "The data", fields: ["our_role", "processing_purpose", "data_types", "data_subjects", "transfer", "transfer_countries",
+        "subprocessors", "subprocessor_rows"] },
       { title: "Files", fields: ["attachments"] },
     ] },
   { key: "amendment", name: "Amendment", group: "Change an agreement", desc: "Change the value, dates, scope or parties.",
@@ -133,6 +139,13 @@ const UI: Record<string, { kind?: UiKind; label?: string; req?: boolean; show?: 
   buying: { uses: "Which vendor clauses apply." },
   hosting: { uses: "Outside India flags cross-border transfer for the Privacy review." },
   payment_terms: { uses: "The payment clause in the draft." },
+  advice_only: { uses: "Tick only when the consultant hands over no separate deliverables; the schedule then says its output is its reports and advice." },
+  consultancy_deliverables: { uses: "Deliverables and timetable in the Engagement Schedule, D1, D2, … in this order." },
+  fee_basis: { uses: "The Fees entry of the Engagement Schedule. The total value is the fixed fee, or the most the rate can add up to." },
+  fee_rate: { placeholder: "e.g. 25000", uses: "The day or hourly rate in the Fees entry, in the currency of the total value." },
+  key_individuals: { uses: "Named in the Engagement Schedule; the consultant may not replace them without our written consent." },
+  company_contact_name: { placeholder: "e.g. Ravi Shah", uses: "Company contact in the Engagement Schedule." },
+  company_contact_role: { placeholder: "e.g. Head of Quality", uses: "Company contact in the Engagement Schedule." },
   nonstandard: { placeholder: "Discounts, SLAs, liability, anything off our standard.", uses: "What Legal review focuses on." },
   personal_data: { uses: "Yes adds the Privacy review step." },
   gxp: { uses: "Yes adds the Quality review step." },
@@ -144,12 +157,14 @@ const UI: Record<string, { kind?: UiKind; label?: string; req?: boolean; show?: 
   services_end: { uses: "Expiry of the SoW." },
   pricing: { uses: "Fees clause in the SoW." },
   deliverable_rows: { uses: "The Deliverables, Key personnel, Acceptance and Milestone payments clauses of the Statement of Work, one entry per row in this order (D1, D2, …)." },
-  our_role: { uses: "Which side carries which duties in the DPA." },
-  processing_purpose: { uses: "Processing description in the DPA annex." },
-  data_types: { uses: "Health or special category data flags a DPIA before signature." },
-  data_subjects: { uses: "DPA annex." },
-  transfer: { uses: "Yes adds transfer clauses and flags it for the Privacy review." },
-  subprocessors: { uses: "Sub-processor clause in the DPA." },
+  our_role: { uses: "Controller: drafted from our DPA template. Processor: no draft is made from it; attach the other side's DPA (or the paper to use) before the review." },
+  processing_purpose: { uses: "Nature and purpose of the Processing in Annex 1 of the DPA." },
+  data_types: { uses: "Types of personal data and the special-category entry in Annex 1 of the DPA. Health or special category data flags a DPIA before signature." },
+  data_subjects: { uses: "Categories of Data Subjects in Annex 1 of the DPA." },
+  transfer: { uses: "Yes asks which countries; Annex 1 of the DPA lists them, and flags it for the Privacy review." },
+  transfer_countries: { uses: "Processing locations in Annex 1 of the DPA, after India, in this order." },
+  subprocessors: { uses: "Yes asks for each one; Annex 3 of the DPA lists them." },
+  subprocessor_rows: { uses: "Annex 3 of the DPA, one entry per row. Any other sub-processor needs our prior written authorisation." },
   what_changes: { uses: "Decides which questions follow." },
   new_value: { kind: "money", uses: "Written onto the contract when the workflow finishes." },
   new_end_date: { uses: "New end date on the contract when the workflow finishes." },
@@ -201,13 +216,21 @@ function notBeforeValue(field: RequestFormDef["fields"][number] | undefined, val
   return typeof earlier === "string" && earlier ? earlier : undefined;
 }
 
+/** The answers that count: those to questions that apply right now. Hidden ones stay in the form (a person who
+ *  changes their mind gets them back) but they are not filed and the table windows do not read them, so a date
+ *  typed under "Fixed end date" is not an end date once the term is "No end date (evergreen)". */
+function liveAnswers(fields: RequestFormField[], values: Values): Values {
+  const hidden = new Set(fields.filter((f) => !shown(f.show, values)).map((f) => f.key));
+  return Object.fromEntries(Object.entries(values).filter(([k]) => !hidden.has(k)));
+}
+
 const blank = (v: Value | undefined) =>
   Array.isArray(v)
     ? v.every((x) => (typeof x === "string" ? !x.trim() : Object.values(x).every((c) => tidyCell(c) === "")))
     : !String(v ?? "").trim();
 
 const DRAFT_OF: Record<string, string> = {
-  NDA: "NDA template", "Services (MSA)": "MSA template", Consultancy: "MSA template",
+  NDA: "NDA template", "Services (MSA)": "MSA template", Consultancy: "Consultancy Agreement template",
   "Buying from a vendor": "Vendor template", "Software or SaaS": "Vendor template",
   "Selling to a customer": "Legal drafts it (no customer template yet)", "Something else": "Legal drafts it",
 };
@@ -220,6 +243,8 @@ const FINISH: Record<string, string> = {
 
 function draftFor(key: string, v: Values): string {
   if (v.paper === "Their paper") return "Their draft becomes the contract; the AI review runs on it";
+  // Our DPA template is written for the Controller; as Processor the other side's paper is the one to start from.
+  if (key === "dpa" && v.our_role === PROCESSOR_ROLE) return "No draft from our template: attach the other side's DPA";
   if (key === "new_agreement") return DRAFT_OF[String(v.agreement_type)] ?? "Chosen by the kind of agreement";
   return ({ sow: "Statement of Work template", dpa: "DPA template", regularize: "The signed document is the record",
     cancellation: "Nothing is drafted" } as Record<string, string>)[key] ?? "Legal drafts the letter or deed";
@@ -419,6 +444,8 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
     setValues((prev) => ({ ...prev, ...patch }));
   };
 
+  const live = useMemo(() => liveAnswers(server?.fields ?? [], values), [server, values]);
+
   const labelOf = (k: string) => UI[k]?.label ?? q.get(k)?.label ?? k;
   const isShown = (k: string) => shown(UI[k]?.show ?? q.get(k)?.show, values);
   const required = (k: string) => (UI[k]?.kind === "file" ? !!UI[k].req : !!q.get(k)?.required);
@@ -427,8 +454,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   const isBlankAnswer = (k: string) => {
     if (UI[k]?.kind === "file") return !files[k];
     if ((COMPANION[k] ?? []).some((c) => blank(values[c]))) return true;
-    return blank(values[k]);
+    return blank(answerOf(k));
   };
+  // A multi-tick question holds a list. A saved form's older single choice ("Several") is a string: it is shown
+  // beside the ticks for reference but is not an answer, so the person ticks (FR-45).
+  const answerOf = (k: string) => (q.get(k)?.kind === "multiselect" && !Array.isArray(values[k]) ? [] : values[k]);
 
   /** What stops this question being accepted right now, or null. A required question left empty, an email that
    *  can never be delivered, an end date before its start date: the server refuses the same answers when the
@@ -436,11 +466,11 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   function problemOf(k: string): string | null {
     if (!isShown(k)) return null;
     const field = q.get(k);
-    if (field?.kind === "rows") return rowsProblems(field, values[k], values, labels)[0]?.message ?? null;
+    if (field?.kind === "rows") return rowsProblems(field, values[k], live, labels)[0]?.message ?? null;
     if (isBlankAnswer(k)) return required(k) ? NEEDED : null;
     const earlier = field?.not_before && isShown(field.not_before) ? field.not_before : null;
     return answerProblem(field?.kind ?? UI[k]?.kind, values[k], earlier ? { label: labelOf(earlier), value: values[earlier] } : undefined,
-      { no_blanks: field?.no_blanks, min_exclusive: field?.min_exclusive });
+      field ? rulesFor(field, live) : undefined);
   }
 
   const blocking = (i: number) => visible(i).filter((k) => problemOf(k));
@@ -455,7 +485,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
       needed.length ? `${needed.length === 1 ? "1 answer" : `${needed.length} answers`} still needed: ${needed.map(labelOf).join(", ")}.` : "",
       ...open.filter((k) => problemOf(k) !== NEEDED && !isTable(k)).map((k) => `${labelOf(k)}: ${problemOf(k)}`),
       // A table's messages already name the row and the column, so they are listed as they are.
-      ...open.filter(isTable).flatMap((k) => rowsProblems(q.get(k)!, values[k], values, labels).map((p) => p.message)),
+      ...open.filter(isTable).flatMap((k) => rowsProblems(q.get(k)!, values[k], live, labels).map((p) => p.message)),
     ].filter(Boolean).join(" ");
   }
 
@@ -469,15 +499,16 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
 
   // What gets filed. Check-approvers and the routing preview send exactly this.
   const body = useMemo(() => {
-    const fv: Values = { ...values, request_form: def.key };
+    // Only answers that apply: a table hidden by "advice only" or a rate under "Fixed fee" is not filed.
+    const fv: Values = { ...live, request_form: def.key };
     for (const f of server?.fields ?? []) {
       if (f.kind !== "rows") continue;
       // Only the columns that apply to the pricing chosen (shares are never filed unless Milestones); empty rows
       // stay, so the row numbers in a filing error are the ones on the page. The old free-text key is never sent.
       if (f.legacy_key) delete fv[f.legacy_key];
-      if (Array.isArray(values[f.key])) {
-        const keep = shownColumns(f, values).map((c) => c.key);
-        fv[f.key] = rowsOf(values[f.key]).map((r) => Object.fromEntries(keep.map((c) => [c, r[c] ?? ""])));
+      if (Array.isArray(live[f.key])) {
+        const keep = shownColumns(f, live).map((c) => c.key);
+        fv[f.key] = rowsOf(live[f.key]).map((r) => Object.fromEntries(keep.map((c) => [c, r[c] ?? ""])));
       }
     }
     if (parent) {
@@ -494,7 +525,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
       description: text ?? def.name,
       field_values: fv,
     };
-  }, [values, parent, def, server]);
+  }, [values, live, parent, def, server]);
 
   const preview = useQuery({
     queryKey: ["approval-preview", body],
@@ -578,6 +609,13 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
     } finally { setBusy(false); }
   }
 
+  // The saved form's older single choice for a multi-tick question, shown beside the ticks. It comes from the
+  // draft as opened, so it stays while the person ticks.
+  const earlierOf = (k: string) => {
+    const saved = draft?.values[k];
+    return q.get(k)?.kind === "multiselect" && typeof saved === "string" && saved.trim() ? saved : undefined;
+  };
+
   const isReview = step === steps.length - 1;
   const shownNow = visible(step);
   const bar = barText();
@@ -609,7 +647,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
       if (q.get(k)?.kind === "rows") return; // a table is shown as one, below
       const v = values[k];
       const shown = UI[k]?.kind === "file" ? files[k]?.name
-        : UI[k]?.kind === "money" ? money(values.currency, v)
+        : UI[k]?.kind === "money" || k === "fee_rate" ? money(values.currency, v)
         : k === "parent_contract_id" ? parent?.title
         : q.get(k)?.kind === "date" && typeof v === "string" && v ? fmtDate(v) // the box they typed in shows dd/mm/yyyy
         : Array.isArray(v) ? v.join(", ") : v;
@@ -691,7 +729,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
                 {tables.map((f) => (
                   <div key={f.key} className="space-y-1.5">
                     <div className="text-[11.5px] text-slate-500">{f.label}</div>
-                    <RowsTable field={f} rows={tidiedRows(f, values[f.key], values)} values={values} labels={labels} />
+                    <RowsTable field={f} rows={tidiedRows(f, live[f.key], live)} values={live} labels={labels} />
                   </div>
                 ))}
                 <label className="block space-y-1.5">
@@ -705,8 +743,8 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
               <div className="space-y-5">
                 {shownNow.map((k) => (
                   <Question key={k} k={k} label={labelOf(k)} req={required(k)} kind={UI[k]?.kind} field={q.get(k)}
-                    help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={values} set={set} bad={flagged.has(k) && !!problemOf(k)} problem={problemOf(k)}
-                    labels={labels}
+                    help={UI[k]?.help} placeholder={UI[k]?.placeholder} values={live} set={set} bad={flagged.has(k) && !!problemOf(k)} problem={problemOf(k)}
+                    labels={labels} earlier={earlierOf(k)}
                     min={notBeforeValue(q.get(k), values)}
                     file={files[k] ?? null} onFile={(f) => { setFiles((p) => ({ ...p, [k]: f })); setDirty(true); setNotice(""); }}
                     currencies={q.get("currency")?.options ?? ["INR"]}
@@ -735,7 +773,7 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
                 {shownNow.map((k) => (
                   <li key={k} className="flex gap-2.5">
                     <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full",
-                      (UI[k]?.kind === "file" ? files[k] : !blank(values[k])) ? "bg-success" : "bg-slate-300")} />
+                      (UI[k]?.kind === "file" ? files[k] : !blank(answerOf(k))) ? "bg-success" : "bg-slate-300")} />
                     <span>
                       <span className="block text-[12.5px] font-semibold text-slate-800">{labelOf(k)}</span>
                       <span className="block text-[12px] leading-snug text-slate-600">{UI[k]?.uses}</span>
@@ -763,18 +801,27 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
   );
 }
 
-function Question({ k, label, req, kind, field, help, placeholder, values, labels, set, bad, problem, min, file, onFile, currencies, contracts, requests }: {
+/**
+ * One question as a control: the label, the control the question's kind calls for, and the problem or help
+ * under it. The wizard uses it for every question; the request page uses it to let an older request answer the
+ * questions its draft needs. Only `k`, `label`, `req`, `values`, `labels` and `set` are needed: the rest has a
+ * default (no file, no problem, no register lookups).
+ */
+export function Question({ k, label, req, kind, field, help, placeholder, values, labels, set, bad = false, problem, min, earlier,
+  file = null, onFile = () => undefined, currencies = ["INR"], contracts = [], requests = [] }: {
   k: string; label: string; req: boolean; kind?: UiKind; field?: RequestFormDef["fields"][number];
-  help?: string; placeholder?: string; values: Values; set: (p: Values) => void; bad: boolean;
+  help?: string; placeholder?: string; values: Values; set: (p: Values) => void; bad?: boolean;
   /** Every question's label by key (a table's window message names the dates it falls between). */
   labels: Record<string, string>;
   /** What is wrong with the answer, in words (shown under the question when `bad`). */
   problem?: string | null;
   /** Date questions: the earliest day the date picker offers. */
   min?: string;
-  file: File | null; onFile: (f: File | null) => void; currencies: string[];
-  contracts: { id: string; title: string; counterparty_name: string | null; expiration_date: string | null }[];
-  requests: { id: string; ref: string; subject: string | null; type_label: string; status: string }[];
+  /** Multi-tick questions: an older single choice (a string, such as "Several"), shown beside the ticks, never filed. */
+  earlier?: string;
+  file?: File | null; onFile?: (f: File | null) => void; currencies?: string[];
+  contracts?: { id: string; title: string; counterparty_name: string | null; expiration_date: string | null }[];
+  requests?: { id: string; ref: string; subject: string | null; type_label: string; status: string }[];
 }) {
   const v = values[k];
   const str = typeof v === "string" ? v : "";
@@ -842,14 +889,17 @@ function Question({ k, label, req, kind, field, help, placeholder, values, label
   } else if (field?.kind === "multiselect") {
     const picked = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
     control = (
-      <div className={cn("flex flex-wrap gap-x-5 gap-y-2 rounded-lg border px-3 py-2.5", border)}>
-        {opts.map((o) => (
-          <label key={o.value} className="inline-flex items-center gap-2 text-[13px] text-slate-800">
-            <input type="checkbox" checked={picked.includes(o.value)}
-              onChange={(e) => set({ [k]: e.target.checked ? [...picked, o.value] : picked.filter((x) => x !== o.value) })} />
-            {o.label}
-          </label>
-        ))}
+      <div className="space-y-3">
+        {earlier && <EarlierAnswer text={earlier} title="Your earlier answer (kept for reference, not filed)" />}
+        <div role="group" aria-label={label} className={cn("flex flex-wrap gap-x-5 gap-y-2 rounded-lg border px-3 py-2.5", border)}>
+          {opts.map((o) => (
+            <label key={o.value} className="inline-flex items-center gap-2 text-[13px] text-slate-800">
+              <input type="checkbox" checked={picked.includes(o.value)}
+                onChange={(e) => set({ [k]: e.target.checked ? [...picked, o.value] : picked.filter((x) => x !== o.value) })} />
+              {o.label}
+            </label>
+          ))}
+        </div>
       </div>
     );
   } else if (field?.kind === "select") {
@@ -858,9 +908,11 @@ function Question({ k, label, req, kind, field, help, placeholder, values, label
     control = <textarea aria-label={label} rows={3} className={cn(CONTROL, border, "h-auto py-2.5 leading-relaxed")}
       value={str} placeholder={placeholder} onChange={(e) => set({ [k]: e.target.value })} />;
   } else {
-    const type = field?.kind === "date" ? "date" : kind === "email" ? "email" : field?.kind === "number" ? "number" : "text";
+    // A number is typed as text with the decimal keypad, as the money control does: a number box would drop "1,500"
+    // and let "1e3" through, and the rate rules (lib/form-checks.ts) say what is wrong with either in words.
+    const type = field?.kind === "date" ? "date" : kind === "email" ? "email" : "text";
     control = <input aria-label={label} type={type} className={cn(CONTROL, border, type === "date" && "max-w-[240px]")}
-      min={type === "date" ? min : undefined}
+      min={type === "date" ? min : undefined} inputMode={field?.kind === "number" ? "decimal" : undefined}
       value={str} placeholder={placeholder} onChange={(e) => set({ [k]: e.target.value })} />;
   }
 

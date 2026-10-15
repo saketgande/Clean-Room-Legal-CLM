@@ -4,12 +4,14 @@
  * `not_before`, `no_blanks` and `min_exclusive` rules, and agreement_forms.clean_rows for a table question),
  * so what the wizard accepts is what filing accepts.
  *
- * The table rules (`rowsProblems`, `findBlanks`, `answerProblem`) are pinned to the server by ONE shared
- * cases file, backend/tests/fixtures/deliverable_rows_cases.json, which both test suites read (007, FR-16).
- * Change a rule here and there together, and add the case.
+ * The table rules (`rowsProblems`, `findBlanks`, `answerProblem`) are pinned to the server by two shared
+ * cases files, backend/tests/fixtures/deliverable_rows_cases.json (007) and consultancy_dpa_cases.json (008),
+ * which the backend suite and this one both read. Change a rule here and there together, and add the case.
  */
 
-import type { FormRow, FormValue, RequestFormColumn, RequestFormField, RequestFormRule } from "./types";
+import type {
+  FormRow, FormValue, RequestFormColumn, RequestFormDef, RequestFormField, RequestFormRule,
+} from "./types";
 
 /** One "@", something either side of it, a dot in the domain, no spaces. Only sending can tell whether the
  *  mailbox exists; this catches the typos that can never be delivered. */
@@ -67,11 +69,13 @@ const BLANK_TAIL = "which reads as a blank to fill in later. Reword it without s
 
 // ----------------------------------------------------------- questions ----
 
-/** A question or column applies only when every rule matches (a multi-select matches on any pick). */
+/** A question or column applies only when every rule matches (a multi-select matches on any pick). A rule with
+ *  `not` matches when the answer is none of `in`, so an unanswered question matches it. */
 export function shown(rules: RequestFormRule[] | undefined, values: Record<string, unknown>): boolean {
   return (rules ?? []).every((r) => {
     const a = values[r.field];
-    return (Array.isArray(a) ? a : [a]).some((x) => typeof x === "string" && r.in.includes(x));
+    const hit = (Array.isArray(a) ? a : [a]).some((x) => typeof x === "string" && r.in.includes(x));
+    return r.not ? !hit : hit;
   });
 }
 
@@ -80,17 +84,34 @@ export function shownColumns(field: RequestFormField, values: Record<string, unk
   return (field.columns ?? []).filter((c) => shown(c.show, values));
 }
 
+/** The single-question rules a question carries (`rulesFor` picks the ones in force). */
+export interface AnswerRules { no_blanks?: boolean; min_exclusive?: number; max_length?: number; max_decimals?: number }
+
+/** A question's own rules, or none while its `rules_when` does not match (Consultancy on our paper only, say). */
+export function rulesFor(field: RequestFormField, values: Record<string, unknown>): AnswerRules {
+  if (!shown(field.rules_when, values)) return {};
+  const { no_blanks, min_exclusive, max_length, max_decimals } = field;
+  return Object.fromEntries(Object.entries({ no_blanks, min_exclusive, max_length, max_decimals })
+    .filter(([, v]) => v !== undefined));
+}
+
+const ASCII_WS_ENDS = /^[ \t\r\n\f\v]+|[ \t\r\n\f\v]+$/g;
+/** A plain number: ASCII digits, an optional minus, an optional fraction. "1e3", ".5", "5.", "+25" and digits
+ *  from other scripts are not (the server's `max_decimals` reading is the same). */
+const PLAIN_NUMBER = /^-?[0-9]+(?:\.[0-9]+)?$/;
+
 /**
  * What is wrong with an answer that is there, or null. `kind` is the server's kind for the question;
  * `notBefore` is the answer to the date this one must not come before, with that question's label;
- * `rules` are the question's own `no_blanks` / `min_exclusive`. The server words the last two with the
- * question's label; here the label sits above the answer, so the sentence starts at the verb.
+ * `rules` are the question's own rules (`rulesFor`). The server words the rules with the question's label;
+ * here the label sits above the answer, so the sentence starts at the verb. Its order is the server's:
+ * length, blank brackets, then for a number "must be a number", above the floor, decimal places.
  */
 export function answerProblem(
   kind: string | undefined,
   value: FormValue | undefined,
   notBefore?: { label: string; value: FormValue | undefined },
-  rules?: { no_blanks?: boolean; min_exclusive?: number },
+  rules?: AnswerRules,
 ): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   if (kind === "email" && !looksLikeEmail(value)) return EMAIL_PROBLEM;
@@ -99,15 +120,50 @@ export function answerProblem(
     if (ISO_DAY.test(value) && ISO_DAY.test(notBefore.value) && value < notBefore.value)
       return `Can't be before ${notBefore.label.toLowerCase()}.`;
   }
+  if (rules?.max_length !== undefined && cp(tidyCell(value)) > rules.max_length)
+    return `Is longer than ${rules.max_length} characters.`;
   if (rules?.no_blanks) {
     const blank = findBlanks(value)[0];
     if (blank) return `Contains ${blank}, ${BLANK_TAIL}`;
   }
-  if (kind === "number" && rules?.min_exclusive !== undefined) {
-    const n = Number(value.replace(/,/g, "").trim());
-    if (Number.isFinite(n) && n <= rules.min_exclusive) return `Must be more than ${rules.min_exclusive}.`;
+  if (kind === "number") {
+    const typed = value.replace(/,/g, "").replace(ASCII_WS_ENDS, "");
+    // With max_decimals the answer must be a plain number first; without it half-typed text is not refused.
+    if (rules?.max_decimals !== undefined && !PLAIN_NUMBER.test(typed)) return "Must be a number.";
+    const n = Number(typed);
+    if (rules?.min_exclusive !== undefined && Number.isFinite(n) && n <= rules.min_exclusive)
+      return `Must be more than ${rules.min_exclusive}.`;
+    if (rules?.max_decimals !== undefined && (typed.split(".")[1]?.length ?? 0) > rules.max_decimals)
+      return `Can have at most ${rules.max_decimals} decimal places.`;
   }
   return null;
+}
+
+/** The option a Consultancy or DPA request carries when we are the Processor (the form's own option text). */
+export const PROCESSOR_ROLE = "Processor: we act on their instructions";
+
+/** An answer that is not there for the draft: missing, empty, a list with nothing in it, or (for a multi-tick
+ *  question) an older single choice that is not one of today's options, such as "Several". */
+export function lacksAnswer(field: RequestFormField, value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) {
+    return value.every((x) => (isRow(x) ? Object.values(x).every((c) => tidyCell(c) === "") : tidyCell(x) === ""));
+  }
+  if (typeof value === "string") {
+    const t = tidyCell(value);
+    return t === "" || (field.kind === "multiselect" && !(field.options ?? []).includes(t));
+  }
+  return false;
+}
+
+/**
+ * The questions the draft still needs: shown, required, feeding the template (`fills`), and lacking an answer.
+ * None for their paper (their draft is the contract) or when we are the Processor (no draft is made from our
+ * template). The server's hold also checks the wording in effect; this is the part the page can know.
+ */
+export function needsDraftAnswers(form: RequestFormDef, fv: Record<string, unknown>): RequestFormField[] {
+  if (fv.paper === "Their paper" || fv.our_role === PROCESSOR_ROLE) return [];
+  return form.fields.filter((f) => !!f.fills?.length && f.required && shown(f.show, fv) && lacksAnswer(f, fv[f.key]));
 }
 
 // -------------------------------------------------------------- tables ----
@@ -127,17 +183,19 @@ function isRealDay(iso: string): boolean {
   return t.getUTCFullYear() === y && t.getUTCMonth() === m - 1 && t.getUTCDate() === d;
 }
 
-/** The window a date column's `within` names, when both answers are real days (otherwise it is not checked). */
+/** The window a date column's `within` names. Both answers real days: the whole window. With `open_end`, a real
+ *  start and an end that is not a day (no end date): the start bound only, `end` null. Otherwise it is not checked. */
 export function dateWindow(
   col: RequestFormColumn,
   values: Record<string, unknown>,
-): { start: string; end: string; startKey: string; endKey: string } | null {
+): { start: string; end: string | null; startKey: string; endKey: string } | null {
   if (!col.within) return null;
   const [startKey, endKey] = col.within;
   const start = values[startKey];
   const end = values[endKey];
-  return typeof start === "string" && typeof end === "string" && isRealDay(start) && isRealDay(end)
-    ? { start, end, startKey, endKey } : null;
+  if (typeof start !== "string" || !isRealDay(start)) return null;
+  if (typeof end === "string" && isRealDay(end)) return { start, end, startKey, endKey };
+  return col.open_end ? { start, end: null, startKey, endKey } : null;
 }
 
 /** "2026-11-01" → "1 November 2026" (the server's wording in the window message). */
@@ -222,15 +280,24 @@ export function rowsProblems(
       const at = (what: string) => out.push({ row: n, column: c.key, message: `"${L}", row ${n}: "${c.label}" ${what}` });
       if (cell === "") { at("is required."); continue; }
       if (c.kind === "text") {
+        // In the server's order, one message a cell: length, blank bracket, the value to keep out, the value it must be.
+        const blank = c.no_blanks ? findBlanks(cell)[0] : undefined;
+        const lower = cell.toLowerCase();
+        const must = c.must_be && shown([c.must_be.when], values) ? c.must_be : null;
         if (c.max_length !== undefined && cp(cell) > c.max_length) at(`is longer than ${c.max_length} characters.`);
-        else if (c.no_blanks) {
-          const blank = findBlanks(cell)[0];
-          if (blank) at(`contains ${blank}, ${BLANK_TAIL}`);
+        else if (blank) at(`contains ${blank}, ${BLANK_TAIL}`);
+        else if (c.outside !== undefined && lower === c.outside.toLowerCase())
+          at(`is ${c.outside}. List only the countries outside ${c.outside}.`);
+        else if (must && lower !== must.value.toLowerCase()) {
+          const given = values[must.when.field];
+          const answer = Array.isArray(given) ? given.find((x) => must.when.in.includes(x)) : given;
+          at(`is "${cell}", but the answer to "${labels[must.when.field] ?? must.when.field}" is ${answer}. Enter ${must.value}, or change that answer.`);
         }
       } else if (c.kind === "date") {
         if (!isRealDay(cell)) { at("must be a date in YYYY-MM-DD form."); continue; }
         const w = dateWindow(c, values);
-        if (w && (cell < w.start || cell > w.end))
+        if (w?.end === null && cell < w.start) at(`must be on or after ${longDate(w.start)} (${labels[w.startKey] ?? w.startKey}).`);
+        else if (w?.end && (cell < w.start || cell > w.end))
           at(`must be between ${longDate(w.start)} and ${longDate(w.end)} (${labels[w.startKey] ?? w.startKey} to ${labels[w.endKey] ?? w.endKey}).`);
       } else if (hundredths(cell) === null) {
         at("must be a number above 0 and at most 100, with no more than two decimal places.");

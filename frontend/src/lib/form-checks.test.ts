@@ -2,8 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  answerProblem, dateWindow, EMAIL_PROBLEM, findBlanks, longDate, looksLikeEmail, pastDueRows, rowsProblems, shareTotal,
-  shown, tidiedRows, tidyCell,
+  answerProblem, dateWindow, EMAIL_PROBLEM, findBlanks, lacksAnswer, longDate, looksLikeEmail, needsDraftAnswers, pastDueRows,
+  PROCESSOR_ROLE, rowsProblems, rulesFor, shareTotal, shown, tidiedRows, tidyCell,
 } from "./form-checks";
 import type { FormRow, RequestFormDef, RequestFormField } from "./types";
 
@@ -220,5 +220,264 @@ describe("the window and the show rules the table reads", () => {
     expect(shown(share.show, { pricing: "Milestones" })).toBe(true);
     expect(shown(share.show, { pricing: "Fixed fee" })).toBe(false);
     expect(shown(share.show, {})).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------------------------- 008 ----
+// The Consultancy and DPA answers (008). Their cases are a SIBLING file, consultancy_dpa_cases.json, read by the
+// backend suite (clean_rows and the filing validator) and by this one, so the wizard and filing cannot drift.
+// Each case names its form and question; the question is read from agreement_forms.json, never copied here.
+
+interface Case008Rows { id: string; form: string; question: string; values: Record<string, unknown>; rows: unknown;
+  error: string | null; stored?: FormRow[] }
+interface Case008Field { id: string; form: string; question: string; values: Record<string, unknown>;
+  value: string | number; error: string | null }
+const cases008: { tables: Case008Rows[]; fields: Case008Field[] } =
+  JSON.parse(readFileSync(resolve(backend, "tests/fixtures/consultancy_dpa_cases.json"), "utf8"));
+const questionOf = (form: string, key: string): RequestFormField => {
+  const f = forms.find((x) => x.key === form)?.fields.find((x) => x.key === key);
+  if (!f) throw new Error(`${form}.${key} is not in agreement_forms.json`);
+  return f;
+};
+const labelsOf = (form: string) => Object.fromEntries(forms.find((x) => x.key === form)!.fields.map((f) => [f.key, f.label]));
+
+describe("the 008 shared cases file is really there", () => {
+  it("holds both sections, on all four tables, so an empty read cannot make the loops below pass for nothing", () => {
+    expect(cases008.tables.length).toBeGreaterThan(200);
+    expect(cases008.fields.length).toBeGreaterThan(70);
+    expect(new Set(cases008.tables.map((c) => `${c.form}.${c.question}`))).toEqual(new Set([
+      "new_agreement.consultancy_deliverables", "new_agreement.key_individuals", "dpa.transfer_countries", "dpa.subprocessor_rows",
+    ]));
+    expect(new Set(cases008.fields.map((c) => c.question))).toEqual(new Set([
+      "scope", "value", "fee_rate", "company_contact_name", "company_contact_role", "processing_purpose",
+    ]));
+    expect(new Set([...cases008.tables, ...cases008.fields].map((c) => c.id)).size).toBe(cases008.tables.length + cases008.fields.length);
+  });
+});
+
+describe("rowsProblems gives the server's first message for every 008 table case", () => {
+  for (const c of cases008.tables) {
+    it(`${c.id}: ${c.error ?? "accepted"}`, () => {
+      const field = questionOf(c.form, c.question);
+      const problems = rowsProblems(field, c.rows, c.values, labelsOf(c.form));
+      expect(problems[0]?.message ?? null).toBe(c.error);
+      if (c.error === null) {
+        expect(problems).toEqual([]);
+        // What the server keeps (tidied cells, empty rows gone) is what the wizard reads too.
+        expect(tidiedRows(field, c.rows, c.values)).toEqual(c.stored);
+      }
+    });
+  }
+});
+
+describe("answerProblem gives the server's verdict for every 008 single-question case", () => {
+  // The server words these with the question's label; the wizard shows them under it, so its sentence starts at
+  // the verb. Same refusal, same bracket or number or limit, so compare with the label and full stop stripped.
+  const bare = (s: string) => s.replace(/^Field "[^"]*" /, "").replace(/\.$/, "").replace(/^./, (x) => x.toLowerCase());
+  for (const c of cases008.fields) {
+    it(`${c.id}: ${c.error ?? "accepted"}`, () => {
+      const field = questionOf(c.form, c.question);
+      // A JSON number is what an API client may send; the wizard always holds text.
+      const problem = answerProblem(field.kind, String(c.value), undefined, rulesFor(field, c.values));
+      if (c.error === null) expect(problem).toBeNull();
+      else expect(bare(problem ?? "")).toBe(bare(c.error));
+    });
+  }
+});
+
+describe("the 008 table rules, one by one", () => {
+  const countries = questionOf("dpa", "transfer_countries");
+  const subs = questionOf("dpa", "subprocessor_rows");
+  const due = questionOf("new_agreement", "consultancy_deliverables");
+  const dpaLabels = labelsOf("dpa");
+  const naLabels = labelsOf("new_agreement");
+
+  it("lists every problem of a table in the server's order, so the banner can name all of them", () => {
+    const rows = [{ country: "India" }, { country: "Singapore" }, { country: "singapore " }];
+    expect(rowsProblems(countries, rows, { transfer: "Yes" }, dpaLabels).map((p) => [p.row, p.column, p.message])).toEqual([
+      [1, "country", '"Countries outside India", row 1: "Country" is India. List only the countries outside India.'],
+      [3, "country", '"Countries outside India", rows 2 and 3 have the same "Country" ("Singapore"). Give each row its own.'],
+    ]);
+  });
+
+  it("asks a sub-processor's country to be India only while data does not leave India", () => {
+    const rows = [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }];
+    expect(rowsProblems(subs, rows, { transfer: "Yes" }, dpaLabels)).toEqual([]);
+    expect(rowsProblems(subs, rows, {}, dpaLabels)).toEqual([]);
+    expect(rowsProblems(subs, rows, { transfer: "No" }, dpaLabels)[0]).toMatchObject({ row: 1, column: "country",
+      message: '"Sub-processors", row 1: "Country" is "Singapore", but the answer to "Will data leave India?" is No. Enter India, or change that answer.' });
+  });
+
+  it("checks the due dates against the start only while there is no end date, and says so", () => {
+    const rows = [{ name: "Report", due: "2026-10-31" }];
+    expect(rowsProblems(due, rows, { start_date: "2026-11-01" }, naLabels)[0].message)
+      .toBe('"Deliverables", row 1: "Due date" must be on or after 1 November 2026 (Start date).');
+    expect(rowsProblems(due, [{ name: "Report", due: "2030-01-01" }], { start_date: "2026-11-01" }, naLabels)).toEqual([]);
+    // With an end the whole window applies, as in 007.
+    expect(rowsProblems(due, [{ name: "Report", due: "2030-01-01" }], { start_date: "2026-11-01", end_date: "2027-04-30" }, naLabels)[0].message)
+      .toBe('"Deliverables", row 1: "Due date" must be between 1 November 2026 and 30 April 2027 (Start date to End date).');
+  });
+});
+
+describe("dateWindow with an open end", () => {
+  const due = questionOf("new_agreement", "consultancy_deliverables").columns!.find((c) => c.key === "due")!;
+  const sowDue = table.columns!.find((c) => c.key === "due")!;
+
+  it("is the start alone while the end answer is not a day, and no window while the start is not", () => {
+    expect(dateWindow(due, { start_date: "2026-11-01", end_date: "2027-04-30" })).toEqual({
+      start: "2026-11-01", end: "2027-04-30", startKey: "start_date", endKey: "end_date" });
+    for (const end of [undefined, null, "", "n/a", "2027-02-30"]) {
+      expect(dateWindow(due, { start_date: "2026-11-01", end_date: end })).toEqual({
+        start: "2026-11-01", end: null, startKey: "start_date", endKey: "end_date" });
+    }
+    expect(dateWindow(due, { end_date: "2027-04-30" })).toBeNull();
+    expect(dateWindow(due, { start_date: "soon", end_date: "2027-04-30" })).toBeNull();
+    expect(dateWindow(due, {})).toBeNull();
+  });
+
+  it("leaves 007's window alone: with no open end, a missing end day is no window at all", () => {
+    expect(dateWindow(sowDue, { services_start: "2026-11-01" })).toBeNull();
+  });
+});
+
+describe("shown with `not`", () => {
+  const rules = [{ field: "advice_only", in: ["There are no separate deliverables (advice only)"], not: true }];
+  it("matches when the answer is none of the values: unanswered, empty, or something else", () => {
+    expect(shown(rules, {})).toBe(true);
+    expect(shown(rules, { advice_only: [] })).toBe(true);
+    expect(shown(rules, { advice_only: ["Something else"] })).toBe(true);
+  });
+  it("does not match when the answer holds one of them, in a list or alone", () => {
+    expect(shown(rules, { advice_only: ["There are no separate deliverables (advice only)"] })).toBe(false);
+    expect(shown(rules, { advice_only: "There are no separate deliverables (advice only)" })).toBe(false);
+  });
+  it("is still needed together with the other rules", () => {
+    expect(shown([{ field: "a", in: ["x"] }, ...rules], { a: "y" })).toBe(false);
+    expect(shown([{ field: "a", in: ["x"] }, ...rules], { a: "x" })).toBe(true);
+  });
+  it("hides the Consultancy deliverables table for advice only and for any other kind or paper", () => {
+    const t = questionOf("new_agreement", "consultancy_deliverables");
+    const base = { agreement_type: "Consultancy", paper: "Our template" };
+    expect(shown(t.show, base)).toBe(true);
+    expect(shown(t.show, { ...base, advice_only: ["There are no separate deliverables (advice only)"] })).toBe(false);
+    expect(shown(t.show, { ...base, paper: "Their paper" })).toBe(false);
+    expect(shown(t.show, { ...base, agreement_type: "Services (MSA)" })).toBe(false);
+  });
+});
+
+describe("answerProblem: the 008 rules in their server order", () => {
+  it("counts a text answer after tidying, in code points, and puts length before brackets", () => {
+    const rules = { max_length: 5, no_blanks: true };
+    expect(answerProblem("text", "  ab   cd  ", undefined, rules)).toBeNull(); // "ab cd" is 5
+    expect(answerProblem("text", "abcdef", undefined, rules)).toBe("Is longer than 5 characters.");
+    expect(answerProblem("text", "[TBD] more", undefined, rules)).toBe("Is longer than 5 characters.");
+    expect(answerProblem("text", "[TBD]", undefined, rules)).toMatch(/^Contains \[TBD\],/);
+    expect(answerProblem("text", "😀😀😀😀😀", undefined, rules)).toBeNull(); // 5 code points, 10 UTF-16 units
+    expect(answerProblem("text", "ab\u00a0cde", undefined, rules)).toBe("Is longer than 5 characters."); // a no-break space is text
+  });
+
+  it("with max_decimals: not a plain number, then above the floor, then decimal places", () => {
+    const rules = { min_exclusive: 0, max_decimals: 2 };
+    for (const bad of ["1e3", ".5", "5.", "+25", "abc", "1.2.3", "２５", "25 000"]) {
+      expect(answerProblem("number", bad, undefined, rules), bad).toBe("Must be a number.");
+    }
+    expect(answerProblem("number", "-0.005", undefined, rules)).toBe("Must be more than 0.");
+    expect(answerProblem("number", "0", undefined, rules)).toBe("Must be more than 0.");
+    expect(answerProblem("number", "25.001", undefined, rules)).toBe("Can have at most 2 decimal places.");
+    expect(answerProblem("number", "3,500.125", undefined, rules)).toBe("Can have at most 2 decimal places.");
+    for (const ok of ["25000", "25000.50", "1,500.25", " 25000 ", "0.01"]) expect(answerProblem("number", ok, undefined, rules), ok).toBeNull();
+  });
+
+  it("without max_decimals a half-typed number is still left alone (007)", () => {
+    expect(answerProblem("number", "1e3", undefined, { min_exclusive: 0 })).toBeNull();
+    expect(answerProblem("number", "25.001", undefined, { min_exclusive: 0 })).toBeNull();
+  });
+});
+
+describe("rulesFor", () => {
+  const scope = questionOf("new_agreement", "scope");
+  const value = questionOf("new_agreement", "value");
+  const rate = questionOf("new_agreement", "fee_rate");
+  const purpose = questionOf("dpa", "processing_purpose");
+
+  it("gives a question's rules only while its rules_when matches", () => {
+    const ours = { agreement_type: "Consultancy", paper: "Our template" };
+    expect(rulesFor(scope, ours)).toEqual({ no_blanks: true });
+    expect(rulesFor(value, ours)).toEqual({ min_exclusive: 0 });
+    expect(rulesFor(scope, { ...ours, paper: "Their paper" })).toEqual({});
+    expect(rulesFor(scope, { ...ours, agreement_type: "Services (MSA)" })).toEqual({});
+    expect(rulesFor(value, { ...ours, agreement_type: "Buying from a vendor" })).toEqual({});
+    expect(rulesFor(purpose, { paper: "Our template" })).toEqual({ no_blanks: true });
+    expect(rulesFor(purpose, { paper: "Their paper" })).toEqual({});
+  });
+
+  it("gives all of a question's rules when it has no rules_when", () => {
+    expect(rulesFor(rate, {})).toEqual({ min_exclusive: 0, max_decimals: 2 });
+    expect(rulesFor(questionOf("new_agreement", "company_contact_name"), {})).toEqual({ no_blanks: true, max_length: 120 });
+    expect(rulesFor(questionOf("new_agreement", "paper"), {})).toEqual({});
+  });
+});
+
+describe("lacksAnswer", () => {
+  const types = questionOf("dpa", "data_types");
+  const bases = questionOf("new_agreement", "fee_basis");
+  const rows = questionOf("dpa", "transfer_countries");
+
+  it("is true for missing, empty, and blank answers", () => {
+    for (const v of [undefined, null, "", "  ", [], [""], ["  "]]) expect(lacksAnswer(bases, v), JSON.stringify(v)).toBe(true);
+    expect(lacksAnswer(rows, [{ country: "" }, {}])).toBe(true);
+  });
+  it("is true for an older single choice of a multi-tick question that is no longer an option", () => {
+    expect(lacksAnswer(types, "Several of these")).toBe(true);
+    expect(lacksAnswer(types, "Several")).toBe(true);
+    expect(lacksAnswer(types, "Financial")).toBe(false); // an older single choice that still is one
+    expect(lacksAnswer(types, ["Financial", "Employee / HR"])).toBe(false);
+  });
+  it("is false for an answer that is there", () => {
+    expect(lacksAnswer(bases, "Day rate")).toBe(false);
+    expect(lacksAnswer(questionOf("new_agreement", "fee_rate"), 25000)).toBe(false);
+    expect(lacksAnswer(rows, [{ country: "Singapore" }])).toBe(false);
+  });
+});
+
+describe("needsDraftAnswers", () => {
+  const na = forms.find((f) => f.key === "new_agreement")!;
+  const dpa = forms.find((f) => f.key === "dpa")!;
+  const keys = (f: RequestFormField[]) => f.map((x) => x.key);
+  const consultancy = { request_form: "new_agreement", agreement_type: "Consultancy", paper: "Our template" };
+  const complete = { ...consultancy, scope: "Advise.", fee_basis: "Fixed fee", key_individuals: [{ name: "Anita Rao" }],
+    company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality",
+    consultancy_deliverables: [{ name: "Report", due: "2026-12-15" }] };
+
+  it("names the five answers an older Consultancy request lacks", () => {
+    expect(keys(needsDraftAnswers(na, { ...consultancy, scope: "Advise.", value: "1000" }))).toEqual([
+      "consultancy_deliverables", "fee_basis", "key_individuals", "company_contact_name", "company_contact_role"]);
+  });
+  it("is empty for a complete request, and for advice only without the table", () => {
+    expect(needsDraftAnswers(na, complete)).toEqual([]);
+    const { consultancy_deliverables: _drop, ...rest } = complete;
+    expect(keys(needsDraftAnswers(na, rest))).toEqual(["consultancy_deliverables"]);
+    expect(needsDraftAnswers(na, { ...rest, advice_only: ["There are no separate deliverables (advice only)"] })).toEqual([]);
+  });
+  it("asks for the rate once a rate basis is chosen, and not for Fixed fee", () => {
+    expect(keys(needsDraftAnswers(na, { ...complete, fee_basis: "Day rate" }))).toEqual(["fee_rate"]);
+    expect(needsDraftAnswers(na, { ...complete, fee_basis: "Day rate", fee_rate: "25000" })).toEqual([]);
+  });
+  it("is empty for their paper and for the kinds of agreement that ask nothing of this", () => {
+    expect(needsDraftAnswers(na, { request_form: "new_agreement", agreement_type: "Consultancy", paper: "Their paper" })).toEqual([]);
+    expect(needsDraftAnswers(na, { request_form: "new_agreement", agreement_type: "Services (MSA)", paper: "Our template" })).toEqual([]);
+  });
+
+  const controller = { request_form: "dpa", paper: "Our template", our_role: "Controller: we decide how the data is used",
+    processing_purpose: "Hosting.", data_types: ["Financial"], data_subjects: ["Customers"], transfer: "No", subprocessors: "No" };
+  it("DPA: nothing for a complete one, 'Whose data?' for Several, the tables for Yes", () => {
+    expect(needsDraftAnswers(dpa, controller)).toEqual([]);
+    expect(keys(needsDraftAnswers(dpa, { ...controller, data_subjects: "Several" }))).toEqual(["data_subjects"]);
+    expect(keys(needsDraftAnswers(dpa, { ...controller, transfer: "Yes", subprocessors: "Yes" }))).toEqual(["transfer_countries", "subprocessor_rows"]);
+  });
+  it("DPA: nothing when we are the Processor or it is their paper, whatever is missing", () => {
+    expect(PROCESSOR_ROLE).toBe(dpa.fields.find((f) => f.key === "our_role")!.options![1]);
+    expect(needsDraftAnswers(dpa, { ...controller, our_role: PROCESSOR_ROLE, data_subjects: "Several", transfer: "Yes" })).toEqual([]);
+    expect(needsDraftAnswers(dpa, { ...controller, paper: "Their paper", data_subjects: "Several" })).toEqual([]);
   });
 });

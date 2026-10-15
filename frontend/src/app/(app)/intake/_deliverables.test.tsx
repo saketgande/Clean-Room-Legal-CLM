@@ -386,3 +386,161 @@ describe("RequestDeliverables: nothing entered at all", () => {
     expect(screen.getByText("No deliverables have been entered.")).toBeInTheDocument();
   });
 });
+
+// ------------------------------------------------- the 008 tables (Consultancy and DPA) ----
+// The same component serves four more tables. What each question declares (its noun, its reference prefix, one
+// column or three, an open-ended window) is what changes; the cases below pin each of those, and 007's stay as
+// they were above.
+
+const newAgreement = forms.find((f) => f.key === "new_agreement")!;
+const dpaForm = forms.find((f) => f.key === "dpa")!;
+const questionIn = (def: RequestFormDef, key: string) => def.fields.find((f) => f.key === key) as RequestFormField;
+const labelsIn = (def: RequestFormDef) => Object.fromEntries(def.fields.map((f) => [f.key, f.label]));
+const dueTable = questionIn(newAgreement, "consultancy_deliverables");
+const peopleTable = questionIn(newAgreement, "key_individuals");
+const countriesTable = questionIn(dpaForm, "transfer_countries");
+const subsTable = questionIn(dpaForm, "subprocessor_rows");
+
+function EditorOf({ field, def, initial = [{}] as FormRow[], values = {} as Record<string, unknown>, today }: {
+  field: RequestFormField; def: RequestFormDef; initial?: FormRow[]; values?: Record<string, unknown>; today?: string;
+}) {
+  const [rows, setRows] = useState(initial);
+  return <RowsTable field={field} rows={rows} values={values} labels={labelsIn(def)} onChange={setRows} today={today}
+    problems={rowsProblems(field, rows, values, labelsIn(def))} />;
+}
+
+describe("RowsTable: the noun a table names for its rows", () => {
+  it("says 'Add a key individual' and 'at most 10 key individuals' for the key individuals", () => {
+    render(<EditorOf field={peopleTable} def={newAgreement} initial={Array.from({ length: 10 }, (_, i) => ({ name: `Person ${i}` }))} />);
+    const addBtn = screen.getByRole("button", { name: "Add a key individual" });
+    expect(addBtn).toBeDisabled();
+    expect(screen.getByText("A table holds at most 10 key individuals.")).toBeInTheDocument();
+    expect(addBtn).toHaveAccessibleDescription("A table holds at most 10 key individuals.");
+  });
+
+  it("says 'Add a country', 'Add a sub-processor' and 'at most 20 sub-processors'", () => {
+    const { unmount } = render(<EditorOf field={countriesTable} def={dpaForm} />);
+    expect(screen.getByRole("button", { name: "Add a country" })).toBeEnabled();
+    unmount();
+    render(<EditorOf field={subsTable} def={dpaForm} initial={Array.from({ length: 20 }, () => ({}))} />);
+    expect(screen.getByRole("button", { name: "Add a sub-processor" })).toBeDisabled();
+    expect(screen.getByText("A table holds at most 20 sub-processors.")).toBeInTheDocument();
+  });
+
+  it("keeps the Statement of Work's words when the question names none", () => {
+    render(<Editor initial={[{}]} />);
+    expect(screen.getByRole("button", { name: "Add a deliverable" })).toBeInTheDocument();
+  });
+
+  it("adds and removes a key individual in order, with labelled cells", () => {
+    render(<EditorOf field={peopleTable} def={newAgreement} initial={[{ name: "Anita Rao" }]} />);
+    expect(within(screen.getByRole("table")).getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["Row", "Name", "Remove row"]);
+    fireEvent.click(screen.getByRole("button", { name: "Add a key individual" }));
+    type("Row 2, Name", "Dev Menon");
+    fireEvent.click(screen.getByRole("button", { name: "Remove row 1" }));
+    expect(screen.getByLabelText("Row 1, Name")).toHaveValue("Dev Menon");
+    expect(screen.getByRole("button", { name: "Remove row 1" })).toBeDisabled();
+  });
+});
+
+describe("RowsTable read-only: the reference column and the one-column list", () => {
+  it("numbers the Consultancy deliverables D1, D2 like the Statement of Work", () => {
+    render(<RowsTable field={dueTable} rows={[{ name: "Review", due: "2026-12-15" }, { name: "Report", due: "2027-03-15" }]}
+      values={{ start_date: "2026-11-01", end_date: "2027-04-30" }} labels={labelsIn(newAgreement)} />);
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(rows[1]).toHaveTextContent("D1");
+    expect(rows[2]).toHaveTextContent("D2");
+    expect(rows[2]).toHaveTextContent(fmtDate("2027-03-15"));
+  });
+
+  it("numbers the sub-processors 1, 2 with no prefix, and shows all three columns", () => {
+    expect(subsTable.ref_prefix).toBe("");
+    render(<RowsTable field={subsTable} labels={labelsIn(dpaForm)} values={{ transfer: "Yes" }}
+      rows={[{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }, { name: "SupportDesk GmbH", country: "Germany", processing: "Support" }]} />);
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(within(rows[0]).getAllByRole("columnheader").map((c) => c.textContent)).toEqual(["Ref", "Sub-processor name", "Country", "What it does"]);
+    expect(rows[1].querySelector("td")!.textContent).toBe("1");
+    expect(rows[2].querySelector("td")!.textContent).toBe("2");
+    expect(rows[2]).toHaveTextContent("Germany");
+  });
+
+  it("reads a one-column table as a list named for the question, not as a grid", () => {
+    render(<RowsTable field={peopleTable} rows={[{ name: "Anita Rao" }, { name: "Dev Menon" }]} values={{}} labels={labelsIn(newAgreement)} />);
+    expect(screen.queryByRole("table")).toBeNull();
+    const list = screen.getByRole("list", { name: "Consultant's key individuals" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Anita Rao", "Dev Menon"]);
+  });
+
+  it("lists the countries the same way, and a dash for a cell that is somehow empty", () => {
+    render(<RowsTable field={countriesTable} rows={[{ country: "Singapore" }, { country: "" }]} values={{ transfer: "Yes" }} labels={labelsIn(dpaForm)} />);
+    const list = screen.getByRole("list", { name: "Countries outside India" });
+    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Singapore", "—"]);
+  });
+
+  it("is still a grid with a header when it is the editor, even with one column", () => {
+    render(<EditorOf field={countriesTable} def={dpaForm} initial={[{ country: "Singapore" }]} values={{ transfer: "Yes" }} />);
+    expect(screen.getByRole("table", { name: "Countries outside India" })).toBeInTheDocument();
+    expect(screen.queryByRole("list")).toBeNull();
+  });
+});
+
+describe("RowsTable: a due date window with no end date", () => {
+  const start = { start_date: "2026-11-01" };
+  const rows = (due: string): FormRow[] => [{ name: "Report", due }];
+
+  it("offers no latest day and says dates must be on or after the start", () => {
+    render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2030-01-01")} values={start} />);
+    const input = screen.getByLabelText("Row 1, Due date");
+    expect(input).toHaveAttribute("min", "2026-11-01");
+    expect(input).not.toHaveAttribute("max");
+    expect(input).toHaveAccessibleDescription("Due dates must be on or after 1 November 2026 (Start date).");
+    expect(input).not.toHaveAttribute("aria-invalid");
+  });
+
+  it("flags a date before the start beside the cell, with the open-ended wording", () => {
+    render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2026-10-31")} values={start} />);
+    const cell = screen.getByLabelText("Row 1, Due date");
+    expect(cell).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(cell.getAttribute("aria-describedby")!.split(" ")[0])).toHaveTextContent('"Due date" must be on or after 1 November 2026 (Start date).');
+  });
+
+  it("says nothing about a window while there is no start, and uses both ends once there are two", () => {
+    const { unmount } = render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2030-01-01")} values={{ end_date: "2027-04-30" }} />);
+    expect(screen.queryByText(/Due dates must/)).toBeNull();
+    expect(screen.getByLabelText("Row 1, Due date")).not.toHaveAttribute("min");
+    unmount();
+    render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2026-12-15")} values={{ ...start, end_date: "2027-04-30" }} />);
+    const input = screen.getByLabelText("Row 1, Due date");
+    expect(input).toHaveAttribute("max", "2027-04-30");
+    expect(input).toHaveAccessibleDescription(/between 1 November 2026 and 30 April 2027 \(Start date to End date\)/);
+  });
+
+  it("notes a date that has passed but not a date before the start, which has its own error", () => {
+    const { unmount } = render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2026-12-01")} values={start} today="2027-01-01" />);
+    expect(screen.getByText("Row 1: this due date has already passed.")).toBeInTheDocument();
+    unmount();
+    render(<EditorOf field={dueTable} def={newAgreement} initial={rows("2026-10-31")} values={start} today="2027-01-01" />);
+    expect(screen.queryByText(/already passed/)).toBeNull();
+  });
+});
+
+describe("RowsTable: the cell rules of the DPA tables", () => {
+  it("flags India in the countries list beside the cell, in the server's words", () => {
+    render(<EditorOf field={countriesTable} def={dpaForm} initial={[{ country: "India" }]} values={{ transfer: "Yes" }} />);
+    const cell = screen.getByLabelText("Row 1, Country");
+    expect(cell).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(cell.getAttribute("aria-describedby")!)).toHaveTextContent('"Country" is India. List only the countries outside India.');
+  });
+
+  it("flags a sub-processor country other than India once the answer is that data does not leave India", () => {
+    const row = [{ name: "CloudHost Pte Ltd", country: "Singapore", processing: "Hosting" }];
+    const { unmount } = render(<EditorOf field={subsTable} def={dpaForm} initial={row} values={{ transfer: "No" }} />);
+    const cell = screen.getByLabelText("Row 1, Country");
+    expect(cell).toHaveAttribute("aria-invalid", "true");
+    expect(document.getElementById(cell.getAttribute("aria-describedby")!)).toHaveTextContent(
+      '"Country" is "Singapore", but the answer to "Will data leave India?" is No. Enter India, or change that answer.');
+    unmount();
+    render(<EditorOf field={subsTable} def={dpaForm} initial={row} values={{ transfer: "Yes" }} />);
+    expect(screen.getByLabelText("Row 1, Country")).not.toHaveAttribute("aria-invalid");
+  });
+});

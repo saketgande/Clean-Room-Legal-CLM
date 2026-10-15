@@ -48,7 +48,11 @@ export interface Counterparty {
   active: boolean; source: string; external_ref: string | null; created_at: string; updated_at: string;
 }
 /** A request form's questions as the server validates them (agreement_forms.json). */
-export interface RequestFormRule { field: string; in: string[] }
+export interface RequestFormRule {
+  field: string; in: string[];
+  /** The rule matches when the answer is none of `in` (an unanswered question matches). */
+  not?: boolean;
+}
 export interface RequestFormColumn {
   key: string;
   label: string;
@@ -58,10 +62,16 @@ export interface RequestFormColumn {
   no_blanks?: boolean;
   /** Date columns: the two date questions of the same form the date must fall between, both included. */
   within?: [string, string];
+  /** Date columns with `within`: only the start bound applies while the end answer is not a day. */
+  open_end?: boolean;
   /** Percent columns: what the column must add up to across the rows. */
   total?: number;
   /** The column applies only when every rule matches the form's answers (same shape as a question's `show`). */
   show?: RequestFormRule[];
+  /** Text columns: a cell equal to this (ignoring case and extra spaces) is refused. */
+  outside?: string;
+  /** Text columns: while `when` matches the form's answers, the cell must equal `value` (ignoring case and extra spaces). */
+  must_be?: { value: string; when: RequestFormRule };
 }
 export interface RequestFormField {
   key: string; label: string;
@@ -73,10 +83,25 @@ export interface RequestFormField {
   no_blanks?: boolean;
   /** Number answers: must be more than this. */
   min_exclusive?: number;
+  /** Text answers: at most this many characters after tidying. */
+  max_length?: number;
+  /** Number answers: at most this many decimal places. */
+  max_decimals?: number;
+  /** This question's own rules apply only when every rule matches. */
+  rules_when?: RequestFormRule[];
+  /** The template fields built from this answer (the request page shows these questions). */
+  fills?: string[];
+  /** Server-side update rules (older requests); the wizard ignores them. */
+  older_may_lack?: boolean;
+  legacy_single?: boolean;
   /** `rows` questions only. */
   columns?: RequestFormColumn[];
   min_rows?: number;
   max_rows?: number;
+  /** `rows` questions: [singular, plural] for "Add a …" and the cap; default ["deliverable", "deliverables"]. */
+  item?: [string, string];
+  /** `rows` questions: read-only reference prefix; default "D"; "" shows plain numbers. */
+  ref_prefix?: string;
   /** `rows` questions: the key older requests kept a free-text answer under, and that question's label. */
   legacy_key?: string;
   legacy_label?: string;

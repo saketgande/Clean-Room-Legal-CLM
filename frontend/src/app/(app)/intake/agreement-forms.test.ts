@@ -90,3 +90,147 @@ describe("the Statement of Work's deliverables table", () => {
     expect(table.columns!.filter((c) => c.kind === "text").every((c) => c.no_blanks)).toBe(true);
   });
 });
+
+// The Consultancy and DPA answers (008). The questions are the server's; the wizard adds where each sits and what
+// it does, so those are what is pinned, along with the rules that decide when each one shows.
+describe("the Consultancy questions on the New agreement form (008)", () => {
+  const form = server.find((f) => f.key === "new_agreement")!;
+  const step = AGREEMENT_FORMS.find((f) => f.key === "new_agreement")!.steps.find((s) => s.title === "Commercial terms")!;
+  const q = (key: string) => form.fields.find((f) => f.key === key)!;
+  const NEW = ["advice_only", "consultancy_deliverables", "fee_basis", "fee_rate", "key_individuals", "company_contact_name", "company_contact_role"];
+  const ours = { agreement_type: "Consultancy", paper: "Our template", fee_basis: "Day rate" }; // a rate basis, so the rate shows too
+
+  it("places all seven after the scope and the payment terms they belong beside, each saying what it does", () => {
+    expect(step.fields.filter((k) => NEW.includes(k))).toEqual(
+      ["advice_only", "consultancy_deliverables", "fee_basis", "fee_rate", "key_individuals", "company_contact_name", "company_contact_role"]);
+    expect(step.fields.indexOf("scope")).toBeLessThan(step.fields.indexOf("advice_only"));
+    expect(step.fields.indexOf("advice_only")).toBeLessThan(step.fields.indexOf("consultancy_deliverables"));
+    expect(step.fields.indexOf("payment_terms")).toBeLessThan(step.fields.indexOf("fee_basis"));
+    expect(step.fields.indexOf("fee_basis")).toBeLessThan(step.fields.indexOf("fee_rate"));
+    expect(step.fields.indexOf("company_contact_role")).toBeLessThan(step.fields.indexOf("nonstandard"));
+    for (const k of NEW) expect(_layout.UI[k]?.uses, `${k} says what it does`).toBeTruthy();
+    expect(_layout.UI.consultancy_deliverables.uses).toMatch(/D1, D2/);
+    expect(_layout.UI.key_individuals.uses).toMatch(/written consent/);
+  });
+
+  it("shows them only for Consultancy on our template", () => {
+    for (const k of NEW) {
+      expect(shown(q(k).show, ours), k).toBe(true);
+      expect(shown(q(k).show, { ...ours, paper: "Their paper" }), `${k}, their paper`).toBe(false);
+      for (const other of ["NDA", "Services (MSA)", "Buying from a vendor", "Software or SaaS", "Selling to a customer", "Something else"]) {
+        expect(shown(q(k).show, { ...ours, agreement_type: other }), `${k}, ${other}`).toBe(false);
+      }
+    }
+  });
+
+  it("shows the rate for a rate basis only, and the deliverables unless it is advice only", () => {
+    for (const [basis, rate] of [["Fixed fee", false], ["Day rate", true], ["Hourly rate", true], ["", false]] as const) {
+      expect(shown(q("fee_rate").show, { ...ours, fee_basis: basis }), basis).toBe(rate);
+    }
+    const advice = q("advice_only").options![0];
+    expect(shown(q("consultancy_deliverables").show, ours)).toBe(true);
+    expect(shown(q("consultancy_deliverables").show, { ...ours, advice_only: [advice] })).toBe(false);
+    expect(shown(q("consultancy_deliverables").show, { ...ours, advice_only: [] })).toBe(true);
+  });
+
+  it("declares the tables and limits the wizard reads", () => {
+    const deliverables = q("consultancy_deliverables");
+    expect([deliverables.kind, deliverables.min_rows, deliverables.max_rows]).toEqual(["rows", 1, 20]);
+    expect(deliverables.columns!.map((c) => [c.key, c.kind])).toEqual([["name", "text"], ["due", "date"]]);
+    expect(deliverables.columns!.find((c) => c.key === "due")!.open_end).toBe(true);
+    const people = q("key_individuals");
+    expect([people.kind, people.min_rows, people.max_rows, people.item]).toEqual(["rows", 1, 10, ["key individual", "key individuals"]]);
+    expect(people.columns!.map((c) => c.key)).toEqual(["name"]);
+    expect(q("fee_rate")).toMatchObject({ kind: "number", min_exclusive: 0, max_decimals: 2 });
+    expect(q("fee_basis").options).toEqual(["Fixed fee", "Day rate", "Hourly rate"]);
+    for (const k of ["company_contact_name", "company_contact_role"]) expect(q(k)).toMatchObject({ max_length: 120, no_blanks: true, required: true });
+  });
+
+  it("holds the scope and the total value to the new rules for Consultancy on our paper only", () => {
+    for (const k of ["scope", "value"]) {
+      expect(shown(q(k).rules_when, ours), k).toBe(true);
+      expect(shown(q(k).rules_when, { ...ours, paper: "Their paper" }), k).toBe(false);
+      expect(shown(q(k).rules_when, { ...ours, agreement_type: "Services (MSA)" }), k).toBe(false);
+    }
+  });
+});
+
+describe("the DPA questions on the Data Processing Agreement form (008)", () => {
+  const form = server.find((f) => f.key === "dpa")!;
+  const step = AGREEMENT_FORMS.find((f) => f.key === "dpa")!.steps.find((s) => s.title === "The data")!;
+  const q = (key: string) => form.fields.find((f) => f.key === key)!;
+
+  it("places the two lists straight after the question that asks for them", () => {
+    expect(step.fields).toEqual(["our_role", "processing_purpose", "data_types", "data_subjects", "transfer", "transfer_countries",
+      "subprocessors", "subprocessor_rows"]);
+    for (const k of ["transfer_countries", "subprocessor_rows"]) expect(_layout.UI[k]?.uses, k).toBeTruthy();
+  });
+
+  it("shows the countries for Yes and the sub-processors for Yes, on our template only", () => {
+    expect(shown(q("transfer_countries").show, { transfer: "Yes", paper: "Our template" })).toBe(true);
+    expect(shown(q("transfer_countries").show, { transfer: "No", paper: "Our template" })).toBe(false);
+    expect(shown(q("transfer_countries").show, { transfer: "Yes", paper: "Their paper" })).toBe(false);
+    expect(shown(q("transfer_countries").show, { paper: "Our template" })).toBe(false);
+    expect(shown(q("subprocessor_rows").show, { subprocessors: "Yes", paper: "Our template" })).toBe(true);
+    expect(shown(q("subprocessor_rows").show, { subprocessors: "No", paper: "Our template" })).toBe(false);
+    expect(shown(q("subprocessor_rows").show, { subprocessors: "Yes", paper: "Their paper" })).toBe(false);
+  });
+
+  it("asks for the kind of data and whose it is as ticks, and keeps an older single choice (legacy_single)", () => {
+    for (const k of ["data_types", "data_subjects"]) expect(q(k)).toMatchObject({ kind: "multiselect", required: true, legacy_single: true });
+    expect(q("data_types").options).toContain("Health or other special category");
+    expect(q("data_subjects").options).toContain("Patients or trial subjects");
+  });
+
+  it("holds the purpose to the no-blank-brackets rule for our paper only", () => {
+    expect(q("processing_purpose").no_blanks).toBe(true);
+    expect(shown(q("processing_purpose").rules_when, { paper: "Our template" })).toBe(true);
+    expect(shown(q("processing_purpose").rules_when, { paper: "Their paper" })).toBe(false);
+  });
+
+  it("no longer says the answers are for the annex only in general: it names Annex 1 and Annex 3, as the draft now does", () => {
+    expect(_layout.UI.processing_purpose.uses).toMatch(/Annex 1/);
+    expect(_layout.UI.data_types.uses).toMatch(/Annex 1/);
+    expect(_layout.UI.data_subjects.uses).toMatch(/Annex 1/);
+    expect(_layout.UI.transfer.uses).toMatch(/Annex 1/);
+    expect(_layout.UI.subprocessors.uses).toMatch(/Annex 3/);
+    expect(_layout.UI.our_role.uses).toMatch(/Processor: no draft is made from it; attach the other side's DPA/);
+    expect(Object.values(_layout.UI).map((u) => u.uses)).not.toContain("DPA annex.");
+  });
+});
+
+describe("every rule in the Consultancy and DPA forms points at a question that can give that answer", () => {
+  for (const key of ["new_agreement", "dpa"]) {
+    it(`${key}: show rules, rules_when, column rules and must_be.when name a question of the same form whose options hold their values`, () => {
+      const form = server.find((f) => f.key === key)!;
+      const byKey = Object.fromEntries(form.fields.map((f) => [f.key, f]));
+      const rules = form.fields.flatMap((f) => [
+        ...(f.show ?? []), ...(f.rules_when ?? []),
+        ...(f.columns ?? []).flatMap((c) => [...(c.show ?? []), ...(c.must_be ? [c.must_be.when] : [])]),
+      ]);
+      expect(rules.length).toBeGreaterThan(5);
+      for (const r of rules) {
+        const target = byKey[r.field];
+        expect(target, `${r.field} is a question of ${key}`).toBeDefined();
+        for (const v of r.in) expect(target.options, `${r.field} has ${v}`).toContain(v);
+      }
+    });
+
+    it(`${key}: every date-window rule names two date questions of the same form`, () => {
+      const form = server.find((f) => f.key === key)!;
+      const kind = Object.fromEntries(form.fields.map((f) => [f.key, f.kind]));
+      for (const c of form.fields.flatMap((f) => f.columns ?? [])) {
+        if (c.within) expect(c.within.map((k) => kind[k]), c.key).toEqual(["date", "date"]);
+        if (c.open_end) expect(c.within, `${c.key} has an open end`).toBeDefined();
+      }
+    });
+
+    it(`${key}: every question that feeds the draft (fills) is shown on a step, and so can be answered`, () => {
+      const def = AGREEMENT_FORMS.find((f) => f.key === key)!;
+      const placed = def.steps.flatMap((s) => s.fields);
+      const fills = server.find((f) => f.key === key)!.fields.filter((f) => f.fills?.length).map((f) => f.key);
+      expect(fills.length).toBeGreaterThan(3);
+      expect(fills.filter((k) => !placed.includes(k))).toEqual([]);
+    });
+  }
+});
