@@ -362,6 +362,12 @@ async def _run_ai_job(job_id: str) -> dict:
             # Many AI requests, one after another, each saved as it finishes (the job
             # keeps its own progress and its final state).
             await run_issue_fix_job(db, job)
+        elif job.job_type == "template_check":
+            from app.drafting_templates.checks import run_check_job
+
+            # One paid review of a drafting template. It records every outcome on the check and
+            # the job itself and never raises, so the retry decorator can't buy a second review.
+            await run_check_job(db, job)
         elif job.job_type in _TABULAR_JOB_TYPES:
             await _run_tabular_job(db, job)
         else:
