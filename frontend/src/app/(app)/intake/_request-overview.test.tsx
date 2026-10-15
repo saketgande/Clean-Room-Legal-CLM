@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RequestOverview } from "./_request-overview";
@@ -16,6 +16,8 @@ import { HttpError } from "@/lib/api";
 const h = vi.hoisted(() => ({
   notify: vi.fn(),
   permissions: ["contract:redline", "playbook:run"] as string[],
+  // The stage bar is left out of every test except the one that reads a skipped step's note off it.
+  stageBar: false,
   intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), teams: vi.fn(), draftContract: vi.fn(), forms: vi.fn(), update: vi.fn() },
   workflowsApi: { runForRequest: vi.fn(), lifecycle: vi.fn(), listFlows: vi.fn(), refreshRun: vi.fn(), retryReview: vi.fn(), completeStep: vi.fn(), startFlow: vi.fn(), returnStep: vi.fn() },
   contractsApi: { risk: vi.fn(), deviations: vi.fn(), reviewStatus: vi.fn() },
@@ -27,11 +29,14 @@ vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Legal One",
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
 vi.mock("./_negotiation-panel", () => ({ NegotiationPanel: () => null }));
-vi.mock("@/components/lifecycle-view", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/components/lifecycle-view")>()),
-  LifecycleView: () => null,
-  NextStepCard: () => null,
-}));
+vi.mock("@/components/lifecycle-view", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/lifecycle-view")>();
+  return {
+    ...actual,
+    LifecycleView: (p: ComponentProps<typeof actual.LifecycleView>) => (h.stageBar ? <actual.LifecycleView {...p} /> : null),
+    NextStepCard: () => null,
+  };
+});
 vi.mock("next/link", () => ({ default: (p: { href: string; children: ReactNode; className?: string }) => <a href={p.href} className={p.className}>{p.children}</a> }));
 
 // The deliverables block reads the real form definitions, as the page does from GET /intake/forms.
@@ -88,6 +93,7 @@ const ladder = () => document.querySelector(".steps") as HTMLElement;
 beforeEach(() => {
   vi.resetAllMocks();
   h.permissions = ["contract:redline", "playbook:run"];
+  h.stageBar = false;
   h.intakeApi.get.mockResolvedValue(request);
   h.intakeApi.documents.mockResolvedValue([]);
   h.intakeApi.handoffs.mockResolvedValue([]);
@@ -720,5 +726,186 @@ describe("a Statement of Work step that is waiting for another reason", () => {
     ]));
     mount();
     expect(await screen.findByRole("button", { name: /Approve & advance/ })).toBeEnabled();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// 008: the answers a Consultancy or DPA draft is made from, and the draft steps that wait for them or skip.
+
+const HELD_ANSWERS = "Enter these answers on the request first: \"Deliverables\", \"How is the consultant paid?\", \"Consultant's key individuals\", \"Company contact: name\" and \"Company contact: role\". The Engagement Schedule of the Consultancy draft is made from them, and this request does not have them yet. This step carries on by itself once the answers are saved on the request.";
+const HELD_FORM = "File this request on the Data Processing Agreement form first. It came in by email or chat, so it has none of the form's answers, and Annex 1 and Annex 3 of the DPA draft are made from them.";
+const PROCESSOR_NOTE = "No draft was made: this request says we are the Processor, and our DPA template is written for the Controller. Attach the other side's DPA (or the paper to use) before the review.";
+const PROCESSOR = "Processor: we act on their instructions";
+const OLDER_CONSULTANCY = {
+  request_form: "new_agreement", agreement_type: "Consultancy", paper: "Our template", currency: "INR", value: 1800000,
+  term: "Fixed end date", start_date: "2026-11-01", end_date: "2027-04-30", scope: "Advise on the quality process.",
+};
+const consultancyRequest = (fv: Record<string, unknown>, over: Partial<IntakeRequest> = {}): IntakeRequest =>
+  ({ ...request, type_label: "New agreement · Consultancy", contract_id: null, draftable_doc_type: "consultancy", draftable_doc_label: "Consultancy", ...over, field_values: { ...OLDER_CONSULTANCY, ...fv } }) as IntakeRequest;
+const dpaRequest = (fv: Record<string, unknown>, over: Partial<IntakeRequest> = {}): IntakeRequest =>
+  ({ ...request, type_label: "Data Processing Agreement", contract_id: null, draftable_doc_type: "dpa", draftable_doc_label: "DPA", ...over, field_values: fv }) as IntakeRequest;
+const heldAnswers = (note = HELD_ANSWERS, held = "answers") =>
+  runOf([step(0, "clm_draft", "waiting_human", "Draft the agreement", { note, result: { held } }), step(1, "human_task", "pending", "Legal review")],
+    { current_index: 0, contract_id: null });
+const fillConsultancyAnswers = () => {
+  for (const [label, value] of [
+    ["Row 1, Deliverable name", "Current-state review"], ["Row 1, Due date", "2026-12-15"], ["How is the consultant paid?", "Fixed fee"],
+    ["Row 1, Name", "Anita Rao"], ["Company contact: name", "Ravi Shah"], ["Company contact: role", "Head of Quality"],
+  ]) fireEvent.change(screen.getByLabelText(label), { target: { value } });
+};
+
+describe("a Consultancy or DPA draft step held for answers (FR-43, FR-44)", () => {
+  it("shows why the draft is held with the answers to enter, and offers no Approve & advance", async () => {
+    // Failure mode: a person completing the held step by hand (the server answers 409), or left with no reason and no way to fix it.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}));
+    h.workflowsApi.runForRequest.mockResolvedValue(heldAnswers());
+    mount();
+    expect(await screen.findByRole("status")).toHaveTextContent(HELD_ANSWERS);
+    expect(approveButtons()).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Your decision" })).toBeNull();
+    expect(h.workflowsApi.completeStep).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Row 1, Deliverable name")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Save answers" })).toBeInTheDocument();
+  });
+
+  it("shows the reason to an approver who may not edit, with no editor", async () => {
+    // Failure mode: the hold visible only to the people who can fix it.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}));
+    h.workflowsApi.runForRequest.mockResolvedValue(heldAnswers());
+    mount(false);
+    expect(await screen.findByRole("status")).toHaveTextContent(HELD_ANSWERS);
+    expect(screen.getAllByText("Not answered yet")).toHaveLength(5);
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+    expect(approveButtons()).toHaveLength(0);
+  });
+
+  it("saves the answers, asks the held run to look again, says so, and then fetches the request and the run afresh", async () => {
+    // Failure mode: answers saved but the step left held until the next sweep, or the page still showing the hold and no draft.
+    const filled = { consultancy_deliverables: [{ name: "Current-state review", due: "2026-12-15" }], fee_basis: "Fixed fee",
+      key_individuals: [{ name: "Anita Rao" }], company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality" };
+    const drafted = consultancyRequest(filled, { contract_id: "c-9" });
+    const movedOn = runOf([step(0, "clm_draft", "done", "Draft the agreement"), step(1, "human_task", "waiting_human", "Legal review")], { current_index: 1, contract_id: "c-9" });
+    h.intakeApi.get.mockResolvedValueOnce(consultancyRequest({})).mockResolvedValue(drafted);
+    h.workflowsApi.runForRequest.mockResolvedValueOnce(heldAnswers()).mockResolvedValue(movedOn);
+    h.intakeApi.update.mockResolvedValue(consultancyRequest(filled));
+    h.workflowsApi.refreshRun.mockResolvedValue(movedOn);
+
+    mount();
+    await screen.findByRole("status");
+    fillConsultancyAnswers();
+    fireEvent.click(screen.getByRole("button", { name: "Save answers" }));
+
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith("Answers saved", "success"));
+    expect(h.intakeApi.update).toHaveBeenCalledWith("q-1", { field_values: { ...OLDER_CONSULTANCY, ...filled } });
+    expect(h.workflowsApi.refreshRun).toHaveBeenCalledWith("run-1");
+    const toast = h.notify.mock.calls.findIndex((c) => c[0] === "Answers saved");
+    await waitFor(() => expect(h.intakeApi.get).toHaveBeenCalledTimes(2));
+    // update, then the run is asked to look again, then the toast, then the request is fetched again.
+    expect(h.intakeApi.update.mock.invocationCallOrder[0]).toBeLessThan(h.workflowsApi.refreshRun.mock.invocationCallOrder[0]);
+    expect(h.workflowsApi.refreshRun.mock.invocationCallOrder[0]).toBeLessThan(h.notify.mock.invocationCallOrder[toast]);
+    expect(h.notify.mock.invocationCallOrder[toast]).toBeLessThan(h.intakeApi.get.mock.invocationCallOrder[1]);
+    await waitFor(() => expect(h.workflowsApi.runForRequest).toHaveBeenCalledTimes(2));
+
+    await waitFor(() => expect(screen.queryByText(/Enter these answers on the request first/)).toBeNull());
+    expect(screen.getByRole("link", { name: /Review & redline/ })).toHaveAttribute("href", "/contracts/c-9");
+    expect(approveButtons().length).toBeGreaterThan(0);
+    // The drafted contract exists, so the answers are shown, not asked for again.
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+    expect(screen.getByRole("table", { name: "Deliverables" })).toBeInTheDocument();
+  });
+
+  it("keeps the entries and shows the server's message when it refuses them", async () => {
+    // Failure mode: a refused save still poking the workflow, or the typed answers thrown away.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}));
+    h.workflowsApi.runForRequest.mockResolvedValue(heldAnswers());
+    h.intakeApi.update.mockRejectedValue(new Error('"Deliverables", row 1: "Due date" must be between 1 November 2026 and 30 April 2027'));
+    mount();
+    await screen.findByRole("status");
+    fillConsultancyAnswers();
+    fireEvent.click(screen.getByRole("button", { name: "Save answers" }));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(expect.stringContaining('row 1: "Due date"'), "error"));
+    expect(h.workflowsApi.refreshRun).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Row 1, Deliverable name")).toHaveValue("Current-state review");
+    expect(screen.getByRole("status")).toHaveTextContent(HELD_ANSWERS);
+  });
+
+  it("offers no editor once a contract has been drafted from the request", async () => {
+    // Failure mode: answers edited after the draft was made, which would change nothing in the contract.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}, { contract_id: "c-1" }));
+    mount();
+    await screen.findByRole("heading", { name: "Answers for the draft" });
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+    expect(screen.queryByLabelText("Row 1, Deliverable name")).toBeNull();
+  });
+
+  it("shows an email request's reason and no editor: with no form there is nothing to enter", async () => {
+    // Failure mode: Approve & advance on a step the server refuses to complete by hand, or an editor with no form behind it.
+    h.intakeApi.get.mockResolvedValue(dpaRequest({}));
+    h.workflowsApi.runForRequest.mockResolvedValue(heldAnswers(HELD_FORM, "form"));
+    mount();
+    expect(await screen.findByRole("status")).toHaveTextContent(HELD_FORM);
+    expect(approveButtons()).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Answers for the draft" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+  });
+
+  it("still has Approve & advance on a Consultancy draft step that waits for another reason", async () => {
+    // Failure mode: the hold test keyed on the kind of request instead of on the step's own `held` value.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}, { contract_id: "c-1" }));
+    h.workflowsApi.runForRequest.mockResolvedValue(runOf([
+      step(0, "clm_draft", "waiting_human", "Draft the agreement"), step(1, "human_task", "pending", "Legal review"),
+    ], { current_index: 0 }));
+    mount();
+    expect(await screen.findByRole("button", { name: /Approve & advance/ })).toBeEnabled();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});
+
+describe("a DPA request where we are the Processor (FR-53, FR-54, FR-55)", () => {
+  const PROCESSOR_DPA = { request_form: "dpa", paper: "Our template", our_role: PROCESSOR, processing_purpose: "Hosting the portal.", transfer: "No", subprocessors: "No" };
+
+  it("shows the skipped draft step as skipped, with its note, and neither a hold nor an editor", async () => {
+    // Failure mode: a Processor request shown as held and asking for answers to a draft that will never be made.
+    h.stageBar = true;
+    h.intakeApi.get.mockResolvedValue(dpaRequest(PROCESSOR_DPA));
+    h.workflowsApi.runForRequest.mockResolvedValue(runOf([
+      step(0, "clm_draft", "skipped", "Draft the DPA", { note: PROCESSOR_NOTE, result: { skipped: "processor_role" }, stage: "drafting" }),
+      step(1, "human_task", "waiting_human", "Legal review", { stage: "review" }),
+    ], { current_index: 1, contract_id: null }));
+    mount();
+    await screen.findByRole("heading", { name: "Answers for the draft" });
+    const row = within(ladder()).getByText("Draft the DPA").closest(".step") as HTMLElement;
+    expect(within(row).getByText("skipped")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+    // The stage bar carries the note: open the Drafting stage.
+    fireEvent.click(screen.getByRole("button", { name: /^Drafting:/ }));
+    expect(await screen.findByText(PROCESSOR_NOTE)).toBeInTheDocument();
+    // The run went on to its next step, which a person approves.
+    expect(approveButtons().length).toBeGreaterThan(0);
+  });
+
+  it("shows the server's own sentence when a person's Draft is refused, and drafts nothing", async () => {
+    // Failure mode: the 422 shown as a generic failure, so the person never learns to attach the other side's DPA.
+    h.intakeApi.get.mockResolvedValue(dpaRequest(PROCESSOR_DPA));
+    h.workflowsApi.runForRequest.mockResolvedValue(null);
+    h.intakeApi.draftContract.mockRejectedValue(new HttpError(422, PROCESSOR_NOTE));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Approve & draft the DPA/ }));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(PROCESSOR_NOTE, "error"));
+    expect(h.notify).not.toHaveBeenCalledWith("Drafting — review running", "success");
+  });
+});
+
+describe("a person's Draft refused because answers are missing (FR-43)", () => {
+  it("shows the server's sentence naming the answers", async () => {
+    // Failure mode: the 409 shown as a generic failure, so the person does not know which answers to enter.
+    h.intakeApi.get.mockResolvedValue(consultancyRequest({}));
+    h.workflowsApi.runForRequest.mockResolvedValue(null);
+    const sentence = HELD_ANSWERS.replace(" This step carries on by itself once the answers are saved on the request.", "");
+    h.intakeApi.draftContract.mockRejectedValue(new HttpError(409, sentence));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Approve & draft the Consultancy/ }));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(sentence, "error"));
   });
 });
