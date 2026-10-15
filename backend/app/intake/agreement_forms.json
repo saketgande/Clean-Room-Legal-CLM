@@ -484,13 +484,15 @@
     "key": "cp_signer_name",
     "label": "Their signer: name",
     "kind": "text",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "cp_signer_email",
     "label": "Their signer: email",
     "kind": "email",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "needed_by",
@@ -517,7 +519,8 @@
     "key": "sow_title",
     "label": "SoW title",
     "kind": "text",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
     "key": "services_start",
@@ -536,7 +539,8 @@
     "key": "value",
     "label": "Total value of this SoW",
     "kind": "number",
-    "required": true
+    "required": true,
+    "min_exclusive": 0
    },
    {
     "key": "currency",
@@ -565,13 +569,65 @@
     "key": "scope",
     "label": "Scope of services",
     "kind": "textarea",
-    "required": true
+    "required": true,
+    "no_blanks": true
    },
    {
-    "key": "deliverables",
-    "label": "Deliverables and who accepts them",
-    "kind": "textarea",
-    "required": true
+    "key": "deliverable_rows",
+    "label": "Deliverables",
+    "kind": "rows",
+    "required": true,
+    "min_rows": 1,
+    "max_rows": 20,
+    "legacy_key": "deliverables",
+    "legacy_label": "Deliverables and who accepts them",
+    "columns": [
+     {
+      "key": "name",
+      "label": "Deliverable name",
+      "kind": "text",
+      "max_length": 200,
+      "unique": true,
+      "no_blanks": true
+     },
+     {
+      "key": "due",
+      "label": "Due date",
+      "kind": "date",
+      "within": [
+       "services_start",
+       "services_end"
+      ]
+     },
+     {
+      "key": "their_owner",
+      "label": "Their owner",
+      "kind": "text",
+      "max_length": 120,
+      "no_blanks": true
+     },
+     {
+      "key": "our_owner",
+      "label": "Our owner",
+      "kind": "text",
+      "max_length": 120,
+      "no_blanks": true
+     },
+     {
+      "key": "share",
+      "label": "Share of the fee (%)",
+      "kind": "percent",
+      "total": 100,
+      "show": [
+       {
+        "field": "pricing",
+        "in": [
+         "Milestones"
+        ]
+       }
+      ]
+     }
+    ]
    },
    {
     "key": "personal_data",
