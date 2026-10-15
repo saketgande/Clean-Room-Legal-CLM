@@ -32,6 +32,7 @@ Legend: ⬜ pending · 🔵 running · ✅ done · 🟥 failed · 🟧 blocked
 | T023 | backend-dev | ⬜ pending | — | — |
 | T024 | qa-engineer | ⬜ pending | — | — |
 | T025 | backend-dev | ⬜ pending | — | follow-up from T006 (retry wording) |
+| T026 | frontend-dev | ✅ done | — | follow-up from T013: P2-1 summary, P3-4 version wording |
 
 ## Event log
 
@@ -90,3 +91,5 @@ Append-only; newest last. One line per status change:
 - 2026-10-15T09:18:34Z T013 qa-engineer → running: starting: reading spec/plan, then CI gates
 - 2026-10-15T09:34:17Z T013 qa-engineer → done: Phase 1 verified: ruff clean, head 0074_template_sync, pytest 3307 passed 1 skipped, vitest 993, typecheck only 2 stale; 45 P1 ACs = 41 Pass / 1 Partial (AC-46) / 3 Browser (17, 56, 60) / 0 Fail; 30 later-phase; 0 blocking defects, 3 P3; live API + RBAC-enforced 403s checked; verification.md written, section 7 left for the orchestrator
 - 2026-10-15T09:37:23Z T013 qa-engineer → done: browser walk folded into verification.md; counts and defects updated
+- 2026-10-15T09:39:40Z T026 frontend-dev → running: P2-1 (stop showing check summary) and P3-4 ("(version n)" wording)
+- 2026-10-15T09:40:09Z T026 frontend-dev → done: summary no longer rendered, playbook version reads "(version n)"; vitest 994 passed, typecheck only the 2 stale validator.ts errors

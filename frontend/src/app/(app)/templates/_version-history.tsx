@@ -175,7 +175,7 @@ export function VersionHistory({ template, canChange, dirty = false, onRestored 
                       return (
                         <li key={c.id}>
                           <Badge tone={o.tone} className="normal-case tracking-normal">
-                            {`${o.word}${c.playbook_version_number ? ` · playbook v${c.playbook_version_number}` : ""}`}
+                            {`${o.word}${c.playbook_version_number ? ` · playbook version ${c.playbook_version_number}` : ""}`}
                           </Badge>
                         </li>
                       );

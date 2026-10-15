@@ -83,7 +83,7 @@ export function playbookText(t: Pick<DraftingTemplateSummary, "playbook">): stri
   const p = t.playbook;
   if (!p) return "No playbook reviews it";
   if (!p.available) return `Reviewed by ${p.name}, which is deleted or has no published version`;
-  return `Reviewed by ${p.name}${p.version_number ? ` v${p.version_number}` : ""}`;
+  return `Reviewed by ${p.name}${p.version_number ? ` (version ${p.version_number})` : ""}`;
 }
 
 export function TemplateList({

@@ -191,7 +191,7 @@ function Loaded({
             </div>
             <p className="text-xs text-slate-600">
               {last
-                ? `Last checked ${fmtDateTime(last.finished_at)} against ${last.playbook_name ?? "the playbook"}${last.playbook_version_number ? ` v${last.playbook_version_number}` : ""}.`
+                ? `Last checked ${fmtDateTime(last.finished_at)} against ${last.playbook_name ?? "the playbook"}${last.playbook_version_number ? ` (version ${last.playbook_version_number})` : ""}.`
                 : "No check has finished yet."}
             </p>
             <p className="text-xs text-slate-600">{playbookLine(live)}</p>

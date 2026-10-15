@@ -251,7 +251,7 @@ describe("the list (FR-1, FR-2, FR-65)", () => {
     expect(msaRow).toHaveTextContent("Has findings");
     expect(msaRow).toHaveTextContent("2 findings, highest High.");
     expect(msaRow).toHaveTextContent("Results vary");
-    expect(msaRow).toHaveTextContent("Reviewed by MSA Playbook v1");
+    expect(msaRow).toHaveTextContent("Reviewed by MSA Playbook (version 1)");
     expect(msaRow).toHaveTextContent("Drafts New agreement · MSA");
     expect(msaRow).toHaveTextContent("Edited · v3");
     expect(list.getByRole("button", { name: /^Non-Disclosure Agreement/ })).toHaveTextContent("Shipped wording");
@@ -342,7 +342,7 @@ describe("what the page must say about a check (FR-10)", () => {
     ]) {
       expect(screen.getAllByText(sentence)[0]).toBeVisible();
     }
-    expect(within(header).getByText(/^Last checked .+ against NDA Playbook v2\.$/)).toBeInTheDocument();
+    expect(within(header).getByText(/^Last checked .+ against NDA Playbook \(version 2\)\.$/)).toBeInTheDocument();
     expect(within(header).getByText("Passes")).toBeInTheDocument();
   });
 
@@ -358,12 +358,12 @@ describe("which playbook reviews a template (D-11, FR-51)", () => {
   it("says whether the playbook is locked to the template or matched by name, or why there is none", async () => {
     mount({ list: [...ALL(), gone()] });
     let header = await headerOf("Non-Disclosure Agreement");
-    expect(within(header).getByText("Reviewed by NDA Playbook v2 · locked to this template")).toBeInTheDocument();
+    expect(within(header).getByText("Reviewed by NDA Playbook (version 2) · locked to this template")).toBeInTheDocument();
     expect(within(header).getByText("Drafts New agreement · NDA · Shipped wording")).toBeInTheDocument();
 
     header = (await open(/^Master Services Agreement/, "Master Services Agreement")).closest("header") as HTMLElement;
     expect(
-      within(header).getByText("Reviewed by MSA Playbook v1 · matched by name; locked at its first check or draft"),
+      within(header).getByText("Reviewed by MSA Playbook (version 1) · matched by name; locked at its first check or draft"),
     ).toBeInTheDocument();
     expect(within(header).getByText(/Drafts New agreement · MSA · Edited · v3 · changed by Priya Shah/)).toBeInTheDocument();
 
@@ -404,7 +404,7 @@ describe("which playbook reviews a template (D-11, FR-51)", () => {
 
     await waitFor(() => expect(h.setPlaybook).toHaveBeenCalledWith("nda", { playbook_id: "p9" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(await within(header).findByText("Reviewed by Better NDA Playbook v4 · locked to this template")).toBeInTheDocument();
+    expect(await within(header).findByText("Reviewed by Better NDA Playbook (version 4) · locked to this template")).toBeInTheDocument();
     expect(h.list.mock.calls.length).toBeGreaterThanOrEqual(2); // the list was read again
     expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Playbook changed"), "success");
   });

@@ -240,6 +240,18 @@ describe("a finding (FR-23)", () => {
     expect(result).toHaveTextContent("longer than the review can read, so the end of it was not checked");
     expect(result).toHaveTextContent("60,000 of 90,000 characters");
   });
+
+  it("does not show the model's free-text summary, only the findings and their count", async () => {
+    // Failure mode: the summary is the model thinking aloud and can contradict the findings (it
+    // talked about three indemnification deviations while the one finding was service levels), so
+    // showing it presents a contradictory AI summary as if it were the result.
+    const SUMMARY = "Three deviations are flagged on indemnification, though on closer reading there is none.";
+    h.checks.mockResolvedValue([check({ summary: SUMMARY })]);
+    mount();
+    const result = await screen.findByTestId("check-result");
+    expect(result).toHaveTextContent("1 finding.");
+    expect(screen.queryByText(SUMMARY)).toBeNull();
+  });
 });
 
 describe("Show in template (FR-24)", () => {
@@ -369,7 +381,7 @@ describe("check history (FR-18)", () => {
     expect(within(rows[1]).getByText("1 finding")).toBeInTheDocument();
     expect(within(rows[2]).getByText("System, for Priya Shah")).toBeInTheDocument();
     expect(within(rows[2]).getByText("Playbook published")).toBeInTheDocument();
-    expect(within(rows[2]).getByText(/SaaS Playbook v2/)).toBeInTheDocument();
+    expect(within(rows[2]).getByText(/SaaS Playbook \(version 2\)/)).toBeInTheDocument();
     expect(within(rows[2]).getByText("No findings")).toBeInTheDocument();
     expect(within(rows[3]).getByText("System")).toBeInTheDocument();
     expect(within(rows[3]).getByText("Couldn't check")).toBeInTheDocument();
@@ -474,7 +486,7 @@ describe("version history (FR-57, FR-58)", () => {
     expect(within(list).getByText("Loaded back from the shipped wording.")).toBeInTheDocument();
     expect(within(list).getByText("Shipped wording", { selector: "b" })).toBeInTheDocument();
     const chips = within(screen.getByRole("list", { name: "Checks of Version 3" })).getAllByRole("listitem");
-    expect(chips.map((c) => c.textContent)).toEqual(["1 finding · playbook v3", "No findings · playbook v3"]);
+    expect(chips.map((c) => c.textContent)).toEqual(["1 finding · playbook version 3", "No findings · playbook version 3"]);
   });
 
   it("reads a version's wording, with fields as chips, without changing anything", async () => {

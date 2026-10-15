@@ -447,18 +447,19 @@ function ResultCard({
 
       {check.state === "completed" && (
         <>
+          {/* check.summary is deliberately not shown: it is the model thinking aloud and can contradict the
+              findings (a stored MSA summary talked about indemnification and "three deviations" while the one
+              finding was service levels). The findings list below is the record. */}
           {n === 0 ? (
             <MessageBar intent={check.text_was_truncated ? "warning" : "success"}>
               <b>No findings.</b> The AI review of {check.playbook_name ?? "the playbook"} found nothing to flag in
               {check.text_was_truncated ? " the part of the wording it read" : " this wording"}
               {check.rule_count !== null ? ` (${plural(check.rule_count, "rule")} checked)` : ""}.
-              {check.summary ? <span className="mt-1 block opacity-90">{check.summary}</span> : null}
             </MessageBar>
           ) : (
             <MessageBar intent="warning">
               <b>{plural(n, "finding")}.</b> The AI review of {check.playbook_name ?? "the playbook"} flagged {n === 1 ? "this" : "these"} in
               this wording{check.rule_count !== null ? ` (${plural(check.rule_count, "rule")} checked)` : ""}.
-              {check.summary ? <span className="mt-1 block opacity-90">{check.summary}</span> : null}
             </MessageBar>
           )}
           {check.text_was_truncated && (
@@ -644,7 +645,7 @@ function History({
                   <TD>{c.template_version === 0 ? "Shipped wording" : `Version ${c.template_version}`}</TD>
                   <TD>
                     {c.playbook_name ?? "None"}
-                    {c.playbook_version_number ? ` v${c.playbook_version_number}` : ""}
+                    {c.playbook_version_number ? ` (version ${c.playbook_version_number})` : ""}
                   </TD>
                   <TD>
                     <Badge tone={o.tone}>{o.word}</Badge> {o.detail}
