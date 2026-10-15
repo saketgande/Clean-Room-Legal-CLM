@@ -18,6 +18,7 @@ from app.core.database import utcnow
 from app.core.deps import get_db, require_permission
 from app.core.enums import PlaybookStatus
 from app.core.rbac import has_permission
+from app.drafting_templates import checks as template_checks
 from app.playbooks.dependencies import get_playbooks_service
 from app.playbooks.models import (
     Playbook,
@@ -55,6 +56,32 @@ from app.playbooks.service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/playbooks", tags=["playbooks"])
+
+
+def _check_templates_after_publish(db: Session, user, just_published) -> None:
+    """A playbook just published: check the drafting templates it reviews (spec 006 FR-14).
+
+    ``just_published`` is the criterion that picks the playbooks. Called after the publish
+    committed, so whatever happens here — a broker hiccup, a template that cannot be queued — is
+    logged and never turns a published playbook into an error."""
+    try:
+        published = {
+            playbook_id: {"playbook_id": playbook_id, "playbook_version_id": version_id, "version_number": number}
+            for playbook_id, version_id, number in db.execute(
+                select(Playbook.id, PlaybookVersion.id, PlaybookVersion.version_number)
+                .join(PlaybookVersion, PlaybookVersion.id == Playbook.current_version_id)
+                .where(Playbook.org_id == user.org_id, Playbook.deleted_at.is_(None), just_published)
+            )
+        }
+        if published:
+            template_checks.on_playbooks_published(
+                db, org_id=user.org_id, playbook_ids=list(published), actor_user_id=user.id,
+                detail_for=lambda playbook_id: published[playbook_id],
+            )
+    except Exception:
+        logger.exception("could not check the templates after a playbook publish")
+        if not db.is_active:
+            db.rollback()
 
 
 @router.get("", response_model=list[PlaybookResponse])
@@ -519,6 +546,8 @@ def seed_library(db: Session = Depends(get_db), current_user=Depends(require_per
 
     added = seed_playbook_library(db, org_id=current_user.org_id, actor_id=current_user.id)
     db.commit()
+    if added:
+        _check_templates_after_publish(db, current_user, Playbook.name.in_(added))
     return {"added": added}
 
 
@@ -558,6 +587,7 @@ def publish_playbook(
     )
     db.commit()
     db.refresh(playbook)
+    _check_templates_after_publish(db, current_user, Playbook.id == playbook.id)
     return playbook
 
 
