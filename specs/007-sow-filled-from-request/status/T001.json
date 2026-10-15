@@ -1,1 +1,1 @@
-{"task": "T001", "agent": "backend-dev", "status": "pending", "detail": "not started", "updated": "2026-10-15T11:00:37Z"}
+{"task": "T001", "agent": "backend-dev", "status": "done", "detail": "M12 'short of 100%' regenerated (6 strings; 'over' unchanged); reference check 0 mismatches over 146/20/54 cases; node + json.tool parse ok; ruff unaffected (JSON only)", "updated": "2026-10-15T11:50:00Z"}

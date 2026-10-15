@@ -6428,11 +6428,11 @@
       "model": 104,
       "page": 39,
       "schema": 260,
-      "ts_interface": 277,
+      "ts_interface": 280,
       "ui_primitive": 29
     },
-    "generated_at": "2026-10-15T08:59:52Z",
-    "git_head": "3f6434adf80b9820008a146c5ac14984de4adba2",
+    "generated_at": "2026-10-15T11:50:39Z",
+    "git_head": "1079ce9ab63b425eb22309d750730aa40aa51ccb",
     "warnings": [
       "49 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -18538,6 +18538,8 @@
       "components": [
         "_agreement-forms.tsx",
         "_agreement-wizard.test.tsx",
+        "_deliverables.test.tsx",
+        "_deliverables.tsx",
         "_governance-ladder.tsx",
         "_legal-intake.test.tsx",
         "_legal-intake.tsx",
@@ -21237,6 +21239,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:FormRow",
+      "name": "FormRow",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:FormValue",
+      "name": "FormValue",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:GrantResponse",
       "name": "GrantResponse",
       "type": "ts_interface"
@@ -21761,6 +21775,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:RenewalRecommendation",
       "name": "RenewalRecommendation",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestFormColumn",
+      "name": "RequestFormColumn",
       "type": "ts_interface"
     },
     {

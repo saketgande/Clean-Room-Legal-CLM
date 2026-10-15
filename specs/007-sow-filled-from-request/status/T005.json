@@ -1,1 +1,1 @@
-{"task": "T005", "agent": "backend-dev", "status": "pending", "detail": "not started", "updated": "2026-10-15T11:00:37Z"}
+{"task": "T005", "agent": "backend-dev", "status": "done", "detail": "workflows/service.py: clm_draft catches DraftHeld (waiting_human, note=HELD_STEP_NOTE, result={held:deliverable_rows}); _resolve_waiting_group re-arms once draft_hold is None; complete_human_step 409 HELD_STEP_NOT_MANUAL. 8 new tests (25 in consistency file), 254 workflow/sow suites + full suite 3807 passed 1 skipped, ruff clean", "updated": "2026-10-15T13:05:00Z"}

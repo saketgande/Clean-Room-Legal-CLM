@@ -199,7 +199,7 @@ the column label, `{n}` the row number:
 | M9 | `"{L}", row {n}: "{C}" must be between {start} and {end} ({start label} to {end label}).`, with dates written "1 November 2026" |
 | M10 | `"{L}", row {n}: "{C}" must be a number above 0 and at most 100, with no more than two decimal places.` |
 | M11 | `"{L}", rows {i} and {j} have the same "{C}" ("{value of row i}"). Give each row its own.` |
-| M12 | `"{L}": the "{C}" column adds up to {total}%, {diff} {short\|over} 100%.` Numbers are two-decimal values with trailing zeros removed: 99 → `99`, 99.5 → `99.5` |
+| M12 | Under: `"{L}": the "{C}" column adds up to {total}%, {diff} short of 100%.` Over: `"{L}": the "{C}" column adds up to {total}%, {diff} over 100%.` Numbers are two-decimal values with trailing zeros removed: 99 → `99`, 99.5 → `99.5` |
 | F1 | `Field "{label}" contains {bracket}, which reads as a blank to fill in later. Reword it without square brackets.` (`no_blanks` on a text/textarea/email question) |
 | F2 | `Field "{label}" must be more than {min_exclusive}` (no full stop, as the neighbouring `must be a number`) |
 
@@ -815,6 +815,7 @@ Acceptance verification (T007) maps each AC to its evidence:
 
 ## Risks & decisions
 
+- 2026-10-15: M12 wording corrected ('short of'), orchestrator, during /implement
 - **No migration: rows live in `field_values` under a new key.** Rejected:
   - a `deliverable` table (more schema, a model, a migration, org-scoping queries, for 1–20
     rows that are only ever read with their request);
