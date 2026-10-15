@@ -1,1 +1,1 @@
-{"task": "T006", "agent": "frontend-dev", "status": "pending", "detail": "not started", "updated": "2026-10-15T15:19:49Z"}
+{"task": "T006", "agent": "frontend-dev", "status": "done", "detail": "RequestAnswers (SOW block, Consultancy/DPA read-only answers + editor, email DPA hold reason) mounted in the request page; held = any result.held; typecheck clean (2 stale .next errors only); vitest 65 files / 1744 tests (24 new in _request-answers.test.tsx, 10 new in _request-overview.test.tsx)", "updated": "2026-10-15T15:57:45Z"}

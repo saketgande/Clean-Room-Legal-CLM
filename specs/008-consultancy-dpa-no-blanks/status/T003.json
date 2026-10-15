@@ -1,1 +1,1 @@
-{"task": "T003", "agent": "backend-dev", "status": "pending", "detail": "not started", "updated": "2026-10-15T15:19:49Z"}
+{"task": "T003", "agent": "backend-dev", "status": "done", "detail": "done: consultancy.py, dpa.py, templates, 10 placeholders, checks, exam freeze; 105 new tests + 712 in verify set green; ruff clean", "updated": "2026-10-15T15:51:28Z"}

@@ -1,1 +1,1 @@
-{"task": "T002", "agent": "backend-dev", "status": "pending", "detail": "not started", "updated": "2026-10-15T15:19:49Z"}
+{"task": "T002", "agent": "backend-dev", "status": "done", "detail": "agreement_forms.py + service.py + 2 test files; shared cases 210 tables + 73 fields all pass (also 206 tables through the whole-form validator); 976 passed on the 5 named files, 582 on intake/workflow-library suites, full suite 4454 passed 1 skipped; ruff clean; rate pattern allows a leading minus per coordinator", "updated": "2026-10-15T15:54:54Z"}

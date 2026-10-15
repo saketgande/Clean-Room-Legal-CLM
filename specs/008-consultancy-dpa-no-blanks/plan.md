@@ -215,7 +215,7 @@ New attributes, defined once (server and wizard read them identically):
 | `not` | a `show` rule | the rule matches when the answer is **none** of `in` (an unanswered question matches) |
 | `rules_when` | a question | its `no_blanks`, `min_exclusive`, `max_length`, `max_decimals` apply only when every rule matches the form's answers |
 | `max_length` | a text/textarea question | the answer is tidied (as a cell: runs of ASCII whitespace → one space, ends trimmed; stored tidied), then refused above this many code points (F3) |
-| `max_decimals` | a number question | the answer as typed (commas removed, ASCII-trimmed) must match `^[0-9]+(\.[0-9]{1,N})?$` (F4). Checked after F2 |
+| `max_decimals` | a number question | the answer as typed (commas removed, ASCII whitespace trimmed, as today's number coercion does) must be a plain ASCII number (optional leading minus), `^-?[0-9]+(\.[0-9]+)?$`; anything else (`1e3`, `.5`, `5.`, `+25`, non-ASCII digits) gets the existing `Field "{label}" must be a number` at coercion. A plain number that is 0 or less gets F2; then one with more than N decimals gets F4 |
 | `older_may_lack` | a question | on an update, a missing answer is allowed (left absent) when the stored request has no value under this key **and** every field named in its `show` rules has the same answer as stored |
 | `legacy_single` | a multiselect | on an update, a **string** answer equal to the stored one is kept verbatim, uncoerced and unchecked (an older single choice, including "Several") |
 | `fills` | a question | the template fields built from this answer: the hold reads it (which answers a wording needs), the request page shows these questions, the audit tracks them. Not a validation rule |
@@ -239,10 +239,10 @@ this order after the existing checks of that kind:
 | M1–M12 | unchanged from 007 |
 | M9b | `"{L}", row {n}: "{C}" must be on or after {start} ({start label}).` e.g. `"Deliverables", row 1: "Due date" must be on or after 1 November 2026 (Start date).` |
 | M13 | `"{L}", row {n}: "{C}" is {outside}. List only the countries outside {outside}.` e.g. `"Countries outside India", row 2: "Country" is India. List only the countries outside India.` |
-| M14 | `"{L}", row {n}: "{C}" is "{cell}", but the answer to "{when label}" is {answer}. Give {value}, or change that answer.` e.g. `"Sub-processors", row 1: "Country" is "Singapore", but the answer to "Will data leave India?" is No. Give India, or change that answer.` |
+| M14 | `"{L}", row {n}: "{C}" is "{cell}", but the answer to "{when label}" is {answer}. Enter {value}, or change that answer.` e.g. `"Sub-processors", row 1: "Country" is "Singapore", but the answer to "Will data leave India?" is No. Enter India, or change that answer.` |
 | F1, F2 | unchanged from 007 |
 | F3 | `Field "{label}" is longer than {max_length} characters` (no full stop, as the existing 20,000-character message) |
-| F4 | `Field "{label}" can have at most {max_decimals} decimal places` |
+| F4 | `Field "{label}" can have at most {max_decimals} decimal places`: only for a plain ASCII number (`^-?[0-9]+(\.[0-9]+)?$`) with more than `max_decimals` decimals |
 | required | `Field "{label}" is required` (existing), now also for a required multiselect sent as `[]` |
 
 The wizard words F1–F4 from the verb (`Is longer than 120 characters.`, `Can have at most 2 decimal
@@ -257,11 +257,14 @@ Filing and update semantics in `_validate_field_values(fields, values, *, stored
    popped.
 3. `legacy_single` and `stored is not None` and the answer is a `str` equal to `stored[key]` → kept as is;
    skip 4–5.
-4. `_coerce_field` (existing); then, when the question has `max_length` and the value is a string,
+4. `_coerce_field` (existing); for a number question with `max_decimals` it is ASCII-only: the text
+   (`str(raw)`, commas removed, ASCII whitespace trimmed) must match `^-?[0-9]+(\.[0-9]+)?$`, else
+   `Field "{label}" must be a number` (so `1e3`, `.5`, `5.`, `+25` and non-ASCII digits are refused
+   here, as the wizard refuses them). Then, when the question has `max_length` and the value is a string,
    `cleaned[key] = tidy(value)`.
 5. When `stored is None` or the value differs from `stored[key]` (existing): `_refuse_unsound_answer(f,
    value, raw, cleaned)`: return at once when `rules_when` does not match; then F3, F1, F2, F4 in that
-   order.
+   order. F4 only ever sees a plain ASCII number (step 4).
 6. `_check_dates_in_order` (existing), then the rows post-pass. In `_check_table` the existing "older
    request without rows" exemption becomes `older_without_rows or _may_stay_unanswered(f, cleaned,
    stored)`. A `[]` table is still M3 (007 behaviour for a sent empty table is kept).
@@ -328,7 +331,7 @@ What these give, by the spec's scenarios:
 
 // 422 (FastAPI shape), e.g.
 {"detail": "\"Deliverables\", row 2: \"Due date\" must be between 1 November 2026 and 1 February 2027 (Start date to End date)."}
-{"detail": "\"Sub-processors\", row 1: \"Country\" is \"Singapore\", but the answer to \"Will data leave India?\" is No. Give India, or change that answer."}
+{"detail": "\"Sub-processors\", row 1: \"Country\" is \"Singapore\", but the answer to \"Will data leave India?\" is No. Enter India, or change that answer."}
 {"detail": "Field \"Rate per day or hour\" can have at most 2 decimal places"}
 
 // PATCH /intake/requests/{id} — entering the answers on an older Consultancy request: the page sends
@@ -494,6 +497,7 @@ export function rowsProblems(...): RowsProblem[];   // unchanged signature; + M9
 export function answerProblem(kind: string | undefined, value: FormValue | undefined,
   notBefore?: { label: string; value: FormValue | undefined },
   rules?: { no_blanks?: boolean; min_exclusive?: number; max_length?: number; max_decimals?: number }): string | null;
+  // with max_decimals: not a plain ASCII number → "Must be a number."; then min_exclusive; then F4
 export function rulesFor(field: RequestFormField, values: Record<string, unknown>):
   { no_blanks?: boolean; min_exclusive?: number; max_length?: number; max_decimals?: number };  // {} when rules_when does not match
 export function lacksAnswer(field: RequestFormField, value: unknown): boolean;  // missing, "", [], or a multiselect string not among the options
@@ -663,6 +667,9 @@ No Sub-processor other than any listed above is authorised at the Effective Date
 - **`app/intake/service.py`** (T002):
   - `_validate_field_values`, `_refuse_unsound_answer(f, value, raw, values)`, `_may_stay_unanswered(f,
     cleaned, stored)`, `_check_table` as frozen above.
+  - `_coerce_field` for a `number` question with `max_decimals` (the rate): ASCII-only, as frozen in step 4
+    of the filing semantics; Python's `int()`/`float()` alone would accept `1e3`, `+25` and non-ASCII
+    digits that the wizard refuses. Questions without `max_decimals` coerce as today.
   - `create_request`: the facts rule above.
   - `update_request`: after `_record_deliverables_change`, `_record_answer_changes(actor=, r=, stored=,
     request_id=)` (tracked keys = the form's questions with `fills`).
@@ -753,7 +760,10 @@ No Sub-processor other than any listed above is authorised at the Effective Date
     for the Privacy review."; `subprocessors` "Yes asks for each one; Annex 3 of the DPA lists them."
   - `DRAFT_OF.Consultancy` = `"Consultancy Agreement template"` (FR-23).
   - `problemOf` passes `rulesFor(field, values)` to `answerProblem` (was `{no_blanks, min_exclusive}`; the
-    same for the SOW, which has no `rules_when`).
+    same for the SOW, which has no `rules_when`). For a number with `max_decimals`, `answerProblem` first
+    requires a plain ASCII number (commas removed, ASCII whitespace trimmed, `^-?[0-9]+(\.[0-9]+)?$`), else
+    `Must be a number.`; then `min_exclusive`, then `Can have at most 2 decimal places.`, the server's order.
+    Numbers without `max_decimals` keep 007's behaviour (half-typed text is not refused).
   - A multiselect whose value is not an array counts as blank (a saved form's "Several" is not
     submittable, FR-45). `Question` gets `earlier` = the saved draft's string for a multiselect key and
     shows `<EarlierAnswer text={earlier} title="Your earlier answer (kept for reference, not filed)" />`
@@ -821,8 +831,8 @@ the AC map: **A** `test_consultancy_dpa_answers.py`, **U** `test_consultancy_dpa
     transfer Yes + Singapore accepted, a 301-character "What it does" M6, `[Name]` M7).
   - `fields`: scope `Advise on [TBD] processes` → F1 for Consultancy/our paper, accepted for Services (MSA)
     and for Consultancy/their paper; `Advise on (phase 1) processes` accepted; value 0 and -5 → F2 for
-    Consultancy/our paper, 1 accepted, 0 accepted for MSA; rate 0, -5 → F2, 25.001 and `1e3` → F4, 25000
-    and 25000.50 accepted; contact name/role 121 characters → F3, `[Role]` → F1, `Head of Quality (acting)`
+    Consultancy/our paper, 1 accepted, 0 accepted for MSA; rate 0, -5 → F2, 25.001 → F4, `1e3`, `.5`, `5.`, `+25` and
+    `２５` → `Field "Rate per day or hour" must be a number`, 25000 and 25000.50 accepted; contact name/role 121 characters → F3, `[Role]` → F1, `Head of Quality (acting)`
     accepted, a 121-character bracketed name → F3 (order); purpose `Hosting of [TBD] systems` → F1 for our
     paper, accepted for their paper; `Hosting of (phase 1) systems` accepted.
   - 007's `deliverable_rows_cases.json` is not edited.
@@ -963,6 +973,8 @@ Acceptance verification (T007) maps each AC to its evidence:
 | 56 | `git diff` shows no change to `app/core/rbac.py` or any `require_permission(...)`; existing 403 tests unchanged |
 
 ## Risks & decisions
+
+- 2026-10-15: M14 wording and F4 scope corrected, orchestrator, during /implement
 
 - **No migration: answers live in `field_values` under new keys.** Rejected: tables for deliverables,
   people, countries and sub-processors (schema, models, scoping queries and a migration for small lists
