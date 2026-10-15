@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { intakeApi, workflowsApi, brainApi, contractsApi, trademarksApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
-import { LoadError } from "@/components/ui";
+import { LoadError, MessageBar } from "@/components/ui";
 import { REVIEW_NOTICE_CSS, StepReviewNotice } from "@/components/review-notice";
 import { interruptedReviewStep, reviewPollInterval } from "@/lib/review-retry";
 import { currentStage, LIFECYCLE, LifecycleView, NextStepCard, stepStage } from "@/components/lifecycle-view";
@@ -184,7 +184,14 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   const reassign = useMutation({ mutationFn: (uid: string) => intakeApi.triage(id, { action: "reassigned", assignee_user_id: uid }), onSuccess: (u) => { setReassignTo(""); done("Owner reassigned")(u); }, onError: fail });
   // The AI's urgency is only a suggestion; a person applies it (PATCH audits the change).
   const applyPriority = useMutation({ mutationFn: (p: string) => intakeApi.update(id, { priority: p }), onSuccess: done("Priority updated"), onError: fail });
-  const draft = useMutation({ mutationFn: () => intakeApi.draftContract(id), onSuccess: done("Drafting — review running"), onError: fail });
+  // Drafting is never held back for a template that doesn't pass its playbook; the server says so in
+  // `template_notice` and we show it above the page. Keyed by request so it can't follow a person to another one.
+  const [templateNotice, setTemplateNotice] = useState<{ id: string; text: string } | null>(null);
+  const draft = useMutation({
+    mutationFn: () => intakeApi.draftContract(id),
+    onSuccess: (u) => { done("Drafting — review running")(u); setTemplateNotice(u.template_notice ? { id, text: u.template_notice } : null); },
+    onError: fail,
+  });
   const ingest = useMutation({ mutationFn: () => intakeApi.ingestAttachment(id), onSuccess: done("Using the attachment — review running"), onError: fail });
   const continueAsTrademark = useMutation({
     mutationFn: () => trademarksApi.continueFromIntake(id, {}),
@@ -398,6 +405,8 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
   return (
     <div className="ro">
       <style dangerouslySetInnerHTML={{ __html: RO_CSS + REVIEW_NOTICE_CSS }} />
+
+      {templateNotice?.id === id ? <MessageBar intent="warning" className="mb-3">{templateNotice.text}</MessageBar> : null}
 
       {/* header */}
       <div className="rohd">

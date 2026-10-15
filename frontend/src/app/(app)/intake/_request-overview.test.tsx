@@ -14,7 +14,7 @@ import { HttpError } from "@/lib/api";
 const h = vi.hoisted(() => ({
   notify: vi.fn(),
   permissions: ["contract:redline", "playbook:run"] as string[],
-  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), teams: vi.fn() },
+  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), teams: vi.fn(), draftContract: vi.fn() },
   workflowsApi: { runForRequest: vi.fn(), lifecycle: vi.fn(), listFlows: vi.fn(), refreshRun: vi.fn(), retryReview: vi.fn(), completeStep: vi.fn(), startFlow: vi.fn(), returnStep: vi.fn() },
   contractsApi: { risk: vi.fn(), deviations: vi.fn(), reviewStatus: vi.fn() },
   brainApi: { ask: vi.fn() },
@@ -507,5 +507,35 @@ describe("the risk card's count line", () => {
     await waitFor(() => expect(el).toHaveTextContent("1 still to decide"));
     expect(el).toHaveTextContent("1 finding counts toward this");
     expect(el).not.toHaveTextContent("decided, still counted");
+  });
+});
+
+describe("drafting from a template that does not pass its playbook (006, FR-47)", () => {
+  const undrafted = { ...request, contract_id: null, draftable_doc_label: "MSA" } as unknown as IntakeRequest;
+  const NOTICE = "This template does not currently pass its playbook: Has findings — 2 findings, highest High. The draft was created anyway.";
+
+  async function draftIt(result: unknown) {
+    h.intakeApi.get.mockResolvedValue(undrafted);
+    h.workflowsApi.runForRequest.mockResolvedValue(null);
+    h.intakeApi.draftContract.mockResolvedValue(result);
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: /Approve & draft the MSA/ }));
+    await waitFor(() => expect(h.intakeApi.draftContract).toHaveBeenCalledWith("q-1"));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith("Drafting — review running", "success"));
+  }
+
+  it("shows the server's notice at the top, without changing the draft's own success flow", async () => {
+    // Guards the notice being dropped (the person drafts from a failing template and never hears it) or
+    // being turned into a block: the draft must still report success.
+    await draftIt({ ...undrafted, contract_id: "c-9", template_notice: NOTICE });
+    expect(await screen.findByText(NOTICE)).toBeInTheDocument();
+    expect(screen.getByText(NOTICE).closest('[role="status"]')).toBeInTheDocument();
+  });
+
+  it("shows no notice when the template passes", async () => {
+    // Guards an empty warning bar (or stale text) appearing on every draft that has nothing to warn about.
+    await draftIt({ ...undrafted, contract_id: "c-9", template_notice: null });
+    expect(screen.queryByText(/does not currently pass/)).toBeNull();
+    expect(document.querySelector('[role="status"]')).toBeNull();
   });
 });
