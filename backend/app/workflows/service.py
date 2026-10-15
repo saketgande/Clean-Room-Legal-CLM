@@ -23,6 +23,7 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.rbac import has_permission
+from app.intake import sow
 from app.intake.models import IntakeRequest, IntakeTeam
 from app.workflows.models import STEP_TYPES, Workflow, WorkflowRun, WorkflowStepRun
 
@@ -108,6 +109,14 @@ _PLAYBOOK_REVIEW_AGENTS = frozenset({"contract_review_agent", "nda_agent"})
 
 # Marker on a drafting step's result: the workflow was sent back to it, so a person redoes the draft.
 _RETURNED_FOR_REWORK = "returned_for_rework"
+# step.result["held"] on a draft step that waits for the SOW's deliverable rows (FR-45).
+_HELD_FOR_ROWS = "deliverable_rows"
+
+
+def _is_held(sr) -> bool:
+    """True for a draft step stopped because the request has no deliverable rows yet (FR-45)."""
+    result = getattr(sr, "result", None)
+    return isinstance(result, dict) and result.get("held") == _HELD_FOR_ROWS
 
 
 # --------------------------------------------------------------------------- selection
@@ -1192,7 +1201,20 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
                 sr.status = "waiting_human"
                 sr.note = "Upload the document on the ticket — it becomes the contract."
             return "wait"
-        contract = await _draft_contract(db, run=run, mode="template", actor=actor)
+        from app.intake.drafting import DraftHeld
+
+        try:
+            contract = await _draft_contract(db, run=run, mode="template", actor=actor)
+        except DraftHeld:
+            # An older SOW request with its deliverables only as free text (FR-45): stop here for a person
+            # and say why. Not skipped, not done, no contract; _resolve_waiting_group lets it go on once the
+            # rows exist. The hold is set before _assign_step, which adds its own keys to sr.result.
+            if sr:
+                sr.status = "waiting_human"
+                sr.note = sow.HELD_STEP_NOTE
+                sr.result = {"held": _HELD_FOR_ROWS}
+                _assign_step(db, run=run, sr=sr, cfg=cfg)
+            return "wait"
         run.contract_id = contract.id
         if sr:
             sr.result = {"contract_id": contract.id}
@@ -1380,6 +1402,9 @@ def complete_human_step(
     sr = _sr_at(db, run, idx)
     if sr and sr.status == "waiting_human":
         _require_step_actor(db, sr=sr, actor=actor)
+        if _is_held(sr):
+            # Before _take_rework_reply, which writes a comment: a refused step changes nothing.
+            raise HTTPException(status.HTTP_409_CONFLICT, sow.HELD_STEP_NOT_MANUAL)
         _take_rework_reply(db, run=run, actor=actor, idx=idx, reply=rework_reply, request_id=request_id)
         sr.status = "done"; sr.note = note or sr.note
         steps = list(run.steps or [])
@@ -1792,7 +1817,16 @@ def _resolve_waiting_group(db: Session, *, run: WorkflowRun, steps: list) -> str
         sr = _sr_at(db, run, gi)
         if sr is None or sr.status in ("done", "skipped", "failed"):
             continue
-        if st == "approval":
+        if st == "clm_draft":
+            # A draft held for the SOW rows (FR-45) is set going again once the rows exist, so the
+            # refresh and the resume beat draft it with no one filing the request again.
+            if sr.status == "waiting_human" and _is_held(sr):
+                from app.intake.drafting import draft_hold
+
+                request = db.get(IntakeRequest, run.request_id)
+                if request is not None and draft_hold(db, org_id=run.org_id, request=request) is None:
+                    sr.status = "pending"; sr.note = None; sr.result = None
+        elif st == "approval":
             ids = (sr.result or {}).get("approval_ids") if isinstance(sr.result, dict) else None
             if ids:  # an intake-request (no-contract) approval chain
                 chain = db.scalars(select(ApprovalRequest).where(ApprovalRequest.id.in_(ids))).all()
