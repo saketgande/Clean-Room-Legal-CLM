@@ -240,3 +240,10 @@ class RequestResponse(BaseModel):
     created_at: str | None = None
     draftable_doc_type: str | None = None  # nda|msa|dpa|vendor|… — what "Approve & draft" makes
     draftable_doc_label: str | None = None
+
+
+class DraftContractResponse(RequestResponse):
+    """The request after "Draft contract", plus the not-passing notice of the template it was drafted
+    from (FR-47): None when the template passes, or when the contract was not drafted from a template."""
+
+    template_notice: str | None = None

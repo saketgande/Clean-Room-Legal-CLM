@@ -15,11 +15,12 @@ from app.intake.dependencies import (
     get_screening_service,
     get_team_service,
 )
-from app.intake.drafting import DraftingService
+from app.intake.drafting import DraftingService, template_notice_of
 from app.intake.gmail_sync import GmailSyncService
 from app.intake.ingest import IngestService
 from app.intake.schemas import (
     AssigneeResponse,
+    DraftContractResponse,
     DraftResponse,
     DraftSave,
     HandoffCreate,
@@ -345,7 +346,7 @@ def promote(
                            http_request_id=_req_id(request))
 
 
-@router.post("/requests/{request_id}/draft-contract", response_model=RequestResponse)
+@router.post("/requests/{request_id}/draft-contract", response_model=DraftContractResponse)
 async def draft_contract(
     request_id: str,
     request: Request,
@@ -355,13 +356,14 @@ async def draft_contract(
     _screen=Depends(_INTAKE_EDIT),
 ):
     """Render a draft contract from an intake request and link it back — the
-    intake → contract-lifecycle bridge. Idempotent."""
+    intake → contract-lifecycle bridge. Idempotent. The draft is never held back by its template's
+    status; ``template_notice`` says when the template does not currently pass its playbook."""
     r = intake_service.get_request(user=current_user, request_id=request_id)
-    await drafting_service.draft_contract_for_request(
+    contract = await drafting_service.draft_contract_for_request(
         actor=current_user, request=r, http_request_id=_req_id(request)
     )
     r = intake_service.get_request(user=current_user, request_id=request_id)
-    return intake_service.serialize_request(r)
+    return {**intake_service.serialize_request(r), "template_notice": template_notice_of(contract)}
 
 
 @router.post("/requests/{request_id}/ingest-attachment", response_model=RequestResponse)

@@ -27,7 +27,7 @@ from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.drafting_templates.service import TEMPLATES as _DOC_TYPES
-from app.drafting_templates.service import DraftingTemplateService, default_body
+from app.drafting_templates.service import default_body
 from app.intake.models import IntakeRequest
 from app.organizations.models import Organization
 
@@ -39,11 +39,11 @@ from app.organizations.models import Organization
 # matches "nda").
 
 
-# Which template each form (or kind of new agreement) drafts. Selling to a
-# customer and "something else" have no template: Legal drafts them.
-_FORM_DOC = {"sow": "sow", "dpa": "dpa"}
-_KIND_DOC = {"NDA": "nda", "Services (MSA)": "msa", "Consultancy": "consultancy",
-             "Buying from a vendor": "vendor", "Software or SaaS": "saas"}
+# Which template each form (or kind of new agreement) drafts, read off the catalog so the binding the
+# Templates page shows and the one drafting uses are the same table. Selling to a customer and
+# "something else" have no template: Legal drafts them.
+_FORM_DOC = {t["form_key"]: key for key, t in _DOC_TYPES.items() if t["agreement_kind"] is None}
+_KIND_DOC = {t["agreement_kind"]: key for key, t in _DOC_TYPES.items() if t["agreement_kind"] is not None}
 
 
 def resolve_doc_type(request: IntakeRequest) -> str | None:
@@ -274,6 +274,12 @@ def apply_request_facts(contract, request: IntakeRequest) -> None:
         ))
 
 
+def template_notice_of(contract) -> str | None:
+    """The not-passing notice recorded when this contract was drafted (None for a draft whose template
+    passed, and for any contract that was not drafted from a template)."""
+    return ((contract.metadata_json or {}).get("drafted_from_template") or {}).get("notice")
+
+
 def _custom_shell(*, company: str, counterparty: str, fields: dict, label: str) -> str:
     """A starting canvas for a bespoke ('custom') draft — the captured intake
     details plus a clear attorney-fill body. NOT the standard template; the
@@ -364,6 +370,58 @@ class DraftingService:
                     f"notices / signature email: {cp.contact_email}" if cp.contact_email else ""]
             lines.append(f"Counterparty: {cp.name}" + "".join(f"; {b}" for b in bits if b) + ".")
         return company, counterparty, lines
+
+    def _template_at_this_moment(self, *, actor, key: str) -> tuple[str, dict]:
+        """(the wording to render, the FR-46 record of the template it comes from), read now.
+
+        Pins an unpinned shipped type at its first draft (D-11). That commits on its own, so the audit
+        lock it takes is released before the text is rendered and read back, not held across it
+        (CLAUDE.md, audit-lock freeze). The record is the template's status AT THIS MOMENT: a later
+        edit, check or publish never rewrites it (FR-45). Drafting is never blocked by it (FR-47)."""
+        from app.drafting_templates import checks
+        from app.drafting_templates.service import (
+            current_wording,
+            ensure_pinned,
+            get_type,
+            reviewing_playbook,
+        )
+
+        db, org_id = self.db, actor.org_id
+        ensure_pinned(db, org_id=org_id, ttype=get_type(db, org_id, key), actor_user_id=actor.id, commit=True)
+        ttype = get_type(db, org_id, key)  # re-read: it carries the pin ensure_pinned may just have written
+        wording = current_wording(db, org_id, ttype)
+        status = checks.template_status(db, org_id=org_id, ttype=ttype)
+        pinned = reviewing_playbook(db, org_id, ttype).playbook  # None for a foreign or missing pin: no name leaks
+        return wording.body, {
+            "key": ttype.key, "name": ttype.name, "version": wording.version,
+            "source": "default" if wording.row is None or wording.row.body is None else "text",
+            "status": status["state"], "reason": status["reason"], "notice": checks.status_notice(status),
+            # Recorded even when the pin is currently unavailable (deleted, unpublished): its reviews
+            # resume if it is published again, and no other playbook takes over. NULL only when the
+            # template has no playbook at all, which leaves today's name match.
+            "review_playbook_id": ttype.playbook_id,
+            "review_playbook_name": pinned.name if pinned is not None else None,
+        }
+
+    def _record_drafted_from_template(self, *, actor, contract, record: dict, http_request_id: str | None) -> None:
+        """The draft's own history (FR-46): which template, which version, and its status at that moment.
+        The notice is in it for every draft, so one a workflow made with no person present (A-15) is
+        still on record, where a person-started one also sees it on the page (FR-47)."""
+        from app.drafting_templates.checks import LABELS
+
+        wording = f"version {record['version']}" if record["version"] else "the shipped wording"
+        write_timeline_event(
+            self.db, org_id=actor.org_id, resource_type="contract", resource_id=contract.id,
+            event_type="contract.drafted_from_template",
+            title=f"Drafted from the {record['name']} template, {wording} — {LABELS[record['status']]}",
+            actor_user_id=actor.id, request_id=http_request_id,
+            details={
+                "template_key": record["key"], "template_version": record["version"],
+                "template_source": record["source"], "status": record["status"], "reason": record["reason"],
+                "notice": record["notice"], "review_playbook_id": record["review_playbook_id"],
+                "review_playbook_name": record["review_playbook_name"],
+            },
+        )
 
     async def _ai_draft_text(self, *, actor, request: IntakeRequest, company: str, counterparty: str, label: str,
                              fields: dict, party_lines: list[str] | tuple = ()) -> tuple[str | None, list[str]]:
@@ -458,6 +516,7 @@ class DraftingService:
             request, org.name if org and org.name else "Company")
         effective = str(fv.get("start_date") or fv.get("services_start") or "").strip() or utcnow().date().isoformat()
         assumptions: list[str] = []
+        record: dict | None = None  # the FR-46 record of the template; a custom draft has none
         if custom:
             # Real AI generation for bespoke drafts (was a placeholder skeleton).
             # Skeleton only survives as the safety net if the model is unavailable.
@@ -479,7 +538,7 @@ class DraftingService:
                 if entity is not None and (entity.jurisdiction or "").strip():
                     fv = {**fv, "governing_law": entity.jurisdiction.strip()}
             # The org's own wording from the Templates page, else the shipped default.
-            body = DraftingTemplateService(db).body_for(org_id=actor.org_id, key=doc_type)
+            body, record = self._template_at_this_moment(actor=actor, key=doc_type)
             text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective,
                                    fields=fv, body=body)
         # One-way NDAs get a clearer label than the generic template label.
@@ -497,6 +556,15 @@ class DraftingService:
             filename=f"{_with_counterparty(spec['label'], counterparty, sep=' - ')}.txt",
             headers=Headers({"content-type": "text/plain"}),
         )
+
+        def on_created(c) -> None:
+            apply_request_facts(c, request)
+            if record is not None:
+                # Before the AI jobs are dispatched, in the contract's own transaction: the automatic review
+                # and the risk band read the pin from the first moment, and the record cannot go missing.
+                c.review_playbook_id = record["review_playbook_id"]
+                c.metadata_json = {**(c.metadata_json or {}), "drafted_from_template": record}
+
         result = await self.files.create_contract_from_upload(
             upload=upload,
             user=actor,
@@ -504,7 +572,7 @@ class DraftingService:
             counterparty_name=_named(counterparty),
             contract_type=spec["contract_type"],
             request_id=http_request_id,
-            on_created=lambda c: apply_request_facts(c, request),
+            on_created=on_created,
             advance_reason=DRAFTED_MOVE_REASON,
         )
         contract = result["contract"]
@@ -512,17 +580,29 @@ class DraftingService:
         # Link both directions and record it on the request's timeline.
         request.contract_id = contract.id
         request.updated_by_user_id = actor.id
+        template_audit: dict = {}
+        template_details: dict = {}
+        if record is not None:
+            template_audit = {
+                "template_key": record["key"], "template_version": record["version"],
+                "template_source": record["source"], "template_status": record["status"],
+                "template_status_reason": record["reason"], "review_playbook_id": record["review_playbook_id"],
+            }
+            template_details = {"template_version": record["version"], "template_status": record["status"]}
+            self._record_drafted_from_template(actor=actor, contract=contract, record=record,
+                                               http_request_id=http_request_id)
         write_audit_log(
             db, action="intake.contract_drafted", resource_type="intake_request",
             resource_id=request.id, org_id=actor.org_id, actor_user_id=actor.id,
-            request_id=http_request_id, after={"contract_id": contract.id, "doc_type": doc_type},
+            request_id=http_request_id,
+            after={"contract_id": contract.id, "doc_type": doc_type, **template_audit},
         )
         write_timeline_event(
             db, org_id=actor.org_id, resource_type="intake_request", resource_id=request.id,
             event_type="intake.contract_drafted", title=f"Drafted the {spec['label']}",
             actor_user_id=actor.id, request_id=http_request_id,
             details={"contract_id": contract.id, "title": contract.title, "contract_type": spec["contract_type"],
-                     **({"assumptions": assumptions} if assumptions else {})},
+                     **template_details, **({"assumptions": assumptions} if assumptions else {})},
         )
         if assumptions:
             # The drafter works from the workflow's thread on the request page (the
