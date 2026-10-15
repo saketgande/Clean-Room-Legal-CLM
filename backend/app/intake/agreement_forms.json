@@ -139,7 +139,6 @@
     "kind": "select",
     "required": true,
     "options": [
-     "1 year",
      "2 years",
      "3 years",
      "5 years"

@@ -2470,14 +2470,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 90 days' written notice of non-renewal"
    }
   ]
  },
@@ -2494,13 +2494,13 @@
      "Aegis Pharma Private Limited",
      "Bhavani Foods Private Limited"
     ],
-    "quote": "entered into as of 2026-03-15 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Bhavani Foods Private Limited"
+    "quote": "entered into as of 15 March 2026 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Bhavani Foods Private Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-03-15",
-    "quote": "entered into as of 2026-03-15 (the \"Effective Date\")"
+    "quote": "entered into as of 15 March 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -2518,7 +2518,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -2535,13 +2535,13 @@
      "Aegis Pharma Private Limited",
      "Chandra Labs LLP"
     ],
-    "quote": "entered into as of 2026-02-07 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Chandra Labs LLP"
+    "quote": "entered into as of 7 February 2026 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Chandra Labs LLP"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-02-07",
-    "quote": "entered into as of 2026-02-07 (the \"Effective Date\")"
+    "quote": "entered into as of 7 February 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -2559,7 +2559,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -2576,13 +2576,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "Deccan Biotech Limited"
     ],
-    "quote": "entered into as of 2026-01-29 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and Deccan Biotech Limited"
+    "quote": "entered into as of 29 January 2026 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and Deccan Biotech Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-01-29",
-    "quote": "entered into as of 2026-01-29 (the \"Effective Date\")"
+    "quote": "entered into as of 29 January 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -2600,7 +2600,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -2617,13 +2617,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "M/s Ekta Textiles Pvt. Ltd."
     ],
-    "quote": "entered into as of 2026-04-24 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and M/s Ekta Textiles Pvt. Ltd."
+    "quote": "entered into as of 24 April 2026 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and M/s Ekta Textiles Pvt. Ltd."
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-04-24",
-    "quote": "entered into as of 2026-04-24 (the \"Effective Date\")"
+    "quote": "entered into as of 24 April 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -2640,14 +2640,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 60 days' written notice of non-renewal"
    }
   ]
  },
@@ -2688,7 +2688,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2029-03-31",
-    "quote": "continues until 2029-03-31"
+    "quote": "continues until 31 March 2029"
    }
   ]
  },
@@ -2729,7 +2729,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -2746,13 +2746,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "Himadri Engineering Limited"
     ],
-    "quote": "entered into as of 2026-06-16 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and Himadri Engineering Limited"
+    "quote": "entered into as of 16 June 2026 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and Himadri Engineering Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-06-16",
-    "quote": "entered into as of 2026-06-16 (the \"Effective Date\")"
+    "quote": "entered into as of 16 June 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -2770,7 +2770,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-12-31",
-    "quote": "continues until 2027-12-31"
+    "quote": "continues until 31 December 2027"
    }
   ]
  },
@@ -2811,7 +2811,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-03-31",
-    "quote": "continues until 2027-03-31"
+    "quote": "continues until 31 March 2027"
    }
   ]
  },
@@ -2851,14 +2851,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 1 year unless either Party gives 60 days' written notice of non-renewal"
    }
   ]
  },
@@ -2898,14 +2898,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2029-03-31, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal",
-    "quote": "continues until 2029-03-31, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal"
+    "value": "continues until 31 March 2029, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2029, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2029-03-31, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal",
-    "quote": "continues until 2029-03-31, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal"
+    "value": "continues until 31 March 2029, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2029, and then renews automatically for successive periods of 1 year unless either Party gives 120 days' written notice of non-renewal"
    }
   ]
  },
@@ -2946,7 +2946,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -2987,7 +2987,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2029-03-31",
-    "quote": "continues until 2029-03-31"
+    "quote": "continues until 31 March 2029"
    }
   ]
  },
@@ -3027,14 +3027,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2026-12-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
-    "quote": "continues until 2026-12-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
+    "value": "continues until 31 December 2026, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
+    "quote": "continues until 31 December 2026, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2026-12-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
-    "quote": "continues until 2026-12-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
+    "value": "continues until 31 December 2026, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
+    "quote": "continues until 31 December 2026, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
    }
   ]
  },
@@ -3075,7 +3075,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2029-03-31",
-    "quote": "continues until 2029-03-31"
+    "quote": "continues until 31 March 2029"
    }
   ]
  },
@@ -3116,7 +3116,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-03-31",
-    "quote": "continues until 2028-03-31"
+    "quote": "continues until 31 March 2028"
    }
   ]
  },
@@ -3133,13 +3133,13 @@
      "Aegis Pharma Private Limited",
      "Orchid Components LLP"
     ],
-    "quote": "entered into as of 2026-05-20 (the \"SOW Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Orchid Components LLP"
+    "quote": "entered into as of 20 May 2026 (the \"SOW Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Orchid Components LLP"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-05-20",
-    "quote": "entered into as of 2026-05-20 (the \"SOW Effective Date\")"
+    "quote": "entered into as of 20 May 2026 (the \"SOW Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3157,7 +3157,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-09-30",
-    "quote": "continues until 2027-09-30"
+    "quote": "continues until 30 September 2027"
    }
   ]
  },
@@ -3174,13 +3174,13 @@
      "M/s Aegis Healthcare Traders",
      "Pinnacle Foods Limited"
     ],
-    "quote": "entered into as of 2025-05-08 (the \"SOW Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Pinnacle Foods Limited"
+    "quote": "entered into as of 8 May 2025 (the \"SOW Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Pinnacle Foods Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-05-08",
-    "quote": "entered into as of 2025-05-08 (the \"SOW Effective Date\")"
+    "quote": "entered into as of 8 May 2025 (the \"SOW Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3198,7 +3198,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3239,7 +3239,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3256,13 +3256,13 @@
      "M/s Aegis Healthcare Traders",
      "Rajdhani Biotech Private Limited"
     ],
-    "quote": "entered into as of 2025-11-26 (the \"SOW Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Rajdhani Biotech Private Limited"
+    "quote": "entered into as of 26 November 2025 (the \"SOW Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Rajdhani Biotech Private Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-11-26",
-    "quote": "entered into as of 2025-11-26 (the \"SOW Effective Date\")"
+    "quote": "entered into as of 26 November 2025 (the \"SOW Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3279,14 +3279,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 30 days' written notice of non-renewal"
    }
   ]
  },
@@ -3321,7 +3321,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-03-31",
-    "quote": "continues until 2027-03-31"
+    "quote": "continues until 31 March 2027"
    }
   ]
  },
@@ -3338,13 +3338,13 @@
      "M/s Aegis Healthcare Traders",
      "Tapovan Systems Limited"
     ],
-    "quote": "entered into as of 2026-06-06 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Controller\") and Tapovan Systems Limited"
+    "quote": "entered into as of 6 June 2026 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Controller\") and Tapovan Systems Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-06-06",
-    "quote": "entered into as of 2026-06-06 (the \"Effective Date\")"
+    "quote": "entered into as of 6 June 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3356,7 +3356,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -3391,7 +3391,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3426,7 +3426,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -3467,7 +3467,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2029-03-31",
-    "quote": "continues until 2029-03-31"
+    "quote": "continues until 31 March 2029"
    }
   ]
  },
@@ -3484,13 +3484,13 @@
      "M/s Aegis Healthcare Traders",
      "Zenith Software Limited"
     ],
-    "quote": "entered into as of 2026-03-20 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Zenith Software Limited"
+    "quote": "entered into as of 20 March 2026 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Zenith Software Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-03-20",
-    "quote": "entered into as of 2026-03-20 (the \"Effective Date\")"
+    "quote": "entered into as of 20 March 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3508,7 +3508,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3525,13 +3525,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "Ashoka Diagnostics Pvt. Ltd."
     ],
-    "quote": "entered into as of 2025-09-07 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and Ashoka Diagnostics Pvt. Ltd."
+    "quote": "entered into as of 7 September 2025 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and Ashoka Diagnostics Pvt. Ltd."
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-09-07",
-    "quote": "entered into as of 2025-09-07 (the \"Effective Date\")"
+    "quote": "entered into as of 7 September 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3548,14 +3548,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal",
-    "quote": "continues until 2028-03-31, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal"
+    "value": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal",
+    "quote": "continues until 31 March 2028, and then renews automatically for successive periods of 2 years unless either Party gives 120 days' written notice of non-renewal"
    }
   ]
  },
@@ -3596,7 +3596,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3613,13 +3613,13 @@
      "Aegis Pharma Private Limited",
      "Chola Consulting LLP"
     ],
-    "quote": "entered into as of 2025-04-28 (the \"Effective Date\") by and between Aegis Pharma Private Limited (\"Aegis Pharma Private Limited\") and Chola Consulting LLP"
+    "quote": "entered into as of 28 April 2025 (the \"Effective Date\") by and between Aegis Pharma Private Limited (\"Aegis Pharma Private Limited\") and Chola Consulting LLP"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-04-28",
-    "quote": "entered into as of 2025-04-28 (the \"Effective Date\")"
+    "quote": "entered into as of 28 April 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3642,13 +3642,13 @@
      "Aegis Pharma Private Limited",
      "Thames Valley Logistics Ltd"
     ],
-    "quote": "entered into as of 2025-02-05 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Company\") and Thames Valley Logistics Ltd"
+    "quote": "entered into as of 5 February 2025 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Company\") and Thames Valley Logistics Ltd"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-02-05",
-    "quote": "entered into as of 2025-02-05 (the \"Effective Date\")"
+    "quote": "entered into as of 5 February 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3666,7 +3666,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -3683,13 +3683,13 @@
      "Aegis Pharma Private Limited",
      "Merlion Analytics Pte. Ltd."
     ],
-    "quote": "entered into as of 2025-12-21 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Merlion Analytics Pte. Ltd."
+    "quote": "entered into as of 21 December 2025 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Merlion Analytics Pte. Ltd."
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-12-21",
-    "quote": "entered into as of 2025-12-21 (the \"Effective Date\")"
+    "quote": "entered into as of 21 December 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3707,7 +3707,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -3724,13 +3724,13 @@
      "Aegis Pharma Private Limited",
      "Kestrel Components Private Limited"
     ],
-    "quote": "entered into as of 2025-07-10 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Kestrel Components Private Limited"
+    "quote": "entered into as of 10 July 2025 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Customer\") and Kestrel Components Private Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-07-10",
-    "quote": "entered into as of 2025-07-10 (the \"Effective Date\")"
+    "quote": "entered into as of 10 July 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3748,7 +3748,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2026-12-31",
-    "quote": "continues until 2026-12-31"
+    "quote": "continues until 31 December 2026"
    }
   ]
  },
@@ -3765,13 +3765,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "Pennine Analytics Limited"
     ],
-    "quote": "entered into as of 2026-02-28 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and Pennine Analytics Limited"
+    "quote": "entered into as of 28 February 2026 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Company\") and Pennine Analytics Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2026-02-28",
-    "quote": "entered into as of 2026-02-28 (the \"Effective Date\")"
+    "quote": "entered into as of 28 February 2026 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3788,14 +3788,14 @@
    {
     "field": "renewal_term",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal"
    },
    {
     "field": "notice_period",
     "kind": "passage",
-    "value": "continues until 2028-09-30, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal",
-    "quote": "continues until 2028-09-30, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal"
+    "value": "continues until 30 September 2028, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal",
+    "quote": "continues until 30 September 2028, and then renews automatically for successive periods of 2 years unless either Party gives 90 days' written notice of non-renewal"
    }
   ]
  },
@@ -3836,7 +3836,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-12-31",
-    "quote": "continues until 2027-12-31"
+    "quote": "continues until 31 December 2027"
    }
   ]
  },
@@ -3853,13 +3853,13 @@
      "M/s Aegis Healthcare Traders",
      "Dhruva Materials Limited"
     ],
-    "quote": "entered into as of 2025-12-12 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (\"M/s Aegis Healthcare Traders\") and Dhruva Materials Limited"
+    "quote": "entered into as of 12 December 2025 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (\"M/s Aegis Healthcare Traders\") and Dhruva Materials Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-12-12",
-    "quote": "entered into as of 2025-12-12 (the \"Effective Date\")"
+    "quote": "entered into as of 12 December 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3906,7 +3906,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-03-31",
-    "quote": "continues until 2028-03-31"
+    "quote": "continues until 31 March 2028"
    }
   ]
  },
@@ -3923,13 +3923,13 @@
      "Aegis Lifesciences Pvt. Ltd.",
      "M/s Eastern Components Pvt. Ltd."
     ],
-    "quote": "entered into as of 2025-06-10 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and M/s Eastern Components Pvt. Ltd."
+    "quote": "entered into as of 10 June 2025 (the \"Effective Date\") by and between Aegis Lifesciences Pvt. Ltd. (the \"Customer\") and M/s Eastern Components Pvt. Ltd."
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-06-10",
-    "quote": "entered into as of 2025-06-10 (the \"Effective Date\")"
+    "quote": "entered into as of 10 June 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3947,7 +3947,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-03-31",
-    "quote": "continues until 2028-03-31"
+    "quote": "continues until 31 March 2028"
    }
   ]
  },
@@ -3964,13 +3964,13 @@
      "Aegis Pharma Private Limited",
      "Sentosa Logistics Pte. Ltd."
     ],
-    "quote": "entered into as of 2025-05-11 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Controller\") and Sentosa Logistics Pte. Ltd."
+    "quote": "entered into as of 11 May 2025 (the \"Effective Date\") by and between Aegis Pharma Private Limited (the \"Controller\") and Sentosa Logistics Pte. Ltd."
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-05-11",
-    "quote": "entered into as of 2025-05-11 (the \"Effective Date\")"
+    "quote": "entered into as of 11 May 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -3982,7 +3982,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2028-09-30",
-    "quote": "continues until 2028-09-30"
+    "quote": "continues until 30 September 2028"
    }
   ]
  },
@@ -4028,13 +4028,13 @@
      "M/s Aegis Healthcare Traders",
      "Gokul Foods Private Limited"
     ],
-    "quote": "entered into as of 2025-12-03 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Gokul Foods Private Limited"
+    "quote": "entered into as of 3 December 2025 (the \"Effective Date\") by and between M/s Aegis Healthcare Traders (the \"Customer\") and Gokul Foods Private Limited"
    },
    {
     "field": "effective_date",
     "kind": "date",
     "value": "2025-12-03",
-    "quote": "entered into as of 2025-12-03 (the \"Effective Date\")"
+    "quote": "entered into as of 3 December 2025 (the \"Effective Date\")"
    },
    {
     "field": "governing_law",
@@ -4052,7 +4052,7 @@
     "field": "expiration_date",
     "kind": "date",
     "value": "2027-12-31",
-    "quote": "continues until 2027-12-31"
+    "quote": "continues until 31 December 2027"
    }
   ]
  }

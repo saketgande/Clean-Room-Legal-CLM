@@ -9,6 +9,7 @@ next request that drafts from it.
 
 from __future__ import annotations
 
+import logging
 import string
 from functools import cache
 from pathlib import Path
@@ -20,6 +21,8 @@ from sqlalchemy.orm import Session
 from app.auth.models import User
 from app.core.audit import write_audit_log
 from app.drafting_templates.models import DraftingTemplateVersion
+
+logger = logging.getLogger(__name__)
 
 _DEFAULTS = Path(__file__).parent / "defaults"
 
@@ -153,6 +156,50 @@ class DraftingTemplateService:
             "default_body": default_body(key),
             "placeholders": PLACEHOLDERS,
         }
+
+    async def check_against_playbook(
+        self, *, user: User, key: str, body: str | None = None, request_id: str | None = None
+    ) -> dict:
+        """Run the playbook's real AI review on a template, as a drafted contract would get it.
+
+        ``body`` is the text in the editor (unsaved changes included); left out, the saved text is
+        checked. The template is filled the way a request with no form answers is drafted (blank
+        answers fall back to the playbook's preferred positions), so what is judged is the wording
+        of the template. It cannot judge what a requester picks in the request form (a term or a
+        payment period the playbook rejects): the answers are not part of the template. Costs one
+        AI call. Nothing is saved."""
+        from app.intake.drafting import render_document
+        from app.playbooks.service import PlaybooksService
+
+        spec = _known(key)
+        text_source = body if body is not None else self.body_for(org_id=user.org_id, key=key)
+        check_body(text_source)  # refuses a template that drafting could not fill, naming why
+        text = render_document(
+            key, company=SAMPLE_VALUES["company"], counterparty=SAMPLE_VALUES["counterparty"],
+            effective=SAMPLE_VALUES["effective_date"], fields={}, body=text_source,
+        )
+        playbooks = PlaybooksService(self.db)
+        playbook = playbooks.pick_playbook_for_contract(org_id=user.org_id, contract_type=spec["contract_type"])
+        if playbook is None:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"No published playbook covers {spec['name']}, so there is nothing to check it against.",
+            )
+        try:
+            result = await playbooks.review_text(
+                user=user, playbook=playbook, text=text, title=spec["name"],
+                contract_type=spec["contract_type"], counterparty_name=SAMPLE_VALUES["counterparty"],
+                resource_type="drafting_template", resource_id=key, request_id=request_id,
+            )
+        except HTTPException:
+            raise  # a cost cap (429) or a playbook with no published version keeps its own message
+        except Exception as exc:
+            logger.exception("template check failed key=%s request_id=%s", key, request_id)
+            raise HTTPException(
+                status.HTTP_502_BAD_GATEWAY,
+                "The AI review could not run, so the template was not checked. Try again in a moment.",
+            ) from exc
+        return {"key": key, "name": spec["name"], "checked": "unsaved" if body is not None else "saved", **result}
 
     def versions(self, *, org_id: str, key: str) -> list[dict]:
         _known(key)

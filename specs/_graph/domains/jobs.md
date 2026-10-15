@@ -10,7 +10,8 @@ Owner agents: backend-dev, db-engineer
 
 ## Endpoints
 
-- `GET /jobs` -- permission: `admin_panel:access` -- request: ? -- response: ?
+- `GET /jobs` -- permission: `admin_panel:access` -- request: JobStatus | None -- response: ?
+- `GET /jobs/summary` -- permission: `admin_panel:access` -- request: ? -- response: ?
 - `GET /jobs/{job_id}` -- permission: `admin_panel:access` -- request: ? -- response: ?
 - `POST /jobs/{job_id}/cancel` -- permission: `admin_panel:access` -- request: ? -- response: ?
 - `POST /jobs/{job_id}/run` -- permission: `admin_panel:access` -- request: ? -- response: ?
@@ -27,5 +28,6 @@ Owner agents: backend-dev, db-engineer
 
 Api group: `jobsApi` (confidence: exact)
 - `jobsApi.cancel()` -> `POST /jobs/${id}/cancel`
-- `jobsApi.list()` -> `GET /jobs`
+- `jobsApi.list()` -> `GET /jobs${qs(params)}`
 - `jobsApi.run()` -> `POST /jobs/${id}/run`
+- `jobsApi.summary()` -> `GET /jobs/summary`

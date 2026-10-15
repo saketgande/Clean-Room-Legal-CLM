@@ -1,3 +1,4 @@
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -7,7 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citation
-from app.ai.schemas import CitationInput, PlaybookGenerationOutput, PlaybookReviewOutput
+from app.ai.schemas import (
+    CitationInput,
+    PlaybookDeviationOutput,
+    PlaybookGenerationOutput,
+    PlaybookReviewOutput,
+)
 from app.auth.models import User
 from app.contract_files.blocks import (
     align_phrase,
@@ -37,6 +43,8 @@ from app.playbooks.models import (
     PlaybookRun,
     PlaybookVersion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def latest_published_version_id():
@@ -295,16 +303,58 @@ def evaluate_rules_against_text(*, rules: list[PlaybookRule], text: str) -> list
     return deviations
 
 
+def rule_payloads_for_review(db: Session, *, org_id: str, playbook_version_id: str) -> list[dict]:
+    """The rules as the review model reads them, numbered in review order (one builder for every
+    review path, so they cannot drift apart).
+
+    A rule's ``approval_required`` is given to the model as ``approval_needed_if_deviated``. Under its
+    stored name the model read it as 'this rule always needs sign-off' and listed clauses that meet the
+    rule so that someone would approve them ("because the playbook marks this rule approval_required,
+    Compliance must confirm ..."): a risk, raised to HIGH, on text that meets the playbook."""
+    rules = rules_in_review_order(db, org_id=org_id, playbook_version_id=playbook_version_id)
+    return [
+        {
+            "rule_index": i, "clause_type": r.clause_type, "rule_type": r.rule_type,
+            "preferred_position": r.preferred_position, "fallback_position": r.fallback_position,
+            "prohibited_language": r.prohibited_language, "required_language": r.required_language,
+            "risk_level": r.risk_level, "rationale": r.rationale,
+            "approval_needed_if_deviated": r.approval_required,
+            "escalation_role": r.escalation_role, "sample_clause": r.sample_clause,
+            "negotiation_guidance": r.negotiation_guidance,
+        }
+        for i, r in enumerate(rules, start=1)
+    ]
+
+
+def kept_deviations(ai_output: PlaybookReviewOutput | None) -> list[PlaybookDeviationOutput]:
+    """The reviewer's items that are real deviations.
+
+    The model sometimes lists a clause and, in writing the issue, finds it meets the playbook
+    ("no deviation ... confirmed compliant"). It then answers ``position = "preferred"``; the item is
+    dropped here, in the one place every review path goes through, so a compliant clause never
+    becomes a risk, and (via the approval-required bump) never a HIGH one."""
+    if ai_output is None:
+        return []
+    kept = [d for d in ai_output.deviations if d.position != "preferred"]
+    if len(kept) != len(ai_output.deviations):
+        logger.info(
+            "playbook review: discarded %d of %d items the model placed at the preferred position",
+            len(ai_output.deviations) - len(kept), len(ai_output.deviations),
+        )
+    return kept
+
+
 def ai_deviations_to_evaluated(
     *,
     ai_output: PlaybookReviewOutput | None,
     rules: list[PlaybookRule],
 ) -> list[EvaluatedDeviation]:
-    if ai_output is None or not ai_output.deviations:
+    deviations = kept_deviations(ai_output)
+    if not deviations:
         return []
     by_index = {index + 1: rule for index, rule in enumerate(rules)}
     evaluated: list[EvaluatedDeviation] = []
-    for deviation in ai_output.deviations:
+    for deviation in deviations:
         rule = by_index.get(deviation.rule_index) if deviation.rule_index is not None else None
         citation = None
         if deviation.citations:
@@ -360,6 +410,24 @@ def _ai_citation_status(snapshot: ContractTextSnapshot, citation: dict[str, Any]
 # would silently defeat that assertion (the wrapper's own source never shows the
 # branch). See backend/DI_MIGRATION.md.
 
+def rules_in_review_order(db: Session, *, org_id: str, playbook_version_id: str) -> list[PlaybookRule]:
+    """A version's rules in the order the AI is told about them.
+
+    The review prompt numbers the rules 1..n in this order and the model answers with a
+    ``rule_index``; ``ai_deviations_to_evaluated`` turns that number back into a rule by position
+    in the list it is given. Both must therefore use the same order. The run used to read the rules
+    with no ORDER BY, and Postgres then returns them in storage order, which moves once a row has
+    been edited: a finding on rule 3 could land on another rule (wrong severity, approval flag and
+    redline wording)."""
+    return list(
+        db.scalars(
+            select(PlaybookRule)
+            .where(PlaybookRule.org_id == org_id, PlaybookRule.playbook_version_id == playbook_version_id)
+            .order_by(PlaybookRule.created_at.asc())
+        ).all()
+    )
+
+
 def execute_playbook_run(
     db: Session,
     *,
@@ -372,14 +440,7 @@ def execute_playbook_run(
     ai_error: str | None = None,
 ) -> PlaybookRunArtifacts:
     contract_version, contract_file, snapshot = _current_contract_artifacts(db, contract=contract, org_id=user.org_id)
-    rules = list(
-        db.scalars(
-            select(PlaybookRule).where(
-                PlaybookRule.org_id == user.org_id,
-                PlaybookRule.playbook_version_id == version.id,
-            )
-        ).all()
-    )
+    rules = rules_in_review_order(db, org_id=user.org_id, playbook_version_id=version.id)
     if not rules:
         raise HTTPException(status.HTTP_409_CONFLICT, "Playbook version has no rules")
     run = PlaybookRun(
@@ -1099,12 +1160,9 @@ class PlaybooksService:
         db.add(version)
         db.flush()
         if source_version is not None:
-            source_rules = db.scalars(
-                select(PlaybookRule).where(
-                    PlaybookRule.org_id == user.org_id,
-                    PlaybookRule.playbook_version_id == source_version.id,
-                )
-            ).all()
+            # In review order, so the new version numbers its rules as the source did: the review
+            # cites rules by that number, and an unordered read could renumber them.
+            source_rules = rules_in_review_order(db, org_id=user.org_id, playbook_version_id=source_version.id)
             for rule in source_rules:
                 db.add(
                     PlaybookRule(
@@ -1308,22 +1366,85 @@ class PlaybooksService:
         return best[0] if best else None
 
     def _auto_rule_payloads(self, *, org_id: str, playbook_version_id: str) -> list[dict]:
-        rules = self.db.scalars(
-            select(PlaybookRule)
-            .where(PlaybookRule.org_id == org_id, PlaybookRule.playbook_version_id == playbook_version_id)
-            .order_by(PlaybookRule.created_at.asc())
-        ).all()
-        return [
-            {
-                "rule_index": i, "clause_type": r.clause_type, "rule_type": r.rule_type,
-                "preferred_position": r.preferred_position, "fallback_position": r.fallback_position,
-                "prohibited_language": r.prohibited_language, "required_language": r.required_language,
-                "risk_level": r.risk_level, "rationale": r.rationale, "approval_required": r.approval_required,
-                "escalation_role": r.escalation_role, "sample_clause": r.sample_clause,
-                "negotiation_guidance": r.negotiation_guidance,
-            }
-            for i, r in enumerate(rules, start=1)
-        ]
+        return rule_payloads_for_review(self.db, org_id=org_id, playbook_version_id=playbook_version_id)
+
+    async def review_text(
+        self,
+        *,
+        user: User,
+        playbook: Playbook,
+        text: str,
+        title: str,
+        contract_type: str | None,
+        counterparty_name: str | None,
+        resource_type: str,
+        resource_id: str,
+        request_id: str | None = None,
+    ) -> dict:
+        """Review text that is not a stored contract (a drafting template) against a playbook.
+
+        It is the review a drafted contract gets from ``auto_review_contract``: same skill, same
+        prompt, same rules, the same context sections and the same payload (minus the two contract
+        ids, which only name a stored contract). So what it reports is what a contract drafted from
+        the text would be flagged for. Nothing is stored about any contract: no run, no findings, no
+        redline, no risk band. Only the AI call's own ledger rows are written, as for every AI call.
+
+        Raises when the AI review cannot run. There is no keyword fallback here: a scan that only
+        looks for phrases is exactly what let template and playbook drift apart unnoticed, so
+        passing one off as a check would hide the problem again."""
+        from app.ai.context import text_only_context
+        from app.ai.controller import ai_controller
+
+        version = self.select_run_version(playbook=playbook, org_id=user.org_id, version_id=None, test_mode=False)
+        rules = rules_in_review_order(self.db, org_id=user.org_id, playbook_version_id=version.id)
+        if not rules:
+            raise HTTPException(status.HTTP_409_CONFLICT, "Playbook version has no rules")
+        context = text_only_context(
+            text=text, title=title, contract_type=contract_type, counterparty_name=counterparty_name
+        )
+        raw = await ai_controller.run_structured_skill(
+            self.db,
+            skill_name="playbook_review",
+            org_id=user.org_id,
+            created_by_user_id=user.id,
+            input_payload={
+                "playbook_id": playbook.id,
+                "playbook_version_id": version.id,
+                "rules": self._auto_rule_payloads(org_id=user.org_id, playbook_version_id=version.id),
+            },
+            request_id=request_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            contract_context=context,
+        )
+        output = PlaybookReviewOutput.model_validate(raw)
+        evaluated = ai_deviations_to_evaluated(ai_output=output, rules=rules)
+        kept = kept_deviations(output)
+        findings = []
+        for deviation, item in zip(kept, evaluated, strict=True):
+            rule = item.rule
+            findings.append(
+                {
+                    "rule_index": deviation.rule_index if rule is not None else None,
+                    "clause_type": item.clause_type,
+                    "severity": item.severity,
+                    "issue": item.issue,
+                    "quote": item.original_text,
+                    "suggested_fix": item.suggested_fix,
+                    "approval_required": bool(rule.approval_required) if rule is not None else deviation.approval_required,
+                }
+            )
+        return {
+            "playbook_id": playbook.id,
+            "playbook_name": playbook.name,
+            "playbook_version_id": version.id,
+            "rule_count": len(rules),
+            "findings": findings,
+            # The model's summary was written about every item it listed, discarded ones included, so
+            # it can describe a deviation that is no longer in the list: leave it out then.
+            "summary": output.summary if len(kept) == len(output.deviations) else None,
+            "text_was_truncated": context.text_was_truncated,
+        }
 
     async def auto_review_contract(
         self, *, contract: Contract, actor_user_id: str | None, create_redline: bool = True

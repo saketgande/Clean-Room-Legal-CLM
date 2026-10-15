@@ -15,6 +15,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /approvals` -- permission: `approval:read` -- request: ? -- response: ?
 - `GET /approvals/contracts/{contract_id}/chain` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /approvals/eligible-approvers` -- permission: `approval:admin` -- request: ? -- response: ?
+- `GET /approvals/requests/{approval_request_id}/reassign-candidates` -- permission: `approval:decide` -- request: ? -- response: ?
 - `GET /approvals/review/{token}` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ApprovalReviewResponse
 - `POST /approvals/requests/{approval_request_id}/decision` -- permission: `approval:decide` -- request: ApprovalDecisionPayload -- response: ?
 - `POST /approvals/requests/{approval_request_id}/reassign` -- permission: `approval:decide` -- request: ReassignPayload -- response: ?
@@ -36,5 +37,6 @@ Api group: `approvalsApi` (confidence: exact)
 - `approvalsApi.eligibleApprovers()` -> `GET /approvals/eligible-approvers`
 - `approvalsApi.list()` -> `GET /approvals`
 - `approvalsApi.reassign()` -> `POST /approvals/requests/${id}/reassign`
+- `approvalsApi.reassignCandidates()` -> `GET /approvals/requests/${id}/reassign-candidates?kind=${kind}`
 - `approvalsApi.reviewByToken()` -> `GET /approvals/review/${token}`
 - `approvalsApi.tokenDecide()` -> `POST /approvals/token-decision`

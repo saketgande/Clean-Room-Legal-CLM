@@ -71,6 +71,7 @@ AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, Handoff
 - `0023_intake_gaps` (backend/alembic/versions/0023_intake_gaps.py)
 - `0024_intake_parties` (backend/alembic/versions/0024_intake_parties.py)
 - `0029_intake_subject` (backend/alembic/versions/0029_intake_subject.py)
+- `0042_trademark_intake_digest` (backend/alembic/versions/0042_trademark_intake_digest.py)
 - `0044_intake_type_sla_hours` (backend/alembic/versions/0044_intake_type_sla_hours.py)
 - `0048_intake_agreement_form_types` (backend/alembic/versions/0048_intake_agreement_form_types.py)
 - `0049_intake_drafts` (backend/alembic/versions/0049_intake_drafts.py)

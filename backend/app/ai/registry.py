@@ -369,7 +369,7 @@ for registered_spec in [
         description="Compare a contract against a governed playbook version and return cited deviations.",
         execution_mode="playbook_run",
         prompt_key="playbook_review",
-        prompt_version="1.0.1",
+        prompt_version="1.0.6",
         input_model=None,
         output_model=PlaybookReviewOutput,
         required_permission="playbook:run",

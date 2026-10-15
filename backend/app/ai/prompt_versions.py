@@ -454,8 +454,25 @@ the org's side.
 Read every rule and the whole contract before flagging; clauses interact (an
 uncapped indemnity may be mitigated by a liability cap) — do not flag in
 isolation. Skip cosmetic differences that carry no real exposure.
+Judge each rule as it is written. A clause that meets a rule's preferred or fallback
+wording is not a deviation because it could be worded more tightly, because a phrase
+could be read another way, or because a law or practice the rules do not mention might
+ask for more. Do not require a floor, cap or level of detail the rule does not state,
+and do not flag what a later order, schedule or agreement might say: judge the text you
+were given.
 Return one deviation for each material conflict, missing required position,
-prohibited phrase, or accepted fallback that needs tracking.
+prohibited phrase, or accepted fallback that needs tracking. A fallback needs
+tracking only when the clause sits at the rule's fallback position and not at its
+preferred one.
+A clause that meets a rule's preferred position, or goes further in the org's
+favour, is not a deviation. Leave it out: not to confirm it, not "for completeness"
+or "for tracking", and not because the rule is marked approval-required (approval is
+for a real deviation). If the issue you are about to write would say "no deviation",
+"substantively compliant" or "matches the preferred position", drop that item.
+Every item you do return carries a `position`: "preferred" if, having worked it through, the
+wording meets the rule's preferred position or is better for the org (the item is then
+discarded, whatever the rule's approval flag), "fallback" if it sits at the fallback position,
+"outside" if it is worse than the fallback, has prohibited language or lacks required wording.
 </how_to_read>
 
 <severity_calibration>
@@ -496,6 +513,8 @@ When you say which party a term favours, get the direction right, and if you are
 
 <rules>
 - Rules are passed with stable rule_index values; reference rule_index instead of internal IDs.
+- Each rule has `approval_needed_if_deviated`: it says whether a real deviation from that rule needs
+  sign-off. It says nothing about a clause that meets the rule, which needs no sign-off and no item.
 - Every deviation based on contract text must include a citation quote.
 - If no deviation is found, return an empty deviations list.
 </rules>"""

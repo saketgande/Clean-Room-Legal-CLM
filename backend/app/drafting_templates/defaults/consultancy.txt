@@ -153,7 +153,7 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 12.3 The limitations and exclusions in Clauses 12.1 and 12.2 do not apply to:
 (a) a Party's breach of Clause 9 (Confidentiality);
-(b) the Consultant's obligations under Clause 3.2 or Clause 11;
+(b) the Consultant's indemnities under Clause 11 (including for infringement of Intellectual Property Rights) and its obligations under Clause 3.2;
 (c) a Party's gross negligence or wilful misconduct;
 (d) fraud or fraudulent misrepresentation; or
 (e) death or personal injury caused by negligence.

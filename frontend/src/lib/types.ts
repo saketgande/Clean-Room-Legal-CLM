@@ -2542,3 +2542,27 @@ export interface DraftingTemplateVersion {
   created_at: string;
   created_by: string | null;
 }
+
+// POST /drafting-templates/{key}/check — the playbook's AI review run on the template text.
+export interface TemplateCheckFinding {
+  rule_index: number | null; // which playbook rule (1-based, as the review numbers them); null = no matching rule
+  clause_type: string;
+  severity: "low" | "medium" | "high" | "critical";
+  issue: string;
+  quote: string | null; // the template wording the finding is about
+  suggested_fix: string | null;
+  approval_required: boolean;
+}
+
+export interface TemplateCheckResult {
+  key: string;
+  name: string;
+  checked: "saved" | "unsaved"; // whether the editor's unsaved text was the one checked
+  playbook_id: string;
+  playbook_name: string;
+  playbook_version_id: string;
+  rule_count: number;
+  findings: TemplateCheckFinding[];
+  summary: string | null;
+  text_was_truncated: boolean;
+}

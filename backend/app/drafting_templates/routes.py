@@ -63,6 +63,29 @@ def preview_template(key: str, payload: TemplatePreview, _user=Depends(require_p
     return {"text": render_sample(payload.body)}
 
 
+class TemplateCheck(BaseModel):
+    # The editor's text, so unsaved changes can be checked before they are saved. Left out, the
+    # saved template is checked.
+    body: str | None = Field(default=None, max_length=200_000)
+
+
+@router.post("/{key}/check")
+async def check_template(
+    key: str,
+    request: Request,
+    payload: TemplateCheck | None = None,
+    user=Depends(require_permission("playbook:run")),
+    service: DraftingTemplateService = Depends(get_drafting_template_service),
+):
+    """Run the playbook's AI review on the template, as a contract drafted from it would be.
+
+    One AI call per request (real cost); nothing is saved. ``playbook:run`` because that is what
+    running the playbook's review needs anywhere else."""
+    return await service.check_against_playbook(
+        user=user, key=key, body=payload.body if payload else None, request_id=_rid(request)
+    )
+
+
 @router.put("/{key}")
 def save_template(
     key: str,

@@ -13,6 +13,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /drafting-templates` -- permission: `playbook:read` -- request: ? -- response: ?
 - `GET /drafting-templates/{key}` -- permission: `playbook:read` -- request: ? -- response: ?
 - `GET /drafting-templates/{key}/versions` -- permission: `playbook:read` -- request: ? -- response: ?
+- `POST /drafting-templates/{key}/check` -- permission: `playbook:run` -- request: TemplateCheck | None -- response: ?
 - `POST /drafting-templates/{key}/preview` -- permission: `playbook:read` -- request: TemplatePreview -- response: ?
 - `POST /drafting-templates/{key}/reset` -- permission: `playbook:update` -- request: TemplateReset -- response: ?
 - `PUT /drafting-templates/{key}` -- permission: `playbook:update` -- request: TemplateSave -- response: ?
@@ -28,6 +29,7 @@ Owner agents: backend-dev, db-engineer
 ## Frontend counterpart
 
 Api group: `draftingTemplatesApi` (confidence: exact)
+- `draftingTemplatesApi.check()` -> `POST /drafting-templates/${key}/check`
 - `draftingTemplatesApi.get()` -> `GET /drafting-templates/${key}`
 - `draftingTemplatesApi.list()` -> `GET /drafting-templates`
 - `draftingTemplatesApi.preview()` -> `POST /drafting-templates/${key}/preview`

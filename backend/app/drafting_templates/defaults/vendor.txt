@@ -57,7 +57,7 @@ The Company wishes to purchase, and the Vendor wishes to supply, certain goods a
 (c) be of satisfactory quality and fit for any purpose made known to the Vendor; and
 (d) in the case of services, be performed with the reasonable skill, care and diligence of a competent supplier of similar services, by suitably qualified and experienced personnel.
 
-5.2 Where an Order specifies service levels, the Vendor shall meet or exceed those service levels. Any service credits are a price adjustment reflecting the reduced value of the services and are without prejudice to the Company's other rights and remedies.
+5.2 The Vendor shall meet or exceed the service levels set out in the applicable Order. Where an Order sets no service levels, the Vendor shall perform the services with reasonable skill and care and to a standard no lower than the Specification. Any service credits are a price adjustment reflecting the reduced value of the services and are without prejudice to the Company's other rights and remedies.
 
 5.3 If any Deliverable fails to comply with the warranties in this clause during the Warranty Period, the Vendor shall, at the Company's option and at the Vendor's cost, promptly repair or replace the Deliverable, re-perform the services, or refund the Fees paid for the non-conforming Deliverable. Any repaired or replaced Deliverable carries a fresh Warranty Period.
 
@@ -127,7 +127,7 @@ The Company wishes to purchase, and the Vendor wishes to supply, certain goods a
 
 11.2 Subject to clauses 11.3 and 11.4, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential.
 
-11.3 This limitation of liability does not limit or exclude either Party's liability for (a) breach of the Confidentiality clause; (b) its indemnification obligations, including the Vendor's obligations under the Indemnification clause, which are not subject to any cap; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
+11.3 This limitation of liability does not limit or exclude either Party's liability for (a) breach of the Confidentiality clause; (b) the Vendor's indemnities under the Indemnification clause; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
 
 11.4 Nothing in this clause limits the Company's obligation to pay undisputed Fees properly due.
 

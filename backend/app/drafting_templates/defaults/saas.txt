@@ -50,7 +50,7 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 4.1 The Customer shall pay the Fees set out in the applicable Order Form. The Fees are fixed for the initial Subscription Term and exclude applicable goods and services tax or equivalent indirect taxes, which shall be shown separately on each valid tax invoice.{value_sentence}
 
-4.2 The Provider shall invoice the Fees periodically in arrears, or at the start of each billing period where the Order Form so provides, provided that no amount invoiced before the relevant period begins shall exceed twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a signed Order Form. Each invoice must quote the Order Form reference.
+4.2 The Provider shall invoice the Fees periodically in arrears, after the period to which they relate. Each invoice must quote the Order Form reference.
 
 4.3 The Customer shall pay undisputed invoices within {payment_days} days of receipt of a valid, undisputed invoice. The Customer may withhold, in good faith, any amount it disputes, and shall notify the Provider of the dispute and its reasons. The Parties shall work in good faith to resolve the dispute promptly, and the undisputed portion shall be paid in accordance with this clause. The Provider shall not suspend the Service while an amount is disputed in good faith.
 
@@ -138,13 +138,13 @@ The Provider makes available a hosted software service, and the Customer wishes 
 
 15. LIMITATION OF LIABILITY
 
-15.1 Subject to clauses 15.2, 15.4 and 15.5, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim.
+15.1 Subject to clauses 15.2, 15.4 and 15.5, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim (the "General Cap").
 
-15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability arising out of or in connection with any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws shall not exceed three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This amount is separate from and in addition to the amount in clause 15.1.
+15.2 Subject to clauses 15.4 and 15.5, for the Provider's total aggregate liability arising out of any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, the General Cap is raised to three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This higher cap replaces the General Cap for that liability and is not in addition to it.
 
 15.3 Subject to clauses 15.4 and 15.5, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential. The following are recoverable as direct losses: the costs of restoring or recreating lost or corrupted Customer Data, the costs of notification and remediation following a Security Incident, regulatory fines and penalties to the extent permitted by law, and the reasonable costs of procuring a replacement service.
 
-15.4 This limitation of liability does not limit or exclude either Party's liability for (a) breach of clause 11 (Confidentiality); (b) its indemnification obligations, including the Provider's obligations under clause 14 (Indemnification), which are not subject to any cap; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
+15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality); (b) the indemnities in clause 14 (Indemnification); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.
 
 15.5 Nothing in this clause limits the Customer's obligation to pay undisputed Fees properly due.
 

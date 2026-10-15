@@ -13,8 +13,10 @@ import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import { can } from "@/lib/intake";
 import type { DraftingTemplate, DraftingTemplateVersion } from "@/lib/types";
+import { CheckPanel, type CheckState } from "./_check-panel";
 
-type Tab = "edit" | "preview" | "history";
+type Tab = "edit" | "preview" | "check" | "history";
+const TAB_LABEL: Record<Tab, string> = { edit: "Edit", preview: "Preview", check: "Check", history: "History" };
 
 export default function TemplatesPage() {
   const { data: list, isLoading } = useQuery({ queryKey: ["drafting-templates"], queryFn: draftingTemplatesApi.list });
@@ -68,6 +70,7 @@ function Editor({ templateKey, onDirty }: { templateKey: string; onDirty: (d: bo
   const [note, setNote] = useState("");
   const [tab, setTab] = useState<Tab>("edit");
   const [busy, setBusy] = useState(false);
+  const [check, setCheck] = useState<CheckState>({ status: "idle" });
   const area = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -75,6 +78,19 @@ function Editor({ templateKey, onDirty }: { templateKey: string; onDirty: (d: bo
   }, [tpl]);
   const dirty = !!tpl && body !== tpl.body;
   useEffect(() => onDirty(dirty), [dirty, onDirty]);
+
+  // Runs the playbook's AI review on what is in the editor. The unsaved text is sent only when there is
+  // some; otherwise the server checks the saved template.
+  async function runCheck() {
+    const checked = body;
+    setCheck({ status: "running" });
+    try {
+      const result = await draftingTemplatesApi.check(templateKey, dirty ? checked : undefined);
+      setCheck({ status: "done", result, body: checked });
+    } catch (e) {
+      setCheck({ status: "error", message: e instanceof Error ? e.message : "The check could not run." });
+    }
+  }
 
   function insert(name: string) {
     const el = area.current;
@@ -135,9 +151,9 @@ function Editor({ templateKey, onDirty }: { templateKey: string; onDirty: (d: bo
           </div>
         </div>
         <div className="tabs" role="tablist">
-          {(["edit", "preview", "history"] as Tab[]).map((t) => (
+          {(["edit", "preview", "check", "history"] as Tab[]).map((t) => (
             <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "on" : ""} onClick={() => setTab(t)}>
-              {t === "edit" ? "Edit" : t === "preview" ? "Preview" : "History"}
+              {TAB_LABEL[t]}
             </button>
           ))}
         </div>
@@ -189,6 +205,15 @@ function Editor({ templateKey, onDirty }: { templateKey: string; onDirty: (d: bo
         </div>
       )}
       {tab === "preview" && <Preview templateKey={templateKey} body={body} />}
+      {tab === "check" && (
+        <CheckPanel
+          state={check}
+          playbook={tpl.playbook}
+          dirty={dirty}
+          stale={check.status === "done" && check.body !== body}
+          onRun={runCheck}
+        />
+      )}
       {tab === "history" && (
         <History templateKey={templateKey} onUse={(text) => { setBody(text); setTab("edit"); }} canEdit={canEdit} />
       )}
@@ -291,6 +316,25 @@ const TPL_CSS = `
 .tpl .pv{padding:14px 16px}
 .tpl .doc{margin:8px 0 0;white-space:pre-wrap;font:12.5px/1.65 var(--mono);color:var(--ink);background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:16px;max-height:70vh;overflow:auto}
 .tpl .err{margin:16px;padding:12px 14px;border-radius:9px;background:var(--crit-soft);color:var(--crit);font-size:13px}
+.tpl .chk{padding:14px 16px;display:flex;flex-direction:column;gap:12px}
+.tpl .chkhd{display:flex;gap:16px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
+.tpl .chkhd h3{margin:0 0 4px;font-size:14px;font-weight:660}
+.tpl .chkhd p{margin:0 0 4px;max-width:640px}
+.tpl .chkmsg,.tpl .chkwarn{padding:10px 12px;border-radius:9px;background:var(--surface-2);color:var(--ink-2);font-size:12.5px}
+.tpl .chkwarn{background:var(--warn-soft);color:var(--warn)}
+.tpl .chkok{padding:12px 14px;border-radius:9px;background:var(--ok-soft,var(--surface-2));color:var(--ink);font-size:13px}
+.tpl .chkbad{padding:12px 14px;border-radius:9px;background:var(--crit-soft);color:var(--ink);font-size:13px}
+.tpl .chkl{list-style:none;margin:10px 0 0;padding:0;display:flex;flex-direction:column;gap:10px}
+.tpl .fi{border:1px solid var(--border);border-left-width:3px;border-radius:10px;padding:10px 12px;background:var(--surface)}
+.tpl .fi.sev-critical,.tpl .fi.sev-high{border-left-color:var(--crit)}
+.tpl .fi.sev-medium{border-left-color:var(--warn)}
+.tpl .fi.sev-low{border-left-color:var(--ink-3)}
+.tpl .fihd{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tpl .fi p{margin:6px 0 0;font-size:12.5px}
+.tpl .fi blockquote{margin:8px 0 0;padding:6px 10px;border-left:2px solid var(--border);background:var(--surface-2);font:12px/1.55 var(--mono);white-space:pre-wrap;color:var(--ink-2)}
+.tpl .sev{font:600 9.5px var(--font-sans);letter-spacing:.04em;text-transform:uppercase;padding:2px 8px;border-radius:99px;background:var(--surface-2);color:var(--ink-3)}
+.tpl .sev.high,.tpl .sev.critical{background:var(--crit-soft);color:var(--crit)}
+.tpl .sev.medium,.tpl .sev.appr{background:var(--warn-soft);color:var(--warn)}
 .tpl .hist{list-style:none;margin:0;padding:8px 12px 12px}
 .tpl .hist li{border-bottom:1px solid var(--border)}
 .tpl .hrow{display:grid;grid-template-columns:90px minmax(0,1fr) auto;gap:10px;width:100%;text-align:left;background:none;border:none;padding:10px 4px;color:var(--ink);cursor:pointer;font-size:12.5px}

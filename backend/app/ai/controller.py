@@ -1148,7 +1148,11 @@ class AIController:
         assistant_run_id: str | None = None,
         tool_call_id: str | None = None,
         commit: bool = True,
+        contract_context: ContractAIContext | None = None,
     ) -> BaseModel:
+        """``contract_context`` is for text that is not a stored contract (a drafting template
+        being checked, ai.context.text_only_context): the skill reads that text instead of
+        looking a contract up. Left out, the context comes from the payload's contract_id."""
         spec = skill_registry.get(skill_name)
         self._ensure_skill_enabled(db, org_id=org_id, spec=spec)
 
@@ -1163,15 +1167,16 @@ class AIController:
         # Whose walls and clearance apply to the contract text this skill reads. A
         # background job has no live actor: it was authorized when it was queued.
         actor = None if job_id else (db.get(User, created_by_user_id) if created_by_user_id else None)
-        contract_context = self._maybe_contract_context(
-            db,
-            user=actor,
-            org_id=org_id,
-            input_payload=input_payload,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            skill_name=spec.name,
-        )
+        if contract_context is None:
+            contract_context = self._maybe_contract_context(
+                db,
+                user=actor,
+                org_id=org_id,
+                input_payload=input_payload,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                skill_name=spec.name,
+            )
         built_prompt = prompt_builder.build_structured_skill_prompt(
             spec=spec,
             prompt_bundle=prompt_bundle,

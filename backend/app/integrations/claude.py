@@ -163,6 +163,10 @@ def _anthropic_client() -> anthropic.AsyncAnthropic:
             api_key=settings.claude_api_key,
             timeout=_ANTHROPIC_TIMEOUT,
             max_retries=0,
+            # An organization-wide key must name the workspace on every request (400 otherwise).
+            default_headers=(
+                {"anthropic-workspace-id": settings.claude_workspace_id} if settings.claude_workspace_id else None
+            ),
         )
         _anthropic_clients[loop] = client
     return client

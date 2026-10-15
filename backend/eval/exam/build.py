@@ -1858,16 +1858,14 @@ AEGIS_CATALOGUE: dict[str, tuple[Plant, ...]] = {
         Plant(
             "limitation_of_liability",
             span(
-                "15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability",
-                "in addition to the amount in clause 15.1.",
+                "15.2 Subject to clauses 15.4 and 15.5, for the Provider's total aggregate liability",
+                "is not in addition to it.",
             ),
             None,
         ),
         Plant(
             "payment_terms",
-            "provided that no amount invoiced before the relevant period begins shall exceed "
-            "twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a "
-            "signed Order Form",
+            "after the period to which they relate",
             "and the Provider may invoice up to one hundred percent (100%) of the annual Fees in "
             "advance, at the start of each year",
         ),

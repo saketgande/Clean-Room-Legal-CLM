@@ -58,7 +58,11 @@ def test_the_review_prompts_tell_the_model_which_way_a_term_helps():
         assert "<who_it_helps>" in prompt
         assert "shorter payment period helps the party being paid" in prompt
         assert "name the role" in prompt
-        assert skill_registry.get(key).prompt_version == "1.0.1"
+        # playbook_review moved to 1.0.2 when it stopped listing compliant clauses as deviations,
+        # then to 1.0.5 as it gained `position` (an item it finds at the preferred position is
+        # discarded) and was told to judge each rule as written (no extra floors, no "might be read
+        # another way", no outside law the rules do not mention).
+        assert skill_registry.get(key).prompt_version == {"playbook_review": "1.0.6"}.get(key, "1.0.1")
 
 
 def test_the_assistant_is_told_how_to_compare_versions_and_not_to_invent_screens():

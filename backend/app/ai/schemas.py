@@ -96,11 +96,37 @@ class ContractEditSuggestionsOutput(BaseModel):
     summary: str | None = None
 
 
+def _model_must_answer_position(schema: dict[str, Any]) -> None:
+    """Mark ``position`` required in the schema the model is given, while validation still accepts a
+    payload without it. A field with a default is optional in the schema, and a model asked for a tool
+    call leaves optional fields out; a question it may skip is a question it skips."""
+    required = schema.setdefault("required", [])
+    if "position" not in required:
+        required.append("position")
+
+
 class PlaybookDeviationOutput(BaseModel):
+    model_config = ConfigDict(json_schema_extra=_model_must_answer_position)
+
     rule_index: int | None = None
     clause_type: str
     severity: Literal["low", "medium", "high", "critical"] = "medium"
     issue: str
+    # Asked for after `issue`, once the model has worked the item through. The reviewer sometimes
+    # lists a clause and, writing the issue, finds it meets the rule ("no deviation to flag"; "this
+    # is an approval-tracking item"). Answering 'preferred' discards the item (``kept_deviations``)
+    # instead of turning it into a risk, a HIGH one when the rule needs approval. The default keeps
+    # every older payload as it was.
+    position: Literal["preferred", "fallback", "outside"] = Field(
+        default="outside",
+        description=(
+            "Where the contract's wording sits against this rule. 'preferred': it meets the rule's "
+            "preferred position, or is better for the org (then this is NOT a deviation and the item "
+            "is discarded; an approval requirement on the rule does not change that). 'fallback': it "
+            "sits at the rule's fallback position. 'outside': it is worse than the fallback, contains "
+            "prohibited language, or lacks required wording."
+        ),
+    )
     original_text: str | None = None
     suggested_fix: str | None = None
     approval_required: bool = False

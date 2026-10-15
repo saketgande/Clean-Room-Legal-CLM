@@ -5,6 +5,7 @@ import type {
   DraftingTemplate,
   DraftingTemplateSummary,
   DraftingTemplateVersion,
+  TemplateCheckResult,
   AiUsageSummary,
   AiUsageTraffic,
   ApprovalChainStep,
@@ -961,6 +962,9 @@ export const draftingTemplatesApi = {
     apiFetch<DraftingTemplate>(`/drafting-templates/${key}`, { method: "PUT", body: { body, note } }),
   reset: (key: string, note?: string) =>
     apiFetch<DraftingTemplate>(`/drafting-templates/${key}/reset`, { method: "POST", body: { note } }),
+  // One real AI review (costs credits); nothing is saved. `body` = the editor's unsaved text, left out = the saved template.
+  check: (key: string, body?: string) =>
+    apiFetch<TemplateCheckResult>(`/drafting-templates/${key}/check`, { method: "POST", body: body === undefined ? {} : { body } }),
 };
 
 export const playbooksApi = {

@@ -123,6 +123,9 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 50 * 1024 * 1024
 
     claude_api_key: str | None = None
+    # Needed only with an organization-wide API key (valid for all workspaces): Anthropic
+    # then refuses any request that doesn't name its workspace. A workspace key needs none.
+    claude_workspace_id: str | None = None
     claude_model: str = "claude-sonnet-4-6"
     # Mock integrations default OFF — production-safe. Local dev opts back in
     # explicitly via MOCK_* env (see .env.example / tests/conftest.py).

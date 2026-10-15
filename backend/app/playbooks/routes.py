@@ -49,6 +49,7 @@ from app.playbooks.service import (
     decision_problem,
     execute_playbook_run,
     generated_default_rules,
+    rule_payloads_for_review,
 )
 
 logger = logging.getLogger(__name__)
@@ -777,26 +778,4 @@ def _get_rule(db: Session, *, rule_id: str, version: PlaybookVersion, org_id: st
 
 
 def _rule_payloads_for_ai(db: Session, *, org_id: str, playbook_version_id: str) -> list[dict]:
-    rules = db.scalars(
-        select(PlaybookRule)
-        .where(PlaybookRule.org_id == org_id, PlaybookRule.playbook_version_id == playbook_version_id)
-        .order_by(PlaybookRule.created_at.asc())
-    ).all()
-    return [
-        {
-            "rule_index": index,
-            "clause_type": rule.clause_type,
-            "rule_type": rule.rule_type,
-            "preferred_position": rule.preferred_position,
-            "fallback_position": rule.fallback_position,
-            "prohibited_language": rule.prohibited_language,
-            "required_language": rule.required_language,
-            "risk_level": rule.risk_level,
-            "rationale": rule.rationale,
-            "approval_required": rule.approval_required,
-            "escalation_role": rule.escalation_role,
-            "sample_clause": rule.sample_clause,
-            "negotiation_guidance": rule.negotiation_guidance,
-        }
-        for index, rule in enumerate(rules, start=1)
-    ]
+    return rule_payloads_for_review(db, org_id=org_id, playbook_version_id=playbook_version_id)
