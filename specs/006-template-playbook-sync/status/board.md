@@ -19,7 +19,7 @@ Legend: ⬜ pending · 🔵 running · ✅ done · 🟥 failed · 🟧 blocked
 | T010 | frontend-dev | ✅ done | 2026-10-15T08:17:08Z | page.tsx, _template-list, _template-detail, _check-all, _leave-guard + page.test.tsx (48 tests, mutation-checked) done; typecheck: only the 2 stale .next/validator errors; full suite 63 files / 993 tests pass |
 | T011 | backend-dev | ✅ done | 2026-10-15T08:59:16Z | follow-up done: list_checks/get_check moved into checks.py (routes make one call each), check_against_playbook deleted (no leftovers in app/ tests/); ruff clean; 246 pass in 4 template files; restart + smoke OK (login 200, list 200 x7, nda/checks 200) |
 | T012 | backend-dev | ✅ done | 2026-10-15T08:51:22Z | drafting.py/routes.py/schemas.py done; test_template_drafting_record.py 26 + test_playbook_pin.py 23 pass (mutation-checked); full suite 3307 passed 1 skipped; ruff clean |
-| T013 | qa-engineer | ⬜ pending | — | — |
+| T013 | qa-engineer | ✅ done | 2026-10-15T09:37:23Z | Phase 1 verified incl. orchestrator browser walk: 45 P1 ACs = 42 Pass / 2 Partial (AC-46, AC-56) / 1 Browser (AC-60) / 0 Fail; 30 later-phase; defects 0 P0/P1, 1 P2 (check panel shows contradictory model summary), 4 P3; gates green (pytest 3307, vitest 993); verification.md section 7 filled |
 | T014 | db-engineer | ⬜ pending | — | — |
 | T015 | frontend-dev | ⬜ pending | — | — |
 | T016 | backend-dev | ⬜ pending | — | — |
@@ -87,3 +87,6 @@ Append-only; newest last. One line per status change:
 - 2026-10-15T08:56:51Z T011 backend-dev → done: routes.py (13 routes) + playbooks publish/seed hooks; test_template_check 43 + test_drafting_templates 106 pass; 332 pass on related suites; full suite 3307 passed 1 skipped; ruff clean; restart + smoke OK (login 200, list 200 x7)
 - 2026-10-15T08:58:11Z T011 backend-dev → running: follow-up: moving the two check reads into checks.py, deleting dead check_against_playbook
 - 2026-10-15T08:59:16Z T011 backend-dev → done: follow-up done: list_checks/get_check moved into checks.py (routes make one call each), check_against_playbook deleted (no leftovers in app/ tests/); ruff clean; 246 pass in 4 template files; restart + smoke OK (login 200, list 200 x7, nda/checks 200)
+- 2026-10-15T09:18:34Z T013 qa-engineer → running: starting: reading spec/plan, then CI gates
+- 2026-10-15T09:34:17Z T013 qa-engineer → done: Phase 1 verified: ruff clean, head 0074_template_sync, pytest 3307 passed 1 skipped, vitest 993, typecheck only 2 stale; 45 P1 ACs = 41 Pass / 1 Partial (AC-46) / 3 Browser (17, 56, 60) / 0 Fail; 30 later-phase; 0 blocking defects, 3 P3; live API + RBAC-enforced 403s checked; verification.md written, section 7 left for the orchestrator
+- 2026-10-15T09:37:23Z T013 qa-engineer → done: browser walk folded into verification.md; counts and defects updated
