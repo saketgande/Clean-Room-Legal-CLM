@@ -188,15 +188,17 @@ The Company wishes to engage the Consultant to provide certain consultancy servi
 
 ENGAGEMENT SCHEDULE
 
-Services: [Describe the consultancy services to be provided.]
+Services: {services}
 
-Deliverables and timetable: [List each item of Work Product to be delivered and its due date.]
+Deliverables and timetable:
 
-Fees: [State the fee basis, e.g. a fixed fee, or a daily or hourly rate with a not-to-exceed amount.]
+{consultancy_deliverables}
 
-Consultant's key individual(s): [Name each individual who will perform the Services. The Consultant shall not replace them without the Company's prior written consent.]
+Fees: {consultancy_fee_basis} The Fees shall not exceed {fee_amount} except by a written amendment signed by both Parties. The Consultant shall invoice the Fees, and the Company shall pay them, in accordance with Clauses 6.2 to 6.4.
 
-Company contact: [Name and role.]
+Consultant's key individual(s): {key_individuals} The Consultant shall not replace any key individual named here without the Company's prior written consent.
+
+Company contact: {company_contact} The Company contact is the Consultant's point of contact at the Company for the Services and does not direct or supervise how, when or where the Consultant performs them.
 
 IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
 

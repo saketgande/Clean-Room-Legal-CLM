@@ -165,15 +165,17 @@ Subject matter: the Processing of Personal Data by the Processor in providing th
 
 Duration: the term of the Principal Agreement and any period afterwards until the Personal Data is returned or deleted in accordance with Section 11.
 
-Nature and purpose of the Processing: [describe the Processing operations and the purpose for which the Processor processes Personal Data in providing the Services].
+Nature and purpose of the Processing: The Processor shall process Personal Data only on the Controller's documented instructions and only for the purpose stated below. The Processing consists only of the operations described in Section 1.3 that are needed to provide the Services for that purpose, and nothing else.
 
-Categories of Data Subjects: [for example employees, customers, end users, suppliers and contact persons of the Controller].
+{processing_purpose}
 
-Types of Personal Data: [for example name, contact details, identification data, account and transaction data].
+Categories of Data Subjects: {data_subject_categories} The Processor shall not process Personal Data of any other category of Data Subject.
 
-Sensitive or special category Personal Data (if any): [describe, and the additional safeguards applied, or state "None"].
+Types of Personal Data: {personal_data_types} The Processor shall not process any other type of Personal Data.
 
-Processing locations: [list each country in which Personal Data is processed or accessed].
+Sensitive or special category Personal Data (if any): {special_category_data}
+
+Processing locations: {processing_locations} Personal Data is processed and accessed only in the countries listed in this entry. Processing of, or access to, Personal Data in any country outside India is permitted only on the conditions of Section 9.
 
 
 ANNEX 2 - TECHNICAL AND ORGANISATIONAL SECURITY MEASURES
@@ -201,4 +203,8 @@ ANNEX 2 - TECHNICAL AND ORGANISATIONAL SECURITY MEASURES
 
 ANNEX 3 - AUTHORISED SUB-PROCESSORS
 
-The Controller authorises the following sub-processors at the Effective Date (name, location, and Processing performed): [list each authorised Sub-processor, or state "None"].
+The Controller authorises the following sub-processors at the Effective Date (name, location, and Processing performed):
+
+{authorised_subprocessors}
+
+No Sub-processor other than any listed above is authorised at the Effective Date. The Processor may engage any other Sub-processor only with the Controller's prior specific written authorisation under Section 6.1. A Sub-processor located outside India may process Personal Data only on the conditions of Section 9.

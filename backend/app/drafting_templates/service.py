@@ -46,7 +46,7 @@ from app.drafting_templates.models import (
     DraftingTemplateVersion,
 )
 from app.drafting_templates.schemas import AppliedFindingIn
-from app.intake import sow
+from app.intake import consultancy, dpa, sow
 from app.intake.agreement_forms import form_def
 from app.playbooks.library import CONTRACT_TYPE_OF_FORM, CONTRACT_TYPE_OF_KIND
 from app.playbooks.models import Playbook, PlaybookVersion
@@ -120,7 +120,7 @@ PLACEHOLDERS: list[dict] = [
     {"name": "sow_title", "label": "SoW title",
      "about": "Statement of Work: the SoW title from the request", "sample": sow.EXAMPLE_VALUES["sow_title"]},
     {"name": "services", "label": "Services",
-     "about": "Statement of Work: the scope of services as the requester wrote it",
+     "about": "Statement of Work and Consultancy: the scope of services as the requester wrote it",
      "sample": sow.EXAMPLE_VALUES["services"]},
     {"name": "deliverables_list", "label": "Deliverables list",
      "about": "Statement of Work: one entry per deliverable row (D1, D2, …) with its name, due date and both owners",
@@ -135,7 +135,8 @@ PLACEHOLDERS: list[dict] = [
      "about": "Statement of Work: the pricing statement for the request's pricing answer",
      "sample": sow.EXAMPLE_VALUES["pricing_model"]},
     {"name": "fee_amount", "label": "Fee amount",
-     "about": "Statement of Work: the total value with its currency (the fixed fee, or the not-to-exceed amount)",
+     "about": "Statement of Work and Consultancy: the total value with its currency (the fixed fee, or the "
+              "amount the fees may not exceed)",
      "sample": sow.EXAMPLE_VALUES["fee_amount"]},
     {"name": "milestone_payments_list", "label": "Milestone payments list",
      "about": "Statement of Work: one payment per deliverable, each payable on written acceptance; "
@@ -144,6 +145,39 @@ PLACEHOLDERS: list[dict] = [
     {"name": "provider_representative", "label": "Provider representative",
      "about": "Statement of Work: their signer's name and email, as authorised signatory",
      "sample": sow.EXAMPLE_VALUES["provider_representative"]},
+    # The Consultancy schedule's four fields and the DPA annexes' six (spec 008). Their samples are the
+    # example readings drafting itself would produce (intake.consultancy, intake.dpa), as for the SOW.
+    {"name": "consultancy_deliverables", "label": "Consultancy deliverables",
+     "about": "Consultancy: one entry per deliverable (D1, D2, …) with its name and due date, or that there "
+              "are none when the requester ticked advice only",
+     "sample": consultancy.EXAMPLE_VALUES["consultancy_deliverables"]},
+    {"name": "consultancy_fee_basis", "label": "Fee basis",
+     "about": "Consultancy: the fee basis the requester chose: the fixed fee, or the day or hourly rate",
+     "sample": consultancy.EXAMPLE_VALUES["consultancy_fee_basis"]},
+    {"name": "key_individuals", "label": "Key individuals",
+     "about": "Consultancy: each of the Consultant's key individuals, named once",
+     "sample": consultancy.EXAMPLE_VALUES["key_individuals"]},
+    {"name": "company_contact", "label": "Company contact",
+     "about": "Consultancy: our contact's name and role",
+     "sample": consultancy.EXAMPLE_VALUES["company_contact"]},
+    {"name": "processing_purpose", "label": "Processing purpose",
+     "about": "DPA: why the data is processed, as the requester wrote it",
+     "sample": dpa.EXAMPLE_VALUES["processing_purpose"]},
+    {"name": "data_subject_categories", "label": "Data subject categories",
+     "about": "DPA: each category of people the requester ticked",
+     "sample": dpa.EXAMPLE_VALUES["data_subject_categories"]},
+    {"name": "personal_data_types", "label": "Personal data types",
+     "about": "DPA: each kind of personal data the requester ticked, described",
+     "sample": dpa.EXAMPLE_VALUES["personal_data_types"]},
+    {"name": "special_category_data", "label": "Special category data",
+     "about": "DPA: that special category data is processed with the Annex 2 measures, or None",
+     "sample": dpa.EXAMPLE_VALUES["special_category_data"]},
+    {"name": "processing_locations", "label": "Processing locations",
+     "about": "DPA: India, then each country outside India the requester listed",
+     "sample": dpa.EXAMPLE_VALUES["processing_locations"]},
+    {"name": "authorised_subprocessors", "label": "Authorised sub-processors",
+     "about": "DPA: one entry per sub-processor with its name, country and processing, or None",
+     "sample": dpa.EXAMPLE_VALUES["authorised_subprocessors"]},
 ]
 SAMPLE_VALUES = {p["name"]: p["sample"] for p in PLACEHOLDERS}
 _LABELS = {p["name"]: p["label"] for p in PLACEHOLDERS}

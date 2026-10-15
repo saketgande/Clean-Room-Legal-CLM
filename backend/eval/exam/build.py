@@ -2260,15 +2260,16 @@ def make_deals() -> dict[str, Deal]:
     return deals
 
 
-# The Statement of Work wording the exam was built from (2026-10-15): the app's shipped SOW has since been
-# rewritten to be filled from the request, and the exam's committed documents, planted-change offsets and
-# baseline all depend on this text, so it is rendered from a byte-for-byte copy instead of the live template.
-_SOW_WORDING = Path(__file__).with_name("sow_2026-10-15.txt")
+# The SOW, Consultancy and DPA wording the exam was built from (2026-10-15): the app's shipped versions have
+# since been rewritten to be filled from the request (specs 007 and 008), and the exam's committed documents,
+# planted-change offsets, hashes and baseline all depend on this text, so each is rendered from a byte-for-byte
+# copy instead of the live template.
+_FROZEN = {key: Path(__file__).with_name(f"{key}_2026-10-15.txt") for key in ("sow", "consultancy", "dpa")}
 
 
 def _template_body(kind: str) -> str | None:
-    """The wording the exam renders ``kind`` from: the frozen SOW copy, else None (the app's shipped default)."""
-    return _SOW_WORDING.read_text(encoding="utf-8") if kind == "sow" else None
+    """The wording the exam renders ``kind`` from: its frozen copy, else None (the app's shipped default)."""
+    return _FROZEN[kind].read_text(encoding="utf-8") if kind in _FROZEN else None
 
 
 def _render(deal: Deal) -> str:

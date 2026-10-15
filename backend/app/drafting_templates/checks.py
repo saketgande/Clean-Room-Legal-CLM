@@ -50,7 +50,7 @@ from app.drafting_templates.service import (
     list_types,
     reviewing_playbook,
 )
-from app.intake import sow
+from app.intake import consultancy, dpa, sow
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 
@@ -389,7 +389,8 @@ def check_values(key: str) -> dict[str, str]:
 
 
 _CODED = ("company", "counterparty", "effective_date", "governing_law", "agreement_term", "purpose_phrase",
-          "direction_recital", "term_clause", "survival_clause", *sow.FIELDS)
+          "direction_recital", "term_clause", "survival_clause", *sow.FIELDS, *consultancy.FIELDS, *dpa.FIELDS)
+_EXAMPLE_MARKERS = (*sow.EXAMPLE_MARKERS, *consultancy.EXAMPLE_MARKERS, *dpa.EXAMPLE_MARKERS)
 _MIN_CODED_LENGTH = 12  # a shorter value ("Mutual", "45") is as likely to be ordinary wording as a field
 
 
@@ -416,7 +417,7 @@ def _enrich(findings: list[dict], values: dict[str, str]) -> list[dict]:
         # A fix that still quotes the example request (a deliverable name, a person, an amount the code
         # could not turn back into a field) must never be applied: it would write example content into our
         # own paper (FR-24). It stays on the page as advice.
-        quotes_example = any(marker in fix_template for marker in sow.EXAMPLE_MARKERS) if fix_template else False
+        quotes_example = any(marker in fix_template for marker in _EXAMPLE_MARKERS) if fix_template else False
         out.append({
             "index": index, "rule_index": f.get("rule_index"), "clause_type": f["clause_type"],
             "severity": str(getattr(severity, "value", severity)), "issue": f["issue"],

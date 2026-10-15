@@ -503,24 +503,27 @@ _ALL_ANSWERS = {"value": "4500000", "currency": "INR", "start_date": "2026-10-01
 @pytest.mark.parametrize("fields", [{}, _ALL_ANSWERS], ids=["bare request", "full form"])
 def test_no_other_template_changes_for_the_sow_fields(key, fields):
     """AC-39: the nine SOW fields are given to every template, and a template that does not use one ignores
-    it (str.format), so its draft is exactly what it is filled with when the nine do not exist."""
+    it (str.format), so its draft is exactly what it is filled with when the nine do not exist. Consultancy
+    uses `services` and `fee_amount` (spec 008 FR-35: one field for one thing, so its schedule does not get
+    a second field for the scope and the total); every other template uses none of the nine."""
     values = drafting.template_values(key, company=COMPANY, counterparty=COUNTERPARTY, effective="2026-10-01",
                                       fields=fields)
     assert set(sow.FIELDS) <= set(values)
-    without = {k: v for k, v in values.items() if k not in sow.FIELDS}
+    used = {f["name"] for f in field_uses(default_body(key))} & set(sow.FIELDS)
+    assert used == ({"services", "fee_amount"} if key == "consultancy" else set())
+    without = {k: v for k, v in values.items() if k not in set(sow.FIELDS) - used}
     drafted = drafting.render_document(key, company=COMPANY, counterparty=COUNTERPARTY, effective="2026-10-01",
                                        fields=fields)
     assert drafted == default_body(key).format(**without)
-    assert not {f["name"] for f in field_uses(default_body(key))} & set(sow.FIELDS)
 
 
-def test_the_blanks_the_other_templates_already_had_are_untouched():
-    """AC-39: NDA, MSA, SaaS and Vendor have none; Consultancy and the DPA keep theirs, for the later spec
-    that owns them (FR-36). 5 and 6 since the detector also sees brackets over 120 characters inside
-    (Consultancy's key-individuals note, the DPA's processing note)."""
+def test_the_blanks_the_other_templates_already_had_are_gone():
+    """AC-39, then spec 008 AC-1 and AC-7: NDA, MSA, SaaS and Vendor never had a blank bracket; the SOW lost
+    its own in 007, and Consultancy (5) and the DPA (6) lose theirs now, in the same way. A blank left in
+    any shipped template reaches the counterparty and stops the contract at the signature gate."""
     blanks = {k: len(find_blanks(drafting.render_document(
         k, company=COMPANY, counterparty=COUNTERPARTY, effective="2026-10-01", fields={}))) for k in TEMPLATES}
-    assert blanks == {"nda": 0, "msa": 0, "consultancy": 5, "sow": 0, "vendor": 0, "saas": 0, "dpa": 6}
+    assert blanks == {"nda": 0, "msa": 0, "consultancy": 0, "sow": 0, "vendor": 0, "saas": 0, "dpa": 0}
 
 
 def test_a_free_text_request_that_says_sow_is_still_drafted_from_the_msa_template():

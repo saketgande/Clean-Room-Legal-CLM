@@ -100,7 +100,7 @@ def rows_of(fv: dict | None) -> list[dict]:
     return [r for r in raw if isinstance(r, dict)] if isinstance(raw, list) else []
 
 
-def _total(fv: dict) -> Decimal | None:
+def total_value(fv: dict) -> Decimal | None:
     """The request's total value as exact money (half-up to two decimals), or None when it isn't one."""
     raw = fv.get("value")
     try:
@@ -140,7 +140,7 @@ def sow_values(fv: dict | None, *, example: bool = False) -> dict[str, str]:
     fv = fv or {}
     rows = rows_of(fv)
     currency = fv.get("currency") or settings.default_currency
-    total = _total(fv)
+    total = total_value(fv)
     pricing = str(fv.get("pricing") or "")
     names = [_cell(r.get("name")) for r in rows]
 
