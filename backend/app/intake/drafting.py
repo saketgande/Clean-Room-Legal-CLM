@@ -284,8 +284,12 @@ def draft_hold(db, *, org_id: str, request: IntakeRequest) -> str | None:
     form = fv.get("request_form")
     if not form:  # email or chat: only a DPA gets here, and it has none of the form's answers
         return dpa.FREE_TEXT_HELD if used & set(dpa.FIELDS) else None
+    # Own paper is "Our template", or no such answer (an older request): every new question is gated on
+    # paper == "Our template", so without this a request with no paper answer would be asked for nothing.
+    # Only the hold reads it this way; the form's show rules and the filing validator are untouched.
+    rules_fv = fv if str(fv.get("paper") or "").strip() else {**fv, "paper": "Our template"}
     missing = [f.label for f in form_fields(form)
-               if f.fills and f.required and shown(f, fv) and _lacks(f, fv) and used & set(f.fills)]
+               if f.fills and f.required and shown(f, rules_fv) and _lacks(f, fv) and used & set(f.fills)]
     if not missing:
         return None
     return (consultancy if doc == "consultancy" else dpa).held_message(missing)

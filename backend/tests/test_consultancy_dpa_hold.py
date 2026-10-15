@@ -639,6 +639,94 @@ async def test_a_held_request_changed_to_processor_is_skipped_by_the_resume_beat
     assert audit.actor_user_id is None and engine_draft.disk.files == {} and engine_draft.ai == []
 
 
+# --- a request with no "Whose paper?" answer is on our paper (P2-1) ---------------------------------
+
+_NO_PAPER = [pytest.param({"drop": True}, id="no paper answer"), pytest.param({"paper": ""}, id="blank paper answer")]
+
+
+def _without_paper(fv: dict, how: dict) -> dict:
+    """``fv`` as an older request holds it: the paper answer missing, or blank."""
+    return {**{k: v for k, v in fv.items() if k != "paper"}, **{k: v for k, v in how.items() if k != "drop"}}
+
+
+@pytest.mark.parametrize("how", _NO_PAPER)
+async def test_an_older_request_with_no_paper_answer_is_held_like_one_on_our_paper(db, dispatched, how):
+    """P2-1 / A-3: our own paper is "Our template" or no such answer. Every new question is shown only for
+    "Our template", so reading a missing answer as no paper would find nothing missing and draft the schedule
+    and the annexes with empty places (no bracket, so nothing else would stop it). A person's draft is
+    refused with the missing answers, and nothing is written."""
+    user = _world(db)
+    _playbook(db, user, CONSULTANCY_PB)
+    _playbook(db, user, DPA_PB)
+    consultancy_req = _filed(db, user, _without_paper(_older_consultancy(), how))
+    dpa_req = _filed(db, user, _without_paper(_older_dpa(data_subjects="Several", transfer="Yes", subprocessors="Yes"), how))
+    expected = [
+        (consultancy_req, consultancy.held_message(
+            ["Deliverables", "How is the consultant paid?", "Consultant's key individuals", "Company contact: name",
+             "Company contact: role"])),
+        (dpa_req, dpa.held_message(["Whose data?", "Countries outside India", "Sub-processors"])),
+    ]
+    disk, before = _Disk(), _written(db, user.org_id)
+
+    for req, message in expected:
+        assert _hold(db, user, req) == message
+        with pytest.raises(DraftHeld) as held:
+            await _service(db, disk).draft_contract_for_request(actor=user, request=req)
+        assert (held.value.status_code, held.value.detail) == (409, message)
+        assert req.contract_id is None
+
+    assert disk.files == {} and dispatched == [] and _written(db, user.org_id) == before
+
+
+@pytest.mark.parametrize("how", _NO_PAPER)
+def test_a_paperless_request_that_needs_nothing_more_is_not_held_and_their_paper_still_is_not(db, how):
+    """The missing paper answer is read as ours for the hold only: a complete request, or an older DPA whose
+    follow-ups do not apply, is not held, and "Their paper" is still never held."""
+    user = _world(db)
+    for fv in (_consultancy(), _advice_only(), _dpa(), _older_dpa()):
+        assert _hold(db, user, _filed(db, user, _without_paper(fv, how))) is None
+    for fv in (_older_consultancy(), _older_dpa(data_subjects="Several")):
+        assert _hold(db, user, _filed(db, user, {**fv, "paper": "Their paper"})) is None
+
+
+@pytest.mark.parametrize("how", _NO_PAPER)
+async def test_a_workflow_holds_the_draft_step_of_an_older_request_with_no_paper_answer(db, engine_draft, how):
+    """P2-1: the workflow's draft step stops for answers like a request on our paper (not drafted with empty
+    places), cannot be marked done by hand, and carries on once the answers are saved."""
+    user = _world(db)
+    _playbook(db, user, CONSULTANCY_PB)
+    req = _filed(db, user, _without_paper(_older_consultancy(), how))
+
+    run, (held, _) = await _start(db, user, req)
+
+    assert (held["status"], held["result"]) == ("waiting_human", {"held": "answers"})
+    assert held["note"].startswith("Enter these answers on the request first: \"Deliverables\"")
+    assert (run.status, run.current_index, run.contract_id) == ("waiting", 0, None)
+    assert engine_draft.disk.files == {}
+    with pytest.raises(HTTPException) as refused:
+        workflow_service.complete_human_step(db, run=run, actor=user, step_idx=0)
+    assert (refused.value.status_code, refused.value.detail) == (409, ANSWERS_STEP_NOT_MANUAL)
+
+    req.field_values = {**req.field_values, **{k: v for k, v in _consultancy().items() if k in _NEW_CONSULTANCY}}
+    await workflow_service.refresh_run(db, run=run, actor=user)
+    assert run.contract_id is not None and run.current_index == 1
+
+
+@pytest.mark.parametrize("how", _NO_PAPER)
+async def test_a_workflow_holds_the_draft_step_of_an_older_dpa_request_with_no_paper_answer(db, engine_draft, how):
+    user = _world(db)
+    # The two tables are shown only for "Our template": without the fix this request is held for the first
+    # question alone.
+    req = _filed(db, user, _without_paper(_older_dpa(data_subjects="Several", transfer="Yes", subprocessors="Yes"), how))
+
+    _, (held, _) = await _start(db, user, req)
+
+    assert (held["status"], held["result"]) == ("waiting_human", {"held": "answers"})
+    assert held["note"] == dpa.held_message(
+        ["Whose data?", "Countries outside India", "Sub-processors"]) + ANSWERS_STEP_SUFFIX
+    assert engine_draft.disk.files == {}
+
+
 # --- the release and the drafts already made (AC-41, AC-44) ---------------------------------------
 
 

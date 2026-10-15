@@ -156,14 +156,26 @@ export function lacksAnswer(field: RequestFormField, value: unknown): boolean {
   return false;
 }
 
+/** The form's own-paper choice for "Whose paper?". */
+export const OUR_PAPER = "Our template";
+
+/** The answers with "Whose paper?" read as our own paper when the request never gave one (an older request): the
+ *  spec's own paper is "Our template, or no such answer". Only the draft's questions read it this way; the
+ *  wizard's filing rules and `shown` itself are not changed. */
+export function withOwnPaper(fv: Record<string, unknown>): Record<string, unknown> {
+  return typeof fv.paper === "string" && fv.paper.trim() !== "" ? fv : { ...fv, paper: OUR_PAPER };
+}
+
 /**
  * The questions the draft still needs: shown, required, feeding the template (`fills`), and lacking an answer.
  * None for their paper (their draft is the contract) or when we are the Processor (no draft is made from our
- * template). The server's hold also checks the wording in effect; this is the part the page can know.
+ * template). A request with no "Whose paper?" answer counts as our own paper. The server's hold also checks the
+ * wording in effect; this is the part the page can know.
  */
 export function needsDraftAnswers(form: RequestFormDef, fv: Record<string, unknown>): RequestFormField[] {
-  if (fv.paper === "Their paper" || fv.our_role === PROCESSOR_ROLE) return [];
-  return form.fields.filter((f) => !!f.fills?.length && f.required && shown(f.show, fv) && lacksAnswer(f, fv[f.key]));
+  const own = withOwnPaper(fv);
+  if (own.paper === "Their paper" || own.our_role === PROCESSOR_ROLE) return [];
+  return form.fields.filter((f) => !!f.fills?.length && f.required && shown(f.show, own) && lacksAnswer(f, own[f.key]));
 }
 
 // -------------------------------------------------------------- tables ----

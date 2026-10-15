@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   answerProblem, dateWindow, EMAIL_PROBLEM, findBlanks, lacksAnswer, longDate, looksLikeEmail, needsDraftAnswers, pastDueRows,
-  PROCESSOR_ROLE, rowsProblems, rulesFor, shareTotal, shown, tidiedRows, tidyCell,
+  PROCESSOR_ROLE, rowsProblems, rulesFor, shareTotal, shown, tidiedRows, tidyCell, withOwnPaper,
 } from "./form-checks";
 import type { FormRow, RequestFormDef, RequestFormField } from "./types";
 
@@ -474,6 +474,26 @@ describe("needsDraftAnswers", () => {
     expect(needsDraftAnswers(dpa, controller)).toEqual([]);
     expect(keys(needsDraftAnswers(dpa, { ...controller, data_subjects: "Several" }))).toEqual(["data_subjects"]);
     expect(keys(needsDraftAnswers(dpa, { ...controller, transfer: "Yes", subprocessors: "Yes" }))).toEqual(["transfer_countries", "subprocessor_rows"]);
+  });
+  it("reads a request with no 'Whose paper?' answer as our own paper (an older request)", () => {
+    // Failure mode: an older request filed before the paper question, never offered the answers its draft is held for.
+    const { paper: _paper, ...paperless } = consultancy;
+    expect(keys(needsDraftAnswers(na, { ...paperless, scope: "Advise." }))).toEqual([
+      "consultancy_deliverables", "fee_basis", "key_individuals", "company_contact_name", "company_contact_role"]);
+    expect(keys(needsDraftAnswers(na, { ...paperless, paper: "  " }))).toHaveLength(5);
+    expect(needsDraftAnswers(na, { ...paperless, ...complete, paper: undefined })).toEqual([]);
+    const { paper: _p, ...dpaPaperless } = { request_form: "dpa", paper: "", our_role: "Controller: we decide how the data is used",
+      processing_purpose: "Hosting.", data_types: ["Financial"], data_subjects: "Several", transfer: "No", subprocessors: "No" };
+    expect(keys(needsDraftAnswers(dpa, dpaPaperless))).toEqual(["data_subjects"]);
+    // Only a missing answer counts that way: their paper stays theirs, and a Processor is still not asked.
+    expect(needsDraftAnswers(na, { ...paperless, paper: "Their paper" })).toEqual([]);
+    expect(needsDraftAnswers(dpa, { ...dpaPaperless, our_role: PROCESSOR_ROLE })).toEqual([]);
+  });
+  it("withOwnPaper fills only a missing answer and leaves shown() alone", () => {
+    expect(withOwnPaper({ a: 1 })).toEqual({ a: 1, paper: "Our template" });
+    expect(withOwnPaper({ paper: "Their paper" })).toEqual({ paper: "Their paper" });
+    const rule = [{ field: "paper", in: ["Our template"] }];
+    expect(shown(rule, {})).toBe(false);
   });
   it("DPA: nothing when we are the Processor or it is their paper, whatever is missing", () => {
     expect(PROCESSOR_ROLE).toBe(dpa.fields.find((f) => f.key === "our_role")!.options![1]);

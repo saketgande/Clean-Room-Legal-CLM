@@ -284,6 +284,58 @@ describe("an older Consultancy request that lacks them (FR-41, FR-43)", () => {
   });
 });
 
+describe("an older request with no 'Whose paper?' answer (P2-1)", () => {
+  // Own paper is "Our template, or no such answer": the request is held for these answers, so it can be given them.
+  const { paper: _consultancyPaper, ...PAPERLESS_CONSULTANCY } = OLDER_CONSULTANCY;
+  const { paper: _dpaPaper, ...PAPERLESS_DPA } = { ...OLDER_DPA, data_subjects: "Several" };
+
+  it("asks a Consultancy request for its five answers, to someone who may only look as well as to an editor", async () => {
+    // Failure mode: no editor and no 'Not answered yet' because the Consultancy questions are hidden without a paper answer.
+    mount(consultancy(PAPERLESS_CONSULTANCY), { canEdit: false, heldNote: HELD });
+    await loaded();
+    expect(screen.getAllByText("Not answered yet")).toHaveLength(5);
+    expect(screen.queryByRole("button", { name: "Save answers" })).toBeNull();
+  });
+
+  it("offers the Consultancy editor and files the answers with 'Our template' as the paper", async () => {
+    // Failure mode: the editor missing, or the save refused with 'Field "Whose paper?" is required'.
+    h.intakeApi.update.mockResolvedValue(consultancy({}));
+    h.workflowsApi.refreshRun.mockResolvedValue({});
+    mount(consultancy(PAPERLESS_CONSULTANCY), { canEdit: true, heldNote: HELD, heldRunId: "run-1" });
+    await loaded();
+    fillConsultancy();
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(h.workflowsApi.refreshRun).toHaveBeenCalledWith("run-1"));
+    expect(h.intakeApi.update).toHaveBeenCalledWith("q-1", {
+      field_values: {
+        ...PAPERLESS_CONSULTANCY, paper: "Our template",
+        consultancy_deliverables: [{ name: "Current-state review", due: "2026-12-15" }], fee_basis: "Fixed fee",
+        key_individuals: [{ name: "Anita Rao" }], company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality",
+      },
+    });
+  });
+
+  it("offers the DPA editor and files the answers with 'Our template' as the paper", async () => {
+    // Failure mode: a paper-less older DPA left with 'Several' and no way to answer it.
+    h.intakeApi.update.mockResolvedValue(dpa({}));
+    mount(dpa(PAPERLESS_DPA), { canEdit: true });
+    await loaded();
+    fireEvent.click(within(screen.getByRole("group", { name: "Whose data?" })).getByRole("checkbox", { name: "Customers" }));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(h.intakeApi.update).toHaveBeenCalled());
+    expect(h.intakeApi.update).toHaveBeenCalledWith("q-2", {
+      field_values: { ...PAPERLESS_DPA, paper: "Our template", data_subjects: ["Customers"] },
+    });
+  });
+
+  it("leaves a request that says 'Their paper' alone", async () => {
+    // Failure mode: the paper-less reading applied to a request that does answer the question.
+    const { container } = mount(consultancy({ ...PAPERLESS_CONSULTANCY, paper: "Their paper" }), { canEdit: true });
+    await settled();
+    expect(container).toBeEmptyDOMElement();
+  });
+});
+
 function fillConsultancy() {
   type("Row 1, Deliverable name", "Current-state review");
   type("Row 1, Due date", "2026-12-15");

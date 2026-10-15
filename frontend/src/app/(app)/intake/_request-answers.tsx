@@ -27,7 +27,7 @@ import { MessageBar, Button } from "@/components/ui";
 import { useToast } from "@/components/toast";
 import { intakeApi, workflowsApi } from "@/lib/endpoints";
 import {
-  answerProblem, lacksAnswer, needsDraftAnswers, rowsProblems, rulesFor, shown, tidiedRows, tidyCell,
+  answerProblem, lacksAnswer, needsDraftAnswers, rowsProblems, rulesFor, shown, tidiedRows, tidyCell, withOwnPaper,
 } from "@/lib/form-checks";
 import type { FormValue, IntakeRequest, RequestFormDef, RequestFormField } from "@/lib/types";
 import { EarlierAnswer, RequestDeliverables, RowsTable, useRequestForms } from "./_deliverables";
@@ -65,7 +65,8 @@ const earlierChoice = (f: RequestFormField, v: unknown): string | null =>
   f.kind === "multiselect" && typeof v === "string" && tidyCell(v) !== "" && !(f.options ?? []).includes(tidyCell(v)) ? v : null;
 
 function Answers({ form, request, canEdit, heldNote, heldRunId, onSaved }: Props & { form: RequestFormDef }) {
-  const fv = request.field_values ?? {};
+  // An older request with no "Whose paper?" answer is our own paper, as the server's hold reads it.
+  const fv = withOwnPaper(request.field_values ?? {});
   const asked = fillsOf(form).filter((f) => shown(f.show, fv));
   if (asked.length === 0 && !heldNote) return null;
   const labels = Object.fromEntries(form.fields.map((f) => [f.key, f.label]));
@@ -140,7 +141,9 @@ function AnswersEditor({ form, request, labels, heldRunId, onSaved }: {
 }) {
   const { notify } = useToast();
   const qc = useQueryClient();
-  const fv = request.field_values ?? {};
+  // A request with no "Whose paper?" answer is saved as our own paper: the update refuses a form whose required
+  // paper question is blank, and the answers asked for here exist only for our own paper.
+  const fv = withOwnPaper(request.field_values ?? {});
   const [edited, setEdited] = useState<Values>(() => startValues(form, fv));
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
