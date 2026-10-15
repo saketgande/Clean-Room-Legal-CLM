@@ -81,6 +81,10 @@ class Contract(
         nullable=True,
     )
     metadata_json = Column(JSON, nullable=False, default=dict)
+    # The playbook pinned to the drafting template this contract was drafted from.
+    # NULL (uploads, custom drafts, drafts that predate pinning) keeps the by-name
+    # match. Set once at drafting, never changed afterwards.
+    review_playbook_id = Column(String(36), ForeignKey("playbook.id"), index=True, nullable=True)
 
 
 class ContractParty(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):
