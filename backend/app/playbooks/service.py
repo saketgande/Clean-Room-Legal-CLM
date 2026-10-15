@@ -1365,6 +1365,28 @@ class PlaybooksService:
                 best = (p, overlap)
         return best[0] if best else None
 
+    def playbook_for_contract(self, contract: Contract) -> Playbook | None:
+        """The playbook that reviews this contract: the one pinned when it was drafted from a template
+        (contract.review_playbook_id), else today's name match on contract_type (uploads, attachments,
+        custom drafts, drafts made before pins existed). A pinned playbook that is deleted or has no
+        published version gives None ("no applicable playbook"); it never falls back to the name match,
+        so a better-named playbook can't take over (D-11)."""
+        if contract.review_playbook_id is None:
+            return self.pick_playbook_for_contract(org_id=contract.org_id, contract_type=contract.contract_type)
+        playbook = self.db.get(Playbook, contract.review_playbook_id)
+        if playbook is None or playbook.org_id != contract.org_id or playbook.deleted_at is not None:
+            return None
+        published = self.db.scalar(
+            select(PlaybookVersion.id)
+            .where(
+                PlaybookVersion.org_id == contract.org_id,
+                PlaybookVersion.playbook_id == playbook.id,
+                PlaybookVersion.status == PlaybookStatus.PUBLISHED,
+            )
+            .limit(1)
+        )
+        return playbook if published else None
+
     def _auto_rule_payloads(self, *, org_id: str, playbook_version_id: str) -> list[dict]:
         return rule_payloads_for_review(self.db, org_id=org_id, playbook_version_id=playbook_version_id)
 
@@ -1450,7 +1472,7 @@ class PlaybooksService:
         self, *, contract: Contract, actor_user_id: str | None, create_redline: bool = True
     ) -> dict:
         """Best-effort playbook deviation review — used after drafting and after a
-        counterparty revision lands. Picks the matching playbook, runs the AI review,
+        counterparty revision lands. Uses the contract's playbook, runs the AI review,
         and records deviations (+ optional redline). Never raises out."""
         from app.ai.controller import ai_controller
 
@@ -1462,7 +1484,7 @@ class PlaybooksService:
         if user is None:
             out_result["error"] = "no user in org"
             return out_result
-        playbook = self.pick_playbook_for_contract(org_id=contract.org_id, contract_type=contract.contract_type)
+        playbook = self.playbook_for_contract(contract)
         if playbook is None:
             out_result["error"] = "no published playbook"
             return out_result
