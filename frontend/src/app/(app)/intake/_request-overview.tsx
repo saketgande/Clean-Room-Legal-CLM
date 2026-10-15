@@ -20,6 +20,7 @@ import { activityTrail, beforeWorkflow, isBeingSetUp, termFact } from "@/lib/req
 import { openSteps, stepInFocus } from "@/lib/workflow-steps";
 import { stepMeta, waitLabel } from "./_governance-ladder";
 import { NegotiationPanel } from "./_negotiation-panel";
+import { RequestDeliverables } from "./_deliverables";
 import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep, ContractDeviation, RiskDriver } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime, riskBand, RISK_UNKNOWN_LABEL } from "@/lib/utils";
@@ -383,7 +384,12 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
     if (warning && !window.confirm(`${warning}\n\nApprove and advance anyway?`)) return;
     completeStep.mutate();
   }
-  const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human";
+  // A Statement of Work draft that can't be made yet: the request has its deliverables only as free text. The
+  // step carries on by itself once the rows are saved, so there is nothing for a person to approve (the server
+  // refuses a manual complete with 409) and the reason is shown with the rows instead.
+  const held = current?.type === "clm_draft" && current.status === "waiting_human"
+    && (current.result as { held?: string } | null)?.held === "deliverable_rows";
+  const atReviewGate = hasRun && !runComplete && canAct && current?.status === "waiting_human" && !held;
 
   const fv = (r.field_values ?? {}) as Record<string, unknown>;
   // Form numbers arrive typed (validated server-side) with the currency picked beside them.
@@ -446,6 +452,13 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
           <div className="card"><div className="ch"><div className="glyph">{svg('<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h5"/>')}</div><h2>The request</h2></div>
             <div className="cb">
               <div className="quote"><span style={{ whiteSpace: "pre-line" }}>{r.description || "No description provided."}</span><br /><span className="dim" style={{ fontSize: 11.5 }}>— {r.source ?? "submitted"} by {r.requester_name ?? "requester"}</span></div>
+              {/* The deliverables of a Statement of Work request; nothing for any other request. The rows are saved on the
+                  request, the held draft step (if any) is asked to look again, then the page fetches both afresh. */}
+              <div className="mt-3 empty:hidden">
+                <RequestDeliverables request={r} canEdit={canAct && !r.contract_id}
+                  heldNote={held ? current?.note : null} heldRunId={held ? flowRun?.id : null}
+                  onSaved={(u) => { done("Deliverables saved")(u); qc.invalidateQueries({ queryKey: ["intake-request", id] }); }} />
+              </div>
               {missingInfo.length > 0 ? (
                 <div className="needsinfo">
                   {svg('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>')}

@@ -1,10 +1,12 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RequestOverview } from "./_request-overview";
 import { fmtDate } from "@/lib/utils";
-import type { IntakeRequest, ReviewStatusResponse, WorkflowRun, WorkflowRunStep } from "@/lib/types";
+import type { IntakeRequest, RequestFormDef, ReviewStatusResponse, WorkflowRun, WorkflowRunStep } from "@/lib/types";
 import { HttpError } from "@/lib/api";
 
 // The request page's workflow ladder: what it shows when the step it is on stopped because the contract's
@@ -14,7 +16,7 @@ import { HttpError } from "@/lib/api";
 const h = vi.hoisted(() => ({
   notify: vi.fn(),
   permissions: ["contract:redline", "playbook:run"] as string[],
-  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), teams: vi.fn(), draftContract: vi.fn() },
+  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), teams: vi.fn(), draftContract: vi.fn(), forms: vi.fn(), update: vi.fn() },
   workflowsApi: { runForRequest: vi.fn(), lifecycle: vi.fn(), listFlows: vi.fn(), refreshRun: vi.fn(), retryReview: vi.fn(), completeStep: vi.fn(), startFlow: vi.fn(), returnStep: vi.fn() },
   contractsApi: { risk: vi.fn(), deviations: vi.fn(), reviewStatus: vi.fn() },
   brainApi: { ask: vi.fn() },
@@ -31,6 +33,11 @@ vi.mock("@/components/lifecycle-view", async (importOriginal) => ({
   NextStepCard: () => null,
 }));
 vi.mock("next/link", () => ({ default: (p: { href: string; children: ReactNode; className?: string }) => <a href={p.href} className={p.className}>{p.children}</a> }));
+
+// The deliverables block reads the real form definitions, as the page does from GET /intake/forms.
+const FORMS: RequestFormDef[] = JSON.parse(
+  readFileSync(resolve(__dirname, "../../../../../backend/app/intake/agreement_forms.json"), "utf8"),
+);
 
 const request = {
   id: "q-1", ref: "REQ-1", source: "form", requester_user_id: "u-9", requester_name: "Asha", department: "Sales",
@@ -87,6 +94,7 @@ beforeEach(() => {
   h.intakeApi.assignees.mockResolvedValue([]);
   h.intakeApi.approvalChain.mockResolvedValue([]);
   h.intakeApi.teams.mockResolvedValue([]);
+  h.intakeApi.forms.mockResolvedValue(FORMS);
   h.workflowsApi.runForRequest.mockResolvedValue(stuckRun());
   h.workflowsApi.lifecycle.mockResolvedValue({});
   h.workflowsApi.listFlows.mockResolvedValue([]);
@@ -537,5 +545,180 @@ describe("drafting from a template that does not pass its playbook (006, FR-47)"
     await draftIt({ ...undrafted, contract_id: "c-9", template_notice: null });
     expect(screen.queryByText(/does not currently pass/)).toBeNull();
     expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------
+// 007: the deliverables of a Statement of Work request, and the draft step that waits for them.
+
+const OLD_TEXT = "Plan by Nov, report by Mar, Ravi signs off";
+const HELD_NOTE = "Enter the deliverables as rows first. This step carries on by itself once the rows are saved.";
+const WINDOW = { services_start: "2026-11-01", services_end: "2027-03-31", pricing: "Fixed fee" };
+const ROWS = [
+  { name: "Migration plan", due: "2026-11-30", their_owner: "Priya Nair", our_owner: "Ravi Shah" },
+  { name: "Handover pack", due: "2027-03-31", their_owner: "Tom Reyes", our_owner: "Ravi Shah" },
+];
+const sowRequest = (fv: Record<string, unknown>, over: Partial<IntakeRequest> = {}): IntakeRequest =>
+  ({ ...request, type_label: "Statement of Work Request", contract_id: null, ...over, field_values: { request_form: "sow", ...WINDOW, ...fv } }) as IntakeRequest;
+
+const heldStep = (over: Partial<WorkflowRunStep> = {}) =>
+  step(0, "clm_draft", "waiting_human", "Draft the SOW", { note: HELD_NOTE, result: { held: "deliverable_rows" }, ...over });
+const heldRun = () => runOf([heldStep(), step(1, "human_task", "pending", "Legal review")], { current_index: 0, contract_id: null });
+const approveButtons = () => screen.queryAllByRole("button", { name: /Approve & advance/ });
+const fillFirstRow = () => {
+  for (const [label, value] of [["Deliverable name", "Migration plan"], ["Due date", "2026-11-30"], ["Their owner", "Priya Nair"], ["Our owner", "Ravi Shah"]]) {
+    fireEvent.change(screen.getByLabelText(`Row 1, ${label}`), { target: { value } });
+  }
+};
+
+describe("the deliverables on the request page (FR-18, FR-31)", () => {
+  it("shows a request's rows as a read-only table, never as raw data, even to someone who may edit", async () => {
+    // Failure mode: a table answer shown as "[object Object]" or JSON on the page, or an editor offered over rows that exist.
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverable_rows: ROWS }));
+    mount();
+    const t = await screen.findByRole("table", { name: "Deliverables" });
+    expect(within(t).getByText("Handover pack").closest("tr")).toHaveTextContent("D2");
+    expect(within(t).getByText("Handover pack").closest("tr")).toHaveTextContent("Tom Reyes");
+    expect(within(t).queryAllByRole("textbox")).toHaveLength(0);
+    expect(screen.queryByRole("button", { name: "Save deliverables" })).toBeNull();
+    expect(screen.queryByText("Earlier free-text answer")).toBeNull();
+    expect(screen.queryByText(/object Object|deliverable_rows/)).toBeNull();
+  });
+
+  it("shows an older request's free text unchanged, labelled as the earlier answer, with the editor beside it", async () => {
+    // Failure mode: the old answer hidden or rewritten (FR-31), or an older request left with no way to enter rows.
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverables: OLD_TEXT }));
+    mount();
+    expect(await screen.findByText("Earlier free-text answer")).toBeInTheDocument();
+    expect(screen.getByText(OLD_TEXT)).toBeInTheDocument();
+    expect(screen.getByLabelText("Row 1, Deliverable name")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Save deliverables" })).toBeInTheDocument();
+  });
+
+  it("shows the earlier text but offers no editor to someone who may only look", async () => {
+    // Failure mode: an editor shown to a person the page does not let change the request (the server would refuse the save).
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverables: OLD_TEXT }));
+    mount(false);
+    expect(await screen.findByText(OLD_TEXT)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save deliverables" })).toBeNull();
+    expect(screen.queryByLabelText("Row 1, Deliverable name")).toBeNull();
+  });
+
+  it("offers no editor once a contract has been drafted from the request", async () => {
+    // Failure mode: rows edited after the draft was made, which would change nothing in the contract.
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverables: OLD_TEXT }, { contract_id: "c-1" }));
+    mount();
+    expect(await screen.findByText(OLD_TEXT)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save deliverables" })).toBeNull();
+  });
+
+  it("shows no deliverables block for a request of any other form", async () => {
+    // Failure mode: an empty "Deliverables" heading or editor on every request page.
+    h.intakeApi.get.mockResolvedValue({ ...request, field_values: { request_form: "nda", deliverables: OLD_TEXT } });
+    mount();
+    await screen.findByRole("heading", { name: "Acme MSA" });
+    await waitFor(() => expect(h.intakeApi.forms).toHaveBeenCalled());
+    await act(async () => { await h.intakeApi.forms.mock.results[0].value; });
+    expect(screen.queryByRole("heading", { name: "Deliverables" })).toBeNull();
+    expect(screen.queryByText("Earlier free-text answer")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save deliverables" })).toBeNull();
+  });
+});
+
+describe("a draft step held for the deliverables (FR-33, FR-45)", () => {
+  beforeEach(() => {
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverables: OLD_TEXT }));
+    h.workflowsApi.runForRequest.mockResolvedValue(heldRun());
+  });
+
+  it("shows why the draft is held and offers no Approve & advance, since the step is not done by hand", async () => {
+    // Failure mode: a person completing the held step by hand (the server answers 409) or left with no reason shown.
+    mount();
+    expect(await screen.findByRole("status")).toHaveTextContent(HELD_NOTE);
+    expect(approveButtons()).toHaveLength(0);
+    expect(screen.queryByRole("heading", { name: "Your decision" })).toBeNull();
+    expect(h.workflowsApi.completeStep).not.toHaveBeenCalled();
+    // The rows to enter are right there under the reason, beside the old text.
+    expect(screen.getByLabelText("Row 1, Deliverable name")).toBeInTheDocument();
+    expect(screen.getByText(OLD_TEXT)).toBeInTheDocument();
+  });
+
+  it("shows the reason to an approver who may not edit, with no editor", async () => {
+    // Failure mode: the hold visible only to the people who can fix it (FR-18: approvers see the same page).
+    mount(false);
+    expect(await screen.findByRole("status")).toHaveTextContent(HELD_NOTE);
+    expect(screen.queryByRole("button", { name: "Save deliverables" })).toBeNull();
+    expect(approveButtons()).toHaveLength(0);
+  });
+
+  it("saves the rows, asks the held run to look again, says so, and then fetches the request and the run afresh", async () => {
+    // Failure mode: rows saved but the step left held until the next sweep, or the page still showing the hold and no draft.
+    const saved = sowRequest({ deliverables: OLD_TEXT, deliverable_rows: ROWS.slice(0, 1) });
+    const drafted = sowRequest({ deliverables: OLD_TEXT, deliverable_rows: ROWS.slice(0, 1) }, { contract_id: "c-9" });
+    const movedOn = runOf([step(0, "clm_draft", "done", "Draft the SOW"), step(1, "human_task", "waiting_human", "Legal review")], { current_index: 1, contract_id: "c-9" });
+    h.intakeApi.get.mockResolvedValueOnce(sowRequest({ deliverables: OLD_TEXT })).mockResolvedValue(drafted);
+    h.workflowsApi.runForRequest.mockResolvedValueOnce(heldRun()).mockResolvedValue(movedOn);
+    h.intakeApi.update.mockResolvedValue(saved);
+    h.workflowsApi.refreshRun.mockResolvedValue(movedOn);
+
+    mount();
+    await screen.findByRole("status");
+    fillFirstRow();
+    fireEvent.click(screen.getByRole("button", { name: "Save deliverables" }));
+
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith("Deliverables saved", "success"));
+    // Every stored answer goes back with the rows added: the update replaces the answers whole.
+    expect(h.intakeApi.update).toHaveBeenCalledWith("q-1", { field_values: { ...sowRequest({ deliverables: OLD_TEXT }).field_values, deliverable_rows: [ROWS[0]] } });
+    expect(h.workflowsApi.refreshRun).toHaveBeenCalledWith("run-1");
+    const order = (m: { mock: { invocationCallOrder: number[] } }, i = 0) => m.mock.invocationCallOrder[i];
+    const toast = h.notify.mock.calls.findIndex((c) => c[0] === "Deliverables saved");
+    // update, then the run is asked to look again, then the toast, then the request is fetched again.
+    await waitFor(() => expect(h.intakeApi.get).toHaveBeenCalledTimes(2));
+    expect(order(h.intakeApi.update)).toBeLessThan(order(h.workflowsApi.refreshRun));
+    expect(order(h.workflowsApi.refreshRun)).toBeLessThan(h.notify.mock.invocationCallOrder[toast]);
+    expect(h.notify.mock.invocationCallOrder[toast]).toBeLessThan(order(h.intakeApi.get, 1));
+    await waitFor(() => expect(h.workflowsApi.runForRequest).toHaveBeenCalledTimes(2));
+
+    // The hold is gone; the drafted contract is there to open and the next step can be approved.
+    await waitFor(() => expect(screen.queryByText(HELD_NOTE)).toBeNull());
+    expect(screen.getByRole("link", { name: /Review & redline/ })).toHaveAttribute("href", "/contracts/c-9");
+    expect(approveButtons().length).toBeGreaterThan(0);
+  });
+
+  it("keeps the rows and tells the person when the server refuses them, without asking the run to look again", async () => {
+    // Failure mode: a refused save still poking the workflow, or the typed rows thrown away.
+    h.intakeApi.update.mockRejectedValue(new Error('"Deliverables", row 1: "Due date" must be between 1 November 2026 and 31 March 2027'));
+    mount();
+    await screen.findByRole("status");
+    fillFirstRow();
+    fireEvent.click(screen.getByRole("button", { name: "Save deliverables" }));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(expect.stringContaining('row 1: "Due date"'), "error"));
+    expect(h.workflowsApi.refreshRun).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Row 1, Deliverable name")).toHaveValue("Migration plan");
+    expect(screen.getByRole("status")).toHaveTextContent(HELD_NOTE);
+  });
+});
+
+describe("a Statement of Work step that is waiting for another reason", () => {
+  it("still has Approve & advance: only a draft held for the deliverables loses it", async () => {
+    // Failure mode: the new rule hiding the button for every waiting draft or every Statement of Work request.
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverable_rows: ROWS }, { contract_id: "c-1" }));
+    h.workflowsApi.runForRequest.mockResolvedValue(runOf([
+      step(0, "clm_draft", "waiting_human", "Draft the SOW"), step(1, "human_task", "pending", "Legal review"),
+    ], { current_index: 0 }));
+    mount();
+    await screen.findByRole("table", { name: "Deliverables" });
+    expect(await screen.findByRole("button", { name: /Approve & advance/ })).toBeEnabled();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("still has Approve & advance on a person's review step of a request that has rows", async () => {
+    // Failure mode: the hold test keyed on the request instead of on the step.
+    h.intakeApi.get.mockResolvedValue(sowRequest({ deliverable_rows: ROWS }, { contract_id: "c-1" }));
+    h.workflowsApi.runForRequest.mockResolvedValue(runOf([
+      step(0, "clm_draft", "done", "Draft the SOW"), step(1, "human_task", "waiting_human", "Legal review"),
+    ]));
+    mount();
+    expect(await screen.findByRole("button", { name: /Approve & advance/ })).toBeEnabled();
   });
 });
