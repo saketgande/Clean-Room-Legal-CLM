@@ -203,6 +203,57 @@ BUILTIN_FLOWS.append({
 })
 
 
+# Trademark clearance & filing - the 8-step RACI (requisition, searches, TM Legal
+# review, decision, escalation, filing preparation, filing). Selected by the
+# marker the trademark wizard sets on the request's answers (never by free text),
+# so no other request can be matched; eval_order 5 only decides between flows that
+# carry that marker. Team keys (lte, tm_legal, tm_head) resolve to Intake Teams.
+_REQUESTER = "The requester"
+_TM_ESCALATED = {"field": "tm_escalate", "op": "eq", "value": True}
+_TM_NOT_REJECTED = {"field": "tm_decision", "op": "ne", "value": "reject"}
+
+
+def _tm_review_step():
+    step = _msa(
+        "human_task", "TM Legal review", "tm_legal", _LOADED, 72, ["approve", "request_changes"],
+        "Validate the search report and risk mapping, or send the case back to the LTE with comments.",
+    )
+    step["config"]["return_to"] = 1  # back to "Detailed search & risk mapping"
+    return step
+
+
+_TM_STEPS = [
+    _msa("human_task", "Requisition & preliminary search", None, _REQUESTER, 48, ["complete"],
+         "Confirm the requisition and run the preliminary similarity search from the case's Searches tab."),
+    _msa("human_task", "Detailed search & risk mapping", "lte", _HEAD, 120, ["complete"],
+         "Run the detailed search, rate the overall risk on it and export the Excel report. Attach any Registry, "
+         "Mike Legal or WIPO report to the request's documents."),
+    _tm_review_step(),
+    _msa("human_task", "Final decision", "tm_legal", _LOADED, 48, ["complete"],
+         "Record Proceed, Conditional or Reject on the Decision tab, then complete this step. Tick Escalate to "
+         "send the case to the TM Head / GC."),
+    _msa("human_task", "Escalation (TM Head / GC)", "tm_head", _HEAD, 72, ["complete"],
+         "Review the escalated case and record the final decision - confirm or override - on the Decision tab.",
+         cond=_TM_ESCALATED),
+    _msa("human_task", "Filing preparation", "lte", _HEAD, 120, ["complete"],
+         "Prepare the filing documents, class details and specifications and attach them to the request.",
+         cond=_TM_NOT_REJECTED),
+    _msa("human_task", "Filing & docketing", "lte", _HEAD, 168, ["complete"],
+         "Record the application number, form (TM-A), portal reference, docket number and filing date on the "
+         "Filing tab, then complete this step.",
+         cond=_TM_NOT_REJECTED),
+]
+
+BUILTIN_FLOWS.append({
+    "name": "Trademark Clearance & Filing",
+    "description": "Trademark requisition through clearance and filing: preliminary and detailed search, TM Legal "
+                   "review, final decision, escalation to the TM Head / GC, filing preparation and filing.",
+    "eval_order": 5,
+    "criteria": {"field": "tm_clearance", "op": "eq", "value": True},
+    "steps": _TM_STEPS,
+})
+
+
 def seed_builtin_flows(db: Session, *, org_id: str, actor_id: str | None = None) -> int:
     """Idempotent: create any builtin flow (by name) that this org is missing."""
     have = set(db.scalars(select(Workflow.name).where(Workflow.org_id == org_id, Workflow.is_builtin.is_(True))).all())

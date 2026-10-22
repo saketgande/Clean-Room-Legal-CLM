@@ -49,7 +49,8 @@ def list_trademarks(
 def create_trademark(
     payload: TrademarkCreate,
     current_user=Depends(require_permission("trademark:create")),
-    service: TrademarksService = Depends(_TRADEMARKS_ADD),
+    _screen=Depends(_TRADEMARKS_ADD),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     return service.create_trademark(user=current_user, payload=payload)
 
@@ -58,7 +59,8 @@ def create_trademark(
 def submit_intake(
     payload: IntakeSubmitRequest,
     current_user=Depends(require_permission("trademark:create")),
-    service: TrademarksService = Depends(_TRADEMARKS_ADD),
+    _screen=Depends(_TRADEMARKS_ADD),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     """The standalone wizard path — kept alongside the Legal Intake bridge
     below, same reason `POST /contracts/upload` is kept alongside
@@ -88,7 +90,7 @@ def dashboard(
     current_user=Depends(require_permission("trademark:read")),
     service: TrademarksService = Depends(get_trademarks_service),
 ):
-    return service.dashboard_metrics(org_id=current_user.org_id)
+    return service.dashboard_metrics(org_id=current_user.org_id, user=current_user)
 
 
 @router.get("/calendar", response_model=PortfolioRenewalsResponse)
@@ -117,7 +119,8 @@ def update_trademark(
     trademark_id: str,
     payload: TrademarkUpdate,
     current_user=Depends(require_permission("trademark:update")),
-    service: TrademarksService = Depends(_TRADEMARKS_EDIT),
+    _screen=Depends(_TRADEMARKS_EDIT),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     trademark = service.get_trademark_for_user(trademark_id=trademark_id, user=current_user)
     return service.update_trademark(trademark=trademark, user=current_user, payload=payload)
@@ -127,7 +130,8 @@ def update_trademark(
 def search_similar(
     payload: SearchSimilarRequest,
     current_user=Depends(require_permission("trademark:search")),
-    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
+    _screen=Depends(_TRADEMARKS_VIEW),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     return service.search_similar(user=current_user, request=payload)
 
@@ -136,7 +140,8 @@ def search_similar(
 async def upload_document(
     file: UploadFile = File(...),
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(_TRADEMARKS_ADD),
+    _screen=Depends(_TRADEMARKS_ADD),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     return await service.save_uploaded_document(user=current_user, file=file)
 
@@ -145,7 +150,8 @@ async def upload_document(
 async def extract_fields(
     payload: ExtractRequest,
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
+    _screen=Depends(_TRADEMARKS_VIEW),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     try:
         return await service.extract_fields(user=current_user, request=payload)
@@ -157,7 +163,8 @@ async def extract_fields(
 def ingest_document(
     payload: IngestRequest,
     current_user=Depends(require_permission("trademark:extract")),
-    service: TrademarksService = Depends(_TRADEMARKS_ADD),
+    _screen=Depends(_TRADEMARKS_ADD),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     return service.ingest_extraction(user=current_user, request=payload)
 
@@ -256,6 +263,7 @@ def integrations_status(
 def test_integration(
     service_name: str,
     current_user=Depends(require_permission("trademark:integrations_manage")),
-    service: TrademarksService = Depends(_TRADEMARKS_VIEW),
+    _screen=Depends(_TRADEMARKS_VIEW),
+    service: TrademarksService = Depends(get_trademarks_service),
 ):
     return service.test_integration(service_name=service_name, settings=settings)
