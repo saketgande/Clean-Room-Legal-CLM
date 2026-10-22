@@ -1,8 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, UploadCloud } from "lucide-react";
 import { trademarksApi } from "@/lib/endpoints";
 import {
@@ -27,14 +25,18 @@ import type {
   ExtractResponse,
   FieldDataType,
   FieldDefinition,
+  IngestResponse,
   UploadDocumentResponse,
 } from "@/lib/types";
 
 const STEPS = ["Upload", "Page range", "Template", "Review & extract"];
 
+const TEMPLATE_OPTIONS: { value: DocumentExtractTemplate; label: string }[] = [
+  { value: "generic", label: "Generic (define your own labeled fields)" },
+  { value: "ip_india_journal", label: "India Trade Marks Journal (vision-based, multi-entry per page)" },
+];
+
 export default function DocumentExtractionPage() {
-  const router = useRouter();
-  const qc = useQueryClient();
   const { notify } = useToast();
   const [step, setStep] = useState(0);
 
@@ -53,6 +55,7 @@ export default function DocumentExtractionPage() {
   const [extracting, setExtracting] = useState(false);
   const [extractResult, setExtractResult] = useState<ExtractResponse | null>(null);
   const [ingesting, setIngesting] = useState(false);
+  const [ingestResult, setIngestResult] = useState<IngestResponse | null>(null);
 
   async function handleUpload() {
     if (!file) return;
@@ -115,10 +118,8 @@ export default function DocumentExtractionPage() {
         field_schema: template === "generic" ? fields.filter((f) => f.name && f.anchor) : [],
         records: extractResult.records,
       });
-      qc.invalidateQueries({ queryKey: ["trademarks"] });
-      qc.invalidateQueries({ queryKey: ["trademarks", "dashboard"] });
+      setIngestResult(result);
       notify(`Ingested ${result.ingested_count} record(s)`, "success");
-      router.push("/trademarks");
     } catch (e) {
       notify(e instanceof Error ? e.message : "Ingest failed", "error");
     } finally {
@@ -126,11 +127,23 @@ export default function DocumentExtractionPage() {
     }
   }
 
+  function resetAll() {
+    setStep(0);
+    setFile(null);
+    setDoc(null);
+    setPageStart(1);
+    setPageEnd(1);
+    setTemplate("generic");
+    setFields([{ name: "", data_type: "string", order: 0, anchor: "" }]);
+    setExtractResult(null);
+    setIngestResult(null);
+  }
+
   return (
     <div className="space-y-4">
       <PageHeader
         title="Document extraction"
-        description="Upload a filed trademark document and extract structured records into your portfolio."
+        description="Upload a filed trademark document, extract structured records, and ingest them so the similarity search can find them."
       />
 
       <div className="flex items-center gap-2">
@@ -204,15 +217,34 @@ export default function DocumentExtractionPage() {
 
           {step === 2 && (
             <div className="space-y-4">
-              <Field label="Extraction template">
-                <Select
-                  value={template}
-                  onChange={(e) => setTemplate(e.target.value as DocumentExtractTemplate)}
-                >
-                  <option value="generic">Generic (define fields manually)</option>
-                  <option value="ip_india_journal">India Trade Marks Journal (vision-based)</option>
-                </Select>
-              </Field>
+              <fieldset className="space-y-2">
+                <legend className="text-[13px] font-medium text-slate-700">Extraction template</legend>
+                {TEMPLATE_OPTIONS.map((option) => (
+                  <label key={option.value} className="flex cursor-pointer items-center gap-2 text-[13px] text-slate-700">
+                    <input
+                      type="radio"
+                      name="extraction-template"
+                      className="accent-brand-600"
+                      checked={template === option.value}
+                      onChange={() => setTemplate(option.value)}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </fieldset>
+
+              {template === "ip_india_journal" && (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4 text-center">
+                  <p className="text-[13px] font-semibold text-slate-900">
+                    No field definitions needed for this template
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Claude reads each page as an image and extracts, for every entry: product name, TM ID, TM date,
+                    address, used-since or proposed-to-be-used, jurisdiction, and goods/services. Several entries per
+                    page are supported. Check the preview in the next step before confirming ingestion.
+                  </p>
+                </div>
+              )}
 
               {template === "generic" && (
                 <div className="space-y-2">
@@ -290,9 +322,22 @@ export default function DocumentExtractionPage() {
                       ))}
                     </tbody>
                   </Table>
-                  <Button loading={ingesting} onClick={confirmIngest}>
-                    Confirm and ingest {extractResult.records.length} record(s)
-                  </Button>
+                  {ingestResult ? (
+                    <div className="space-y-3">
+                      <MessageBar intent="success">
+                        Ingested {ingestResult.ingested_count} of {extractResult.records.length} record(s) into the
+                        extraction database. Records with no extracted fields are skipped. They are searched from the
+                        New intake page, not listed in My trademarks.
+                      </MessageBar>
+                      <Button variant="outline" onClick={resetAll}>
+                        Extract another document
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button loading={ingesting} onClick={confirmIngest}>
+                      Confirm and ingest {extractResult.records.length} record(s)
+                    </Button>
+                  )}
                 </div>
               )}
             </div>

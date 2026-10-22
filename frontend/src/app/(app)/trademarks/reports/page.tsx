@@ -169,6 +169,58 @@ export default function TrademarkReportsPage() {
             </Card>
           </div>
 
+          {(Object.keys(stats.by_step).length > 0 || Object.keys(stats.by_decision).length > 0) && (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Clearance pipeline</CardTitle>
+                </CardHeader>
+                <CardBody className="p-0">
+                  <Table>
+                    <THead>
+                      <tr>
+                        <TH>Workflow step</TH>
+                        <TH>Cases</TH>
+                      </tr>
+                    </THead>
+                    <tbody>
+                      {Object.entries(stats.by_step).map(([step, count]) => (
+                        <TR key={step}>
+                          <TD className="font-medium text-slate-900">{step}</TD>
+                          <TD>{count}</TD>
+                        </TR>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Clearance decisions</CardTitle>
+                </CardHeader>
+                <CardBody className="p-0">
+                  <Table>
+                    <THead>
+                      <tr>
+                        <TH>Decision</TH>
+                        <TH>Count</TH>
+                      </tr>
+                    </THead>
+                    <tbody>
+                      {Object.entries(stats.by_decision).map(([decision, count]) => (
+                        <TR key={decision}>
+                          <TD className="font-medium text-slate-900">{titleCase(decision)}</TD>
+                          <TD>{count}</TD>
+                        </TR>
+                      ))}
+                    </tbody>
+                  </Table>
+                </CardBody>
+              </Card>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Card>
               <CardHeader>

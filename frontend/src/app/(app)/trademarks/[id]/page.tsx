@@ -6,7 +6,6 @@ import { trademarksApi } from "@/lib/endpoints";
 import {
   Badge,
   Breadcrumbs,
-  Button,
   Card,
   CardBody,
   CardHeader,
@@ -15,19 +14,38 @@ import {
   ErrorState,
   Field,
   Select,
+  Tabs,
 } from "@/components/ui";
+import { TrademarkComments } from "@/components/TrademarkComments";
+import { WorkflowPanel } from "@/app/(app)/intake/_workflow-panel";
 import { fmtDate, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import type { TrademarkStatus } from "@/lib/types";
+import type { TrademarkDecision, TrademarkStatus } from "@/lib/types";
+import { ActivityPanel } from "./_activity-panel";
+import { AssignmentsCard } from "./_assignments-card";
+import { DecisionPanel } from "./_decision-panel";
+import { DocumentsPanel } from "./_documents-panel";
+import { FilingPanel } from "./_filing-panel";
+import { SearchesPanel } from "./_searches-panel";
+import { StageTracker } from "./_stage-tracker";
 
 const STATUSES: TrademarkStatus[] = [
   "draft",
   "filed",
+  "prosecuting",
   "registered",
   "opposed",
+  "renewal_pending",
   "abandoned",
+  "lapsed",
   "renewed",
 ];
+
+const DECISION_TONE: Record<TrademarkDecision, "green" | "amber" | "red"> = {
+  proceed: "green",
+  conditional: "amber",
+  reject: "red",
+};
 
 export default function TrademarkDetailPage({
   params,
@@ -38,11 +56,20 @@ export default function TrademarkDetailPage({
   const qc = useQueryClient();
   const { notify } = useToast();
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("overview");
 
   const { data: trademark, isLoading, error } = useQuery({
     queryKey: ["trademark", id],
     queryFn: () => trademarksApi.get(id),
+    // The workflow panel moves the case along without touching this query, so
+    // keep the step shown in the header current while the case is open.
+    refetchInterval: 15_000,
   });
+
+  function openTab(next: string) {
+    setTab(next);
+    qc.invalidateQueries({ queryKey: ["trademark", id] });
+  }
 
   async function changeStatus(status: TrademarkStatus) {
     setBusy(true);
@@ -61,6 +88,22 @@ export default function TrademarkDetailPage({
   if (isLoading) return <CenterSpinner label="Loading trademark…" />;
   if (error) return <ErrorState error={error} />;
   if (!trademark) return null;
+
+  const trademarkCase = trademark.case;
+  const tabs = [
+    { id: "overview", label: "Overview" },
+    ...(trademarkCase ? [{ id: "progress", label: "Progress" }] : []),
+    { id: "searches", label: "Searches" },
+    ...(trademarkCase
+      ? [
+          { id: "decision", label: "Decision" },
+          { id: "filing", label: "Filing" },
+          { id: "documents", label: "Documents" },
+        ]
+      : []),
+    { id: "audit", label: "Audit log" },
+    { id: "discussion", label: "Discussion" },
+  ];
 
   return (
     <div className="space-y-4">
@@ -82,6 +125,11 @@ export default function TrademarkDetailPage({
             </Badge>
             <Badge tone="slate">{titleCase(trademark.trademark_type)}</Badge>
             <Badge tone="slate">{titleCase(trademark.source)}</Badge>
+            {trademark.decision && (
+              <Badge tone={DECISION_TONE[trademark.decision]}>
+                {titleCase(trademark.decision)}
+              </Badge>
+            )}
           </div>
         </div>
         <Field label="Status" className="w-48">
@@ -99,61 +147,72 @@ export default function TrademarkDetailPage({
         </Field>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Details</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-4 text-[13px]">
-            {trademark.description && (
-              <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
-                  Description
-                </p>
-                <p className="whitespace-pre-wrap text-slate-700">
-                  {trademark.description}
-                </p>
-              </div>
-            )}
-            {trademark.goods_services && (
-              <div>
-                <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
-                  Goods &amp; services
-                </p>
-                <p className="whitespace-pre-wrap text-slate-700">
-                  {trademark.goods_services}
-                </p>
-              </div>
-            )}
-            <div className="grid grid-cols-2 gap-4">
-              <DetailRow label="Nice class" value={trademark.nice_class ?? "—"} />
-              <DetailRow
-                label="Jurisdictions"
-                value={(trademark.jurisdictions ?? [trademark.jurisdiction]).join(", ")}
-              />
-              <DetailRow label="Workflow state" value={titleCase(trademark.workflow_state)} />
-              <DetailRow label="Filed on" value={fmtDate(trademark.filed_on)} />
-              <DetailRow label="Renewal due" value={fmtDate(trademark.renewal_due_on)} />
-            </div>
-          </CardBody>
-        </Card>
+      {trademarkCase && <StageTracker trademarkCase={trademarkCase} />}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Record info</CardTitle>
-          </CardHeader>
-          <CardBody className="space-y-3 text-[13px]">
-            <DetailRow label="Created" value={fmtDateTime(trademark.created_at)} />
-            <DetailRow label="Updated" value={fmtDateTime(trademark.updated_at)} />
-            {trademark.source_document_extract_id && (
-              <DetailRow
-                label="Source extract"
-                value={trademark.source_document_extract_id.slice(0, 8)}
-              />
-            )}
-          </CardBody>
-        </Card>
-      </div>
+      <Tabs tabs={tabs} active={tab} onChange={openTab} label="Trademark sections" />
+
+      {tab === "overview" && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Details</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-4 text-[13px]">
+              {trademark.description && (
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
+                    Description
+                  </p>
+                  <p className="whitespace-pre-wrap text-slate-700">
+                    {trademark.description}
+                  </p>
+                </div>
+              )}
+              {trademark.goods_services && (
+                <div>
+                  <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
+                    Goods &amp; services
+                  </p>
+                  <p className="whitespace-pre-wrap text-slate-700">
+                    {trademark.goods_services}
+                  </p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-4">
+                <DetailRow label="Nice class" value={trademark.nice_class ?? "—"} />
+                <DetailRow
+                  label="Jurisdictions"
+                  value={(trademark.jurisdictions ?? [trademark.jurisdiction]).join(", ")}
+                />
+                <DetailRow label="Workflow state" value={titleCase(trademark.workflow_state)} />
+                <DetailRow label="Filed on" value={fmtDate(trademark.filed_on)} />
+                <DetailRow label="Renewal due" value={fmtDate(trademark.renewal_due_on)} />
+              </div>
+            </CardBody>
+          </Card>
+
+          <div className="space-y-4">
+            <AssignmentsCard trademark={trademark} />
+            <Card>
+              <CardHeader>
+                <CardTitle>Record info</CardTitle>
+              </CardHeader>
+              <CardBody className="space-y-3 text-[13px]">
+                <DetailRow label="Created" value={fmtDateTime(trademark.created_at)} />
+                <DetailRow label="Updated" value={fmtDateTime(trademark.updated_at)} />
+              </CardBody>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {tab === "progress" && trademarkCase && <WorkflowPanel requestId={trademarkCase.request_id} />}
+      {tab === "searches" && <SearchesPanel trademark={trademark} />}
+      {tab === "decision" && <DecisionPanel trademark={trademark} />}
+      {tab === "filing" && <FilingPanel trademark={trademark} />}
+      {tab === "documents" && trademarkCase && <DocumentsPanel requestId={trademarkCase.request_id} />}
+      {tab === "audit" && <ActivityPanel trademarkId={trademark.id} />}
+      {tab === "discussion" && <TrademarkComments trademarkId={trademark.id} />}
     </div>
   );
 }
