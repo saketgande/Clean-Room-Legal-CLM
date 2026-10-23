@@ -1562,8 +1562,26 @@ export type TrademarkStatus =
   | "lapsed"
   | "renewed";
 export type TrademarkType = "word_mark" | "device_mark" | "combination" | "sound" | "collective";
-export type TrademarkWorkflowState = "intake" | "extraction" | "review" | "active";
-export type TrademarkSource = "intake" | "extraction";
+export type TrademarkWorkflowState = "intake" | "review" | "active";
+export type TrademarkSource = "intake";
+
+export type TrademarkDecision = "proceed" | "conditional" | "reject";
+export type TrademarkSearchPurpose = "preliminary" | "detailed";
+
+/** Where a trademark's clearance case stands, from its Legal Intake request and workflow run. */
+export interface TrademarkCase {
+  request_id: ID;
+  request_ref: string | null;
+  request_status: string;
+  flow_name: string | null;
+  run_status: string | null;
+  step_index: number | null;
+  step_total: number | null;
+  step_name: string | null;
+  step_status: string | null;
+  assignee_user_id: ID | null;
+  assignee_name: string | null;
+}
 
 export interface Trademark {
   id: ID;
@@ -1581,7 +1599,16 @@ export interface Trademark {
   renewal_due_on: ISODateTime | null;
   workflow_state: TrademarkWorkflowState;
   source: TrademarkSource;
-  source_document_extract_id: ID | null;
+  source_intake_request_id: ID | null;
+  decision: TrademarkDecision | null;
+  decision_conditions: string | null;
+  decided_by_user_id: ID | null;
+  decided_at: ISODateTime | null;
+  application_number: string | null;
+  filing_form: string | null;
+  portal_reference: string | null;
+  docket_number: string | null;
+  case: TrademarkCase | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -1623,6 +1650,8 @@ export interface IntakeSubmitPayload {
   filing_context?: Record<string, unknown> | null;
   renewal_due_on?: ISODateTime | null;
   search_query_id?: string | null;
+  business_unit?: string | null;
+  business_unit_spoc?: string | null;
 }
 
 export interface TrademarkComment {
@@ -1640,11 +1669,20 @@ export interface TrademarkCommentCreate {
   parent_comment_id?: string | null;
 }
 
+export interface TrademarkAwaitingAction {
+  trademark_id: ID;
+  name: string;
+  step_name: string | null;
+  request_id: ID;
+}
+
 export interface TrademarkDashboardMetrics {
   total_trademarks: number;
   active_prosecutions: number;
   upcoming_renewals: number;
   by_status: Record<string, number>;
+  cases_by_step: Record<string, number>;
+  awaiting_my_action: TrademarkAwaitingAction[];
 }
 
 export interface RenewalCalendarEntry {
@@ -1687,6 +1725,8 @@ export interface SearchSimilarRequest {
   jurisdictions?: string[];
   nice_class_hint?: string[];
   min_match_score?: number;
+  trademark_id?: ID | null;
+  purpose?: TrademarkSearchPurpose | null;
 }
 
 export interface InternalPortfolioResult {
@@ -1697,6 +1737,20 @@ export interface InternalPortfolioResult {
   jurisdiction: string;
   nice_class?: string | null;
   filed_on?: ISODateTime | null;
+  risk_level: TrademarkRiskLevel;
+}
+
+export interface DocumentExtractResult {
+  extract_id: ID;
+  name?: string | null;
+  similarity_score: number;
+  jurisdiction?: string | null;
+  tm_number?: string | null;
+  filed_on?: string | null;
+  goods_services?: string | null;
+  source_filename: string;
+  page_start: number;
+  page_end: number;
   risk_level: TrademarkRiskLevel;
 }
 
@@ -1807,7 +1861,6 @@ export interface IngestRequest {
 export interface IngestResponse {
   ingested_count: number;
   record_ids: string[];
-  trademark_ids: string[];
 }
 
 // -- Integrations --
@@ -1871,6 +1924,54 @@ export interface PortfolioStatsResponse {
   upcoming_renewals_90d: number;
   renewal_pending: number;
   lapsed: number;
+  by_step: Record<string, number>;
+  by_decision: Record<string, number>;
+}
+
+export interface TrademarkSearchRun {
+  id: ID;
+  query_id: string;
+  trademark_id: ID | null;
+  purpose: TrademarkSearchPurpose | null;
+  risk_level: TrademarkRiskLevel | null;
+  notes: string | null;
+  query: Record<string, unknown>;
+  summary: SearchSummary;
+  created_by_user_id: ID | null;
+  created_at: ISODateTime;
+}
+
+export interface TrademarkSearchRunDetail extends TrademarkSearchRun {
+  sources: Record<string, SourceResult>;
+}
+
+export interface SearchRunUpdatePayload {
+  risk_level?: TrademarkRiskLevel | null;
+  notes?: string | null;
+}
+
+export interface TrademarkDecisionPayload {
+  decision: TrademarkDecision;
+  conditions?: string | null;
+  escalate?: boolean;
+}
+
+export interface TrademarkFilingPayload {
+  application_number?: string | null;
+  filing_form?: string | null;
+  portal_reference?: string | null;
+  docket_number?: string | null;
+  filed_on?: ISODateTime | null;
+}
+
+export interface TrademarkActivityEntry {
+  id: ID;
+  event_type: string;
+  title: string;
+  actor_user_id: ID | null;
+  actor_name: string | null;
+  created_at: ISODateTime;
+  source: "trademark" | "request";
 }
 
 export interface TrademarkFromIntakeRequest {

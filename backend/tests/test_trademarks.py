@@ -19,12 +19,10 @@ from app.core.rbac import (
 from app.trademarks.extraction.field_capture import apply_field_definitions
 from app.trademarks.providers.similarity import _build_summary, _risk_level
 from app.trademarks.schemas import (
-    ExtractedRecord,
     FieldDefinition,
     SearchSimilarRequest,
     SourceResult,
 )
-from app.trademarks.service import _record_to_trademark_fields
 
 
 def _settings(**overrides):
@@ -136,36 +134,3 @@ def test_apply_field_definitions_missing_anchor_yields_none():
     fields = [FieldDefinition(name="missing", data_type="string", order=0, anchor="Nonexistent:")]
     result = apply_field_definitions("Some unrelated text", fields)
     assert result["missing"] is None
-
-
-# --- ingest field mapping (pure function, no DB) ------------------------------
-
-
-def test_record_to_trademark_fields_maps_ip_india_journal_entry():
-    record = ExtractedRecord(
-        page_number=1,
-        fields={
-            "product_name": "ZOLPHERA",
-            "jurisdiction": "MUMBAI",
-            "goods_services": "Pharmaceutical preparations",
-            "tm_date": "12/05/2024",
-            "address": "Acme Pharma Pvt Ltd, Mumbai",
-        },
-    )
-    mapped = _record_to_trademark_fields(record, "ip_india_journal")
-    assert mapped["name"] == "ZOLPHERA"
-    assert mapped["jurisdiction"] == "MUMBAI"
-    assert mapped["filed_on"].year == 2024
-    assert mapped["filed_on"].month == 5
-    assert mapped["filed_on"].day == 12
-
-
-def test_record_to_trademark_fields_returns_none_without_a_name():
-    record = ExtractedRecord(page_number=1, fields={"jurisdiction": "DELHI"})
-    assert _record_to_trademark_fields(record, "ip_india_journal") is None
-
-
-def test_record_to_trademark_fields_generic_template_best_effort_name_lookup():
-    record = ExtractedRecord(page_number=1, fields={"trademark": "ACME", "jurisdiction": "IN"})
-    mapped = _record_to_trademark_fields(record, "generic")
-    assert mapped["name"] == "ACME"

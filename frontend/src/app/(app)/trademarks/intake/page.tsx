@@ -43,6 +43,8 @@ interface IntakeState {
   jurisdictions: string[];
   applicantName: string;
   renewalDueOn: string;
+  businessUnit: string;
+  businessUnitSpoc: string;
 }
 
 const INITIAL_STATE: IntakeState = {
@@ -54,6 +56,8 @@ const INITIAL_STATE: IntakeState = {
   jurisdictions: ["IN"],
   applicantName: "",
   renewalDueOn: "",
+  businessUnit: "",
+  businessUnitSpoc: "",
 };
 
 export default function TrademarkIntakePage() {
@@ -136,6 +140,8 @@ export default function TrademarkIntakePage() {
         filing_context: form.applicantName ? { applicant_name: form.applicantName } : null,
         renewal_due_on: form.renewalDueOn ? new Date(form.renewalDueOn).toISOString() : null,
         search_query_id: searchAck?.query_id ?? null,
+        business_unit: form.businessUnit.trim() || null,
+        business_unit_spoc: form.businessUnitSpoc.trim() || null,
       });
       qc.invalidateQueries({ queryKey: ["trademarks"] });
       qc.invalidateQueries({ queryKey: ["trademarks", "dashboard"] });
@@ -198,6 +204,22 @@ export default function TrademarkIntakePage() {
                   placeholder="Brief description of the mark and its use"
                 />
               </Field>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field label="Business unit" hint="The unit this mark is being requested for.">
+                  <Input
+                    value={form.businessUnit}
+                    onChange={(e) => update("businessUnit", e.target.value)}
+                    placeholder="e.g. Consumer Health"
+                  />
+                </Field>
+                <Field label="Business Unit SPOC" hint="Accountable for the requisition.">
+                  <Input
+                    value={form.businessUnitSpoc}
+                    onChange={(e) => update("businessUnitSpoc", e.target.value)}
+                    placeholder="Name or email"
+                  />
+                </Field>
+              </div>
               <Field label="Mark type">
                 <Select
                   value={form.trademarkType}
@@ -225,8 +247,8 @@ export default function TrademarkIntakePage() {
                 </div>
                 <p className="mt-1 text-[11.5px] text-slate-400">
                   {minMatchPercent === 0
-                    ? "Shows every result from Signa, TM Search, and your internal portfolio, regardless of match strength."
-                    : `Only shows results from Signa, TM Search, and your internal portfolio scoring ${minMatchPercent}% or higher. Web search results aren't filtered — they don't carry a comparable match score.`}
+                    ? "Shows every result from Signa, TM Search, your internal portfolio, and document extractions, regardless of match strength."
+                    : `Only shows results from Signa, TM Search, your internal portfolio, and document extractions scoring ${minMatchPercent}% or higher. Web search results aren't filtered — they don't carry a comparable match score.`}
                 </p>
               </Field>
               <div>
@@ -341,6 +363,8 @@ export default function TrademarkIntakePage() {
                 <ReviewRow label="Nice class" value={form.niceClass || "—"} />
                 <ReviewRow label="Jurisdictions" value={form.jurisdictions.join(", ") || "—"} />
                 <ReviewRow label="Applicant" value={form.applicantName || "—"} />
+                <ReviewRow label="Business unit" value={form.businessUnit || "—"} />
+                <ReviewRow label="Business Unit SPOC" value={form.businessUnitSpoc || "—"} />
                 <ReviewRow label="Renewal due" value={form.renewalDueOn || "—"} />
               </dl>
               {form.description && <ReviewRow label="Description" value={form.description} full />}

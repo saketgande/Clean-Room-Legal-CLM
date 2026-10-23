@@ -23,6 +23,8 @@ from app.intake.models import IntakeRequest
 from app.integrations.claude import ClaudeProvider
 from app.integrations.claude import claude_client as _default_claude_client
 from app.integrations.storage import StorageBackend, storage_service
+from app.trademarks.clearance_service import CLEARANCE_MARKER_FIELD, TrademarkClearanceService
+from app.trademarks.extracted_fields import find_jurisdiction, find_name
 from app.trademarks.extraction.field_capture import extract_generic_records
 from app.trademarks.extraction.vision import extract_journal_page
 from app.trademarks.models import DocumentExtract, PortfolioDigest, Trademark
@@ -119,49 +121,6 @@ def _embedding_text(*, name: str, description: str | None, goods_services: str |
     return " ".join(part for part in (name, description or "", goods_services or "") if part).strip()
 
 
-_IP_INDIA_JOURNAL_MAP = {
-    "name": "product_name",
-    "jurisdiction": "jurisdiction",
-    "goods_services": "goods_services",
-    "filed_on": "tm_date",
-}
-
-
-def _record_to_trademark_fields(record: ExtractedRecord, template: str) -> dict | None:
-    fields = record.fields
-    if template == DocumentExtractTemplate.IP_INDIA_JOURNAL:
-        name = fields.get("product_name")
-        if not name:
-            return None
-        filed_on = None
-        raw_date = fields.get("tm_date")
-        if raw_date:
-            for fmt in ("%d/%m/%Y", "%Y-%m-%d"):
-                try:
-                    filed_on = datetime.strptime(raw_date, fmt).replace(tzinfo=UTC)
-                    break
-                except ValueError:
-                    continue
-        return {
-            "name": name,
-            "jurisdiction": fields.get("jurisdiction") or "IN",
-            "goods_services": fields.get("goods_services"),
-            "filed_on": filed_on,
-            "description": fields.get("address"),
-        }
-    # generic template: best-effort — look for a "name"-ish field.
-    name = fields.get("name") or fields.get("product_name") or fields.get("mark") or fields.get("trademark")
-    if not name:
-        return None
-    return {
-        "name": name,
-        "jurisdiction": fields.get("jurisdiction") or "IN",
-        "goods_services": fields.get("goods_services"),
-        "filed_on": None,
-        "description": None,
-    }
-
-
 class TrademarksService:
     def __init__(
         self,
@@ -175,19 +134,35 @@ class TrademarksService:
         self.storage = storage or storage_service
         self.reducto = reducto
         self.claude_client = claude_client or _default_claude_client
+        self.clearance = TrademarkClearanceService(db)
 
     def get_trademark_for_user(self, *, trademark_id: str, user: User) -> Trademark:
         trademark = self.db.get(Trademark, trademark_id)
         if trademark is None or trademark.org_id != user.org_id or trademark.deleted_at is not None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Trademark not found")
+        self._attach_cases([trademark])
         return trademark
 
     def list_trademarks(self, *, org_id: str) -> list[Trademark]:
-        return self.db.scalars(
-            select(Trademark)
-            .where(Trademark.org_id == org_id, Trademark.deleted_at.is_(None))
-            .order_by(Trademark.updated_at.desc())
-        ).all()
+        rows = list(
+            self.db.scalars(
+                select(Trademark)
+                .where(Trademark.org_id == org_id, Trademark.deleted_at.is_(None))
+                .order_by(Trademark.updated_at.desc())
+            ).all()
+        )
+        self._attach_cases(rows)
+        return rows
+
+    def _attach_cases(self, trademarks: list[Trademark]) -> None:
+        """Sets the transient ``case`` attribute (where the clearance workflow
+        stands) that TrademarkResponse serializes; marks without a request get None."""
+        if not trademarks:
+            return
+        request_ids = [t.source_intake_request_id for t in trademarks if t.source_intake_request_id]
+        cases = self.clearance.case_summaries(org_id=trademarks[0].org_id, request_ids=request_ids)
+        for trademark in trademarks:
+            trademark.case = cases.get(trademark.source_intake_request_id)
 
     def _create_trademark(
         self,
@@ -203,8 +178,6 @@ class TrademarksService:
         filing_context: dict | None,
         filed_on: datetime | None,
         renewal_due_on: datetime | None,
-        source: str,
-        source_document_extract_id: str | None = None,
     ) -> Trademark:
         db = self.db
         if renewal_due_on is None and filed_on is not None:
@@ -228,11 +201,8 @@ class TrademarksService:
             filing_context=filing_context,
             filed_on=filed_on,
             renewal_due_on=renewal_due_on,
-            workflow_state=(
-                TrademarkWorkflowState.EXTRACTION if source == TrademarkSource.EXTRACTION else TrademarkWorkflowState.INTAKE
-            ),
-            source=source,
-            source_document_extract_id=source_document_extract_id,
+            workflow_state=TrademarkWorkflowState.INTAKE,
+            source=TrademarkSource.INTAKE,
             embedding_text=embedding_text or None,
             embedding=embedding,
         )
@@ -245,7 +215,7 @@ class TrademarksService:
             resource_id=trademark.id,
             org_id=user.org_id,
             actor_user_id=user.id,
-            after={"name": trademark.name, "status": trademark.status, "source": source},
+            after={"name": trademark.name, "status": trademark.status, "source": trademark.source},
         )
         return trademark
 
@@ -263,15 +233,24 @@ class TrademarksService:
             filing_context=payload.filing_context,
             filed_on=payload.filed_on,
             renewal_due_on=payload.renewal_due_on,
-            source=TrademarkSource.INTAKE,
         )
         db.commit()
         db.refresh(trademark)
         return trademark
 
     def create_trademark_from_intake(self, *, user: User, payload: IntakeSubmitRequest) -> Trademark:
+        """The wizard: files the mark, then opens its clearance case - a Legal
+        Intake request that the trademark clearance workflow runs on."""
         db = self.db
         jurisdictions = payload.jurisdictions or ["IN"]
+        requisition = {
+            key: value
+            for key, value in (
+                ("business_unit", payload.business_unit),
+                ("business_unit_spoc", payload.business_unit_spoc),
+            )
+            if value
+        }
         trademark = self._create_trademark(
             user=user,
             name=payload.name,
@@ -281,14 +260,79 @@ class TrademarksService:
             jurisdictions=jurisdictions,
             nice_class=payload.nice_class,
             goods_services=payload.goods_services,
-            filing_context=payload.filing_context,
+            filing_context={**(payload.filing_context or {}), **requisition} or None,
             filed_on=None,
             renewal_due_on=payload.renewal_due_on,
-            source=TrademarkSource.INTAKE,
         )
+        self.clearance.attach_run(org_id=user.org_id, query_id=payload.search_query_id, trademark_id=trademark.id)
+        self._open_clearance_case(user=user, trademark=trademark, payload=payload)
         db.commit()
         db.refresh(trademark)
+        self._attach_cases([trademark])
         return trademark
+
+    def _open_clearance_case(self, *, user: User, trademark: Trademark, payload: IntakeSubmitRequest) -> None:
+        """Opens the Legal Intake request that carries the clearance and starts
+        the trademark clearance workflow on it. Delegates to the intake engine
+        rather than re-implementing routing, SLA or steps, the same way
+        notices/service.py::escalate does. If no clearance flow has been seeded
+        for the org the request still exists and can be started from Legal Intake."""
+        from app.intake.schemas import RequestCreate
+        from app.intake.service import IntakeService
+        from app.integrations.claude import run_coro_blocking
+        from app.workflows.models import Workflow
+        from app.workflows.service import start_flow
+
+        db = self.db
+
+        answers: dict = {"mark": trademark.name, CLEARANCE_MARKER_FIELD: True}
+        if payload.business_unit_spoc:
+            answers["business_unit_spoc"] = payload.business_unit_spoc
+        details = [f'Trademark clearance for "{trademark.name}" ({trademark.trademark_type.replace("_", " ")}).']
+        if payload.description:
+            details.append(payload.description)
+        if payload.goods_services:
+            details.append(f"Goods & services: {payload.goods_services}")
+        details.append(f"Jurisdictions: {', '.join(trademark.jurisdictions or [trademark.jurisdiction])}")
+        if payload.nice_class:
+            details.append(f"Nice class: {payload.nice_class}")
+        if payload.business_unit_spoc:
+            details.append(f"Business Unit SPOC: {payload.business_unit_spoc}")
+
+        ticket = IntakeService(db).create_request(
+            actor=user,
+            payload=RequestCreate(
+                type_label="Trademark",
+                subject=f"Trademark clearance: {trademark.name}"[:200],
+                department=payload.business_unit,
+                description="\n".join(details),
+                field_values=answers,
+                source="api",
+            ),
+        )
+        trademark.source_intake_request_id = ticket["id"]
+        self.clearance.log_event(
+            user=user,
+            trademark=trademark,
+            event_type="trademark.case_opened",
+            title=f"Clearance case opened ({ticket.get('ref') or ticket['id']})",
+            details={"request_id": ticket["id"], "business_unit": payload.business_unit},
+        )
+        flow = next(
+            (
+                f
+                for f in db.scalars(
+                    select(Workflow)
+                    .where(Workflow.org_id == user.org_id, Workflow.enabled.is_(True))
+                    .order_by(Workflow.eval_order.asc())
+                ).all()
+                if (f.criteria or {}).get("field") == CLEARANCE_MARKER_FIELD
+            ),
+            None,
+        )
+        if flow is not None:
+            request = db.get(IntakeRequest, ticket["id"])
+            run_coro_blocking(lambda: start_flow(db, actor=user, request=request, flow=flow))
 
     def update_trademark(self, *, trademark: Trademark, user: User, payload: TrademarkUpdate) -> Trademark:
         db = self.db
@@ -298,6 +342,14 @@ class TrademarksService:
             setattr(trademark, field, value)
         trademark.updated_by_user_id = user.id
         db.flush()
+        if trademark.status != before["status"]:
+            self.clearance.log_event(
+                user=user,
+                trademark=trademark,
+                event_type="trademark.status_changed",
+                title=f"Status changed from {str(before['status']).title()} to {str(trademark.status).title()}",
+                details={"from": before["status"], "to": trademark.status},
+            )
         write_audit_log(
             db,
             action="trademark.update",
@@ -312,7 +364,7 @@ class TrademarksService:
         db.refresh(trademark)
         return trademark
 
-    def dashboard_metrics(self, *, org_id: str) -> DashboardMetrics:
+    def dashboard_metrics(self, *, org_id: str, user: User | None = None) -> DashboardMetrics:
         db = self.db
         rows = db.scalars(
             select(Trademark).where(Trademark.org_id == org_id, Trademark.deleted_at.is_(None))
@@ -337,6 +389,10 @@ class TrademarksService:
             active_prosecutions=active_prosecutions,
             upcoming_renewals=upcoming_renewals,
             by_status=by_status,
+            cases_by_step=self.clearance.step_counts(
+                org_id=org_id, request_ids=[r.source_intake_request_id for r in rows if r.source_intake_request_id]
+            ),
+            awaiting_my_action=self.clearance.awaiting_action(user=user) if user is not None else [],
         )
 
     @staticmethod
@@ -416,7 +472,9 @@ class TrademarksService:
     # --- Search-similar --------------------------------------------------
 
     def search_similar(self, *, user: User, request: SearchSimilarRequest) -> SearchSimilarResponse:
-        return _search_similar(self.db, org_id=user.org_id, request=request, settings=default_settings)
+        response = _search_similar(self.db, org_id=user.org_id, request=request, settings=default_settings)
+        self.clearance.save_search_run(user=user, request=request, response=response)
+        return response
 
     # --- Document extraction pipeline -------------------------------------
 
@@ -491,15 +549,20 @@ class TrademarksService:
         return ExtractResponse(doc_id=request.doc_id, records=records, warnings=warnings)
 
     def ingest_extraction(self, *, user: User, request: IngestRequest) -> IngestResponse:
+        """Stores every extracted record in document_extract and nowhere else -
+        no trademark row is created from it, so extractions never appear in
+        My trademarks. They are found through the similarity search instead
+        (providers/similarity.py). A record with no non-empty field has nothing
+        to store or embed, so it is skipped."""
         db = self.db
         record_ids: list[str] = []
-        trademark_ids: list[str] = []
 
         for record in request.records:
             embedding_text = " ".join(
                 f"{k}: {v}" for k, v in record.fields.items() if k != "product_image_paths" and v
             )
-            embedding = embed_texts([embedding_text])[0] if embedding_text else None
+            if not embedding_text:
+                continue
 
             extract_row = DocumentExtract(
                 id=new_uuid(),
@@ -513,32 +576,11 @@ class TrademarksService:
                 template=request.template,
                 field_schema=[f.model_dump() for f in request.field_schema],
                 extracted_fields=record.fields,
-                embedding_text=embedding_text or None,
-                embedding=embedding,
+                embedding_text=embedding_text,
+                embedding=embed_texts([embedding_text])[0],
             )
             db.add(extract_row)
-            db.flush()
             record_ids.append(extract_row.id)
-
-            trademark_fields = _record_to_trademark_fields(record, request.template)
-            if trademark_fields is not None:
-                trademark = self._create_trademark(
-                    user=user,
-                    name=trademark_fields["name"],
-                    description=trademark_fields.get("description"),
-                    trademark_type="word_mark",
-                    jurisdiction=trademark_fields["jurisdiction"],
-                    jurisdictions=[trademark_fields["jurisdiction"]],
-                    nice_class=None,
-                    goods_services=trademark_fields.get("goods_services"),
-                    filing_context=None,
-                    filed_on=trademark_fields.get("filed_on"),
-                    renewal_due_on=None,
-                    source=TrademarkSource.EXTRACTION,
-                    source_document_extract_id=extract_row.id,
-                )
-                extract_row.ingested_trademark_id = trademark.id
-                trademark_ids.append(trademark.id)
 
         write_audit_log(
             db,
@@ -546,12 +588,10 @@ class TrademarksService:
             resource_type="document_extract",
             org_id=user.org_id,
             actor_user_id=user.id,
-            after={"ingested_count": len(record_ids), "trademark_ids": trademark_ids},
+            after={"ingested_count": len(record_ids), "record_ids": record_ids},
         )
         db.commit()
-        return IngestResponse(ingested_count=len(record_ids), record_ids=record_ids, trademark_ids=trademark_ids)
-
-    # --- Integrations status / test ---------------------------------------
+        return IngestResponse(ingested_count=len(record_ids), record_ids=record_ids)
 
     def get_integration_status(self, *, settings: Settings) -> IntegrationStatusResponse:
         db = self.db
@@ -697,31 +737,33 @@ class TrademarksService:
     def _gather_digest_stats(self, *, org_id: str, lookback_hours: int) -> tuple[dict, list[dict]]:
         cutoff = datetime.now(UTC) - timedelta(hours=lookback_hours)
         rows = self.db.scalars(
-            select(Trademark)
-            .where(
-                Trademark.org_id == org_id,
-                Trademark.deleted_at.is_(None),
-                Trademark.created_at >= cutoff,
-            )
-            .order_by(Trademark.created_at.desc())
+            select(DocumentExtract)
+            .where(DocumentExtract.org_id == org_id, DocumentExtract.created_at >= cutoff)
+            .order_by(DocumentExtract.created_at.desc())
         ).all()
         by_jurisdiction: dict[str, int] = {}
+        by_source_file: dict[str, int] = {}
         samples: list[dict] = []
         for row in rows:
-            jurisdiction = row.jurisdiction or "Unspecified"
+            fields = row.extracted_fields or {}
+            jurisdiction = find_jurisdiction(fields) or "Unspecified"
             by_jurisdiction[jurisdiction] = by_jurisdiction.get(jurisdiction, 0) + 1
-            if len(samples) < 8:
-                samples.append({"name": row.name, "jurisdiction": jurisdiction})
-        return {"new_trademarks_count": len(rows), "by_jurisdiction": by_jurisdiction}, samples
+            by_source_file[row.source_filename] = by_source_file.get(row.source_filename, 0) + 1
+            if len(samples) < 8 and (mark_name := find_name(fields)):
+                samples.append({"name": mark_name, "jurisdiction": jurisdiction})
+        stats = {
+            "new_trademarks_count": len(rows),
+            "by_jurisdiction": by_jurisdiction,
+            "by_source_file": by_source_file,
+        }
+        return stats, samples
 
     async def get_or_create_portfolio_digest(
         self, *, user: User, force: bool = False
     ) -> PortfolioDigestResponse:
-        """One row per org per day — see PortfolioDigest's docstring. Adapted
-        from the standalone module's "new document extracts" digest to
-        summarize new Trademark records overall (both wizard/intake and
-        bulk-ingestion), since that's the activity actually worth surfacing
-        on this app's Reports tab."""
+        """One row per org per day — see PortfolioDigest's docstring. Summarizes
+        the document extracts ingested in the last 24 hours, as the standalone
+        module's digest does."""
         db = self.db
         org_id = user.org_id
         today = datetime.now(UTC).date()
@@ -747,6 +789,8 @@ class TrademarksService:
                 f"New trademark records in the last {_DIGEST_LOOKBACK_HOURS}h: {stats['new_trademarks_count']}",
                 f"By jurisdiction: {stats['by_jurisdiction']}",
             ]
+            if stats.get("by_source_file"):
+                lines.append(f"By source file: {stats['by_source_file']}")
             if samples:
                 lines.append("Sample of newly added marks:")
                 lines.extend(f"- {s['name']} ({s['jurisdiction']})" for s in samples)
@@ -794,8 +838,11 @@ class TrademarksService:
         now = datetime.now(UTC)
         filed_last_30d = 0
         filed_last_90d = 0
+        by_decision: dict[str, int] = {}
         for row in rows:
             by_status[row.status] = by_status.get(row.status, 0) + 1
+            if row.decision:
+                by_decision[row.decision] = by_decision.get(row.decision, 0) + 1
             for jurisdiction in row.jurisdictions or [row.jurisdiction]:
                 jurisdiction = (jurisdiction or "").strip()
                 if jurisdiction:
@@ -821,6 +868,10 @@ class TrademarksService:
             upcoming_renewals_90d=upcoming_renewals_90d,
             renewal_pending=by_status.get(TrademarkStatus.RENEWAL_PENDING, 0),
             lapsed=by_status.get(TrademarkStatus.LAPSED, 0),
+            by_step=self.clearance.step_counts(
+                org_id=org_id, request_ids=[r.source_intake_request_id for r in rows if r.source_intake_request_id]
+            ),
+            by_decision=by_decision,
         )
 
     # --- Legal Intake bridge ----------------------------------------------
@@ -841,6 +892,18 @@ class TrademarksService:
         if req is None or req.org_id != user.org_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Intake request not found")
 
+        # A request carries one mark: a second "Continue as Trademark" (or a request
+        # the wizard already opened a case for) returns it instead of duplicating.
+        existing = db.scalar(
+            select(Trademark).where(
+                Trademark.org_id == user.org_id,
+                Trademark.source_intake_request_id == req.id,
+                Trademark.deleted_at.is_(None),
+            )
+        )
+        if existing is not None:
+            return existing
+
         jurisdictions = overrides.jurisdictions or ["IN"]
         trademark = self._create_trademark(
             user=user,
@@ -854,7 +917,6 @@ class TrademarksService:
             filing_context=overrides.filing_context,
             filed_on=None,
             renewal_due_on=overrides.renewal_due_on,
-            source=TrademarkSource.INTAKE,
         )
         trademark.source_intake_request_id = req.id
         db.commit()
