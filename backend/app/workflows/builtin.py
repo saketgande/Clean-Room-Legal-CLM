@@ -293,13 +293,17 @@ _TM_STEPS = [
          cond=_TM_NOT_REJECTED),
 ]
 
+# Where each step sits in the lifecycle view (steps must follow the lifecycle order).
+for _step, _stage in zip(_TM_STEPS, ("intake", "review", "review", "approval", "approval", "active", "active")):
+    _step["stage"] = _stage
+
 BUILTIN_FLOWS.append({
     "name": "Trademark Clearance & Filing",
     "description": "Trademark requisition through clearance and filing: preliminary and detailed search, TM Legal "
                    "review, final decision, escalation to the TM Head / GC, filing preparation and filing.",
     "eval_order": 5,
     "criteria": {"field": "tm_clearance", "op": "eq", "value": True},
-    "steps": _TM_STEPS,
+    "steps": stages.infer(_TM_STEPS),
 })
 
 
