@@ -13,27 +13,36 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, Plus, ChevronDown, FileText } from "lucide-react";
 import { contractsApi, usersApi } from "@/lib/endpoints";
 import type { ContractResponse } from "@/lib/types";
-import { titleCase, fmtDate, fmtMoney, riskTone, STAGE_ORDER } from "@/lib/utils";
+import {
+  titleCase,
+  fmtDate,
+  fmtMoney,
+  riskTone,
+  riskBand,
+  RISK_UNKNOWN_LABEL,
+  STAGE_ORDER,
+  contractDisplayName,
+  looksLikeFilename,
+  plural,
+} from "@/lib/utils";
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import { ImportContractModal } from "@/components/import-contract-modal";
 import { cn } from "@/lib/utils";
 import { useScreenAccess } from "@/lib/screen-access";
+import { daysToExpiry, isExpiringSoon } from "@/lib/expiry";
 
 const STAGE_LABELS = STAGE_ORDER.map((s) => titleCase(s));
 const NEGO_STAGES = new Set(["drafting", "review", "approval", "signature"]);
-const RISK_RANK: Record<string, number> = { low: 0, medium: 1, high: 2, critical: 3 };
+// Unknown ranks above high: least known needs the most attention.
+const RISK_RANK: Record<string, number> = { low: 0, medium: 1, high: 2, unknown: 3 };
 
-const riskOf = (c: ContractResponse) => (c.risk_band ?? c.risk_level ?? "").toLowerCase();
-const isHighRisk = (c: ContractResponse) => riskOf(c) === "high" || riskOf(c) === "critical";
+// The band from the playbook review of the current text — never the legacy,
+// hand-settable risk_level, and unknown when the cached summary is for other text.
+const riskOf = (c: ContractResponse) => riskBand(c.risk_summary, c.current_authoritative_version_id);
+const isHighRisk = (c: ContractResponse) => riskOf(c) === "high";
 const inNego = (c: ContractResponse) => NEGO_STAGES.has(c.lifecycle_stage);
-function dleftOf(c: ContractResponse): number | null {
-  if (!c.expiration_date) return null;
-  return Math.round((new Date(c.expiration_date + "T00:00:00").getTime() - Date.now()) / 86_400_000);
-}
-const isExpiring = (c: ContractResponse) => {
-  const d = dleftOf(c);
-  return d != null && d >= 0 && d <= 90 && c.lifecycle_stage !== "closed";
-};
+const dleftOf = (c: ContractResponse): number | null => daysToExpiry(c);
+const isExpiring = (c: ContractResponse) => isExpiringSoon(c);
 
 type SortKey = "upd" | "exp" | "val" | "risk" | "cp";
 
@@ -86,7 +95,7 @@ export default function ContractsPage() {
     if (stageF.size && !stageF.has(c.lifecycle_stage)) return false;
     if (typeF.size && !typeF.has((c.contract_type ?? "").toLowerCase())) return false;
     if (riskF.size) {
-      const toks = new Set([riskOf(c)]);
+      const toks = new Set<string>([riskOf(c)]);
       if (isExpiring(c)) toks.add("_expiring");
       if (c.renewal_due) toks.add("_renewal");
       if (![...riskF].some((f) => toks.has(f))) return false;
@@ -138,9 +147,6 @@ export default function ContractsPage() {
       .filter((c) => (dleftOf(c) ?? 999) <= 30)
       .sort((a, b) => (dleftOf(a) ?? 0) - (dleftOf(b) ?? 0))
       .map((c) => ({ c, cls: "w", t: `${c.counterparty_name ?? c.title} — expires ${dleftOf(c)}d` })),
-    ...highRows
-      .filter((c) => riskOf(c) === "critical")
-      .map((c) => ({ c, cls: "c", t: `${c.counterparty_name ?? c.title} — critical risk` })),
   ].slice(0, 5);
 
   const filtersActive = stageF.size || typeF.size || riskF.size || !!q;
@@ -158,7 +164,7 @@ export default function ContractsPage() {
     upd: "Recently updated",
     exp: "Expiring soonest",
     val: "Value high→low",
-    risk: "Risk high→low",
+    risk: "Risk: not reviewed, then high→low",
     cp: "Counterparty A–Z",
   };
 
@@ -229,7 +235,7 @@ export default function ContractsPage() {
             sel={riskF}
             onToggle={(v) => setRiskF(toggleSet(riskF, v))}
             options={[
-              { v: "critical", label: "Critical", dot: "var(--crit)" },
+              { v: "unknown", label: "Not reviewed", dot: "var(--ink-3)" },
               { v: "high", label: "High", dot: "var(--crit)" },
               { v: "medium", label: "Medium", dot: "var(--warn)" },
               { v: "low", label: "Low", dot: "var(--good)" },
@@ -284,7 +290,7 @@ export default function ContractsPage() {
           <div className="aiglyph">✦</div>
           <div>
             <b>Portfolio briefing</b>{" "}
-            <span className="when">· reads all {rows.length} contracts · updated just now</span>
+            <span className="when">· reads all {plural(rows.length, "contract")} · updated just now</span>
           </div>
           <button className="tog" onClick={() => setBriefCollapsed((v) => !v)}>
             {briefCollapsed ? "Show" : "Hide"}
@@ -297,10 +303,10 @@ export default function ContractsPage() {
         </div>
         <div className="briefbody">
           <p className="summary">
-            <b>{rows.length} contracts in the portfolio.</b> {active} active, {negoRows.length} in
+            <b>{plural(rows.length, "contract")} in the portfolio.</b> {active} active, {negoRows.length} in
             negotiation, and{" "}
             <span className="c">
-              {highRows.length} {highRows.length === 1 ? "carries" : "carry"} high or critical risk
+              {highRows.length} {highRows.length === 1 ? "carries" : "carry"} high risk
             </span>
             .{" "}
             {nearest && (
@@ -320,7 +326,7 @@ export default function ContractsPage() {
             <Tile cls="g" n={active} l="active" />
             <Tile cls="a" n={negoRows.length} l="in negotiation" />
             <Tile cls="w" n={expiringRows.length} l="expiring ≤90d" />
-            <Tile cls="c" n={highRows.length} l="high / critical" />
+            <Tile cls="c" n={highRows.length} l="high risk" />
             <Tile n={fmtMoney(totalVal, currency)} l="total value" />
             <Tile n={renewals} l="renewals due" />
           </div>
@@ -404,23 +410,27 @@ export default function ContractsPage() {
                         </div>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                            <span className="nm">{c.title}</span>
+                            <span className="nm">{contractDisplayName(c)}</span>
                           </div>
-                          <div className="prev">
-                            {c.contract_type ? titleCase(c.contract_type) : "—"} · {c.counterparty_name ?? "—"}
-                          </div>
+                          {/* The upload it came from — worth keeping, but as
+                              provenance under the name, not as the name. */}
+                          {looksLikeFilename(c.title) && c.title ? (
+                            <div className="prev">{c.title}</div>
+                          ) : c.contract_type ? (
+                            <div className="prev">{titleCase(c.contract_type)}</div>
+                          ) : null}
                         </div>
                       </div>
                     </td>
                     <td className="c-cp">
                       <div className="cp">{c.counterparty_name ?? <span className="dim">—</span>}</div>
-                      <div className="ty">
-                        {c.value_amount != null ? (
+                      {/* Only say something when there is a value. "no value" on
+                          every row is a column that reads as data but carries none. */}
+                      {c.value_amount != null && (
+                        <div className="ty">
                           <span className="val">{fmtMoney(c.value_amount, c.currency)}</span>
-                        ) : (
-                          <span className="dim">no value</span>
-                        )}
-                      </div>
+                        </div>
+                      )}
                     </td>
                     <td>
                       <div className="stagewrap">
@@ -437,17 +447,21 @@ export default function ContractsPage() {
                             />
                           ))}
                         </div>
-                        <div className="wflabel">
-                          {c.contract_type ? titleCase(c.contract_type) : "Contract"} lifecycle
-                        </div>
+                        {/* Was "<type> lifecycle" — the type is already on the
+                            row, so this line repeated it 83 times and said
+                            nothing about where the contract actually is. */}
                       </div>
                     </td>
                     <td>
                       <div className="flags">
-                        {risk ? (
-                          <span className={`tag ${riskTone(risk)}`}>{titleCase(risk)}</span>
+                        {/* Unknown gets a quiet tag, not silence: a blank cell read
+                            as "nothing wrong" when nobody had reviewed the text. */}
+                        {risk === "unknown" ? (
+                          <span className="tag slate" title={[RISK_UNKNOWN_LABEL, c.risk_summary?.note].filter(Boolean).join(". ")}>
+                            Not reviewed
+                          </span>
                         ) : (
-                          <span className="tag slate">Unrated</span>
+                          <span className={`tag ${riskTone(risk)}`}>{titleCase(risk)}</span>
                         )}
                         {isExpiring(c) && <span className="tag amber">expires {dleft}d</span>}
                         {c.renewal_due && <span className="tag blue">renewal due</span>}
@@ -461,7 +475,7 @@ export default function ContractsPage() {
                             {dleft != null && dleft < 0 ? (
                               <span className="past">expired {-dleft}d ago</span>
                             ) : dleft != null && dleft <= 90 ? (
-                              <span className="soon">in {dleft} days</span>
+                              <span className="soon">in {plural(dleft, "day")}</span>
                             ) : dleft != null ? (
                               `in ${Math.round(dleft / 30)} mo`
                             ) : (
@@ -515,7 +529,8 @@ function Tile({ cls, n, l }: { cls?: string; n: number | string; l: string }) {
 
 function toggleSet(set: Set<string>, v: string): Set<string> {
   const next = new Set(set);
-  next.has(v) ? next.delete(v) : next.add(v);
+  if (next.has(v)) next.delete(v);
+  else next.add(v);
   return next;
 }
 

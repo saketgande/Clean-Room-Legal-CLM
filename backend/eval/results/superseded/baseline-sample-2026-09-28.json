@@ -1,0 +1,1298 @@
+{
+ "summary": {
+  "model": "claude-sonnet-4-6",
+  "sample": true,
+  "date": "2026-09-28",
+  "review": {
+   "rules": 120,
+   "precision": 0.7948717948717948,
+   "recall": 0.8611111111111112,
+   "f1": 0.8266666666666667,
+   "status_accuracy": 0.8166666666666667
+  },
+  "extraction": {
+   "fields": 100,
+   "accuracy": 0.46
+  },
+  "qa": {
+   "questions": 40,
+   "evidence_hit": 0.65,
+   "citation_valid": 0.956989247311828
+  },
+  "qa_answer_beyond_25k": {
+   "questions": 15,
+   "evidence_hit": 0.13333333333333333,
+   "citation_valid": 0.96
+  },
+  "routing": {
+   "requests": 10,
+   "workflow_accuracy": 0.9,
+   "escalation_accuracy": 0.7
+  },
+  "errors": {
+   "review": 0,
+   "extraction": 0,
+   "qa": 0,
+   "routing": 0
+  }
+ },
+ "results": {
+  "review": {
+   "review-nda-01": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-11": "missing",
+     "nda-12": "deviation",
+     "nda-13": "deviation",
+     "nda-18": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8981,
+     "completion_tokens": 2584,
+     "total_tokens": 11565,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-nda-03": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-7": "deviation",
+     "nda-11": "missing",
+     "nda-17": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8578,
+     "completion_tokens": 2679,
+     "total_tokens": 11257,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-nda-02": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-4": "deviation",
+     "nda-7": "deviation",
+     "nda-11": "missing",
+     "nda-3": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8778,
+     "completion_tokens": 3486,
+     "total_tokens": 12264,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-01": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 8491,
+     "completion_tokens": 779,
+     "total_tokens": 9270,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-nda-04": {
+    "predicted": {
+     "nda-1": "deviation",
+     "nda-2": "deviation",
+     "nda-3": "deviation",
+     "nda-8": "deviation",
+     "nda-10": "missing",
+     "nda-11": "missing",
+     "nda-12": "deviation",
+     "nda-13": "missing",
+     "nda-15": "missing",
+     "nda-17": "deviation",
+     "nda-20": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8705,
+     "completion_tokens": 3879,
+     "total_tokens": 12584,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-02": {
+    "predicted": {
+     "limitation_of_liability": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8489,
+     "completion_tokens": 1271,
+     "total_tokens": 9760,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-01": {
+    "predicted": {},
+    "usage": {
+     "prompt_tokens": 6657,
+     "completion_tokens": 535,
+     "total_tokens": 7192,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-03": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "ip_indemnity": "deviation",
+     "assignment": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 8490,
+     "completion_tokens": 1537,
+     "total_tokens": 10027,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-msa-04": {
+    "predicted": {
+     "limitation_of_liability": "deviation",
+     "termination_for_breach": "deviation",
+     "ip_indemnity": "deviation",
+     "confidentiality": "missing"
+    },
+    "usage": {
+     "prompt_tokens": 8471,
+     "completion_tokens": 1656,
+     "total_tokens": 10127,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   },
+   "review-dpa-02": {
+    "predicted": {
+     "subprocessor_notice": "deviation",
+     "inquiry_notice": "deviation"
+    },
+    "usage": {
+     "prompt_tokens": 6644,
+     "completion_tokens": 1377,
+     "total_tokens": 8021,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 1026
+    }
+   }
+  },
+  "extraction": {
+   "extraction-cuad-03": {
+    "predicted": {
+     "document_name": "Outsourcing Agreement between Virtual Item Processing Systems, Inc. and Brokers National Life Assurance Company",
+     "parties": "Brokers National Life Assurance Company",
+     "effective_date": "2006-05-01",
+     "expiration_date": null,
+     "governing_law": "Arkansas",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6468,
+      "completion_tokens": 1095,
+      "total_tokens": 7563,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7403,
+      "completion_tokens": 4096,
+      "total_tokens": 11499,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-02": {
+    "predicted": {
+     "document_name": "Development and Option Agreement between Harpoon Therapeutics, Inc. and AbbVie Biotechnology Ltd",
+     "parties": "AbbVie Biotechnology Ltd",
+     "effective_date": "2019-11-20",
+     "expiration_date": null,
+     "governing_law": "Delaware (Harpoon incorporation); Bermuda (AbbVie incorporation); New York (Business Day reference)",
+     "agreement_date": null,
+     "liability_cap": "Section 11.5 is titled 'Special, Indirect, and Other Losses,' indicating a limitation of liability clause excluding special, indirect, and consequential damages. Full text is not available in the truncated extract."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 7616,
+      "completion_tokens": 1184,
+      "total_tokens": 8800,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 8551,
+      "completion_tokens": 4096,
+      "total_tokens": 12647,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-01": {
+    "predicted": {
+     "document_name": "AIRSOPURE Franchise Agreement",
+     "parties": "Airsopure International Group, Inc.",
+     "effective_date": "2000-01-01",
+     "expiration_date": "2010-01-01",
+     "governing_law": "Nevada",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6508,
+      "completion_tokens": 1183,
+      "total_tokens": 7691,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7443,
+      "completion_tokens": 4096,
+      "total_tokens": 11539,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-05": {
+    "predicted": {
+     "document_name": "Distributorship Agreement between Signature Orthopaedics Pty Ltd and CPM Medical Consultants LLC",
+     "parties": "CPM Medical Consultants, LLC",
+     "effective_date": "2018-03-29",
+     "expiration_date": "2019-03-29",
+     "governing_law": "Australia",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6679,
+      "completion_tokens": 1354,
+      "total_tokens": 8033,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7614,
+      "completion_tokens": 4096,
+      "total_tokens": 11710,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-06": {
+    "predicted": {
+     "document_name": "Outsourcing Base Agreement between IBM and Manufacturers' Services Western U.S. Operations, Inc.",
+     "parties": "Manufacturers' Services Western US Operations, Inc.",
+     "effective_date": "1998-06-01",
+     "expiration_date": "2001-06-01",
+     "governing_law": "New York, U.S.A.",
+     "agreement_date": null,
+     "liability_cap": "Section 15.0 is listed in the Table of Contents as 'INDEMNIFICATION AND LIMITATION OF LIABILITY' at Page 18, but the full text of this section has not been reproduced in the supplied extract."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6190,
+      "completion_tokens": 1361,
+      "total_tokens": 7551,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7125,
+      "completion_tokens": 4096,
+      "total_tokens": 11221,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-21": {
+    "predicted": {
+     "document_name": "Limited Power of Attorney \u2013 Federated Investment Management Company appointing Federated Advisory Services Company",
+     "parties": "Federated Advisory Services Company",
+     "effective_date": "2004-01-01",
+     "expiration_date": null,
+     "governing_law": "Commonwealth of Pennsylvania",
+     "agreement_date": null,
+     "liability_cap": "Any person, partnership, corporation or other legal entity dealing with FASC in its capacity as attorney-in-fact hereunder for the Adviser on behalf of any Fund is hereby expressly put on notice that FASC is acting solely in the capacity as an agent of the Adviser as agent for the Fund and that any such person, partnership, corporation or other legal entity must look solely to the Fund in question for enforcement of any claim against the Fund, as FASC assumes no personal liability whatsoever for obligations of the Fund entered into by FASC in its capacity as attorney-in-fact for the Adviser.\n\nEach person, partnership, corporation or other legal entity which deals with a Fund through FASC in its capacity as agent and attorney-in-fact of the Adviser, is hereby expressly put on notice (i) that all persons or entities dealing with the Fund must look solely to the assets of the Fund on whose behalf FASC is acting pursuant to its powers hereunder for enforcement of any claim against the Fund, as the trustees, officers and/or agents of such Fund, the shareholders of the various classes of shares of the Fund, and the other Funds of the trust or corporation of which a Fund may be a series, assume no personal liability whatsoever for obligations entered into on behalf of such Fund, and (ii) that the rights, liabilities and obligations of any one Fund are separate and distinct from those of any other Fund.\n\nLiability for or recourse under or upon any undertaking of FASC pursuant to the power or authority granted to FASC under this Limited Power of Attorney under any rule of law, statute or constitution or by the enforcement of any assessment or penalty or by legal or equitable proceedings or otherwise shall be limited only to the assets of the Fund on whose behalf FASC was acting pursuant to the authority granted hereunder."
+    },
+    "usage": [
+     {
+      "prompt_tokens": 3911,
+      "completion_tokens": 1121,
+      "total_tokens": 5032,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 4846,
+      "completion_tokens": 3526,
+      "total_tokens": 8372,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-23": {
+    "predicted": {
+     "document_name": "Consulting Agreement \u2013 Aduro Biotech, Inc. and IREYA B.V.",
+     "parties": "IREYA B.V.",
+     "effective_date": "2020-07-01",
+     "expiration_date": "2020-12-31",
+     "governing_law": "California, United States",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 3397,
+      "completion_tokens": 985,
+      "total_tokens": 4382,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 4332,
+      "completion_tokens": 3599,
+      "total_tokens": 7931,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-22": {
+    "predicted": {
+     "document_name": "Consulting Agreement \u2013 Global Technologies, Ltd & Timothy Cabrera",
+     "parties": "Timothy Cabrera",
+     "effective_date": "2020-01-02",
+     "expiration_date": "2021-01-02",
+     "governing_law": "Florida",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 5120,
+      "completion_tokens": 1114,
+      "total_tokens": 6234,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 6055,
+      "completion_tokens": 3650,
+      "total_tokens": 9705,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-07": {
+    "predicted": {
+     "document_name": "Corporate Sponsorship Agreement Between American Diabetes Association and Freeze Tag, Inc.",
+     "parties": "American Diabetes Association, Inc.",
+     "effective_date": "2018-03-22",
+     "expiration_date": "2020-03-14",
+     "governing_law": "Virginia",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6061,
+      "completion_tokens": 1082,
+      "total_tokens": 7143,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 6996,
+      "completion_tokens": 3493,
+      "total_tokens": 10489,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   },
+   "extraction-cuad-04": {
+    "predicted": {
+     "document_name": "Joint Content License Agreement",
+     "parties": "WPT Enterprises, Inc.",
+     "effective_date": "2018-02-01",
+     "expiration_date": "2021-02-01",
+     "governing_law": "Delaware",
+     "agreement_date": null
+    },
+    "usage": [
+     {
+      "prompt_tokens": 6744,
+      "completion_tokens": 1355,
+      "total_tokens": 8099,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 1065
+     },
+     {
+      "prompt_tokens": 7679,
+      "completion_tokens": 3858,
+      "total_tokens": 11537,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+     }
+    ]
+   }
+  },
+  "qa": {
+   "qa-lbr-cuad-006": {
+    "predicted": {
+     "answer": "The Walabot HOME Reseller Agreement between Vayyar Imaging Ltd. and Inde Living Holdings, Inc. does not have a fixed expiration date. Instead, it has an Initial Term of 1 year from the Effective Date of July 31, 2019 (i.e., through July 31, 2020), after which it automatically renews for successive 1-year terms unless terminated. Either party may terminate without cause following the Initial Term by providing at least 3 months' written notice.",
+     "quotes": [
+      "This Agreement shall become effective on the Effective Date and shall remain in effect for an initial period of 1 year (\"Initial Term\"). Thereafter, this Agreement shall automatically be renewed for successive 1-year terms (each a \"Renewal Term\", and together with the Initial Term, the \"Term\").",
+      "Following the Initial Term, either Party may terminate this Agreement without cause upon written notice to the other Party of at least 3 months.",
+      "is made and entered into as of this 31 day of July 2019 (\"Effective Date\")"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 7603,
+     "completion_tokens": 482,
+     "total_tokens": 8085,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-001": {
+    "predicted": {
+     "answer": "Under the Exclusive Distributor Agreement (effective November 12, 2019) between Water Now, Inc., Hydraspin USA, Inc., and BestEv Management, LLC, the audit rights are addressed in Section 6.4 (Records). Specifically:\n\n1. **Record-Keeping Obligation**: The Distributor is required to maintain complete and accurate books and records relating to the Products throughout the term of the Agreement (and any additional period required by applicable law). These records must include the names and addresses of Customers, the location of the Products, the sales of Hydrocarbons relating to the Products, the Net Revenue, the Hydraspin Share of Net Revenue, and the Distributor Share of Net Revenue.\n\n2. **Access Rights**: Hydraspin and its authorized representatives are granted full access to all such books and records at all reasonable times, subject to reasonable prior notice.\n\n**Key limitations**: The audit right runs only in one direction \u2014 it is granted to **Hydraspin** (to audit the Distributor's records). The Agreement does not expressly grant the Distributor a reciprocal right to audit Hydraspin's books and records.",
+     "quotes": [
+      "Distributor shall maintain complete and accurate books and records relating to the Products, including, without limitation, the names and addresses of Customers, the location of the Products, the sales of Hydrocarbons relating to the Products, the Net Revenue, the Hydraspin Share of Net Revenue, and the Distributor Share of Net Revenue.",
+      "During the term of this Agreement, Distributor shall afford to Hydraspin and its authorized representatives full access at all reasonable times and upon reasonable prior notice, to all such books and records with respect to the Products.",
+      "During the term of this Agreement and for any additional time period thereafter required by applicable Law, Distributor shall maintain complete and accurate books and records relating to the Products"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 7918,
+     "completion_tokens": 686,
+     "total_tokens": 8604,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-016": {
+    "predicted": {
+     "answer": "Yes, the Intellectual Property Agreement between Armstrong Flooring, Inc., AFI Licensing LLC, AHF Holding, Inc., and Armstrong Hardwood Flooring Company contains anti-assignment provisions, specifically with respect to the trademark licenses granted under the agreement.\n\n**Section 6.1 \u2013 Arizona Licensed Trademark Grant:** The license granted to the Company under the Arizona Licensed Trademarks is expressly described as \"non-assignable.\"\n\n**Section 6.2 \u2013 Diamond Licensed Trademark Grant:** Similarly, the license granted to the Company under the Diamond Licensed Trademarks is described as \"non-assignable (except as set forth in Section 13.2),\" meaning there is a limited exception to the non-assignability of the Diamond Licensed Trademark license as provided in Section 13.2 (the text of which is not included in the retrieved context).\n\nIt should be noted that the retrieved context does not include a general/global anti-assignment clause (e.g., a standalone clause restricting assignment of the Agreement as a whole). The anti-assignment restrictions identified are specific to the trademark license grants in Sections 6.1 and 6.2. The full text of Section 13.2 (which contains the exception for the Diamond Licensed Trademark) is not present in the retrieved context.",
+     "quotes": [
+      "Arizona hereby grants to the Company a limited, non- exclusive, royalty-free, non-sublicensable (except as set forth in Section 7.1), non-assignable license in, to and under the Arizona Licensed Trademarks for the Arizona Trademark License Term",
+      "Arizona hereby grants to the Company a limited, non- exclusive, royalty-free, non-sublicensable (except as set forth in Section 7.1), non-assignable (except as set forth in Section 13.2) license in, to and under the Diamond Licensed Trademarks for the Diamond Trademark License Term"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8124,
+     "completion_tokens": 703,
+     "total_tokens": 8827,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-011": {
+    "predicted": {
+     "answer": "Yes, there is uncapped liability under this Outsourcing Agreement. While Article 9.1 imposes a general cap on cumulative liability (limited to amounts paid/payable in the 12 months prior to the initial event) and excludes consequential/indirect damages, it expressly carves out three categories of liability that are NOT subject to these limitations \u2014 meaning they are effectively uncapped:\n\n1. **Breaches of Confidentiality Obligations**: Liability arising from breaches of the non-disclosure clause in Section 12.17 of the China JV Operating Agreement is excluded from the liability cap.\n\n2. **Breaches of License Grants**: Liability arising from breaches of license grants contained in the Agreement is excluded from the cap.\n\n3. **Third-Party Indemnity Obligations (Article 8)**: Amounts payable to third parties to fulfill indemnity obligations under Article 8 (covering IP infringement and products liability claims) are excluded from the cap and are uncapped.\n\nAdditionally, Section 9.2 confirms that breaches of Section 2.5 (End of Life) and the non-disclosure clause entitle the non-breaching party to injunctive and equitable relief, which is also not subject to the liability cap.",
+     "quotes": [
+      "EXCEPT FOR LIABILITY ARISING FROM BREACHES OF A PARTY'S CONFIDENTIALITY OBLIGATIONS CONTAINED IN THE NON-DISCLOSURE CLAUSE IN SECTION 12.17 OF THE CHINA JV OPERATING AGREEMENT, BREACHES OF LICENSE GRANTS CONTAINED HEREIN, AND EXCEPT FOR AMOUNTS PAYABLE TO THIRD PARTIES TO FULFILL INDEMNITY OBLIGATIONS DESCRIBED IN ARTICLE 8",
+      "IN NO EVENT SHALL A PARTY'S CUMULATIVE LIABILITY ARISING OUT OF THIS AGREEMENT EXCEED THE AMOUNTS ACTUALLY PAID, PAYABLE, RECEIVED OR RECEIVABLE BY SUCH PARTY FOR THE PRODUCTS CONCERNED THEREWITH HEREUNDER PURSUANT TO THIS AGREEMENT DURING THE TWELVE (12) MONTHS PRIOR TO THE OCCURRENCE OF THE INITIAL EVENT FOR WHICH A PARTY RECOVERS DAMAGES HEREUNDER.",
+      "Each of the Suppliers shall, with respect to Products supplied by such Supplier, defend, indemnify and hold harmless the Company from and against any third party claims, expenses and costs (including but not limited to attorney and other professional fees and expenses), settlement (if negotiated and approved by the relevant Supplier), damages and liability to the extent arising from a claim (a) alleging that a Product infringes or misappropriates any Intellectual Property Rights, or (b) arising under products liability theory from a manufacturing defect",
+      "the Parties acknowledge that any breach of Section 2.5 [***]of this Agreement and/or the non-disclosure clause in Section 12.17 of the China JV Operating Agreement by a Party would cause irreparable harm to the other Parties, and that the damages arising from any such breach would be difficult or impossible to ascertain. As such, the Parties agree that a Party shall be entitled to injunctive relief and other equitable remedies"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 8690,
+     "completion_tokens": 967,
+     "total_tokens": 9657,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-021": {
+    "predicted": {
+     "answer": "The Strategic Alliance Agreement between UTEK Corporation and World Energy Solutions does not include a traditional revenue or profit-sharing arrangement. Instead, the compensation structure is equity-based: AVDU pays UTK $120,000 worth of unregistered shares of common stock (31,413 shares) upon execution, vesting at 1/12th per month (2,617 shares/month) over the 12-month term, with unvested shares returned to AVDU upon early termination.\n\nFor individual technology transfers, the agreement contemplates a stock-for-stock exchange mechanism: UTK acquires a technology license through one of its subsidiaries and then transfers that subsidiary to AVDU in exchange for AVDU stock, with the consideration based on a markup to the value of the license and other assets as determined by UTK and agreed to by both parties. This markup represents UTK's financial upside on each transaction, but it is not a revenue- or profit-sharing arrangement in the traditional sense \u2014 it is a negotiated acquisition price on a case-by-case basis.\n\nBoth parties are responsible for their own out-of-pocket expenses, and there is no clause establishing a shared revenue pool or profit split.",
+     "quotes": [
+      "AVDU shall pay UTK $120,000 worth of unregistered shares of common stock (31,413 shares) upon the execution of this Strategic Alliance Agreement. 1/12th of the shares (2,617) shall vest each month during the term of this Agreement. If this Agreement is terminated any unvested shares will be returned to AVDU.",
+      "The consideration to be paid by AVDU to UTK will be based upon a markup to the value of the license and other assets in the subsidiary as determined by UTK and agreed to by both parties.",
+      "Both AVDU and UTK will cover their own out-of-pocket expenses incurred during the performance of this Strategic Alliance Agreement.",
+      "UTK shall transfer this subsidiary to AVDU in a stock for stock exchange under an \"Agreement and Plan of Acquisition.\""
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 6684,
+     "completion_tokens": 728,
+     "total_tokens": 7412,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-031": {
+    "predicted": {
+     "answer": "Based on the retrieved context from the Co-Branding Agreement between VerticalNet, Inc. and PaperExchange.com, LLC (dated September 30, 1999), the contract text provided does not contain an explicit anti-assignment clause. The retrieved context covers Sections 1 through 5.7, and none of these sections include a provision restricting or prohibiting either party from assigning the agreement or their rights and obligations under it. The contract may contain such a clause in sections not included in the retrieved context, but no anti-assignment language is present in the available text.",
+     "quotes": []
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8523,
+     "completion_tokens": 308,
+     "total_tokens": 8831,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-026": {
+    "predicted": {
+     "answer": "Yes, the Distributor Agreement between Lucid Inc. and the Distributor contains a non-compete clause. It is found in Section 5(E) under \"Duties of The Distributor,\" which prohibits the Distributor from developing, manufacturing, or selling any equipment or service that is competitive to the products offered by Lucid. The clause also grants Lucid the right to designate specific products and companies it considers competitive, and defines a \"competitive product\" broadly to include any product that would infringe any Lucid-owned or licensed patent (issued or pending worldwide).",
+     "quotes": [
+      "The Distributors will not develop, manufacture or sell any equipment or service, which in any way can be considered to be competitive to the equipment or service offered by Lucid to the Distributor as Product.",
+      "Lucid reserves the right to inform the Distributor from time to time of specific products and companies that Lucid considers to be competitive.",
+      "A competitive product includes, but is not limited to, any product that would infringe any claim of any Lucid owned or licensed patent issued or pending worldwide, whether or not corresponding patent claims are in force in the Distributors territory or the sale of which would restrict sale of Lucid product."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 5809,
+     "completion_tokens": 515,
+     "total_tokens": 6324,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-041": {
+    "predicted": {
+     "answer": "The Consulting Agreement between Kiromic, Inc. and Gianluca Rotino does not specify a fixed expiration date. The agreement commences on the Effective Date (July 1, 2018) and continues indefinitely until terminated by either party upon prior written notice. There is no set end date or expiration term stated in the contract.",
+     "quotes": [
+      "This Agreement will commence on the Effective Date and will continue until termination as provided below.",
+      "Either Consultant or Company may terminate this Agreement upon prior written notice thereof to the other party.",
+      "This letter agreement will be effective as of July 1, 2018."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 6275,
+     "completion_tokens": 341,
+     "total_tokens": 6616,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-036": {
+    "predicted": {
+     "answer": "The Licensing and Web Site Hosting Agreement between Mortgage Logic.com, Inc. and TrueLink, Inc. does not have a fixed calendar expiration date. Instead, it took effect on the Effective Date of February 26, 1999, and remains in effect for an initial period of 1 year (i.e., through approximately February 26, 2000). After that initial term, the Agreement automatically renews for successive one-year periods unless either party delivers written notice of intent not to renew, or the Agreement is terminated pursuant to its termination provisions.",
+     "quotes": [
+      "This Agreement will take effect on the Effective Date and remain in effect for a period of 1 year",
+      "This Agreement shall renew automatically thereafter for successive one year periods until terminated pursuant to Section 12 herein or unless either Client or TrueLink deliver to the other written notice of intent not to ren",
+      "This Agreement is entered into on February 26, 1999, (the \"Effective Date\") by and between Mortgage Logic.com, Inc. (\"Client\") ... and TrueLink, Inc. (\"TrueLink\")"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 7789,
+     "completion_tokens": 440,
+     "total_tokens": 8229,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-056": {
+    "predicted": {
+     "answer": "The governing law for the Transportation Contract between Enterprise Transportation Company and Enterprise Products Operating L.P. is the **State of Texas**. The contract explicitly excludes any conflict of laws rules that might refer construction to the laws of another state. Additionally, any lawsuit related to or arising out of the contract must be brought in either the United States District Court for the Southern District of Texas (Houston Division) or the District Court of Harris County, Texas.",
+     "quotes": [
+      "This contract shall be governed by and construed in accordance with the laws of the State of Texas, excluding any binding conflict of laws rule which might refer such construction to the laws of another state."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 7963,
+     "completion_tokens": 257,
+     "total_tokens": 8220,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-051": {
+    "predicted": {
+     "answer": "The Mobile Application Development Agreement (Agreement No: VAL/MAD/PVTINV/DC/190305/1) between VGrab Asia Ltd. and the Developer (Ms. Chen Weijie, Mr. Zheng Qing, and Mr. Gu Xianwin) provides two warranty-related provisions:\n\n1. **Bug Fixing Warranty (Post-Delivery):** The Developer is required to fix any bugs or glitches in the code free of charge for up to **3 months after final delivery**. This is explicitly referred to as the \"Bug Fixing Warranty.\"\n\n2. **Bug Fixing Warranty Time (Milestone):** The project milestone schedule also designates **Weeks 22\u201323** (out of a 24-week project timeline) as \"Bug Fixing Warranty Time,\" during which any reported bugs are to be resolved on priority \u2014 this occurs before the final live handover at Week 24.\n\nIn summary, the post-delivery warranty duration is **3 months** from final delivery.",
+     "quotes": [
+      "any \"bug\" will be fixed by Developer for free up to 3 months after final delivery (Bug Fixing Warranty).",
+      "Bug Fixing Warranty Time. If any bug is reported then it will be resolved on priority. Week 22 - 23"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 6295,
+     "completion_tokens": 456,
+     "total_tokens": 6751,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-061": {
+    "predicted": {
+     "answer": "Yes, the Outsourcing Agreement contains a liability cap under Article 9.1 (Limited Liability). There are two key components:\n\n1. **Exclusion of consequential damages**: No party shall be liable for lost profits, indirect, incidental, special, or consequential damages of any kind arising out of or related to the Agreement, however caused and under any theory of liability \u2014 even if advised of the possibility of such damages.\n\n2. **Aggregate cap**: A party's cumulative liability arising out of the Agreement is capped at the amounts actually paid, payable, received, or receivable by such party for the Products concerned during the **twelve (12) months prior to the occurrence of the initial event** for which a party recovers damages.\n\n**Exceptions to the cap**: The limitations do not apply to:\n- Breaches of confidentiality obligations (Section 12.17 of the China JV Operating Agreement),\n- Breaches of license grants contained in the Agreement, and\n- Amounts payable to third parties to fulfill indemnity obligations under Article 8.\n\nThe parties expressly acknowledged that Article 9 is \"an essential element of the bargain.\"",
+     "quotes": [
+      "IN NO EVENT SHALL A PARTY'S CUMULATIVE LIABILITY ARISING OUT OF THIS AGREEMENT EXCEED THE AMOUNTS ACTUALLY PAID, PAYABLE, RECEIVED OR RECEIVABLE BY SUCH PARTY FOR THE PRODUCTS CONCERNED THEREWITH HEREUNDER PURSUANT TO THIS AGREEMENT DURING THE TWELVE (12) MONTHS PRIOR TO THE OCCURRENCE OF THE INITIAL EVENT FOR WHICH A PARTY RECOVERS DAMAGES HEREUNDER.",
+      "IN NO EVENT SHALL ANY PARTY HAVE ANY LIABILITY TO THE OTHERS, OR TO ANY PARTY CLAIMING THROUGH OR UNDER THE OTHER, FOR ANY LOST PROFITS, ANY INDIRECT, INCIDENTAL, SPECIAL OR CONSEQUENTIAL DAMAGES OF ANY KIND IN ANY WAY ARISING OUT OF OR RELATED TO THIS AGREEMENT, HOWEVER CAUSED AND UNDER ANY THEORY OF LIABILITY, EVEN IF SUCH PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES",
+      "EXCEPT FOR LIABILITY ARISING FROM BREACHES OF A PARTY'S CONFIDENTIALITY OBLIGATIONS CONTAINED IN THE NON-DISCLOSURE CLAUSE IN SECTION 12.17 OF THE CHINA JV OPERATING AGREEMENT, BREACHES OF LICENSE GRANTS CONTAINED HEREIN, AND EXCEPT FOR AMOUNTS PAYABLE TO THIRD PARTIES TO FULFILL INDEMNITY OBLIGATIONS DESCRIBED IN ARTICLE 8",
+      "THE PARTIES ACKNOWLEDGE AND AGREE THAT THIS ARTICLE 9 IS AN ESSENTIAL ELEMENT OF THE BARGAIN AND ABSENT THIS ARTICLE 9 THE ECONOMIC AND OTHER TERMS OF THIS AGREEMENT WOULD BE SUBSTANTIALLY DIFFERENT."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 8691,
+     "completion_tokens": 892,
+     "total_tokens": 9583,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-046": {
+    "predicted": {
+     "answer": "Yes, the Distributor Agreement between VendingData Corporation and Technical Casino Supplies Ltd provides for several obligations and services to be performed after termination:\n\n1. **Completion of Pending Orders (Section 1.4):** Both Vendor and Distributor are required to complete delivery of all orders received and unfulfilled prior to the termination date.\n\n2. **Product Returns and Credit (Section 1.3):** Except when termination is due to Distributor's uncured breach, Distributor has one (1) month after termination to return unopened Products to Vendor in exchange for a full credit of the price paid.\n\n3. **Monthly Compensation (Section 1.6):** If the Agreement is terminated due to a change of control of Vendor (Section 1.1.4) or transfer of a shuffler line (Section 1.1.5), Distributor is entitled to receive Monthly Compensation from Vendor for the remaining months of the Term or twenty-four (24) calendar months, whichever is less, paid no later than thirty (30) calendar days after the end of each relevant monthly period.\n\n4. **Reversion of Distribution Rights (Section 1.5):** Upon termination, the exclusive distribution right and license automatically reverts to Vendor.\n\n5. **Limited Use of Marks (Section 2.2):** Distributor may not use Vendor's marks, logos, images, and copy after termination, except as needed to sell any Products remaining in Distributor's inventory.",
+     "quotes": [
+      "Vendor and Distributor agree to complete the delivery of each order of the Product received by Distributor and each unfulfilled order for the Product prior to the termination date.",
+      "Distributor shall have within one (1) month of termination of this Agreement the right to return the Products purchased by Distributor to Vendor provided that the Products are unopened upon receipt by Vendor. Distributor will receive a credit for the full price paid by Distributor for the Products.",
+      "Distributor shall have the right to receive monthly compensation from Vendor, or successor to the Vendor, representing the amount of profit to Distributor lost as a result of the termination (the \"Monthly Compensation\").",
+      "The Monthly Compensation shall be paid for the remaining monthly periods remaining in the Term, as if the termination of this Agreement had not occurred, or twenty four (24) calendar months, which ever period is less, where payment shall be made no later than thirty (30) calendar days after the end of the relevant monthly period.",
+      "the exclusive distribution right and license granted to Distributor pursuant to this Agreement shall automatically revert to Vendor as Vendor's sole property.",
+      "Distributor agrees not to use in any manner whatsoever the marks, logos, images and copy of Vendor following the expiration or termination of this Agreement, except as may be needed to sell any Products remaining in Distributor's inventory."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 8176,
+     "completion_tokens": 990,
+     "total_tokens": 9166,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-066": {
+    "predicted": {
+     "answer": "Yes, Amendment No. 2 to the Wireless Content License Agreement between Fox Mobile Entertainment, Inc. and Glu Mobile, Inc. includes revenue/profit-sharing arrangements, specifically a royalty structure based on Gross Receipts. Key details are:\n\n1. **Royalty on Gross Receipts**: Glu Mobile (Licensee) is required to pay Fox a royalty calculated as a percentage of Licensee's Gross Receipts from the sale and distribution of the IA2 Audio and Video Wireless Products. The exact royalty rate has been redacted (filed confidentially with the SEC).\n\n2. **No Revenue Share for Direct-to-Consumer Channels**: Glu Mobile is explicitly excluded from receiving any share of revenues earned by Fox through its direct-to-consumer distribution channels for the same products.\n\n3. **VGSL and CSP Accounting**: Payments remitted directly to Fox via VGSL and other CSP agreements are handled per the terms set out in the underlying Agreement (Paragraphs 7(b)(ii) and 7(b)(iii)).\n\n4. **No Recoupment of Guarantee**: Glu Mobile may not recoup any portion of the Ice Age 2 Guarantee (defined in Amendment 1) through sales of the IA2 Audio and Video Wireless Products.",
+     "quotes": [
+      "Fox shall earn a royalty at the rate of ***** percent (*****%) of Licensee's Gross Receipts (as defined in the Agreement) from Licensee's sale and distribution of the IA2 Audio and Video Wireless Products.",
+      "Licensee shall not be entitled to receive a share of any revenues and shall have no claim to any revenues earned and collected by Fox, or a third-party Fox designates, for the IA2 Audio and Video Wireless Products which Fox distributes through its and its assigns' direct-to-consumer distribution channels.",
+      "All VGSL and other CSP payments remitted directly to Fox pursuant to the VGSL Agreement and other CSP agreements with respect to the IA Audio and Video Wireless Products shall be treated in the same manner as set forth in Paragraphs 7(b)(ii) and 7(b)(iii) of the Agreement.",
+      "Licensee may not recoup any portion of the Ice Age 2 Guarantee (as defined in Amendment 1) through its sale and distribution of the IA2 Audio and Video Wireless Products."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 3284,
+     "completion_tokens": 786,
+     "total_tokens": 4070,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-071": {
+    "predicted": {
+     "answer": "The Collaboration Agreement between Astellas Pharma Inc. and FibroGen, Inc. (effective June 1, 2005) contains a governing law provision under Article 20, Section 20.2. However, the specific text of Section 20.2 (\"Governing Law\") is not included in the retrieved context \u2014 only the Table of Contents entry referencing it is present. The contract is silent on the specific jurisdiction or law named in that clause based on the available excerpt.",
+     "quotes": [
+      "20.2   Governing Law     41"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9505,
+     "completion_tokens": 293,
+     "total_tokens": 9798,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-081": {
+    "predicted": {
+     "answer": "Yes, the Distributor Agreement between Snotarator LLC and SMSA Ballinger Acquisition Corp. (effective August 1, 2013) includes an exclusivity agreement. Under Article I, Section 1.01, Snotarator LLC grants SMSA Ballinger Acquisition Corp. the **exclusive right** to sell Snotarator Products within the Territory of South America (all countries and their territories and possessions within the continent). This exclusivity is reinforced by Section 1.04, which prohibits the Distributor from representing or selling competitive products without the Company's prior written consent.",
+     "quotes": [
+      "The Company hereby appoints and grants Distributor the exclusive right to sell the products of the Company, including the Snotarator\u2122 Nasal Aspirator,  (\"Products\") listed in the current \"Price List\" (Exhibit \"A\" attached hereto).",
+      "The distribution right shall be limited to all countries and all of their territories and possessions within the continent known as South America (\"Territory\")",
+      "Distributor agrees not to represent or sell other products which are deemed to be competitive with the Company's Products unless agreed to by the Company by written notice."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 6326,
+     "completion_tokens": 495,
+     "total_tokens": 6821,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-086": {
+    "predicted": {
+     "answer": "The retrieved context for the Master Development and Manufacturing Agreement between Magenta Therapeutics, Inc. and Bachem Americas, Inc. does not contain a governing law clause within the provided excerpts. The contract text supplied does not specify which state or jurisdiction's law governs the agreement.",
+     "quotes": []
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8048,
+     "completion_tokens": 257,
+     "total_tokens": 8305,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-076": {
+    "predicted": {
+     "answer": "Based on the retrieved context of the Software Hosting Agreement between Inktomi Corporation and Microsoft Corporation, the agreement does not contain an explicit clause stating that the licenses granted are \"non-transferable.\" The contract is primarily a hosting and services agreement, and while it governs the deployment, hosting, and maintenance of the Microsoft Search Engine, the retrieved text does not include a dedicated license grant section with transferability restrictions. The agreement does, however, restrict certain rights \u2014 for example, Inktomi is prohibited from sharing Usage Data with third parties, and Microsoft's sublicensing of search results is addressed by reference to the Information Services Agreement. The contract is silent on a general non-transferability provision for any licenses granted within this specific agreement.",
+     "quotes": [
+      "Inktomi shall not have the right to share any of such Usage Data with third parties (except that Inktomi may include Usage Data as part of \"gross\" undifferentiated data which it shares with other search engine customers but does not indicate as Usage Data related to the Microsoft Search Engine).",
+      "if Microsoft sublicenses its rights to use the search results generated by the Product hereunder (as permitted under the Information Services Agreement), then the site(s) of such Microsoft sublicensee(s) will be deemed to be Microsoft Site(s)."
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8022,
+     "completion_tokens": 504,
+     "total_tokens": 8526,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-091": {
+    "predicted": {
+     "answer": "The competitive restriction in this agreement is stated in Section 3.2, which provides that Dr. Murray shall not directly assist in the development of any product competitive to products developed by EHS or EHN. However, the contract contains **no explicit exceptions** to this competitive restriction. The clause is stated without carve-outs, qualifications, or listed exceptions. There are no provisions in the retrieved contract text that exempt any category of products, pre-existing relationships, or other circumstances from the scope of this non-compete obligation.",
+     "quotes": [
+      "Dr. Murray shall not directly assist in the development of any product competitive to products developed by EHS or EHN."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 6457,
+     "completion_tokens": 306,
+     "total_tokens": 6763,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-096": {
+    "predicted": {
+     "answer": "The Mobile Virtual Network Enabler Hosting Agreement between T-Mobile Netherlands B.V. and Elephant Talk Communication Holding AG includes a dedicated \"Governing Law\" clause listed as Article 21 in the Table of Contents. However, the specific text of Article 21 is not reproduced in the retrieved context \u2014 only the table of contents entry is visible. Based on the contract's context, the agreement is closely tied to Dutch law: the parties acknowledge that their arrangements are subject to Dutch and EU law, including the Dutch Telecommunications Act, Dutch Competition Act, and the Dutch Data Protection Act. The contract does not explicitly state the governing law jurisdiction in the retrieved text beyond these references.",
+     "quotes": [
+      "21. Governing Law",
+      "Parties acknowledge that the Dutch telecommunications market is regulated under both Dutch and EU law, such as inter alia EU-directives, the Dutch Telecommunications Act, Dutch Competition Act and the Dutch Data Protection Act."
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8701,
+     "completion_tokens": 415,
+     "total_tokens": 9116,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-106": {
+    "predicted": {
+     "answer": "The retrieved context for the Distributor Agreement between PPG Paints Trading (Shanghai) Co Ltd and NeoMedia Micro Paint Repair does not explicitly state a governing law clause within the provided excerpt. The context cuts off at Section 15 (Product Discontinuance) and does not include a governing law or dispute resolution provision. Therefore, the governing law for this contract cannot be confirmed from the available context.",
+     "quotes": []
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 7900,
+     "completion_tokens": 270,
+     "total_tokens": 8170,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-111": {
+    "predicted": {
+     "answer": "The retrieved context for the Co-Branding Agreement between Skype Communications, Skype Technologies, TOM Online (BVI) Limited, TOM Online Inc., and Tel-Online Limited does not contain any clause specifying a notice period required to terminate a renewal. The agreement's term and termination provisions (referenced as Section 6.1) are not included in the retrieved context.",
+     "quotes": []
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 8694,
+     "completion_tokens": 269,
+     "total_tokens": 8963,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-116": {
+    "predicted": {
+     "answer": "The retrieved context for the Outsourcing Agreement between Paratek Pharmaceuticals, Inc. and CARBOGEN AMCIS AG (dated December 30, 2016) includes Article 13 covering \"Representations, Warranties and Covenants\" (Sections 13.1\u201313.4), but the actual substantive text of those warranty clauses has not been provided in the retrieved context \u2014 only the Table of Contents entries are visible. No specific warranty duration period is stated anywhere in the available text. The contract is also subject to significant redactions marked [* * *]. Therefore, the duration of any warranties provided in this contract cannot be determined from the available context.",
+     "quotes": [
+      "Article 13  Representations, Warranties and Covenants   31\n\n13.1  Supplier's Representations, Warranties and Covenants   31\n\n13.2  Customer's Representations, Warranties and Covenants   32\n\n13.3  No Other Warranty   32\n\n13.4  No Consequential Damages and Limitation of Liability   33"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9376,
+     "completion_tokens": 420,
+     "total_tokens": 9796,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-cuad-101": {
+    "predicted": {
+     "answer": "The Joint Venture Agreement (dated May 23, 2017) among Aizu Fujitsu Semiconductor Limited (AFSL), Fujitsu Semiconductor Limited (FSL), and Transphorm, Inc. (TPH) defines \"Change of Control Transaction\" but does not, within the retrieved context, specify a distinct set of consequences or remedies triggered specifically when a Change of Control occurs with respect to one of the *parties* (as opposed to the Company itself). Here is what the agreement does provide:\n\n**Definition of \"Change of Control Transaction\" (Section 1.11):**\nA \"Change of Control Transaction\" is defined as either:\n1. The acquisition of **the Company** by an entity not affiliated with FSL or TPH, through any transaction or series of related transactions (stock acquisition, merger, demerger, share exchange, etc.), where the existing holders of voting securities do not retain at least a majority of total voting power after the transaction; **or**\n2. A sale, lease, transfer, exclusive license, or other disposition of all or substantially all of the assets of the Company and its Subsidiaries to a party other than FSL or its Affiliates or TPH or its Affiliates (except where such disposition is to a wholly owned Subsidiary of the Company).\n\n**Definition of \"Control\" (Section 1.13):**\n\"Control\" means the power, right, or authority to direct or cause the direction of the management or policies of a Person, or to elect a majority of the board of directors or similar governing body, whether through ownership of securities, by contract, or otherwise. References to \"change of control\" include the transfer, disposition, or relinquishment, whether directly or indirectly, of Control.\n\nThe retrieved context does not contain explicit provisions detailing what happens (e.g., termination rights, put/call triggers, or consent requirements) specifically in the event of a change of control of one of the *parties* (AFSL, FSL, or TPH) themselves \u2014 as opposed to a change of control of the Company. The Table of Contents references Article IX (Put Option and Call Option) and Article VIII (Transfer Restrictions), which may contain relevant provisions, but those sections are not included in the retrieved context.",
+     "quotes": [
+      "\"Change of Control Transaction\" means either (a) the acquisition of the Company by an entity not affiliated with FSL or TPH by means of any transaction or series of related transactions (including, without limitation, any stock acquisition, merger, demerger or share exchange but excluding any sale of stock for capital raising purposes) other than a transaction or series of related transactions in which the holders of the voting securities of the Company outstanding immediately prior to such transaction or series of related transactions retain, immediately after such transaction or series of related transactions, as a result of shares in the Company held by such holders prior to such transaction or series of related transactions, at least a majority of the total voting power represented by the outstanding voting securities of the Company or such other surviving or resulting entity",
+      "or (b) a sale, lease, transfer, exclusive license or other disposition of all or substantially all of the assets of the Company and its Subsidiaries taken as a whole by means of any transaction or series of related transactions with a party other than FSL or its Affiliates or TPH or its Affiliates, except where such sale, lease, transfer, exclusive license or other disposition is to a wholly owned Subsidiary of the Company.",
+      "\"Control\" means the power, right or authority to direct or cause the direction of the management or policies of a Person, or to elect a majority of the board of directors or similar governing body of a Person, whether through the ownership of securities or similar ownership interest, by contract or otherwise, and references to \"change of control\" include the transfer, disposition or relinquishment, whether directly or indirectly, of Control."
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9233,
+     "completion_tokens": 1162,
+     "total_tokens": 10395,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-121": {
+    "predicted": {
+     "answer": "No, the Khronos Mutual Non-Disclosure Agreement does **not** require that Confidential Information be expressly identified or marked by the Disclosing Party. Instead, the definition of \"Confidential Information\" is broad and automatic: it covers all technical and non-technical information provided by either party unless it is \"specifically designated as non-Confidential by the providing party.\" In other words, information is presumed confidential by default \u2014 the burden is on the disclosing party to affirmatively designate information as *non*-confidential, not to label it as confidential. The only marking obligation in the agreement applies to the *receiving* party when making copies, which must be marked \"Strictly Confidential\" or with a similar legend.",
+     "quotes": [
+      "not specifically designated as non-Confidential by the providing party, including all versions and revisions of draft specifications and any passwords and minutes provided to either Participant or Khronos under this agreement.",
+      "Both parties will mark any copies it makes of such Confidential Information \u201cStrictly Confidential,\u201d or with a similar legend"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 3867,
+     "completion_tokens": 456,
+     "total_tokens": 4323,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-131": {
+    "predicted": {
+     "answer": "Yes, the INFOMAGNET Non-Disclosure Agreement explicitly indicates that it does not grant the Receiving Party any rights to the Confidential Information. Section 4(a) states that by disclosing information to the Receiving Party, the Disclosing Party does not grant any express or implied right to the Receiving Party to or under the Disclosing Party's patents, copyrights, trademarks, or trade secret information. Furthermore, Section 4(b) reinforces this by clarifying that the residuals provision shall not be deemed to grant either party a license under the other party's copyrights or patents.",
+     "quotes": [
+      "By disclosing information to the Receiving Party, Disclosing Party does not grant any express or implied right to Receiving Party to or under Disclosing Party patents, copyrights, trademarks, or trade secret information.",
+      "the foregoing shall not be deemed to grant to either party a license under the other party's copyrights or patents.",
+      "All Confidential Information and Confidential Materials are and shall remain the property of the Disclosing Party."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4006,
+     "completion_tokens": 439,
+     "total_tokens": 4445,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-126": {
+    "predicted": {
+     "answer": "Yes, Fintricity's Mutual Non-Disclosure Agreement explicitly restricts the use of Confidential Information to the Business Purpose stated in the Agreement. Specifically, Clause 3(d) prohibits either party from using or circulating Confidential Information within its own organisation except to the extent necessary for the Business Purpose (or any other purpose expressly authorised in writing by the disclosing party). Similarly, Clause 6 permits disclosure to other members of the recipient's company only \"for use only in connection with the Business Purpose.\" The Business Purpose itself is defined by reference to the Schedule attached to the Agreement.",
+     "quotes": [
+      "not to use or circulate such Confidential Information within its own organisation except solely to the extent necessary for the purposes of the Business Purpose or any other purpose the disclosing party may hereafter expressly authorise in writing;",
+      "Each party may disclose Confidential Information received from the other party to other members of the recipient's company for use only in connection with the Business Purpose",
+      "\"Confidential Information\" shall mean all information of the disclosing party, whether commercial, financial, technical or otherwise, disclosed to the recipient in connection with the Business Purpose specified in the Schedule hereto",
+      "only to those personnel of the recipient on a need to know basis who are concerned with the Business Purpose;"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4800,
+     "completion_tokens": 558,
+     "total_tokens": 5358,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-136": {
+    "predicted": {
+     "answer": "Yes, the Mutual Non-Disclosure Agreement between Product Development Experts, Inc. and the Inventor does allow the Receiving Party to independently develop information that is similar to the Confidential Information, provided that such development occurs without use of or reference to the Disclosing Party's Confidential Information and is supported by documents and other competent evidence in the Receiving Party's possession.\n\nSpecifically, the agreement carves out \"independently developed\" information from the definition of Confidential Information entirely. This means that if the Receiving Party can demonstrate \u2014 through its own records \u2014 that it developed similar information independently and without relying on the Disclosing Party's Confidential Information, that independently developed information is not subject to the agreement's confidentiality obligations.",
+     "quotes": [
+      "is independently developed by the receiving party without use of or reference to the disclosing party's Confidential Information, as shown by documents and other competent evidence in the receiving party's possession"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 3946,
+     "completion_tokens": 386,
+     "total_tokens": 4332,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-151": {
+    "predicted": {
+     "answer": "Yes, Excelerate's Non-Disclosure Agreement explicitly allows verbally conveyed (oral) information to be considered as Proprietary/Confidential Information. Paragraph 5 of the Agreement states that disclosure of Proprietary Information may be either oral or in writing. However, there is a specific procedural requirement attached to oral disclosures: if an oral disclosure occurs, it must be confirmed in writing within fifteen (15) days following the initial disclosure. That written confirmation must state at least the date and circumstances of the disclosure and the general nature of the information disclosed.",
+     "quotes": [
+      "Disclosure of Proprietary Information to a receiving Party may be either oral or in writing.",
+      "If an oral disclosure occurs, it will be confirmed within fifteen (15) days following initial disclosure by a written communication stating at least the date and circumstances under which the disclosure occurred and the general nature of the information disclosed."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4540,
+     "completion_tokens": 390,
+     "total_tokens": 4930,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-141": {
+    "predicted": {
+     "answer": "The Mutual Non-Disclosure Agreement between Roundhouse Creative Pty Ltd and the unnamed counterparty does **not** explicitly permit the Receiving Party to retain Confidential Information after its return or destruction. On the contrary, the agreement requires the Recipient to \"promptly return or destroy all copies of Confidential Information disclosed under this Agreement and all notes related to such Confidential Information\" upon request from the disclosing Party.\n\nHowever, the agreement does contain a **survival clause** that preserves the *obligation to protect* Confidential Information even after the agreement terminates \u2014 meaning that if any Confidential Information were retained (e.g., as required by law or otherwise), the confidentiality obligations would continue to apply. The document does not carve out an express right to retain copies (for example, for archival or legal compliance purposes), which is a notable absence. The agreement is silent on any permitted retention exceptions post-return/destruction.",
+     "quotes": [
+      "The Recipient shall honor any request from the disclosing Party to promptly return or destroy all copies of Confidential Information disclosed under this Agreement and all notes related to such Confidential Information.",
+      "The requirement to protect Confidential Information disclosed under this Agreement shall survive termination of this Agreement."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4001,
+     "completion_tokens": 492,
+     "total_tokens": 4493,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-146": {
+    "predicted": {
+     "answer": "Yes, the Non-Disclosure Agreement between NREL (Alliance for Sustainable Energy, LLC) and the counterparty does allow the Receiving Party to share Confidential Information (Proprietary Information and NREL Protected Information) with certain employees \u2014 but only under specific conditions.\n\nSpecifically, the Receiving Party may provide access to such information only to its **employees, agents, and independent contractors** who are required to have access specifically related to the Purpose. However, the Receiving Party must:\n1. Inform those individuals of the confidential nature of the information and the restrictions on its publication, disclosure, and use.\n2. Require that such employees, agents, and independent contractors are bound by confidentiality obligations no less stringent than those stated in the Agreement.",
+     "quotes": [
+      "Receiving Party will provide access to Proprietary Information and NREL Protected Information that is within the Scope and that is disclosed in compliance with Paragraph 2.a, above, only to Receiving Party's employees, agents, and independent contractors who are required to have access specifically related to the Purpose",
+      "Receiving Party will inform individuals having access to such information of the confidential nature of this information and the restrictions on its publication, disclosure, and use, and will require that such employees, agents, and independent contractors are bound by confidentiality obligations no less stringent than those stated in this Agreement."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4456,
+     "completion_tokens": 487,
+     "total_tokens": 4943,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-156": {
+    "predicted": {
+     "answer": "No, DBT's Mutual Non-Disclosure Agreement does not require that all Confidential Information be expressly identified or labeled by the Disclosing Party. The definition of \"Confidential Information\" covers two categories: (1) information that the Disclosing Party expressly designates as confidential, AND (2) information which, under the circumstances surrounding disclosure, the Receiving Party should know is treated as confidential by the Disclosing Party. This means that information can qualify as Confidential Information even without an explicit label or designation, as long as the circumstances would put the Receiving Party on notice of its confidential nature.",
+     "quotes": [
+      "\"Confidential Information\" means nonpublic information that disclosing party (\"Disclosing Party\") designates as being confidential or which, under the circumstances surrounding disclosure the receiving party (\"Receiving Party\") should know is treated as confidential by the Disclosing Party."
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 3879,
+     "completion_tokens": 367,
+     "total_tokens": 4246,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-161": {
+    "predicted": {
+     "answer": "Yes, the FullStory Mutual Non-Disclosure Agreement explicitly indicates that the Agreement does not grant the Receiving Party broad rights to the Confidential Information. Specifically, Section 2 states that no licenses or rights under any patent, copyright, trademark, or trade secret are granted or implied by the Agreement, and that the Recipient acquires only a limited right to use the Confidential Information for the defined Purpose (i.e., discussing, analyzing, and exchanging information to determine whether the parties may enter into a mutually beneficial business relationship). Furthermore, Section 7 confirms that all Confidential Information remains the property of the Discloser.",
+     "quotes": [
+      "No licenses or rights under any patent, copyright, trademark, or trade secret are granted or are to be implied by this Agreement; Recipient does not acquire any right in or to the Confidential Information except the limited right to use it for the Purpose.",
+      "All Confidential Information disclosed under this Agreement will be and will remain the property of the Discloser"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 4442,
+     "completion_tokens": 379,
+     "total_tokens": 4821,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-contractnli-166": {
+    "predicted": {
+     "answer": "Yes, the Red River Oil Inc. (RROI) Confidentiality Agreement does allow the Receiving Party to independently develop information similar to the Confidential Information. This is addressed within the definition of \"Evaluation Material,\" which explicitly carves out from the scope of protected information any information that has been independently acquired or developed by the Recipient \u2014 provided such development does not violate any of the Recipient's obligations under this or any other agreement.",
+     "quotes": [
+      "has been independently acquired or developed by the Recipient without violating any of its obligations under this or any other agreement the Recipient may have with any Person"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 7350,
+     "completion_tokens": 296,
+     "total_tokens": 7646,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-171": {
+    "predicted": {
+     "answer": "In the Agreement and Plan of Merger between Merck Sharp & Dohme Corp. (Parent) and Pandion Therapeutics, Inc. (Company), the Closing Conditions / Regulatory Approvals clause is located in **Article 8, Section 8.1** (\"Conditions to Each Party's Obligation To Effect the Merger\"), with the related regulatory efforts covenant found in **Article 7, Section 7.5** (\"Standard of Efforts; Governmental Approvals\"). The Table of Contents confirms both locations.",
+     "quotes": [
+      "ARTICLE 8     CONDITIONS    78  SECTION 8.1.   Conditions to Each Party\u2019s Obligation To Effect the Merger    78",
+      "SECTION 7.5.   Standard of Efforts; Governmental Approvals    66"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9367,
+     "completion_tokens": 411,
+     "total_tokens": 9778,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-186": {
+    "predicted": {
+     "answer": "In the Merger Agreement between Nicolet Bankshares, Inc. and Mackinac Financial Corporation (dated April 12, 2021), the consideration is a **mixed cash and stock consideration** (sometimes called \"mixed consideration\"). Specifically, each share of Mackinac Financial Corporation (Company) Common Stock outstanding immediately prior to the Effective Time is converted into the right to receive:\n\n1. **Stock Consideration:** 0.22 fully paid and nonassessable shares of Nicolet Common Stock (the \"Per Share Stock Consideration\"), at an Exchange Ratio of 0.22.\n2. **Cash Consideration:** $4.64 in cash, without interest (the \"Per Share Cash Consideration\").\n\nTogether, these two components constitute the \"Merger Consideration.\"",
+     "quotes": [
+      "each share of Company Common Stock issued and outstanding immediately prior to the Effective Time, will be converted, subject to the fractional share procedures in Section 2.4 and the dissenters rights provisions in Section 2.5, into the right to receive:",
+      "0.22 fully paid and nonassessable shares (the \u201cExchange Ratio\u201d) of Nicolet Common Stock (the \u201cPer Share Stock Consideration\u201d)",
+      "$4.64 in cash, without interest (the \u201cPer Share Cash Consideration\u201d).",
+      "The total cash and stock consideration to be paid by Nicolet in respect of shares of Company Common Stock is referred to herein as the \u201cMerger Consideration.\u201d"
+     ]
+    },
+    "gold_beyond_cutoff": false,
+    "usage": {
+     "prompt_tokens": 9937,
+     "completion_tokens": 540,
+     "total_tokens": 10477,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-176": {
+    "predicted": {
+     "answer": "Yes, the Agreement and Plan of Merger between Newport Holdings, LLC (Parent) and The New Home Company Inc. (Company), dated July 23, 2021, contains a \"tail\" provision for acquisition proposals (referred to as a \"No Solicitation\" covenant under Section 6.3). This provision governs the Company's obligations with respect to acquisition proposals both during the agreement and following termination.\n\nSpecifically, the agreement includes a termination fee mechanism under Section 8.3 that functions as the economic \"tail\" \u2014 if the Company terminates the agreement or the agreement is terminated under certain circumstances and the Company subsequently enters into or consummates an alternative acquisition transaction, a termination fee becomes payable. This is the standard \"tail\" structure in M&A agreements: the no-solicitation and termination fee provisions together create a period during which the Company remains economically bound even after termination.\n\nThe Table of Contents confirms the presence of:\n- **Section 6.3 \u2013 No Solicitation by the Company** (the substantive no-solicitation/tail covenant)\n- **Section 8.3 \u2013 Fees and Expenses** (the termination fee triggered upon a subsequent acquisition deal)\n\nHowever, the full text of Section 6.3 and Section 8.3 was not included in the retrieved context, so the specific tail period (e.g., 12 months) and the exact fee amount cannot be quoted verbatim from the provided excerpts.",
+     "quotes": [
+      "6.3 No Solicitation by the Company 49",
+      "8.3 Fees and Expenses 74",
+      "This AGREEMENT AND PLAN OF MERGER, dated as of July 23, 2021 (this \u201cAgreement\u201d), is made by and among Newport Holdings, LLC, a Delaware limited liability company (\u201cParent\u201d)\u037e Newport Merger Sub, Inc., a Delaware corporation and a wholly owned, direct subsidiary of Parent (\u201cMerger Sub\u201d)\u037e and The New Home Company Inc., a Delaware corporation (the \u201cCompany\u201d)."
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9489,
+     "completion_tokens": 737,
+     "total_tokens": 10226,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-181": {
+    "predicted": {
+     "answer": "The retrieved context for the Agreement and Plan of Merger dated September 9, 2020, among Austin HoldCo Inc., Austin BidCo Inc. (\"Sub\"), and Virtusa Corporation (the \"Company\") includes a Table of Contents referencing **Article V \u2013 Covenants Relating to Conduct of Business**, specifically **Section 5.01 (Conduct of Business)** at page 39, which governs the ordinary course of business covenants. However, the full text of Section 5.01 was not included in the retrieved context. Only the Table of Contents entry and a partial reference to \"Company Owned IP\" defined under Section 5.01(a)(xi) are present.\n\nFrom what is available in the retrieved context:\n\n1. **Section 5.01 \u2013 Conduct of Business** (pages 39\u201344): This is the primary ordinary course of business covenant section. The Table of Contents confirms it spans approximately 5 pages, indicating it is a substantive covenant.\n\n2. **Section 5.01(a)(xi)** is referenced in the Index of Defined Terms as the source of the definition of \"Company Owned IP,\" suggesting that subsection (a)(xi) addresses restrictions or obligations relating to the Company's owned intellectual property during the pre-closing period.\n\n3. **Section 5.01(d)** is referenced in the Index of Defined Terms in connection with \"Post-Signing Returns,\" \"Tax Action,\" and \"Tax-Related Agreements,\" indicating that subsection (d) contains ordinary course covenants relating to tax matters.\n\nThe full substantive text of the ordinary course covenants (Section 5.01) was not included in the retrieved context, so the specific restrictions, carve-outs, and obligations cannot be enumerated verbatim.",
+     "quotes": [
+      "ARTICLE V COVENANTS RELATING TO CONDUCT OF BUSINESS 39 Section 5.01. Conduct of Business 39 Section 5.02. No Solicitation 44",
+      "Company Owned IP  Section 5.01(a)(xi)",
+      "Post-Signing Returns  Section 5.01(d)",
+      "Tax Action  Section 5.01(d)",
+      "Tax-Related Agreements  Section 5.01(d)"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9528,
+     "completion_tokens": 893,
+     "total_tokens": 10421,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-196": {
+    "predicted": {
+     "answer": "The retrieved context for the Marvell Technology Group Ltd. / Inphi Corporation Agreement and Plan of Merger and Reorganization (dated October 29, 2020) contains a Table of Contents reference to Section 4.3 (\"No Solicitation by the Company\") and Section 4.4 (\"No Solicitation by Marvell\"), which are the No-Shop provisions. However, the actual text of those sections \u2014 including any fiduciary exception (sometimes called a \"fiduciary out\") \u2014 was not included in the retrieved context. The contract is silent on the specific terms of the fiduciary exception to the No-Shop clause based on the material provided.",
+     "quotes": [
+      "4.3 No Solicitation by the Company 52 4.4 No Solicitation by Marvell 55"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9346,
+     "completion_tokens": 392,
+     "total_tokens": 9738,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   },
+   "qa-lbr-maud-191": {
+    "predicted": {
+     "answer": "In the Agreement and Plan of Merger dated May 4, 2021, between Amryt Pharma plc (Parent), Acorn Merger Sub, Inc. (Merger Sub), and Chiasma, Inc. (Company), the type of consideration is **stock consideration** \u2014 specifically, Parent Consideration Shares (Amryt Pharma plc ordinary shares, or Parent ADSs in respect thereof). The merger is structured as a stock-for-stock transaction intended to qualify as a tax-free \"reorganization\" under Section 368(a) of the U.S. Internal Revenue Code. Chiasma stockholders would receive Parent Consideration Shares (or Parent ADSs), and equity award holders would receive Assumed Stock Options, Assumed RSU Awards, and Adjusted Warrants convertible into Parent Ordinary Shares or Parent ADSs.",
+     "quotes": [
+      "a resolution generally and unconditionally authorizing the Board of Directors of Parent in accordance with Section 551 of the CA 2006 to exercise all the powers of Parent to allot the Parent Consideration Shares in connection with the Merger and any Parent Ordinary Shares (or, as applicable, any Parent ADSs in respect thereof) or rights thereto in connection with the Assumed Stock Options, Assumed RSU Awards and Adjusted Warrants",
+      "the Merger shall qualify as a \"reorganization\" within the meaning of Section 368(a) of the Code",
+      "the Merger shall not cause the stockholders of the Company (other than any Excepted Stockholder) to recognize gain pursuant to Section 367(a)(1) of the Code"
+     ]
+    },
+    "gold_beyond_cutoff": true,
+    "usage": {
+     "prompt_tokens": 9417,
+     "completion_tokens": 651,
+     "total_tokens": 10068,
+     "cache_creation_input_tokens": 0,
+     "cache_read_input_tokens": 0
+    }
+   }
+  },
+  "routing": {
+   "routing-01": {
+    "predicted": {
+     "workflow": "NDA Fast-Track",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "f2280983-7adc-4c60-aa7f-61eb865dd3a5",
+     "flow_name": "NDA Fast-Track",
+     "confidence": 0.72,
+     "reasoning": "The NDA Fast-Track workflow is the best fit for a standard mutual NDA with a near-term deadline \u2014 its AI template review + legal sign-off + e-signature steps are designed to move quickly, and the request gives no indication of bespoke or non-standard terms that would require a different approach.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-06": {
+    "predicted": {
+     "workflow": "Master Services Agreement",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "3b7cecd6-91eb-43f6-b45e-621bd462e824",
+     "flow_name": "Master Services Agreement",
+     "confidence": 0.62,
+     "reasoning": "The Master Services Agreement workflow (id: 3b7cecd6) is the direct fit \u2014 it covers the full MSA lifecycle (draft, legal review, quality/privacy review, finance approval, counterparty negotiation, and signature) for exactly this type of IT services engagement.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-11": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.62,
+     "reasoning": "The Data Privacy Incident (DPDP) workflow (38152f9b) is scoped to breach/incident response with a 72-hour notification clock \u2014 it does not fit a pre-transfer DPA drafting request. The Vendor Due Diligence workflow (44a1ade6) covers sanctions/debarment screening and contract terms approval, which is partially relevant but does not address DPA drafting. No catalog workflow squarely covers DPA drafting for vendor onboarding; a human should route this to the appropriate privacy/vendor counsel.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-16": {
+    "predicted": {
+     "workflow": "Trademark Clearance",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "6a3779ec-cd26-4415-8086-90381b253c44",
+     "flow_name": "Trademark Clearance",
+     "confidence": 0.62,
+     "reasoning": "The Trademark Clearance workflow (id: 6a3779ec-cd26-4415-8086-90381b253c44) is the exact fit \u2014 it covers distinctiveness and conflict searches, IP counsel review, and a registry-search recommendation before a name goes live, which is precisely what Marketing needs before packaging is finalised.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-21": {
+    "predicted": {
+     "workflow": "Patent / ANDA Litigation (Para IV)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "16106445-cb2f-4592-bd5d-f020f29b7e07",
+     "flow_name": "Patent / ANDA Litigation (Para IV)",
+     "confidence": 0.82,
+     "reasoning": "The Patent/ANDA Litigation (Para IV) workflow is purpose-built for exactly this scenario \u2014 Hatch-Waxman Para IV notice letters with hard-SLA'd early stages and outside counsel engagement. It is the only workflow in the catalog that addresses the 45-day statutory deadline and antitrust review requirements inherent to this matter type.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-26": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.72,
+     "reasoning": "The Legal Notice Response workflow is the best fit \u2014 it is specifically designed for statutory/demand notices with hard reply deadlines, and includes AI deadline & claim extraction followed by counsel-finalized response drafting. The 15-day reply window makes this time-critical. A human should also be looped in given the employment law sensitivity and potential litigation exposure.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-31": {
+    "predicted": {
+     "workflow": "Regulatory Action Response",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "b9e38808-1e8d-46ae-b678-6578d2798b96",
+     "flow_name": "Regulatory Action Response",
+     "confidence": 0.72,
+     "reasoning": "The Regulatory Action Response workflow explicitly covers USFDA 483 observations and warning letters, with cross-functional steps involving Quality/Regulatory Affairs \u2014 a direct match for this request.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-36": {
+    "predicted": {
+     "workflow": "Compliance Investigation",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "cb1b54a7-9fef-4c5e-8e4b-86e5ffd3f91b",
+     "flow_name": "Compliance Investigation",
+     "confidence": 0.72,
+     "reasoning": "The Compliance Investigation workflow (cb1b54a7) is the best fit \u2014 it covers whistleblower/UCPMP/anti-bribery matters with a confidential track, structured fact-finding, and a mandatory closure report. A human should confirm routing given the high-risk nature of the allegation and the limited detail provided.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-41": {
+    "predicted": {
+     "workflow": "Board / Secretarial Approval",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "89c84926-9b73-4b88-b31d-e6158bf8b41f",
+     "flow_name": "Board / Secretarial Approval",
+     "confidence": 0.72,
+     "reasoning": "The Board / Secretarial Approval workflow (id=89c84926-9b73-4b88-b31d-e6158bf8b41f) is a direct fit \u2014 it covers board resolutions, authorised-signatory changes, and similar secretarial matters, with steps for drafting, legal vetting, and CS/Board approval.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-46": {
+    "predicted": {
+     "workflow": "Contract Approval Ladder",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "918443de-17d5-43e2-95d6-76abbf220e62",
+     "flow_name": "Contract Approval Ladder",
+     "confidence": 0.55,
+     "reasoning": "The Contract Approval Ladder is the designated workflow for commercial contracts including supply agreements, covering draft/submit through AI risk review, legal review, and finance review \u2014 directly matching the need for a final approval sign-off before countersignature.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   }
+  }
+ }
+}

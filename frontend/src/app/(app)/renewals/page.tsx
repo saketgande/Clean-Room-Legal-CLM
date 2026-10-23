@@ -5,13 +5,20 @@
 // from days-until-notice-date for undecided events.
 
 import { useId, useState } from "react";
+import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarClock, RefreshCw } from "lucide-react";
-import { renewalsApi } from "@/lib/endpoints";
+import { contractsApi, renewalsApi } from "@/lib/endpoints";
 import { Modal } from "@/components/ui";
 import { fmtDate, titleCase } from "@/lib/utils";
+import { daysToExpiry, expiringWithoutRenewal } from "@/lib/expiry";
 import { useToast } from "@/components/toast";
 import type { RenewalEvent } from "@/lib/types";
+import {
+  EVERGREEN_NOTE, STATUS_TEXT, STATUS_TONE, canConfirm, conflictField, conflictText, evergreenConflict, mustTypeExpiry,
+  recomputed,
+} from "./dates";
+import { conflictChoices } from "../obligations/deadline";
 
 const ic = (p: string) => (
   <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: p }} />
@@ -55,6 +62,7 @@ export default function RenewalsPage() {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [deciding, setDeciding] = useState<RenewalEvent | null>(null);
+  const [confirming, setConfirming] = useState<RenewalEvent | null>(null);
   const [windowBusy, setWindowBusy] = useState(false);
 
   const { data, isLoading, error } = useQuery({
@@ -62,6 +70,9 @@ export default function RenewalsPage() {
     queryFn: () => renewalsApi.list(),
   });
   const rows = data ?? [];
+  // Running contracts that end within 90 days but have no row here: the Contracts screen counts them.
+  const { data: contracts } = useQuery({ queryKey: ["contracts-list"], queryFn: contractsApi.list });
+  const untracked = expiringWithoutRenewal(contracts ?? [], rows);
   const undecided = rows.filter((r) => r.decision === "undecided").length;
   const dueSoon = rows.filter((r) => {
     const u = noticeUrgency(r);
@@ -123,6 +134,23 @@ export default function RenewalsPage() {
         </div>
       )}
 
+      {untracked.length > 0 && (
+        <div className="empty" role="note" style={{ marginBottom: 12, textAlign: "left" }}>
+          <b>
+            {untracked.length} running contract{untracked.length === 1 ? "" : "s"} expire within 90 days but{" "}
+            {untracked.length === 1 ? "has" : "have"} no renewal record yet, so {untracked.length === 1 ? "it is" : "they are"} not
+            listed below:
+          </b>{" "}
+          {untracked.map((c, i) => (
+            <span key={c.id}>
+              {i > 0 ? ", " : ""}
+              <Link href={`/contracts/${c.id}`} style={{ textDecoration: "underline" }}>{c.title}</Link> ({daysToExpiry(c)}d)
+            </span>
+          ))}
+          . A renewal record is created when a contract&apos;s renewal terms have been read.
+        </div>
+      )}
+
       {isLoading ? (
         <div className="tablewrap">
           <div className="grid" style={{ padding: 14 }}>
@@ -159,25 +187,56 @@ export default function RenewalsPage() {
                 const notice = noticeUrgency(r);
                 return (
                   <tr key={r.id} className={notice ? `u-${notice.tone}` : undefined}>
-                    <td className="ttl">
-                      <span className={`bar ${notice?.tone ?? "none"}`} />
-                      {r.contract_title ?? "Untitled contract"}
+                    <td>
+                      <div className="ttl">
+                        <span className={`bar ${notice?.tone ?? "none"}`} />
+                        <div>
+                          {r.contract_title ?? "Untitled contract"}
+                          {r.dates_status && (
+                            <p className={`dst ${STATUS_TONE[r.dates_status]}`}>{STATUS_TEXT[r.dates_status]}</p>
+                          )}
+                          {r.date_conflict && <p className="fml">{conflictText(r.date_conflict, fmtDate)}</p>}
+                          {r.date_reason && <p className="fml">{r.date_reason}</p>}
+                        </div>
+                      </div>
                     </td>
-                    <td className="nowrap">{fmtDate(r.expiration_date)}</td>
-                    <td className="nowrap">
-                      {fmtDate(r.notice_date)}
-                      {notice && <span className={`tag ${notice.tone}`}>{notice.label}</span>}
+                    <td>
+                      <span className="nowrap">{fmtDate(r.expiration_date)}</span>
+                      {r.formulas.expiration_date && <p className="fml">{r.formulas.expiration_date}</p>}
+                      {r.next_expiration_date && (
+                        <p className="fml">
+                          {r.formulas.next_expiration_date ?? `next term ends ${fmtDate(r.next_expiration_date)}`} (if not
+                          stopped)
+                        </p>
+                      )}
                     </td>
-                    <td className="nowrap">{fmtDate(r.renewal_window_starts_at)}</td>
+                    <td>
+                      <span className="nowrap">
+                        {fmtDate(r.notice_date)}
+                        {notice && <span className={`tag ${notice.tone}`}>{notice.label}</span>}
+                      </span>
+                      {r.formulas.notice_date && <p className="fml">{r.formulas.notice_date}</p>}
+                    </td>
+                    <td>
+                      <span className="nowrap">{fmtDate(r.renewal_window_starts_at)}</span>
+                      {r.formulas.window_opens && <p className="fml">{r.formulas.window_opens}</p>}
+                    </td>
                     <td className="nowrap">
                       <span className={`tag ${DECISION_TONE[r.decision]}`}>
                         {titleCase(r.decision)}
                       </span>
                     </td>
                     <td className="right">
-                      <button className="btn sm" onClick={() => setDeciding(r)}>
-                        Decide
-                      </button>
+                      <div className="rowacts">
+                        {r.dates_status && r.dates_status !== "confirmed" && (
+                          <button className="btn sm" onClick={() => setConfirming(r)}>
+                            {canConfirm(r) ? "Confirm dates" : "Set dates"}
+                          </button>
+                        )}
+                        <button className="btn sm" onClick={() => setDeciding(r)}>
+                          Decide
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -186,6 +245,18 @@ export default function RenewalsPage() {
           </table>
         </div>
       )}
+
+      <ConfirmDatesModal
+        key={confirming?.id ?? "none"}
+        renewal={confirming}
+        onClose={() => setConfirming(null)}
+        onSaved={(message) => {
+          qc.invalidateQueries({ queryKey: ["renewals"] });
+          qc.invalidateQueries({ queryKey: ["obligations"] });
+          notify(message, "success");
+          setConfirming(null);
+        }}
+      />
 
       <DecideModal
         renewal={deciding}
@@ -197,6 +268,155 @@ export default function RenewalsPage() {
         }}
       />
     </div>
+  );
+}
+
+/** Accept the calculated dates (or their re-count), or type your own. A typed
+ *  expiry recounts the notice deadline on the server and becomes the
+ *  contract's expiry as a person-set date. */
+function ConfirmDatesModal({
+  renewal,
+  onClose,
+  onSaved,
+}: {
+  renewal: RenewalEvent | null;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const { notify } = useToast();
+  const [expiry, setExpiry] = useState("");
+  const [noticeBy, setNoticeBy] = useState("");
+  const [busy, setBusy] = useState(false);
+  const expiryId = useId();
+  const noticeId = useId();
+  const recount = renewal ? recomputed(renewal) : null;
+  // No expiry to accept (or two that disagree): the person must type one.
+  const mustType = !!renewal && mustTypeExpiry(renewal);
+  const conflict = renewal?.date_conflict ?? null;
+
+  // A form-vs-text dispute is settled on the contract: the picked date becomes
+  // a person-set contract date and the server recounts the renewal from it.
+  async function settle(value: string) {
+    if (!renewal) return;
+    setBusy(true);
+    try {
+      await contractsApi.update(renewal.contract_id, { [conflictField(renewal)]: value });
+      onSaved("Contract date set — renewal dates recounted");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Could not set the contract date", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function noEndDate() {
+    if (!renewal) return;
+    setBusy(true);
+    try {
+      await renewalsApi.confirmDates(renewal.id, { no_end_date: true });
+      onSaved("Set to run until terminated");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Could not save", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit() {
+    if (!renewal || (mustType && !expiry)) return;
+    setBusy(true);
+    try {
+      await renewalsApi.confirmDates(renewal.id, {
+        ...(expiry ? { expiration_date: expiry } : {}),
+        ...(noticeBy ? { notice_date: noticeBy } : {}),
+      });
+      onSaved("Renewal dates confirmed");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Could not confirm the dates", "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={!!renewal}
+      onClose={onClose}
+      title="Renewal dates"
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn pri" disabled={busy || (mustType && !expiry)} onClick={submit}>
+            {busy ? "Saving…" : expiry || noticeBy ? "Save my dates" : "Confirm these dates"}
+          </button>
+        </>
+      }
+    >
+      {renewal && (
+        <div className="mbody">
+          {renewal.dates_status && (
+            <p className={`dst ${STATUS_TONE[renewal.dates_status]}`}>{STATUS_TEXT[renewal.dates_status]}</p>
+          )}
+          {conflict && <p className="note">{conflictText(conflict, fmtDate)}.</p>}
+          {conflict && evergreenConflict(renewal) && <p className="note">{EVERGREEN_NOTE}</p>}
+          {conflict && (
+            <div className="rowacts pick">
+              {conflictChoices(conflict, fmtDate).map((c) => (
+                <button key={c.value} className="btn sm" disabled={busy} onClick={() => settle(c.value)}>
+                  {c.label}
+                </button>
+              ))}
+              {evergreenConflict(renewal) && (
+                <button className="btn sm" disabled={busy} onClick={noEndDate}>
+                  Runs until terminated
+                </button>
+              )}
+            </div>
+          )}
+          {renewal.date_reason && <p className="note">{renewal.date_reason}</p>}
+          <dl className="dates">
+            <dt>Expiry</dt>
+            <dd>
+              {fmtDate(renewal.expiration_date)}
+              {renewal.formulas.expiration_date && <span className="fml">{renewal.formulas.expiration_date}</span>}
+            </dd>
+            <dt>Notice by</dt>
+            <dd>
+              {fmtDate(renewal.notice_date)}
+              {renewal.formulas.notice_date && <span className="fml">{renewal.formulas.notice_date}</span>}
+            </dd>
+            <dt>Window opens</dt>
+            <dd>
+              {fmtDate(renewal.renewal_window_starts_at)}
+              {renewal.formulas.window_opens && <span className="fml">{renewal.formulas.window_opens}</span>}
+            </dd>
+          </dl>
+          {recount && (
+            <div className="note">
+              <strong>Re-counted after a contract date changed</strong> — confirming accepts these:
+              <span className="fml">{recount.formulas?.expiration_date ?? `expires ${fmtDate(recount.expiration_date ?? null)}`}</span>
+              {(recount.formulas?.notice_date || recount.notice_date) && (
+                <span className="fml">{recount.formulas?.notice_date ?? `notice by ${fmtDate(recount.notice_date ?? null)}`}</span>
+              )}
+            </div>
+          )}
+          <label className="lbl" htmlFor={expiryId}>
+            Expiry {mustType ? "(required)" : "(only to change it)"}
+          </label>
+          {mustType && (
+            <span className="hint">There is no calculated expiry to accept — enter the date the contract ends.</span>
+          )}
+          <input id={expiryId} type="date" className="sel" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+          <label className="lbl" htmlFor={noticeId}>
+            Notice deadline (only to change it)
+          </label>
+          <input id={noticeId} type="date" className="sel" value={noticeBy} onChange={(e) => setNoticeBy(e.target.value)} />
+          <span className="hint">A deadline on a weekend is not moved later — act by the day shown.</span>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -336,13 +556,22 @@ const RENW_CSS = `
 .renw table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;min-width:760px}
 .renw thead th{text-align:left;font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
 .renw thead th.right,.renw td.right{text-align:right}
-.renw tbody td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.renw tbody td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
 .renw tbody tr:last-child td{border-bottom:0}
 .renw tbody tr:hover td{background:var(--inset)}
 .renw tbody tr.u-crit td{background:var(--crit-soft)}
 .renw tbody tr.u-crit:hover td{background:var(--crit-soft)}
 .renw td.nowrap{white-space:nowrap}
-.renw td.ttl{font-weight:560;color:var(--ink);display:flex;align-items:center;gap:8px}
+.renw .ttl{font-weight:560;color:var(--ink);display:flex;align-items:flex-start;gap:8px}
+.renw .fml{display:block;margin:2px 0 0;font:400 11px var(--mono);color:var(--ink-3);max-width:280px;white-space:normal}
+.renw .dst{margin:2px 0 0;font-size:11px;font-weight:600}
+.renw .dst.good{color:var(--good)} .renw .dst.warn{color:var(--warn)} .renw .dst.crit{color:var(--crit)}
+.renw .rowacts{display:flex;justify-content:flex-end;gap:6px}
+.renw .rowacts.pick{justify-content:flex-start;flex-wrap:wrap}
+.renw .note{margin:0;font-size:12.5px;color:var(--ink-2)}
+.renw .dates{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:4px 0;font-size:12.5px}
+.renw .dates dt{font-weight:600;color:var(--ink-2)}
+.renw .dates dd{margin:0}
 .renw .bar{width:3px;align-self:stretch;min-height:16px;border-radius:99px;background:var(--border-strong);flex-shrink:0}
 .renw .bar.crit{background:var(--crit)} .renw .bar.warn{background:var(--warn)} .renw .bar.good{background:var(--good)}
 .renw .tag{display:inline-flex;align-items:center;font:600 10.5px var(--sans);letter-spacing:.02em;padding:2px 8px;border-radius:99px;margin-left:8px;white-space:nowrap}

@@ -11,6 +11,7 @@ Enum-ish fields are validated VARCHARs, never DB enums — same convention as th
 intake models, so adding a notice type is a code change, not a migration.
 """
 from sqlalchemy import (
+    JSON,
     Column,
     Date,
     DateTime,
@@ -65,6 +66,8 @@ EVENT_KINDS = (
     "closed",
     "note",
     "reminded",
+    "deadline_changed",
+    "deadline_confirmed",
 )
 
 # Reminder milestones, in escalating order. The daily sweep only notifies when
@@ -95,7 +98,14 @@ class Notice(
     notice_date = Column(Date, nullable=True)  # date printed on the notice
     received_at = Column(Date, nullable=True)  # date it actually reached us
     # The statutory clock. Nullable because some notices are informational.
+    # Always the code-computed (or person-set) date, never a model's: posture,
+    # reminders and drafting all read this column.
     response_due_date = Column(Date, nullable=True)
+    # Where response_due_date came from: the notice's own deadline wording (facts),
+    # the formula code applied to it, who set it (document|person) and who
+    # confirmed it. See service.compute_due. NULL for notices filed with no date
+    # and no extraction. none_as_null so "no basis" is SQL NULL, not JSON null.
+    deadline_basis = Column(JSON(none_as_null=True), nullable=True)
 
     status = Column(String(20), nullable=False, default="open")
     priority = Column(String(20), nullable=False, default="Medium")

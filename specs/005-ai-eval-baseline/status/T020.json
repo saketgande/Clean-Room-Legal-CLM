@@ -1,0 +1,7 @@
+{
+  "task": "T020",
+  "agent": "qa-engineer",
+  "status": "done",
+  "detail": "verification.md written: 41/41 AC PASS (mocked + live API/CLI refusals), live paid proof NOT-RUN by rule; ruff clean, alembic single head 0071 (+scratch up/down/up), pytest 1945 passed (feature subset 697), vitest 69 passed, typecheck 0 errors outside .next; defects: 0 blocking, 2 low (D-1 FR-7 pooling, D-2 report counts by category), 4 info",
+  "updated": "2026-10-07T07:59:01Z"
+}

@@ -1,0 +1,7 @@
+{
+  "task": "T004",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "7 branch result files copied byte-identical from ai-redesign/step-0 into backend/eval/results/superseded/ + README.md (labelled earlier, superseded; three defects; how the exam removes each)",
+  "updated": "2026-10-06T17:22:01Z"
+}

@@ -36,21 +36,41 @@ export type IntakeSlaPosture = "on_track" | "at_risk" | "overdue";
 export interface IntakeWorkflowStep {
   label: string; stage: string; done: boolean; active: boolean;
 }
-export interface IntakeFieldSpec {
-  key: string; label: string;
-  kind: "text" | "textarea" | "select" | "date" | "number" | "boolean";
-  required: boolean; sort_order: number; options?: { value: string; label: string }[] | null;
+/** One of our own companies — the contracting entity on an agreement. */
+export interface LegalEntity {
+  id: ID; name: string; jurisdiction: string | null; registered_address: string | null;
+  authorised_signatory: string | null; active: boolean; source: string; external_ref: string | null;
+  created_at: string; updated_at: string;
 }
-export interface IntakeRequestType {
-  id: ID; key: string; name: string; workstream: string | null;
-  description: string | null; active: boolean; stages: string[] | null;
-  sort_order: number; fields: IntakeFieldSpec[];
+/** The other side of an agreement. */
+export interface Counterparty {
+  id: ID; name: string; jurisdiction: string | null; address: string | null; contact_email: string | null;
+  active: boolean; source: string; external_ref: string | null; created_at: string; updated_at: string;
+}
+/** A request form's questions as the server validates them (agreement_forms.json). */
+export interface RequestFormRule { field: string; in: string[] }
+export interface RequestFormField {
+  key: string; label: string; kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number";
+  required: boolean; options?: string[]; show?: RequestFormRule[];
+  /** A date that must not come before the date answered under this key (an end date against its start date). */
+  not_before?: string;
+}
+export interface RequestFormDef { key: string; name: string; fields: RequestFormField[] }
+/** A half-filled agreement-wizard form saved with "Save as Draft". */
+export interface IntakeDraft {
+  id: ID; form_key: string; title: string | null; values: Record<string, string | string[]>;
+  parent_contract_id: ID | null; page_index: number; visited: number;
+  created_at: string; updated_at: string;
 }
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
   requester_user_id: ID; requester_name: string | null; department: string | null;
-  request_type_id: ID | null; type_label: string; subject: string | null; description: string;
+  type_label: string; subject: string | null; description: string;
+  counterparty_id?: ID | null; legal_entity_id?: ID | null;
   field_values: Record<string, unknown> | null;
+  /** Server-decided document "Approve & draft" would produce (null = not draftable). */
+  draftable_doc_type?: string | null;
+  draftable_doc_label?: string | null;
   priority: "Critical" | "High" | "Medium" | "Low";
   status: IntakeStatus; stage: string; work_status: string | null;
   assigned_to_user_id: ID | null; assigned_to_label: string | null;
@@ -59,12 +79,10 @@ export interface IntakeRequest {
   submitted_at: string | null; closed_at: string | null;
   triaged_by_user_id: ID | null; triage_action: string | null;
   ai_triage: Record<string, unknown> | null;
-  gates?: IntakeGates | null;
   screening?: Record<string, unknown> | null;
   parties?: IntakeParty[];
-  fired_rules: Record<string, unknown> | null;
   handoff_holder: string | null; handoff_user_id: ID | null;
-  matter_id: ID | null; contract_id: ID | null; contract_title?: string | null;
+  contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
 }
 // Workflow Router agent output — lives on ai_triage.flow_suggestion.
@@ -88,17 +106,10 @@ export interface LitigationAssessment {
   key_parties: string[];
   summary: string;
 }
-export interface IntakeGateDetected {
-  key: string; label: string; confidence: number; matched_text?: string; source: string;
-}
-export interface IntakeGateOverride {
-  action: "add" | "remove"; gate_key: string; by_user_id: ID; by_name: string;
-  reason: string | null; at: string;
-}
-export interface IntakeGateEffective { key: string; label: string; approver_group: string; }
-export interface IntakeGates {
-  detected: IntakeGateDetected[]; overrides: IntakeGateOverride[];
-  effective: IntakeGateEffective[]; effective_keys: string[];
+export interface IntakeApprovalPreview {
+  workflow: { id: ID; name: string } | null;
+  approvers: { step_name: string; approver: string; kind: "person" | "team" | "role"; mode: "any" | "all"; members: number | null }[];
+  our_signatory: string | null; our_entity: string | null; counterparty_contact: string | null;
 }
 export interface IntakeApprovalRung {
   approval_request_id: ID | null; step_order: number; status: string;
@@ -140,46 +151,18 @@ export interface IntakeSlaOps {
   by_holder: { agent: number; human: number; queue: number };
   oldest_open: string | null;
   workload: { user_id: ID; name: string | null; open: number; overdue: number }[];
-  rule_effectiveness: { id: ID; name: string; times_fired: number; last_fired_at: string | null }[];
 }
 export interface IntakeTeamMember {
   id?: ID; user_id: ID; name?: string; capacity: number; active: boolean; open_count?: number;
+  /** Approval authority in plain words (Admin → Authority); absent when no policy exists. */
+  approve_limit?: string | null;
 }
 export interface IntakeTeam {
   id: ID; key: string; name: string; description: string | null; active: boolean;
   strategy: "least_loaded" | "round_robin"; overflow_team_id: ID | null;
   overflow_team_name: string | null; sort_order: number;
+  is_default_intake: boolean; used_in: { where: string; kind: string | null; stage?: LifecycleStage | null }[];
   expertise: string[]; departments: string[]; members: IntakeTeamMember[];
-}
-export interface IntakeKbArticle {
-  id: ID; source_ref: string; title: string; body: string; tags: string[]; active: boolean;
-}
-export interface IntakePoolMember {
-  user_id: ID; name: string | null; capacity: number; utilization: number | null;
-  open: number; overdue: number; at_risk: number; closed_7d: number; closed_30d: number; effort: number;
-}
-export interface IntakePoolTier {
-  id: ID; name: string; strategy: string; overflow_team_name: string | null;
-  members: IntakePoolMember[]; open: number; overdue: number; closed_30d: number; effort: number;
-}
-export interface IntakePoolOps {
-  generated_at: string; days: number; tiers: IntakePoolTier[];
-  totals: { open: number; overdue: number; closed_30d: number; effort_minutes: number; overflow_events: number };
-  complexity_mix: { simple: number; standard: number; complex: number };
-}
-export interface CopilotTurn {
-  reply: string; extracted: Record<string, string>; ready: boolean; suggested_type_label: string | null;
-}
-export interface IntakeRule {
-  id: ID; name: string; description: string | null; enabled: boolean; eval_order: number;
-  match_type: string | null; match_priority: string | null; match_department: string | null;
-  match_keyword: string | null; match_complexity: string | null;
-  set_assignee_user_id: ID | null; set_assignee_name: string | null;
-  set_priority: string | null; set_sla_hours: number | null;
-  set_team_id: ID | null; set_team_name: string | null;
-  escalate_to_user_id: ID | null; escalate_to_name: string | null;
-  require_approval_from_user_id: ID | null; require_approval_from_name: string | null;
-  times_fired: number; last_fired_at: string | null;
 }
 
 export interface RoleResponse {
@@ -224,7 +207,7 @@ export interface WallResponse {
   id: ID;
   name: string;
   reason: string | null;
-  scope_type: "contract" | "project";
+  scope_type: "contract";
   scope_id: string;
   scope_label: string | null;
   active: boolean;
@@ -289,113 +272,6 @@ export interface UserInvitationResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Matters
-// ---------------------------------------------------------------------------
-
-export type MatterType =
-  | "general"
-  | "contract_review"
-  | "due_diligence"
-  | "regulatory"
-  | "transactional"
-  | "litigation"
-  | "m_and_a"
-  | "employment"
-  | "privacy"
-  | "procurement"
-  | "advisory";
-
-export type MatterStatus = "intake" | "active" | "on_hold" | "closed";
-
-export interface MatterResponse {
-  id: ID;
-  org_id: ID;
-  name: string;
-  description: string | null;
-  matter_type: MatterType;
-  owner_user_id: ID;
-  matter_number: string | null;
-  client_name: string | null;
-  status: MatterStatus;
-  opened_at: ISODateTime | null;
-  closed_at: ISODateTime | null;
-  metadata_json: Record<string, unknown>;
-}
-
-export interface MatterRollupItem {
-  id: ID;
-  title: string;
-  status: string | null;
-  meta: string | null;
-}
-
-export interface MatterOverviewCounts {
-  contracts: number;
-  contracts_active: number;
-  obligations_open: number;
-  obligations_overdue: number;
-  approvals_pending: number;
-  notices_open: number;
-  intake_open: number;
-}
-
-export interface MatterOverview {
-  matter: MatterResponse;
-  counts: MatterOverviewCounts;
-  contracts: MatterRollupItem[];
-  obligations: MatterRollupItem[];
-  notices: MatterRollupItem[];
-  approvals: MatterRollupItem[];
-  intake: MatterRollupItem[];
-}
-
-export interface UnfiledItem {
-  id: ID;
-  kind: "contract" | "intake";
-  title: string;
-  subtitle: string | null;
-  suggested_matter_id: string | null;
-  suggested_matter_label: string | null;
-}
-
-export interface MatterActivityItem {
-  id: ID;
-  activity_type: string;
-  title: string;
-  occurred_at: ISODateTime | null;
-}
-
-export interface MatterFolderResponse {
-  id: ID;
-  matter_id: ID;
-  parent_folder_id: ID | null;
-  name: string;
-}
-
-export interface MatterMemberResponse {
-  id: ID;
-  matter_id: ID;
-  user_id: ID;
-  role: string;
-}
-
-export interface MatterShareResponse {
-  id: ID;
-  matter_id: ID;
-  shared_with_user_id: ID;
-  access_level: "read" | "update" | "share";
-  expires_at: ISODateTime | null;
-  revoked_at: ISODateTime | null;
-}
-
-export interface MatterContractResponse {
-  id: ID;
-  matter_id: ID;
-  contract_id: ID;
-  folder_id: ID | null;
-}
-
-// ---------------------------------------------------------------------------
 // Contracts
 // ---------------------------------------------------------------------------
 
@@ -429,6 +305,26 @@ export interface ContractDeviation {
   status: string;
 }
 
+/** A requested AI review that has not finished (the server's contracts.auto_review.review_state). */
+export interface AutoReviewState {
+  state: "running" | "interrupted";
+  /** Why it counts as interrupted: "failed" | "stalled" | "no_job". */
+  reason: string | null;
+  /** When the attempt began. */
+  since: string | null;
+  job_id: ID | null;
+  /** "accepted_edits" when this re-checks text the person just changed by accepting suggestions: it lists findings but writes no changes. */
+  after?: string | null;
+}
+
+export interface ReviewRetryResponse {
+  /** "queued" | "already_running" | "not_needed" | "no_playbook" */
+  status: "queued" | "already_running" | "not_needed" | "no_playbook";
+  job_id: ID | null;
+  /** The contract's workflow was waiting on this review and was set going again. */
+  workflow_resumed: boolean;
+}
+
 export interface ReviewStatusResponse {
   contract_id: ID;
   lifecycle_stage: ContractLifecycleStage;
@@ -437,6 +333,10 @@ export interface ReviewStatusResponse {
   high_severity_issues: number;
   pending_redlines: number;
   open_comments: number;
+  /** Fill-in blanks still in the contract text. Advice before approval; sending for signature is refused while any remain. */
+  blanks?: string[];
+  /** Where approval stands for the version on screen. "changed": approved once, edited since, so this version was never approved. */
+  version_approval?: "none" | "approved" | "pending" | "rejected" | "changed";
   counterparty_active: boolean;
   ready_for_approval: boolean;
   next_step: string;
@@ -450,6 +350,17 @@ export interface ReviewStatusResponse {
     | "submit_approval"
     | null;
   checklist: ReviewChecklistItem[];
+  // The newest playbook run (null = never reviewed). "Reviewed" only means an AI run
+  // that succeeded on the current version; a keyword scan is source "keyword".
+  last_review?: {
+    status: string;
+    source: "ai" | "keyword";
+    contract_version_id: ID;
+    // That version's text is the current version's (a signed copy, a no-op save).
+    on_current_text?: boolean;
+  } | null;
+  // A review that was asked for and has not finished; null/absent when none is pending.
+  auto_review?: AutoReviewState | null;
 }
 
 export interface ContractComment {
@@ -569,6 +480,9 @@ export interface ExtractedDoc {
   filename: string;
   content: string;
   chars: number;
+  /** "unreadable" when no text could be read (a scanned PDF, say); see reason. */
+  status?: "ok" | "unreadable";
+  reason?: string | null;
 }
 
 export interface BuildChatResponse {
@@ -591,25 +505,31 @@ export type ContractVersionSource =
   | "restored"
   | "template_generated";
 
+/** One unresolved playbook finding behind the band (GET /contracts/{id}/risk). */
 export interface RiskDriver {
-  clause_type: string;
-  label: string;
-  weight: number;
-  risk: "low" | "medium" | "high";
-  rationale: string;
-  quote?: string | null;
-  contribution: number;
+  deviation_id: ID;
+  issue: string;
+  /** The severity the band used: a finding from an unverified (needs_review) run is floored at medium. */
+  severity: "critical" | "high" | "medium" | "low" | string;
+  status: string;
+  /** Accepted or waived by a person — the wording stays, so it still counts. */
+  conceded: boolean;
 }
 
+/** The one risk signal: a band computed from the unresolved findings of the
+ *  qualifying playbook review(s) of the current text. "unknown" (or a missing
+ *  band, on an old cached row) means nobody has a judgement on this text yet. */
 export interface ContractRiskSummary {
-  score: number | null;
-  band: "low" | "medium" | "high" | "unknown" | string;
-  drivers: RiskDriver[];
-  counts: { high: number; medium: number; low: number };
-  clause_count: number;
-  summary?: string | null;
-  computed_at?: string | null;
+  band: "low" | "medium" | "high" | "unknown" | null;
+  counts?: { critical: number; high: number; medium: number; low: number };
+  drivers?: RiskDriver[];
+  /** Why the band is unknown (never reviewed, keyword scan only, text changed…). */
   note?: string | null;
+  contract_version_id?: ID | null;
+  playbook_id?: ID | null;
+  playbook_version_id?: ID | null;
+  playbook_run_ids?: ID[];
+  computed_at?: string | null;
 }
 
 export interface ContractResponse {
@@ -625,6 +545,7 @@ export interface ContractResponse {
   jurisdiction: string | null;
   confidentiality: string;
   risk_level: string | null;
+  /** Always null since the weighted AI score was retired; the band is the signal. */
   risk_score?: number | null;
   risk_band?: string | null;
   risk_summary?: ContractRiskSummary | null;
@@ -668,7 +589,8 @@ export interface ContractVersionResponse {
 }
 
 export interface VersionDiffLine {
-  type: "context" | "add" | "remove";
+  // "gap" is a run of unchanged lines the server left out; its text says how many ("12 unchanged lines").
+  type: "context" | "add" | "remove" | "gap";
   text: string;
 }
 
@@ -704,6 +626,39 @@ export interface ContractEditResponse {
   replacement_text: string | null;
   rationale: string | null;
   citation: unknown[] | null;
+  /** The playbook issue this change fixes; deciding the change decides the issue. */
+  playbook_deviation_id: string | null;
+  /** False when the change's wording isn't in the text, so it can only be rejected. */
+  locatable: boolean;
+  /** A fill-in blank ("[INSERT DATE]") the change would write into the contract. Such a change can only be rejected. */
+  blank?: string | null;
+}
+
+/** The background job that writes a suggested change for each playbook issue that has none. */
+export interface IssueFixJob {
+  job_id: ID;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  /** "review": it started by itself when a playbook review finished. "manual": someone asked. */
+  trigger: "review" | "manual" | null;
+  /** Issues the job took on, and how many it has finished (changes written, or nothing to change, or an error). */
+  total: number;
+  done: number;
+  drafted: number;
+  /** The model found no wording to change: an answer, not an error. */
+  no_change: number;
+  failed: number;
+  /** Open issues beyond the job's cap, left for a person to ask for. */
+  left_for_later: number;
+  /** It stopped before reaching every issue (out of time, or the AI service kept failing). */
+  stopped_early: boolean;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface DraftIssueFixesResponse {
+  /** null when every open issue already has a suggested change. */
+  job: IssueFixJob | null;
+  reason: string | null;
 }
 
 export interface ContractShareResponse {
@@ -760,7 +715,6 @@ export interface LifecycleOptionsResponse {
 
 export type AssistantSessionType =
   | "general"
-  | "project"
   | "contract"
   | "tabular_review";
 
@@ -769,7 +723,6 @@ export interface AssistantSession {
   org_id: ID;
   session_type: string;
   title: string | null;
-  matter_id: ID | null;
   contract_id: ID | null;
   tabular_review_id: ID | null;
   status: "active" | "archived";
@@ -810,11 +763,28 @@ export interface AssistantMessage {
   created_by_user_id: ID | null;
 }
 
+export type AssistantRunStatus =
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "waiting_confirmation"
+  | "interrupted"
+  | "cancelled";
+
+/** What a reopened chat needs to know about its latest answer. */
+export interface AssistantRunSummary {
+  id: ID;
+  status: AssistantRunStatus;
+  error_message: string | null;
+  user_message_id: ID | null;
+  has_answer: boolean;
+}
+
 export interface AssistantRun {
   id: ID;
   session_id: ID;
   org_id: ID;
-  status: "running" | "succeeded" | "failed" | "waiting_confirmation";
+  status: AssistantRunStatus;
   user_message_id: ID | null;
   assistant_message_id: ID | null;
   model: string | null;
@@ -903,6 +873,16 @@ export interface WorkflowStepDef {
   config: Record<string, unknown>;
   parallel?: boolean; // runs concurrently with the step(s) above it
   cond?: WorkflowStepCond | null; // "only when" — run this step only if it matches
+  stage?: LifecycleStage; // which contract lifecycle stage the step sits under
+}
+
+export type LifecycleStage = "intake" | "drafting" | "review" | "approval" | "signature" | "active" | "closed";
+
+/** A lifecycle row that isn't a workflow step: request events, signers,
+ * obligations, renewal, expiry (backend app/workflows/lifecycle_rows.py). */
+export interface LifecycleRow {
+  name: string; kind: string; detail: string; who: string;
+  status: "done" | "waiting" | "planned" | "skipped"; when: string | null;
 }
 
 export interface Workflow {
@@ -920,8 +900,23 @@ export interface Workflow {
     match_keyword?: string | null;
     /** Free text an AI reads when auto-picking a workflow at intake. */
     ai_condition?: string | null;
+    /** The agreement type this workflow is for: a form, and for New agreement a
+     * kind of agreement. Form requests only ever get a workflow of their type.
+     * An entry with `type_label` (and no form) pins requests WITHOUT a form by
+     * their request type, e.g. "Legal Question — General". */
+    used_for?: { form?: string; agreement_type?: string | null; type_label?: string }[];
+    /** "Chosen when": all must hold for a request of that type to get it. */
+    conditions?: WorkflowCondition[];
   };
   steps: WorkflowStepDef[];
+}
+
+export interface WorkflowCondition {
+  field: string;
+  op: "is" | "is_not" | "under" | "at_least" | "between" | "within_days";
+  value: string | number;
+  value2?: number;
+  currency?: string;
 }
 
 export interface WorkflowRunStep {
@@ -933,12 +928,19 @@ export interface WorkflowRunStep {
   assignee_label: string | null;
   team_id: ID | null;
   team_label: string | null;
-  role: string | null;
+  /** The team the workflow names for this step, known before it starts. */
+  planned_team_label?: string | null;
+  /** Approval steps: the authority needed and how many approvers hold it. */
+  authority_note?: string | null;
+  /** Approval steps still waiting: who the live approval is with and when it is due (read from the approval itself). */
+  approval?: { approver_label: string; step_order: number; due_at: string | null; overdue: boolean } | null;
+  sla_hours?: number | string | null;
   note: string | null;
   result: Record<string, unknown> | null;
   updated_at: string | null;
   parallel?: boolean;
   cond?: WorkflowStepCond | null;
+  stage?: LifecycleStage | null;
 }
 
 export interface WorkflowRunComment {
@@ -971,6 +973,9 @@ export interface WorkflowRun {
   comments: WorkflowRunComment[];
   // The multi-agent hand-off trace: what each agent/step established, in order.
   brief?: WorkflowRunBriefEntry[];
+  // Set after a rejected approval, until someone replies to it. The next human step is
+  // refused without a reply (complete-step takes it as `rework_reply`).
+  rework?: { reply_required: true; reason: string } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1057,15 +1062,23 @@ export interface PlaybookDecisionResponse {
 export interface ApprovalRequest {
   id: ID;
   org_id: ID;
-  contract_id: ID;
+  /** Null for an approval on an intake request that has no contract (see intake_request_id). */
+  contract_id: ID | null;
+  intake_request_id?: ID | null;
+  intake_ref?: string | null;
+  intake_title?: string | null;
+  contract_title?: string | null;
+  contract_type?: string | null;
+  contract_archived?: boolean;
   contract_version_id: ID | null;
   status: "pending" | "approved" | "rejected" | "cancelled" | "waiting";
   requested_by_user_id: ID;
   approver_user_id: ID | null;
+  /** The assigned person's name, sent with the row (the users list is not readable by every approver). */
+  approver_user_name?: string | null;
   approver_role: string | null;
-  approver_group_id?: ID | null;
-  approver_group_name?: string | null;
-  routing_rule_id?: ID | null;
+  approver_team_id?: ID | null;
+  approver_team_name?: string | null;
   step_order?: number;
   mode?: "any" | "all";
   approvals?: number;
@@ -1113,42 +1126,9 @@ export interface ApproverBrief {
 }
 
 // A named pool of approvers for a function (Legal Counsel, Finance, …).
-export interface ApproverGroup {
-  id: ID;
-  org_id: ID;
-  name: string;
-  description: string | null;
-  is_active: boolean;
-  members: ApproverBrief[];
-  created_at: ISODateTime;
-  updated_at: ISODateTime;
-}
 
 // One ordered step of a routing rule's chain.
-export interface ApprovalRoutingStep {
-  id?: ID;
-  step_order: number;
-  approver_group_id: ID | null;
-  approver_group_name?: string | null;
-  approver_user_id: ID | null;
-  approver_user_name?: string | null;
-  approver_role: string | null;
-  mode: string;
-}
 
-export interface ApprovalRoutingRule {
-  id: ID;
-  org_id: ID;
-  name: string;
-  priority: string;
-  criteria: Record<string, unknown>;
-  approver_role: string | null;
-  approver_user_id: ID | null;
-  is_active: boolean;
-  steps: ApprovalRoutingStep[];
-  created_at: ISODateTime;
-  updated_at: ISODateTime;
-}
 
 // ---------------------------------------------------------------------------
 // Signatures
@@ -1209,8 +1189,63 @@ export interface Obligation {
   status: ObligationStatus;
   source_citation: Record<string, unknown> | null;
   metadata_json: Record<string, unknown>;
+  /** How the date was counted (null for rows extracted before Step 3d). */
+  deadline: ObligationDeadline | null;
   created_at: ISODateTime;
   updated_at: ISODateTime;
+}
+
+/** A contract date (or an event date a person entered) a period counts from.
+ *  `conflict` is set when the request form and the contract text disagree and
+ *  no person has picked: then `value` is null and nothing is computed. */
+export interface DeadlineAnchor {
+  name: string;
+  value: ISODate | null;
+  /** "computed": an expiry code counted from the renewal facts; "change_request": one a
+   *  finished renewal/amendment/termination wrote. An "ai" expiry is never an anchor. */
+  source: "user" | "form" | "ai" | "computed" | "change_request" | "signature" | null;
+  conflict: DateConflict | null;
+}
+
+/** Form value vs the contract text's value. `text` may be a phrase
+ *  ("continues until terminated") rather than a date. */
+export interface DateConflict {
+  form: string;
+  text: string;
+}
+
+/** Mirrors obligations/service._deadline_view. Code computes every date from
+ *  the clause's wording; `formula` shows the sum, `reason` why there is none. */
+export interface ObligationDeadline {
+  formula: string | null;
+  reason: string | null;
+  /** End of an ongoing duty — never a due date, so it can't go overdue. */
+  ends_on: ISODate | null;
+  anchor: DeadlineAnchor | null;
+  /** The day the triggering event happened, as a person entered it. */
+  anchor_date: ISODate | null;
+  set_by_person: boolean;
+  confirmed: boolean;
+  confirmed_by: ID | null;
+  confirmed_at: ISODateTime | null;
+  needs_reconfirm: boolean;
+  /** The re-count after an anchor moved, shown beside the confirmed date. */
+  recomputed: {
+    due: ISODate | null;
+    ends_on: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    anchor: DeadlineAnchor | null;
+  } | null;
+}
+
+export type RenewalDatesStatus = "confirmed" | "needs_reconfirm" | "needs_person" | "calculated";
+
+export interface RenewalFormulas {
+  expiration_date?: string;
+  notice_date?: string;
+  window_opens?: string;
+  next_expiration_date?: string;
 }
 
 export interface RenewalEvent {
@@ -1225,6 +1260,13 @@ export interface RenewalEvent {
   owner_user_id: ID | null;
   decision: "undecided" | "renew" | "terminate" | "renegotiate";
   decision_note: string | null;
+  /** The next term's end if it renews — shown only, never applied. */
+  next_expiration_date: ISODate | null;
+  formulas: RenewalFormulas;
+  date_reason: string | null;
+  date_conflict: DateConflict | null;
+  /** null for an event extracted before Step 3d (no formulas). */
+  dates_status: RenewalDatesStatus | null;
   metadata_json: Record<string, unknown>;
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -1241,7 +1283,7 @@ export interface RenewalRecommendation {
 // Contract Brain
 // ---------------------------------------------------------------------------
 
-export type BrainScope = "contract" | "project" | "portfolio";
+export type BrainScope = "contract" | "portfolio";
 
 export interface BrainSearchSemanticHit {
   contract_id: ID;
@@ -1273,13 +1315,37 @@ export interface BrainSearchResponse {
   text: BrainSearchTextHit[];
 }
 
+// A "which / how many contracts" answer (answer_mode "database_filter"): code
+// ran the question over every accessible contract. Mirrors the backend RESULT.
+export interface PortfolioMatch {
+  contract_id: ID;
+  title: string;
+  counterparty_name: string | null;
+  why: string[];
+}
+
+export interface PortfolioUnknown {
+  contract_id: ID;
+  title: string;
+  reason: string;
+}
+
+// The AI's reading of contract wording, run as a tabular review.
+export interface PortfolioReading {
+  tabular_review_id: ID | null;
+  contracts: number;
+  done: number;
+  failed: number;
+  estimate_usd: number;
+  started: boolean;
+}
+
 export interface BrainQuery {
   id: ID;
   org_id: ID;
   query_scope: BrainScope;
   question: string;
   contract_id: ID | null;
-  matter_id: ID | null;
   answer: string;
   citations: Citation[];
   retrieval_metadata: {
@@ -1297,6 +1363,21 @@ export interface BrainQuery {
     verified_citations?: number;
     total_citations?: number;
     model_confidence?: "high" | "medium" | "low";
+    answer_mode?: string;
+    withheld_for_viewer?: boolean;
+    // answer_mode "database_filter" only:
+    filter?: Record<string, unknown>;
+    conditions?: string[];
+    total?: number;
+    checked?: number;
+    matched?: number;
+    matches?: PortfolioMatch[];
+    unknown?: PortfolioUnknown[];
+    unknown_reasons?: Record<string, number>;
+    not_checked?: string[];
+    reading?: PortfolioReading | null;
+    complete?: boolean;
+    count_only?: boolean;
   };
   created_at: ISODateTime;
   updated_at: ISODateTime;
@@ -1310,7 +1391,6 @@ export interface TabularReview {
   id: ID;
   org_id: ID;
   name: string;
-  matter_id: ID | null;
   source_contract_ids: ID[];
   status: "draft" | "running" | "complete";
   metadata_json: Record<string, unknown>;
@@ -1391,6 +1471,9 @@ export type JobStatus =
   | "failed"
   | "cancelled";
 
+/** How many jobs are in each state across ALL jobs, not just the page on screen. */
+export type JobCounts = Record<JobStatus, number> & { total: number };
+
 export interface JobRun {
   id: ID;
   org_id: ID;
@@ -1399,6 +1482,7 @@ export interface JobRun {
   resource_id: ID;
   idempotency_key: string | null;
   status: JobStatus;
+  /** Whole percent, 0 to 100 (the worker writes 5, then 100 when done). */
   progress: number;
   started_at: ISODateTime | null;
   finished_at: ISODateTime | null;
@@ -1446,7 +1530,8 @@ export interface ClauseSearchResult {
   text_snapshot_id: ID;
   clause_type: string;
   heading: string;
-  confidence: number;
+  /** Stated by the server as a word, or null when it did not say. Not a number. */
+  confidence: "high" | "medium" | "low" | null;
   excerpt: string;
 }
 
@@ -1911,11 +1996,48 @@ export interface IntakeParty { name: string; role: string; is_person?: boolean; 
 // can't go stale against the statutory clock. 'met' = answered or closed.
 export type NoticeDirection = "received" | "sent";
 export type NoticeStatus = "draft" | "open" | "responded" | "escalated" | "closed";
-export type NoticeDeadlinePosture = "none" | "on_track" | "at_risk" | "overdue" | "met";
+export type NoticeDeadlinePosture = "none" | "needs_date" | "on_track" | "at_risk" | "overdue" | "met";
+
+/** The notice's deadline wording as /notices/extract read it — the model copies
+ *  words only; code (server, and the form's live preview) counts the date. */
+export interface NoticeDeadlineFacts {
+  stated: boolean;
+  explicit_date: ISODate | null;
+  period_count: number | null;
+  period_unit: "days" | "business_days" | "weeks" | "months" | null;
+  runs_from: "notice_date" | "receipt" | "other" | null;
+  runs_from_text: string | null;
+  quote: string | null;
+  /** "clear days": the count ends one day earlier (the safe side). */
+  clear_days?: boolean;
+}
+
+/** How response_due_date was worked out (notice.deadline_basis). */
+export interface NoticeDeadlineBasis {
+  facts: NoticeDeadlineFacts | null;
+  set_by: "document" | "person";
+  due: ISODate | null;
+  formula: string | null;
+  reason: string | null;
+  needs_person: boolean;
+  confirmed_by: ID | null;
+  confirmed_at: string | null;
+  needs_reconfirm: boolean;
+  /** The recount after the notice/received date moved under a confirmed date.
+   *  response_due_date keeps the confirmed date until a person accepts this. */
+  recomputed?: {
+    due: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    needs_person: boolean;
+  } | null;
+}
 
 export interface NoticeEvent {
   id: ID;
-  kind: "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note";
+  kind:
+    | "filed" | "assigned" | "status_changed" | "responded" | "escalated" | "closed" | "note"
+    | "reminded" | "deadline_changed" | "deadline_confirmed";
   body: string | null;
   actor_user_id: ID | null;
   actor_name: string | null;
@@ -1946,6 +2068,7 @@ export interface Notice {
   created_at: string;
   updated_at: string;
   deadline_posture: NoticeDeadlinePosture;
+  deadline_basis: NoticeDeadlineBasis | null;
   days_to_due: number | null;
   /** Most urgent reminder already sent to the owner — so you can see whether
    *  anyone was actually told before a deadline lapsed. */
@@ -1975,6 +2098,8 @@ export interface NoticeReminderRun {
 export interface NoticeSummary {
   total: number; open: number; overdue: number; at_risk: number;
   responded: number; escalated: number; closed: number; draft: number;
+  /** Live notices whose deadline a person must set. */
+  needs_date: number;
 }
 
 export interface NoticeDocument {
@@ -1998,9 +2123,18 @@ export interface NoticeExtraction {
     notice_type: string;
     subject: string;
     notice_date: ISODate;
-    response_due_date: ISODate;
     demanded_action: string;
   }>;
+  /** Send back on create as `deadline_basis`; the server recounts from it. */
+  deadline_basis: NoticeDeadlineFacts | null;
+  /** The count with today as the received date — a preview only. */
+  deadline_preview: {
+    due: ISODate | null;
+    formula: string | null;
+    reason: string | null;
+    needs_person: boolean;
+    assumed_received_at: ISODate;
+  } | null;
   confidence: number;
   source: "llm" | "heuristic" | "empty";
   extraction_quality: number | null;
@@ -2026,9 +2160,13 @@ export interface AiUsageOperation {
   cost_per_call: number;
 }
 
+// Exam traffic split (specs/005-ai-eval-baseline/plan.md): "real" excludes calls the AI exam made.
+export type AiUsageTraffic = "real" | "exam";
+
 export interface AiUsageSummary {
   currency: string;
   window_days: number;
+  traffic: AiUsageTraffic; // echoes the filter the figures were computed with
   totals: {
     calls: number;
     prompt_tokens: number;
@@ -2417,4 +2555,91 @@ export interface ChainInstanceDetailResponse {
 export interface ChainBlockedResponse {
   instance_id: ID;
   blocking: ChainBlockingEntry[];
+}
+
+// ---------------------------------------------------------------------------
+// Counterparty revisions — their returned version against the one we sent
+// ---------------------------------------------------------------------------
+
+export type RevisionKind = "changed" | "added" | "removed" | "reverted" | "countered" | "ours";
+export type RevisionDecision = "open" | "accepted" | "kept" | "countered" | "agreed";
+
+export interface RevisionChange {
+  id: ID;
+  seq: number;
+  label: string | null;
+  kind: RevisionKind;
+  /** A difference their Word file never marked as a tracked change. */
+  unmarked: boolean;
+  our_text: string | null;
+  their_text: string | null;
+  parts: ["=" | "-" | "+", string][];
+  decision: RevisionDecision;
+  counter_text: string | null;
+  decided_at: ISODateTime | null;
+  playbook: { id: ID; severity: string; issue: string; suggested_fix: string | null }[];
+  carried: { id: ID; body: string; still_there: boolean }[];
+}
+
+export interface RevisionRound {
+  id: ID;
+  contract_id: ID;
+  round_number: number;
+  base_version_id: ID;
+  revision_version_id: ID;
+  status: "open" | "closed";
+  outcome: "agreed" | "counter" | null;
+  outcome_version_id: ID | null;
+  tracked: boolean;
+  changes: RevisionChange[];
+  open: number;
+  pushed_back: number;
+  created_at: ISODateTime | null;
+  note?: string | null;
+}
+
+// A clause of the contract's current version (GET /contracts/{id}/clauses).
+export interface ContractClause {
+  id: ID;
+  parent_id: ID | null;
+  seq: number;
+  type: string;
+  level: number;
+  number: string | null;
+  page: number | null;
+  title: string;
+  text: string;
+}
+
+// ---- Drafting templates ------------------------------------------------------
+export interface DraftingTemplateSummary {
+  key: string;
+  name: string;
+  contract_type: string;
+  playbook: string | null; // the playbook that reviews contracts drafted from it
+  customized: boolean; // false = the shipped default text
+  version: number; // 0 = never edited
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface DraftingTemplatePlaceholder {
+  name: string;
+  about: string;
+  sample: string;
+}
+
+export interface DraftingTemplate extends DraftingTemplateSummary {
+  body: string;
+  default_body: string;
+  placeholders: DraftingTemplatePlaceholder[];
+}
+
+export interface DraftingTemplateVersion {
+  version: number;
+  note: string | null;
+  is_default: boolean;
+  body: string;
+  created_at: string;
+  created_by: string | null;
 }

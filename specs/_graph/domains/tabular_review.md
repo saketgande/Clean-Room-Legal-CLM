@@ -6,7 +6,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Models
 
-- `TabularReview` (table `tabular_review`, org_scoped=True, soft_delete=True) -- FKs: matter_id->matter.id
+- `TabularReview` (table `tabular_review`, org_scoped=True, soft_delete=True) -- FKs: (none)
 - `TabularReviewCell` (table `tabular_review_cell`, org_scoped=True, soft_delete=False) -- FKs: tabular_review_id->tabular_review.id, column_id->tabular_review_column.id, contract_id->contract.id
 - `TabularReviewChat` (table `tabular_review_chat`, org_scoped=True, soft_delete=False) -- FKs: tabular_review_id->tabular_review.id
 - `TabularReviewColumn` (table `tabular_review_column`, org_scoped=True, soft_delete=False) -- FKs: tabular_review_id->tabular_review.id

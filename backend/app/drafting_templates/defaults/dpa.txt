@@ -1,0 +1,204 @@
+DATA PROCESSING AGREEMENT
+
+This Data Processing Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} (the "Controller") and {counterparty} (the "Processor"). The Controller and the Processor are each a "Party" and together the "Parties."
+
+RECITALS
+
+A. The Processor provides services to the Controller under the services agreement between the Parties (the "Principal Agreement"), in the course of which the Processor processes Personal Data on behalf of the Controller.
+
+B. This Agreement sets out the terms on which the Processor processes that Personal Data, so that the Processing complies with Applicable Data Protection Law. It forms part of, and is incorporated into, the Principal Agreement.
+
+NOW, THEREFORE, the Parties agree as follows.
+
+1. DEFINITIONS AND INTERPRETATION
+
+1.1 "Applicable Data Protection Law" means all laws and regulations relating to the protection of personal data that apply to the Processing under this Agreement, including, as applicable, the Digital Personal Data Protection Act, 2023 of India and the rules made under it (the "DPDP Act"), the EU General Data Protection Regulation 2016/679 ("GDPR"), the UK GDPR and the UK Data Protection Act 2018, in each case as amended or replaced from time to time.
+
+1.2 "Personal Data" means any information relating to an identified or identifiable natural person that the Processor or any Sub-processor processes on behalf of the Controller in connection with the Principal Agreement, and includes "personal data" and "digital personal data" as defined in Applicable Data Protection Law.
+
+1.3 "Processing" (and "process" and "processed") means any operation or set of operations performed on Personal Data, whether or not by automated means, including collection, recording, organisation, structuring, storage, adaptation, retrieval, consultation, use, disclosure, alignment, combination, restriction, erasure or destruction.
+
+1.4 "Data Subject" means the identified or identifiable natural person to whom Personal Data relates, and includes a "Data Principal" under the DPDP Act.
+
+1.5 "Controller" includes a "Data Fiduciary", and "Processor" includes a "Data Processor", under the DPDP Act.
+
+1.6 "Personal Data Breach" means any breach of security leading to the accidental or unlawful destruction, loss, alteration, unauthorised disclosure of, or access to, Personal Data, and includes a "personal data breach" as defined in the DPDP Act.
+
+1.7 "Sub-processor" means any third party (including any Affiliate of the Processor) engaged by the Processor to process Personal Data on behalf of the Controller.
+
+1.8 "Supervisory Authority" means any regulator or authority with jurisdiction over the Processing, including the Data Protection Board of India and any EU or UK data protection authority.
+
+1.9 "Standard Contractual Clauses" means the standard contractual clauses for the transfer of personal data to third countries adopted by the European Commission under Decision (EU) 2021/914, and any equivalent clauses or addendum approved under the UK GDPR, as amended or replaced from time to time.
+
+1.10 "Services" means the services provided by the Processor under the Principal Agreement.
+
+1.11 In the event of a conflict between this Agreement and the Principal Agreement regarding the Processing of Personal Data, this Agreement prevails.
+
+2. SCOPE AND ROLES OF THE PARTIES
+
+2.1 The Controller is the controller (data fiduciary) and the Processor is the processor (data processor) of the Personal Data. The subject matter, duration, nature and purpose of the Processing, the types of Personal Data and the categories of Data Subjects are set out in Annex 1.
+
+2.2 The Controller shall ensure that it has a lawful basis for the Processing it instructs and that its instructions comply with Applicable Data Protection Law.
+
+2.3 The Processor shall comply with all Applicable Data Protection Law in its Processing of Personal Data and shall not, by any act or omission, cause the Controller to breach Applicable Data Protection Law.
+
+3. PROCESSING INSTRUCTIONS
+
+3.1 The Processor shall process Personal Data only on the documented instructions of the Controller and only for the purpose stated in Annex 1, including with regard to international transfers of Personal Data, unless required to do so by applicable law to which the Processor is subject. In such a case, the Processor shall inform the Controller of that legal requirement before Processing, unless that law prohibits such information on important grounds of public interest.
+
+3.2 This Agreement and the Principal Agreement are the Controller's complete documented instructions at the Effective Date. Any additional or alternative instructions must be given in writing by the Controller.
+
+3.3 The Processor shall immediately inform the Controller if, in its opinion, an instruction infringes Applicable Data Protection Law, and may suspend the affected Processing until the Controller confirms or modifies the instruction.
+
+3.4 The Processor shall not process Personal Data for its own purposes or for the purposes of any third party, and shall not sell, share for advertising, combine with other data, or use Personal Data to train, fine-tune or develop any artificial intelligence or machine learning model, except as expressly instructed by the Controller in writing.
+
+4. CONFIDENTIALITY OF PERSONNEL
+
+4.1 The Processor shall ensure that access to Personal Data is limited to those of its personnel who need access to perform the Services, and that every person authorised to process Personal Data is bound by a written obligation of confidentiality or is under an appropriate statutory obligation of confidentiality, and has received appropriate training in data protection.
+
+5. SECURITY MEASURES
+
+5.1 The Processor shall implement and maintain appropriate technical and organisational security measures to protect Personal Data against a Personal Data Breach, ensuring a level of security appropriate to the risk, taking into account the state of the art, the costs of implementation, and the nature, scope, context and purposes of the Processing and the risks to Data Subjects.
+
+5.2 Those security measures shall include, at a minimum, the measures described in Annex 2, including encryption of Personal Data in transit and at rest, role-based access control with the principle of least privilege, multi-factor authentication for administrative access, logging and monitoring of access to Personal Data, and a process for regularly testing, assessing and evaluating the effectiveness of the measures.
+
+5.3 The Processor shall not materially reduce the overall level of security provided by the measures described in Annex 2 during the term of this Agreement, and shall promptly update them as necessary to address new risks.
+
+6. SUB-PROCESSORS
+
+6.1 The Processor shall not engage any sub-processor without the Controller's prior specific written authorisation. The sub-processors authorised at the Effective Date are listed in Annex 3.
+
+6.2 Before any Sub-processor processes Personal Data, the Processor shall (a) carry out adequate due diligence to ensure the Sub-processor can provide the level of protection required by this Agreement; and (b) bind the Sub-processor by a written contract imposing data protection obligations the same as those set out in this Agreement, in particular providing sufficient guarantees to implement appropriate technical and organisational measures.
+
+6.3 The Processor shall remain fully liable to the Controller for the performance of each Sub-processor's obligations and for any act or omission of a Sub-processor as if it were the Processor's own act or omission.
+
+6.4 On request, the Processor shall provide the Controller with a copy of each Sub-processor agreement, from which commercial information may be redacted.
+
+7. DATA SUBJECT RIGHTS
+
+7.1 Taking into account the nature of the Processing, the Processor shall assist the Controller by appropriate technical and organisational measures in fulfilling the Controller's obligation to respond promptly to requests from Data Subjects to exercise their rights under Applicable Data Protection Law, including rights of access, correction, completion, updating, erasure, restriction, portability, objection, grievance redressal and nomination.
+
+7.2 If the Processor receives a request from a Data Subject, it shall forward the request to the Controller within two (2) business days and shall not respond to it except on the Controller's documented instructions.
+
+7.3 The Processor shall provide the assistance requested by the Controller under this Section 7 within five (5) business days of the Controller's request, or sooner where required for the Controller to meet a statutory deadline.
+
+8. PERSONAL DATA BREACH NOTIFICATION
+
+8.1 The Processor shall notify the Controller of any personal data breach affecting Personal Data without undue delay, and in any event within forty-eight (48) hours, after becoming aware of it.
+
+8.2 The notification shall include, to the extent then known, and the Processor shall provide in phases as further information becomes available: (a) a description of the nature of the Personal Data Breach, including the categories and approximate number of Data Subjects and Personal Data records concerned; (b) the name and contact details of the Processor's contact point for further information; (c) the likely consequences of the Personal Data Breach; (d) the measures taken or proposed to address the Personal Data Breach and mitigate its possible adverse effects; and (e) any other information the Controller reasonably requires to notify Supervisory Authorities and affected Data Subjects.
+
+8.3 The Processor shall take immediate steps to contain, investigate and remediate the Personal Data Breach, cooperate fully with the Controller, and shall not notify any Supervisory Authority, Data Subject or other third party of the Personal Data Breach without the Controller's prior written consent, except where required by law.
+
+9. INTERNATIONAL TRANSFERS
+
+9.1 International transfers of Personal Data are permitted only in accordance with this Section 9. The Processor shall not transfer, or permit any Sub-processor to transfer, Personal Data outside India (or, for Personal Data subject to the GDPR or UK GDPR, outside the European Economic Area or the United Kingdom), or permit Personal Data to be accessed from outside those territories, without the Controller's prior written authorisation.
+
+9.2 Any authorised transfer shall be made only to a country not restricted under Applicable Data Protection Law, and only where the Standard Contractual Clauses or another lawful transfer safeguard recognised by Applicable Data Protection Law is in place before the transfer, together with any supplementary measures needed to ensure an essentially equivalent level of protection.
+
+9.3 Where the Standard Contractual Clauses apply, they are incorporated by reference, with the Controller as data exporter and the Processor as data importer, and they prevail over this Agreement to the extent of any conflict.
+
+10. AUDIT AND COMPLIANCE
+
+10.1 The Processor shall make available to the Controller all information necessary to demonstrate compliance with this Agreement and Applicable Data Protection Law.
+
+10.2 The Processor shall allow for and contribute to audits, including inspections, conducted by the Controller or an independent auditor mandated by the Controller, on reasonable prior written notice and during normal business hours. The Controller may also audit at any time following a Personal Data Breach or where required by a Supervisory Authority.
+
+10.3 The Processor shall provide the Controller, on request and at least annually, with copies of its current independent audit reports and certifications (such as ISO/IEC 27001 certification or a SOC 2 Type II report) covering the Services. Such reports supplement, and do not replace, the Controller's right of audit under Section 10.2.
+
+10.4 The Processor shall promptly remedy at its own cost any non-compliance identified by an audit, and shall bear the cost of any audit that reveals a material non-compliance.
+
+10.5 The Processor shall assist the Controller with any data protection impact assessment and any prior consultation with a Supervisory Authority relating to the Processing.
+
+11. RETURN OR DELETION OF PERSONAL DATA
+
+11.1 On termination or expiry of the Services, or at any earlier time on the Controller's written request, the Processor shall, at the Controller's choice, return all Personal Data to the Controller in a commonly used, machine-readable format and/or securely delete it, and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within thirty (30) days.
+
+11.2 Within ten (10) business days of completing deletion, the Processor shall provide the Controller with written certification of deletion signed by an authorised officer of the Processor.
+
+11.3 The Processor may retain Personal Data only to the extent retention is required by applicable law, in which case it shall notify the Controller of the data retained and the legal requirement, keep the retained data confidential and protected in accordance with this Agreement, and process it only for the purpose of complying with that law.
+
+12. LIABILITY AND INDEMNITY
+
+12.1 The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor.
+
+12.2 Any limitation or exclusion of liability in the Principal Agreement shall not apply to the Processor's liability under this Agreement or for breach of Applicable Data Protection Law.
+
+13. TERM AND TERMINATION
+
+13.1 This Agreement commences on the Effective Date and {agreement_term}. Notwithstanding that, this Agreement continues in force for as long as the Processor or any Sub-processor retains any Personal Data.
+
+13.2 The Controller may terminate this Agreement and the affected parts of the Principal Agreement immediately on written notice if the Processor materially breaches this Agreement or Applicable Data Protection Law, or if the Processor notifies the Controller that it can no longer comply with this Agreement.
+
+13.3 Sections 8, 10, 11, 12 and 14, and any other provision which by its nature is intended to survive, shall survive termination or expiry of this Agreement.
+
+14. GENERAL
+
+14.1 Governing Law and Jurisdiction. This Agreement shall be governed by and construed in accordance with the laws of {governing_law}, without regard to its conflict of laws principles, and each Party submits to the exclusive jurisdiction of the courts of {governing_law}, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.
+
+14.2 Notices. Notices under this Agreement shall be in writing and delivered by hand, by recognised courier, or by email with confirmation of transmission to the address of the receiving Party set out in its signature block below. Notices of a Personal Data Breach shall also be given by telephone to the Controller's designated privacy contact.
+
+14.3 Assignment. The Processor may not assign, transfer or subcontract this Agreement or any of its rights or obligations without the Controller's prior written consent.
+
+14.4 Entire Agreement. This Agreement, together with the Principal Agreement and its Annexes, constitutes the entire agreement between the Parties regarding the Processing of Personal Data and supersedes all prior agreements on that subject.
+
+14.5 Amendment and Waiver. This Agreement may be amended only in a writing signed by both Parties, save that the Controller may, by written notice, make any amendment required to comply with a change in Applicable Data Protection Law. No waiver is effective unless in writing.
+
+14.6 Severability. If any provision of this Agreement is held invalid or unenforceable, the remaining provisions continue in full force and effect.
+
+14.7 Counterparts and Electronic Signature. This Agreement may be executed in counterparts and by electronic signature, each of which is an original and all of which together constitute one instrument.
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement by their duly authorised representatives as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:
+Address for notices:                         Address for notices:
+
+
+ANNEX 1 - DESCRIPTION OF THE PROCESSING
+
+Subject matter: the Processing of Personal Data by the Processor in providing the Services under the Principal Agreement.
+
+Duration: the term of the Principal Agreement and any period afterwards until the Personal Data is returned or deleted in accordance with Section 11.
+
+Nature and purpose of the Processing: [describe the Processing operations and the purpose for which the Processor processes Personal Data in providing the Services].
+
+Categories of Data Subjects: [for example employees, customers, end users, suppliers and contact persons of the Controller].
+
+Types of Personal Data: [for example name, contact details, identification data, account and transaction data].
+
+Sensitive or special category Personal Data (if any): [describe, and the additional safeguards applied, or state "None"].
+
+Processing locations: [list each country in which Personal Data is processed or accessed].
+
+
+ANNEX 2 - TECHNICAL AND ORGANISATIONAL SECURITY MEASURES
+
+1. Encryption: Personal Data is encrypted in transit using TLS 1.2 or higher and at rest using AES-256 or an equivalent industry-standard algorithm, with encryption keys managed securely and rotated periodically.
+
+2. Access control: role-based access on a least-privilege and need-to-know basis; unique user identities; multi-factor authentication for all remote and administrative access; prompt revocation of access on change of role or departure; access reviews at least quarterly.
+
+3. Logging and monitoring: access to and changes to Personal Data are logged; logs are protected against tampering, retained for at least twelve (12) months, and monitored for anomalous activity.
+
+4. Network and system security: firewalls, segregation of environments, hardened configurations, anti-malware protection, and timely patching of vulnerabilities based on severity.
+
+5. Physical security: data centres and offices hosting Personal Data are protected by controlled entry, visitor logging and environmental safeguards.
+
+6. Resilience and recovery: regular encrypted backups, tested restoration procedures, and a business continuity and disaster recovery plan tested at least annually.
+
+7. Testing: penetration testing by an independent party at least annually and after any material change, with remediation of findings tracked to closure.
+
+8. Personnel: background screening where lawful, confidentiality undertakings, and data protection and security training on joining and at least annually.
+
+9. Incident management: a documented incident response procedure enabling notification to the Controller within the timeframe in Section 8.
+
+10. Data minimisation and segregation: Personal Data of the Controller is logically segregated from other customers' data, and test environments do not use production Personal Data.
+
+
+ANNEX 3 - AUTHORISED SUB-PROCESSORS
+
+The Controller authorises the following sub-processors at the Effective Date (name, location, and Processing performed): [list each authorised Sub-processor, or state "None"].

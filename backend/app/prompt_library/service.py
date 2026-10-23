@@ -132,13 +132,13 @@ class PromptLibraryService:
         db = self.db
         if payload.visibility == Visibility.SYSTEM_BUILTIN:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "system_builtin workflows are reserved for built-in templates",
             )
         if payload.workflow_type not in {item.value for item in WorkflowType}:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported workflow type")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported workflow type")
         if payload.visibility not in _EDITABLE_VISIBILITIES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported workflow visibility")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported workflow visibility")
         workflow = Prompt(
             org_id=current_user.org_id,
             name=payload.name,
@@ -159,7 +159,7 @@ class PromptLibraryService:
         db = self.db
         workflow = self._load_owned_workflow(workflow_id, current_user)
         if payload.visibility is not None and payload.visibility not in _EDITABLE_VISIBILITIES:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Unsupported workflow visibility")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Unsupported workflow visibility")
 
         before = {
             "name": workflow.name,
@@ -254,7 +254,7 @@ class PromptLibraryService:
         """Best-effort usage ping recorded when a prompt is used. Works for both
         custom and built-in prompts (audit_log.resource_id is a free string)."""
         if len(workflow_id) > 36:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Invalid workflow id")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Invalid workflow id")
         db = self.db
         write_audit_log(
             db,

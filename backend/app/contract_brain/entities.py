@@ -15,15 +15,23 @@ from __future__ import annotations
 
 import re
 
-# Company-form suffixes stripped before comparison. Order matters: longer forms
-# first so "private limited" is removed before "limited".
-_SUFFIXES = (
-    "private limited", "pvt ltd", "pvt. ltd.", "pvt", "public limited company",
-    "limited liability partnership", "limited liability company",
-    "incorporated", "corporation", "company", "limited",
-    "llp", "llc", "ltd", "inc", "plc", "gmbh", "ag", "bv", "nv", "sa", "sas",
-    "srl", "spa", "oy", "ab", "as", "aps", "pte", "pty", "co",
-)
+# Company forms, each mapped to one spelling. The form stays in the key: "Siemens
+# AG" and "Siemens Inc" are different legal entities, so their exposure must never
+# be added together. Matched longest first so "private limited" beats "limited".
+_FORMS = {
+    "private limited": "pvt ltd", "pvt ltd": "pvt ltd", "pvt": "pvt ltd",
+    "public limited company": "plc", "plc": "plc",
+    "limited liability partnership": "llp", "llp": "llp",
+    "limited liability company": "llc", "llc": "llc",
+    "incorporated": "inc", "inc": "inc",
+    "corporation": "corp", "corp": "corp",
+    "company": "co", "co": "co",
+    "limited": "ltd", "ltd": "ltd",
+    "gmbh": "gmbh", "ag": "ag", "bv": "bv", "nv": "nv", "sa": "sa", "sas": "sas",
+    "srl": "srl", "spa": "spa", "oy": "oy", "ab": "ab", "as": "as", "aps": "aps",
+    "pte": "pte", "pty": "pty",
+}
+_FORMS_LONGEST_FIRST = sorted(_FORMS, key=len, reverse=True)
 
 # Names that are placeholders, not organisations. Real data from this codebase:
 # 17 contracts carry "the Counterparty" or "Counterparty" as the party name.
@@ -35,14 +43,15 @@ _PLACEHOLDERS = {
 }
 
 # A name that is nothing but a company form ("Ltd", "GmbH") is not an entity.
-_FORMS_ONLY = frozenset(_SUFFIXES)
+_FORMS_ONLY = frozenset(_FORMS) | frozenset(_FORMS.values())
 
 _PUNCT = re.compile(r"[.,;:'\"()\[\]&/\\-]+")
 _WS = re.compile(r"\s+")
 
 
 def normalize_org_name(raw: str | None) -> str | None:
-    """A comparison key for an organisation name, or None if it isn't one.
+    """A comparison key for an organisation name (legal form included), or None
+    if it isn't one.
 
     Returns None for placeholders and for anything that normalises to nothing,
     so junk never becomes a graph entity.
@@ -55,26 +64,28 @@ def normalize_org_name(raw: str | None) -> str | None:
     for prefix in ("m s ", "m/s ", "messrs "):
         name = name.removeprefix(prefix)
     # "L.L.P." arrives here as "l l p"; collapse runs of single letters so it
-    # matches the "llp" suffix rather than surviving as three tokens.
+    # matches the "llp" form rather than surviving as three tokens.
     name = re.sub(r"\b(?:[a-z] ){1,}[a-z]\b",
                   lambda m: m.group(0).replace(" ", ""), name)
-    if name in _PLACEHOLDERS or name in frozenset(_SUFFIXES):
+    if name in _PLACEHOLDERS or name in _FORMS_ONLY:
         return None
 
-    # strip one trailing company form, repeatedly (e.g. "acme india pvt ltd")
+    # peel trailing company forms (e.g. "acme india pvt ltd"), keeping one spelling of each
+    forms: list[str] = []
     changed = True
     while changed:
         changed = False
-        for suffix in _SUFFIXES:
-            if name.endswith(" " + suffix):
-                trimmed = name[: -(len(suffix) + 1)].strip()
+        for form in _FORMS_LONGEST_FIRST:
+            if name.endswith(" " + form):
+                trimmed = name[: -(len(form) + 1)].strip()
                 if trimmed:                      # never strip away the whole name
                     name, changed = trimmed, True
+                    forms.insert(0, _FORMS[form])
                     break
     name = _WS.sub(" ", name).strip()
     if not name or name in _PLACEHOLDERS or name in _FORMS_ONLY or len(name) < 2:
         return None
-    return name
+    return " ".join([name, *forms])
 
 
 def party_entity_key(raw: str | None) -> str | None:
@@ -145,7 +156,11 @@ def person_entity_key(*, email: str | None = None, name: str | None = None) -> s
 # Noise around a jurisdiction name that shouldn't split it into two entities.
 _JURIS_STRIP = re.compile(
     r"\b(the )?(state|commonwealth|province|republic) of\b", re.IGNORECASE)
-_JURIS_TRAIL = re.compile(r",?\s*(usa|u\.s\.a\.|us|uk|u\.k\.)\.?$", re.IGNORECASE)
+_JURIS_TRAIL = re.compile(r",?\s*\b(usa|u\.s\.a\.|us|uk|u\.k\.)\.?$", re.IGNORECASE)
+# Both a US state and a country. When the text marks the US state ("State of
+# Georgia", "Georgia, USA"), that marker stays in the key so the two never merge.
+_STATE_OR_COUNTRY = {"georgia"}
+_US_MARKER = re.compile(r"\bstate of\b|\bu\.?s\.?a?\.?$", re.IGNORECASE)
 
 
 def normalize_jurisdiction(raw: str | None) -> str | None:
@@ -159,6 +174,8 @@ def normalize_jurisdiction(raw: str | None) -> str | None:
     name = _WS.sub(" ", _PUNCT.sub(" ", name.lower())).strip()
     if not name or name in _PLACEHOLDERS or len(name) < 2:
         return None
+    if name in _STATE_OR_COUNTRY and _US_MARKER.search(raw.strip()):
+        name += " usa"
     return name
 
 
@@ -169,21 +186,28 @@ def jurisdiction_entity_key(raw: str | None) -> str | None:
 
 # ---- provenance -----------------------------------------------------------
 
-def clause_for_quote(quote: str | None, clauses: list) -> object | None:
+def clause_for_quote(quote: str | None, clauses: list, *, start_char: int | None = None) -> object | None:
     """The clause whose text contains this obligation's source quote, or None.
 
-    ``clauses`` is a list of (handle, text) pairs; the handle is returned as-is
-    (a graph node, an id — this stays agnostic). Matching is whitespace- and
-    case-insensitive verbatim containment: the quote is an exact span from the
-    contract, so a clause that contains it IS the source. No fuzzy matching —
-    a wrong provenance link is worse than a missing one.
+    ``clauses`` holds (handle, text) or (handle, text, start_char, end_char);
+    the handle is returned as-is (a graph node, an id — this stays agnostic).
+    Matching is whitespace- and case-insensitive verbatim containment: the quote
+    is an exact span from the contract, so a clause that contains it IS the
+    source. No fuzzy matching — a wrong provenance link is worse than a missing
+    one. When several clauses contain the quote (repeated boilerplate), the one
+    whose span holds the quote's ``start_char`` wins; otherwise the first.
     """
     if not quote:
         return None
     key = " ".join(quote.split()).lower()
     if len(key) < 12:                       # too short to attribute confidently
         return None
-    for handle, text in clauses:
-        if key in " ".join((text or "").split()).lower():
-            return handle
-    return None
+    matches = [(handle, span) for handle, text, *span in clauses
+               if key in " ".join((text or "").split()).lower()]
+    if not matches:
+        return None
+    if start_char is not None:
+        for handle, span in matches:
+            if len(span) == 2 and None not in span and span[0] <= start_char < span[1]:
+                return handle
+    return matches[0][0]

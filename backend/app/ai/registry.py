@@ -2,20 +2,22 @@ from app.ai.schemas import (
     AssistantAnswerOutput,
     BrainAnswerOutput,
     ClauseExtractionOutput,
+    ClauseLabelingOutput,
     ContractDocxGenerationOutput,
     ContractEditSuggestionsOutput,
     ContractMetadataOutput,
-    ContractRiskOutput,
     ObligationExtractionOutput,
     PlaybookChatBuildOutput,
     PlaybookGenerationOutput,
     PlaybookRecommendationsOutput,
     PlaybookReviewOutput,
+    PortfolioFilterOutput,
     PrivacyIncidentAssessmentOutput,
     RenewalExtractionOutput,
     SkillInfo,
     TabularCellOutput,
     TabularChatOutput,
+    TabularRowOutput,
 )
 from app.ai.skill import SkillSpec
 
@@ -94,24 +96,34 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.clause_extraction",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Each clause comes back with its full text (it's what citations quote), so
+        # a full-length contract needs more than 4096: the playbook-aligned
+        # templates (2.4-4k words) were cut off there and stored no clauses.
+        # 8000 is settings.claude_max_tokens_ceiling; a contract that still
+        # doesn't fit now fails the job visibly (the AI gateway rejects a cut-off answer).
+        max_tokens=8000,
     ),
     SkillSpec(
-        name="contract_risk_assessment",
+        name="clause_labeling",
         version="1.0.0",
-        description="Assess per-clause risk for the weighted contract risk score.",
-        execution_mode="contract_brain",
-        prompt_key="contract_risk_assessment",
+        description="Name the type of each clause the Documents reader segmented.",
+        execution_mode="job",
+        prompt_key="clause_labeling",
         prompt_version="1.0.0",
         input_model=None,
-        output_model=ContractRiskOutput,
+        output_model=ClauseLabelingOutput,
         required_permission="contract:read",
         resource_type="contract",
+        # Text and offsets come from the segmentation, so there is nothing for
+        # the model to quote — and nothing for a citation check to catch.
         requires_citations=False,
-        allows_mutation=False,
+        allows_mutation=True,
         feature_flag="feature.ai.clause_extraction",
         enabled_by_default=True,
-        max_tokens=4096,
+        # ~30 tokens a label; a 95-segment SaaS agreement overran 2048. The
+        # cut-off guard fails the job visibly if even this isn't enough.
+        max_tokens=6000,
+        include_contract_text=False,
     ),
     SkillSpec(
         name="playbook_generation",
@@ -153,7 +165,7 @@ for registered_spec in [
         description="Recommend playbook rule changes from real deviation/decision usage.",
         execution_mode="job",
         prompt_key="playbook_recommendations",
-        prompt_version="1.0.0",
+        prompt_version="1.0.1",
         input_model=None,
         output_model=PlaybookRecommendationsOutput,
         required_permission="playbook:create",
@@ -170,7 +182,7 @@ for registered_spec in [
         description="Assistant chat with contract handles, citations, and tools.",
         execution_mode="assistant",
         prompt_key="assistant_streaming",
-        prompt_version="1.0.0",
+        prompt_version="1.0.4",
         input_model=None,
         output_model=AssistantAnswerOutput,
         required_permission="assistant:use",
@@ -189,7 +201,7 @@ for registered_spec in [
         description="Create backend-renderable DOCX generation plans.",
         execution_mode="assistant_tool",
         prompt_key="contract_docx_generation",
-        prompt_version="1.0.0",
+        prompt_version="1.1.0",
         input_model=None,
         output_model=ContractDocxGenerationOutput,
         required_permission="contract:create",
@@ -199,6 +211,9 @@ for registered_spec in [
         feature_flag="feature.ai.docx_generation",
         enabled_by_default=True,
         max_tokens=16000,
+        # The redraft brief already carries the current draft; appending the contract
+        # context as well sent the whole contract twice.
+        include_contract_text=False,
     ),
     SkillSpec(
         name="contract_edit_suggestions",
@@ -206,7 +221,7 @@ for registered_spec in [
         description="Create tracked-change-ready contract edit suggestions.",
         execution_mode="assistant_tool",
         prompt_key="contract_edit_suggestions",
-        prompt_version="1.0.0",
+        prompt_version="1.0.1",
         input_model=None,
         output_model=ContractEditSuggestionsOutput,
         required_permission="contract:redline",
@@ -219,11 +234,13 @@ for registered_spec in [
     ),
     SkillSpec(
         name="obligation_extraction",
-        version="1.0.0",
-        description="Extract obligations with owners, due dates, recurrence, and citations.",
+        # 2.0.0: deadline wording as typed timing, no AI dates. The bump also stops
+        # carry_forward_job replaying a 1.x date-shaped output into the new persist.
+        version="2.0.0",
+        description="Extract obligations with owners, deadline wording, recurrence, and citations.",
         execution_mode="job",
         prompt_key="obligation_extraction",
-        prompt_version="1.0.0",
+        prompt_version="2.0.0",
         input_model=None,
         output_model=ObligationExtractionOutput,
         required_permission="contract:read",
@@ -232,15 +249,17 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.obligation_extraction",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Each obligation now carries a typed timing block; 4096 cut off long contracts.
+        max_tokens=8192,
     ),
     SkillSpec(
         name="renewal_extraction",
-        version="1.0.0",
-        description="Extract expiration/notice dates and renewal terms with citations.",
+        # 2.0.0: term and notice wording as typed facts; code computes every date.
+        version="2.0.0",
+        description="Extract term, renewal and notice wording as typed facts with citations.",
         execution_mode="job",
         prompt_key="renewal_extraction",
-        prompt_version="1.0.0",
+        prompt_version="2.0.0",
         input_model=None,
         output_model=RenewalExtractionOutput,
         required_permission="contract:read",
@@ -249,7 +268,8 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.renewal_extraction",
         enabled_by_default=True,
-        max_tokens=2048,
+        # Every notice term carries its own quote.
+        max_tokens=4096,
     ),
     SkillSpec(
         name="contract_brain_answer",
@@ -267,14 +287,38 @@ for registered_spec in [
         feature_flag="feature.ai.contract_brain",
         enabled_by_default=True,
         max_tokens=3072,
+        # The answer is grounded only against the retrieved context. With the full
+        # contract in the prompt too, a contract-scoped answer quoted text that
+        # retrieval never returned, matched 0 citations and was suppressed whole.
+        include_contract_text=False,
+    ),
+    SkillSpec(
+        name="portfolio_filter",
+        version="1.0.0",
+        description="Turn a 'which / how many contracts' question into a typed filter that code runs over every accessible contract.",
+        execution_mode="contract_brain",
+        prompt_key="portfolio_filter",
+        prompt_version="1.0.0",
+        input_model=None,
+        output_model=PortfolioFilterOutput,
+        required_permission="assistant:use",
+        resource_type=None,
+        requires_citations=False,
+        allows_mutation=False,
+        feature_flag="feature.ai.contract_brain",
+        enabled_by_default=True,
+        max_tokens=1500,
+        # The input is the question alone; no contract is read here.
+        include_contract_text=False,
     ),
     SkillSpec(
         name="tabular_cell_extraction",
-        version="1.0.0",
+        # 1.1.0: a yes/no column also returns a typed verdict.
+        version="1.1.0",
         description="Answer one tabular-review column question for one contract, with citations.",
         execution_mode="job",
         prompt_key="tabular_cell_extraction",
-        prompt_version="1.0.0",
+        prompt_version="1.1.0",
         input_model=None,
         output_model=TabularCellOutput,
         required_permission="assistant:use_ai_tools",
@@ -284,6 +328,23 @@ for registered_spec in [
         feature_flag="feature.ai.tabular_review",
         enabled_by_default=True,
         max_tokens=2048,
+    ),
+    SkillSpec(
+        name="tabular_row_extraction",
+        version="1.1.0",
+        description="Answer all of one contract's tabular-review column questions in one call, with citations.",
+        execution_mode="job",
+        prompt_key="tabular_row_extraction",
+        prompt_version="1.1.0",
+        input_model=None,
+        output_model=TabularRowOutput,
+        required_permission="assistant:use_ai_tools",
+        resource_type="contract",
+        requires_citations=True,
+        allows_mutation=False,
+        feature_flag="feature.ai.tabular_review",
+        enabled_by_default=True,
+        max_tokens=8000,
     ),
     SkillSpec(
         name="tabular_review_chat",
@@ -308,7 +369,7 @@ for registered_spec in [
         description="Compare a contract against a governed playbook version and return cited deviations.",
         execution_mode="playbook_run",
         prompt_key="playbook_review",
-        prompt_version="1.0.0",
+        prompt_version="1.0.1",
         input_model=None,
         output_model=PlaybookReviewOutput,
         required_permission="playbook:run",
@@ -317,7 +378,10 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.playbook_review",
         enabled_by_default=True,
-        max_tokens=4096,
+        # Counterparty paper deviates on most rules, and each deviation carries its
+        # quote and redline: a 4-page "their paper" NDA overran 4096 and stored no
+        # review. 8000 is settings.claude_max_tokens_ceiling.
+        max_tokens=8000,
     ),
     SkillSpec(
         name="privacy_incident_assessment",

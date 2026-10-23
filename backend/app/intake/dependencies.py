@@ -1,9 +1,9 @@
 """FastAPI-native dependency providers for the intake module.
 
 Part of the DI migration (see backend/DI_MIGRATION.md). Covers intake/
-Pass 1 (service.py), Pass 2 (teams.py, routing.py, screening.py, ingest.py,
+Pass 1 (service.py), Pass 2 (teams.py, screening.py, ingest.py,
 gmail_sync.py), and Pass 4 (approval_bridge.py, drafting.py). Pass 3 (the
-AI-agent chain: agents.py, gates.py, triage_agent.py, flow_agent.py,
+AI-agent chain: agents.py, triage_agent.py, flow_agent.py,
 litigation_agent.py, email_triage_agent.py) was assessed and deliberately
 left as plain function modules — see the note in backend/DI_MIGRATION.md.
 """
@@ -16,7 +16,6 @@ from app.intake.approval_bridge import ApprovalBridgeService
 from app.intake.drafting import DraftingService
 from app.intake.gmail_sync import GmailSyncService
 from app.intake.ingest import IngestService
-from app.intake.routing import RoutingService
 from app.intake.screening import ScreeningService
 from app.intake.service import IntakeService
 from app.intake.teams import TeamService
@@ -32,16 +31,16 @@ def get_team_service(db: Session = Depends(get_db)) -> TeamService:
     return TeamService(db)
 
 
-def get_routing_service(db: Session = Depends(get_db)) -> RoutingService:
-    return RoutingService(db)
-
-
 def get_screening_service(db: Session = Depends(get_db)) -> ScreeningService:
     return ScreeningService(db)
 
 
-def get_ingest_service(db: Session = Depends(get_db)) -> IngestService:
-    return IngestService(db)
+def get_ingest_service(
+    db: Session = Depends(get_db),
+    reducto: ReductoClient = Depends(get_reducto_client),
+) -> IngestService:
+    # Mailbox attachments that need OCR go through Reducto, like Gmail's.
+    return IngestService(db, reducto=reducto)
 
 
 def get_gmail_sync_service(

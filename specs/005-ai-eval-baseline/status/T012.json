@@ -1,0 +1,7 @@
+{
+  "task": "T012",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "retry: items/extraction.json now public 40 + constructed 58 keys; sample extraction adds ex-ae-msa-01/02, ex-ae-long-01; run_constructed(with_public=True) = one full-build report; test_exam_content 170 passed, ruff clean",
+  "updated": "2026-10-06T19:20:06Z"
+}

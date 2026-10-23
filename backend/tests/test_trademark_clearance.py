@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from openpyxl import load_workbook
 from sqlalchemy import delete
 
+import app.models  # noqa: F401  (registers every mapper)
 from app.auth.models import User
 from app.core.config import settings
 from app.core.enums import SourceStatus, TrademarkDecision
@@ -33,7 +34,7 @@ from app.trademarks.schemas import (
 )
 from app.workflows.builtin import BUILTIN_FLOWS
 from app.workflows.models import WorkflowRun, WorkflowStepRun
-from app.workflows.service import _matches
+from app.workflows.service import _matches, _skip_reason
 
 
 def _clearance_flow() -> dict:
@@ -79,8 +80,12 @@ def test_clearance_flow_covers_the_raci_steps_in_order():
     assert by_name["Escalation (TM Head / GC)"]["cond"] == {"field": "tm_escalate", "op": "eq", "value": True}
     assert by_name["Filing & docketing"]["cond"] == {"field": "tm_decision", "op": "ne", "value": "reject"}
     rejected = _request(field_values={"tm_decision": "reject"})
-    assert not _matches(by_name["Filing & docketing"]["cond"], rejected)
-    assert _matches(by_name["Filing & docketing"]["cond"], _request(field_values={}))
+    filing = by_name["Filing & docketing"]
+    # The engine skips a step only when its rule is false; one it cannot evaluate yet (no
+    # decision recorded) still runs, so a case can never skip filing by accident.
+    assert _skip_reason(filing, rejected) == "Condition not met"
+    assert _skip_reason(filing, _request(field_values={})) is None
+    assert _skip_reason(filing, _request(field_values={"tm_decision": "proceed"})) is None
 
 
 # --- a clearance case in the database ---------------------------------------

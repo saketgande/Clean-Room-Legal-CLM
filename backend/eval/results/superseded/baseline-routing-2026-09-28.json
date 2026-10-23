@@ -1,0 +1,796 @@
+{
+ "summary": {
+  "model": "claude-sonnet-4-6",
+  "sample": false,
+  "date": "2026-09-28",
+  "review": {
+   "rules": 0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "f1": 0.0,
+   "status_accuracy": 0.0
+  },
+  "extraction": {
+   "fields": 0,
+   "accuracy": 0.0
+  },
+  "qa": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "qa_answer_beyond_25k": {
+   "questions": 0,
+   "evidence_hit": 0.0,
+   "citation_valid": 0.0
+  },
+  "routing": {
+   "requests": 50,
+   "workflow_accuracy": 0.9,
+   "escalation_accuracy": 0.68
+  },
+  "errors": {
+   "review": 0,
+   "extraction": 0,
+   "qa": 0,
+   "routing": 0
+  }
+ },
+ "results": {
+  "review": {},
+  "extraction": {},
+  "qa": {},
+  "routing": {
+   "routing-01": {
+    "predicted": {
+     "workflow": "NDA Fast-Track",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "f2280983-7adc-4c60-aa7f-61eb865dd3a5",
+     "flow_name": "NDA Fast-Track",
+     "confidence": 0.72,
+     "reasoning": "The NDA Fast-Track workflow is purpose-built for mutual/one-way NDAs using the standard template with AI review of deviations \u2014 a perfect fit for this routine, time-sensitive mutual NDA request. The Tuesday deadline makes the Fast-Track's streamlined steps (Request & Upload \u2192 AI Template Review \u2192 Legal Sign-off \u2192 E-Signature) the most appropriate path.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-02": {
+    "predicted": {
+     "workflow": "NDA Fast-Track",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "f2280983-7adc-4c60-aa7f-61eb865dd3a5",
+     "flow_name": "NDA Fast-Track",
+     "confidence": 0.78,
+     "reasoning": "The NDA Fast-Track workflow is the best fit: it handles one-way NDAs using the standard template, with AI review flagging only deviations, which aligns perfectly with the requester's explicit ask to use the standard template.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-03": {
+    "predicted": {
+     "workflow": "NDA Fast-Track",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "f2280983-7adc-4c60-aa7f-61eb865dd3a5",
+     "flow_name": "NDA Fast-Track",
+     "confidence": 0.62,
+     "reasoning": "The NDA Fast-Track workflow is the best fit: it handles mutual/one-way NDAs via AI template review with lawyer attention only on deviations, which is appropriate for a standard CRO confidentiality agreement. No indicators suggest the requester wants a fully bespoke draft that would disqualify this workflow.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-04": {
+    "predicted": {
+     "workflow": "NDA Fast-Track",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "f2280983-7adc-4c60-aa7f-61eb865dd3a5",
+     "flow_name": "NDA Fast-Track",
+     "confidence": 0.62,
+     "reasoning": "The NDA Fast-Track workflow is the best fit: it is designed to review incoming NDAs against the standard template and flag deviations (here, the 10-year term and non-solicit clause) for lawyer attention, which is exactly what is needed. A human lawyer must confirm acceptability of the non-standard terms, so needs_human is also set to true.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-05": {
+    "predicted": {
+     "workflow": "Master Services Agreement",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "3b7cecd6-91eb-43f6-b45e-621bd462e824",
+     "flow_name": "Master Services Agreement",
+     "confidence": 0.72,
+     "reasoning": "The Master Services Agreement workflow (id: 3b7cecd6) is the direct fit \u2014 it covers the full MSA lifecycle including draft, legal review, parallel Quality + Privacy review (relevant given CRM data handling), Finance approval, and counterparty negotiation through to signature.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-06": {
+    "predicted": {
+     "workflow": "Master Services Agreement",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "3b7cecd6-91eb-43f6-b45e-621bd462e824",
+     "flow_name": "Master Services Agreement",
+     "confidence": 0.62,
+     "reasoning": "The Master Services Agreement workflow (id: 3b7cecd6) is the direct fit \u2014 it covers the full MSA lifecycle including draft, legal review, parallel Quality + Privacy review, Finance approval, and counterparty negotiation, which aligns with an IT services engagement for plant automation.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-07": {
+    "predicted": {
+     "workflow": "Master Services Agreement",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "3b7cecd6-91eb-43f6-b45e-621bd462e824",
+     "flow_name": "Master Services Agreement",
+     "confidence": 0.62,
+     "reasoning": "The request is squarely an MSA engagement \u2014 a master agreement with campaign-level SOWs is the classic MSA structure. The Master Services Agreement workflow (id=3b7cecd6) covers the full MSA lifecycle including draft, legal review, quality/privacy review, and counterparty negotiation, making it the best fit.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-08": {
+    "predicted": {
+     "workflow": "Master Services Agreement",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "3b7cecd6-91eb-43f6-b45e-621bd462e824",
+     "flow_name": "Master Services Agreement",
+     "confidence": 0.72,
+     "reasoning": "The MSA workflow covers the full MSA lifecycle including legal review, quality/privacy review, and counterparty negotiation \u2014 directly applicable to an MSA renewal with bespoke, high-risk vendor-inserted terms. The Contract Approval Ladder is a fallback for generic commercial contracts; the MSA workflow is the better fit here.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-09": {
+    "predicted": {
+     "workflow": "Data Privacy Incident (DPDP)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "38152f9b-c228-4ef3-8e1e-8b0642043401",
+     "flow_name": "Data Privacy Incident (DPDP)",
+     "confidence": 0.82,
+     "reasoning": "The Data Privacy Incident (DPDP) workflow is the clear fit \u2014 it covers personal-data breach response with hard SLAs on the 72-hour notification clock, severity assessment, containment, and regulator/data-principal notification. A human should also be looped in immediately given the sensitivity of patient trial data and the likelihood that the notification deadline is already running.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-10": {
+    "predicted": {
+     "workflow": "Data Privacy Incident (DPDP)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "38152f9b-c228-4ef3-8e1e-8b0642043401",
+     "flow_name": "Data Privacy Incident (DPDP)",
+     "confidence": 0.82,
+     "reasoning": "The Data Privacy Incident (DPDP) workflow is the direct fit \u2014 it covers personal-data breach response with a 72-hour notification SLA, severity assessment, containment, and regulator/data-principal notification steps, all of which are triggered here. A human should also confirm routing given the sensitivity and statutory deadlines.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-11": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.62,
+     "reasoning": "No workflow in the catalog is a clean fit: the DPDP workflow (38152f9b) is for breach/incident response, not pre-contract DPA drafting; the Vendor Due Diligence workflow (44a1ade6) covers sanctions screening and onboarding but not DPA drafting; the Contract Approval Ladder (918443de) could handle a commercial contract but doesn't address the privacy-specific DPA requirements. A human should confirm routing \u2014 likely a combination of vendor due diligence and a bespoke DPA drafting step.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-12": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.62,
+     "reasoning": "The closest workflow in the catalog is the Data Privacy Incident (DPDP) workflow (id=38152f9b), but that is specifically scoped to personal-data breach response with a 72-hour notification SLA \u2014 it does not fit a data-principal erasure/deletion request. No other workflow covers data subject rights fulfilment, so a human should route this to the appropriate privacy/compliance process.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-13": {
+    "predicted": {
+     "workflow": "Trademark Clearance",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "6a3779ec-cd26-4415-8086-90381b253c44",
+     "flow_name": "Trademark Clearance",
+     "confidence": 0.82,
+     "reasoning": "The Trademark Clearance workflow (id: 6a3779ec-cd26-4415-8086-90381b253c44) is the exact fit \u2014 it covers distinctiveness and conflict searches, IP counsel review, and a registry-search recommendation before a new name goes live, which is precisely what is being requested here.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-14": {
+    "predicted": {
+     "workflow": "Trademark Clearance",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "6a3779ec-cd26-4415-8086-90381b253c44",
+     "flow_name": "Trademark Clearance",
+     "confidence": 0.72,
+     "reasoning": "The Trademark Clearance workflow (id 6a3779ec) is the best fit \u2014 it covers distinctiveness and conflict searches, IP counsel review, and a registry-search recommendation before the mark goes live. A human should also confirm routing because the request spans two foreign jurisdictions (India + UAE), which may require outside counsel engagement beyond the standard workflow scope.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-15": {
+    "predicted": {
+     "workflow": "Trademark Clearance",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "6a3779ec-cd26-4415-8086-90381b253c44",
+     "flow_name": "Trademark Clearance",
+     "confidence": 0.55,
+     "reasoning": "The Trademark Clearance workflow (conflict search + IP counsel review) is the closest catalog fit for an initial assessment of a competitor's similar brand before deciding on opposition. However, a human should confirm routing since this is an opposition/enforcement matter rather than a standard pre-launch clearance, and critical details (marks, jurisdiction, registration status) are missing.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-16": {
+    "predicted": {
+     "workflow": "Trademark Clearance",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "6a3779ec-cd26-4415-8086-90381b253c44",
+     "flow_name": "Trademark Clearance",
+     "confidence": 0.62,
+     "reasoning": "The Trademark Clearance workflow (id: 6a3779ec-cd26-4415-8086-90381b253c44) is the exact fit \u2014 it covers distinctiveness and conflict searches, IP counsel review, and a registry-search recommendation before a name goes live, which is precisely what Marketing needs before packaging is finalised.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-17": {
+    "predicted": {
+     "workflow": "Vendor / Counterparty Due Diligence",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "44a1ade6-e761-4b5a-944b-82dc1d4f1317",
+     "flow_name": "Vendor / Counterparty Due Diligence",
+     "confidence": 0.72,
+     "reasoning": "The Vendor / Counterparty Due Diligence workflow is the direct fit \u2014 it covers third-party onboarding with sanctions/debarment screening, compliance clearance, and contract terms approval, all of which are needed for a new cross-border API supplier.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-18": {
+    "predicted": {
+     "workflow": "Vendor / Counterparty Due Diligence",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "44a1ade6-e761-4b5a-944b-82dc1d4f1317",
+     "flow_name": "Vendor / Counterparty Due Diligence",
+     "confidence": 0.72,
+     "reasoning": "The Vendor / Counterparty Due Diligence workflow (id: 44a1ade6) is a direct match \u2014 it covers sanctions/debarment screening and compliance clearance for third-party onboarding, which is exactly what is requested.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-19": {
+    "predicted": {
+     "workflow": "Vendor / Counterparty Due Diligence",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "44a1ade6-e761-4b5a-944b-82dc1d4f1317",
+     "flow_name": "Vendor / Counterparty Due Diligence",
+     "confidence": 0.78,
+     "reasoning": "The Vendor / Counterparty Due Diligence workflow (id: 44a1ade6) is a direct match \u2014 it covers third-party onboarding with AI-driven sanctions/debarment screening and compliance clearance, which maps precisely to the KYC and anti-bribery checks requested.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-20": {
+    "predicted": {
+     "workflow": "Vendor / Counterparty Due Diligence",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "44a1ade6-e761-4b5a-944b-82dc1d4f1317",
+     "flow_name": "Vendor / Counterparty Due Diligence",
+     "confidence": 0.72,
+     "reasoning": "The Vendor / Counterparty Due Diligence workflow is the direct fit \u2014 it includes AI sanctions & debarment screening and a compliance clearance step, which are exactly what's needed to assess the adverse media finding about the director before any contract terms are approved. A human should also confirm routing given the elevated risk of the fraud allegation.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-21": {
+    "predicted": {
+     "workflow": "Patent / ANDA Litigation (Para IV)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "16106445-cb2f-4592-bd5d-f020f29b7e07",
+     "flow_name": "Patent / ANDA Litigation (Para IV)",
+     "confidence": 0.82,
+     "reasoning": "The Patent/ANDA Litigation (Para IV) workflow is purpose-built for exactly this scenario \u2014 Hatch-Waxman Para IV notice letters with hard-SLA'd early stages and outside counsel engagement. The 45-day window makes immediate docketing and IP counsel assessment critical; a human should also confirm routing given the statutory deadline risk.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-22": {
+    "predicted": {
+     "workflow": "Patent / ANDA Litigation (Para IV)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "16106445-cb2f-4592-bd5d-f020f29b7e07",
+     "flow_name": "Patent / ANDA Litigation (Para IV)",
+     "confidence": 0.62,
+     "reasoning": "The Patent/ANDA Litigation (Para IV) workflow is the clear best fit for an ongoing ANDA matter in Delaware involving outside counsel engagement; it covers matter intake, docketing, deadline extraction, IP counsel assessment, and outside counsel coordination.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-23": {
+    "predicted": {
+     "workflow": "Patent / ANDA Litigation (Para IV)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "16106445-cb2f-4592-bd5d-f020f29b7e07",
+     "flow_name": "Patent / ANDA Litigation (Para IV)",
+     "confidence": 0.72,
+     "reasoning": "The Patent/ANDA Litigation (Para IV) workflow is the precise fit \u2014 it covers Hatch-Waxman matters, hard-SLA's the 45-day window, and routes to IP counsel and outside counsel engagement. A human should confirm routing immediately given the statutory deadline risk.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-24": {
+    "predicted": {
+     "workflow": "Patent / ANDA Litigation (Para IV)",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "16106445-cb2f-4592-bd5d-f020f29b7e07",
+     "flow_name": "Patent / ANDA Litigation (Para IV)",
+     "confidence": 0.55,
+     "reasoning": "The Patent/ANDA Litigation (Para IV) workflow is the closest fit for a patent infringement matter with hard court deadlines, covering matter intake, docketing, deadline extraction, IP counsel assessment, and outside counsel engagement. However, a human should confirm routing since it is unclear whether this is a Hatch-Waxman/Para IV matter or general patent infringement, and critical details (case number, court, parties, brief type) are missing.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-25": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.72,
+     "reasoning": "The Legal Notice Response workflow is the best fit \u2014 it handles statutory/demand notices with hard reply deadlines, extracts claims and deadlines via AI, and routes to counsel for a formal response. This is precisely a demand notice scenario requiring a structured, deadline-aware response.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-26": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.72,
+     "reasoning": "The Legal Notice Response workflow is the best fit \u2014 it is specifically designed for statutory/demand notices with hard reply deadlines, and its AI-assisted deadline & claim extraction step directly addresses the 15-day response window. A human should also confirm routing given the employment/litigation sensitivity and missing details.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-27": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.62,
+     "reasoning": "The Legal Notice Response workflow is the best fit \u2014 it is specifically designed for statutory/demand notices with hard reply deadlines, and its AI-assisted deadline & claim extraction step will surface any mandatory response window in the notice immediately.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-28": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.72,
+     "reasoning": "The Legal Notice Response workflow is purpose-built for statutory/demand notices with hard reply deadlines \u2014 it logs the notice, extracts deadlines and claims via AI, drafts a response, and routes for GC approval, which is exactly what a notice to vacate requires.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-29": {
+    "predicted": {
+     "workflow": "Regulatory Action Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "b9e38808-1e8d-46ae-b678-6578d2798b96",
+     "flow_name": "Regulatory Action Response",
+     "confidence": 0.72,
+     "reasoning": "The Regulatory Action Response workflow (b9e38808) is purpose-built for CDSCO/drug-controller actions including warning letters and show-cause notices; it includes cross-functional Quality/Regulatory Affairs involvement and GC approval, which are essential here. A human should also confirm routing given the missing deadline and product details.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-30": {
+    "predicted": {
+     "workflow": "Regulatory Action Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "b9e38808-1e8d-46ae-b678-6578d2798b96",
+     "flow_name": "Regulatory Action Response",
+     "confidence": 0.62,
+     "reasoning": "The Regulatory Action Response workflow (b9e38808) is the best fit \u2014 it covers state drug-controller actions, involves cross-functional coordination with Quality/Regulatory Affairs, and routes through GC Approval, all of which are appropriate for a regulator's records demand tied to a batch recall. A human should confirm routing given the enforcement risk and missing details.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-31": {
+    "predicted": {
+     "workflow": "Regulatory Action Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "b9e38808-1e8d-46ae-b678-6578d2798b96",
+     "flow_name": "Regulatory Action Response",
+     "confidence": 0.72,
+     "reasoning": "The Regulatory Action Response workflow is the direct fit for USFDA 483 observations \u2014 it explicitly covers FDA 483/warning letters and includes cross-functional coordination with Quality/Regulatory Affairs, which is essential for this matter type.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-32": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.45,
+     "reasoning": "The Regulatory Action Response workflow (b9e38808) is designed for post-inspection enforcement actions (FDA 483s, warning letters, pricing notices) \u2014 not pre-inspection preparation. No other workflow in the catalog covers site-team briefings ahead of an inspection. A human should route this to the appropriate regulatory affairs / legal counsel team.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-33": {
+    "predicted": {
+     "workflow": "Compliance Investigation",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "cb1b54a7-9fef-4c5e-8e4b-86e5ffd3f91b",
+     "flow_name": "Compliance Investigation",
+     "confidence": 0.72,
+     "reasoning": "The Compliance Investigation workflow (cb1b54a7) is the direct fit \u2014 it is explicitly designed for whistleblower, UCPMP, and anti-bribery matters with a confidential track and mandatory closure report. A human should also confirm routing given the sensitivity and potential legal/regulatory exposure of a kickback allegation.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-34": {
+    "predicted": {
+     "workflow": "Compliance Investigation",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "cb1b54a7-9fef-4c5e-8e4b-86e5ffd3f91b",
+     "flow_name": "Compliance Investigation",
+     "confidence": 0.72,
+     "reasoning": "The Compliance Investigation workflow (cb1b54a7) is the direct fit \u2014 it covers whistleblower, anti-bribery, and misconduct matters with a confidential track, complaint triage, investigation plan approval, fact-finding, and a mandatory closure report, all of which are needed here.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-35": {
+    "predicted": {
+     "workflow": "Compliance Investigation",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "cb1b54a7-9fef-4c5e-8e4b-86e5ffd3f91b",
+     "flow_name": "Compliance Investigation",
+     "confidence": 0.62,
+     "reasoning": "The Compliance Investigation workflow (whistleblower/anti-bribery/misconduct matters with a confidential track) is the best fit for an internal investigation into employee data leakage. However, if the leaked data includes personal data of customers or employees, the Data Privacy Incident (DPDP) workflow may need to run in parallel \u2014 a human should confirm scope before routing.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-36": {
+    "predicted": {
+     "workflow": "Compliance Investigation",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "cb1b54a7-9fef-4c5e-8e4b-86e5ffd3f91b",
+     "flow_name": "Compliance Investigation",
+     "confidence": 0.72,
+     "reasoning": "The Compliance Investigation workflow (cb1b54a7) is the best fit \u2014 it covers whistleblower, UCPMP, and anti-bribery matters with a confidential track and mandatory closure report, which directly matches a potential distributor bribery allegation. A human should also confirm routing given the high-risk nature of the allegation and the limited facts provided.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-37": {
+    "predicted": {
+     "workflow": "Employment / POSH Matter",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "13dbd390-2e80-4454-805a-014e0b5e520a",
+     "flow_name": "Employment / POSH Matter",
+     "confidence": 0.72,
+     "reasoning": "The Employment / POSH Matter workflow (id: 13dbd390-2e80-4454-805a-014e0b5e520a) is the direct fit \u2014 it covers POSH-committee matters with statutory timelines, HR involvement, and GC sign-off, which is exactly what this complaint requires.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-38": {
+    "predicted": {
+     "workflow": "Employment / POSH Matter",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "13dbd390-2e80-4454-805a-014e0b5e520a",
+     "flow_name": "Employment / POSH Matter",
+     "confidence": 0.62,
+     "reasoning": "The Employment / POSH Matter workflow (id: 13dbd390-2e80-4454-805a-014e0b5e520a) is the closest fit for an HR-initiated employment agreement review involving a senior hire. While the Contract Approval Ladder is a generic fallback, the Employment workflow is purpose-built for employment matters and routes through HR and GC sign-off, which is appropriate here. A human should confirm routing given the missing jurisdictional and non-compete scope details that materially affect risk.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-39": {
+    "predicted": {
+     "workflow": "Employment / POSH Matter",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "13dbd390-2e80-4454-805a-014e0b5e520a",
+     "flow_name": "Employment / POSH Matter",
+     "confidence": 0.62,
+     "reasoning": "The Employment / POSH Matter workflow (id=13dbd390-2e80-4454-805a-014e0b5e520a) is the closest fit \u2014 it covers disciplinary and separation matters with statutory timelines, which aligns with a contested termination. A human should confirm routing given the adversarial nature and the absence of key facts (e.g., whether a formal legal notice or claim has been filed, which would escalate to the Legal Notice Response or Litigation track).",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-40": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.62,
+     "reasoning": "No workflow in the catalog is designed for internal policy drafting or updates. The Employment/POSH Matter workflow targets disciplinary, separation, and POSH-committee matters \u2014 not policy revision \u2014 so forcing that fit would be inappropriate. A human should route this to the correct policy-review track.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-41": {
+    "predicted": {
+     "workflow": "Board / Secretarial Approval",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "89c84926-9b73-4b88-b31d-e6158bf8b41f",
+     "flow_name": "Board / Secretarial Approval",
+     "confidence": 0.72,
+     "reasoning": "The Board / Secretarial Approval workflow (id 89c84926) is a direct match \u2014 it covers board resolutions, authorised-signatory changes, and similar secretarial matters, and its steps (Draft Resolution \u2192 Legal Vetting \u2192 CS / Board Approval) align exactly with what is needed here.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-42": {
+    "predicted": {
+     "workflow": "Board / Secretarial Approval",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "89c84926-9b73-4b88-b31d-e6158bf8b41f",
+     "flow_name": "Board / Secretarial Approval",
+     "confidence": 0.62,
+     "reasoning": "The \"Board / Secretarial Approval\" workflow (id 89c84926) covers resolutions, POAs, authorised-signatory changes, and secretarial filings \u2014 a director appointment falls squarely within this scope. However, several critical details are missing, so a human should confirm before work begins.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-43": {
+    "predicted": {
+     "workflow": "Board / Secretarial Approval",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "89c84926-9b73-4b88-b31d-e6158bf8b41f",
+     "flow_name": "Board / Secretarial Approval",
+     "confidence": 0.72,
+     "reasoning": "The Board / Secretarial Approval workflow (id=89c84926-9b73-4b88-b31d-e6158bf8b41f) is the best fit as it covers resolutions, disclosures, and board approvals \u2014 directly applicable to routing a related-party transaction for board/shareholder sign-off. A human should confirm routing given the RPT's regulatory sensitivity and missing transaction details.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-44": {
+    "predicted": {
+     "workflow": "Board / Secretarial Approval",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "89c84926-9b73-4b88-b31d-e6158bf8b41f",
+     "flow_name": "Board / Secretarial Approval",
+     "confidence": 0.62,
+     "reasoning": "The Board/Secretarial Approval workflow (id=89c84926-9b73-4b88-b31d-e6158bf8b41f) is the closest fit, covering secretarial matters, disclosures, and resolutions requiring legal vetting and CS/Board approval. However, a human should confirm routing since the request covers a broad annual calendar review rather than a single discrete secretarial action.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-45": {
+    "predicted": {
+     "workflow": "Contract Approval Ladder",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "918443de-17d5-43e2-95d6-76abbf220e62",
+     "flow_name": "Contract Approval Ladder",
+     "confidence": 0.72,
+     "reasoning": "The Contract Approval Ladder (918443de) is the default workflow for commercial contracts including supply and services agreements, and is the best fit for an equipment purchase agreement requiring draft submission, AI risk review, legal review, and finance review.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-46": {
+    "predicted": {
+     "workflow": "Contract Approval Ladder",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "918443de-17d5-43e2-95d6-76abbf220e62",
+     "flow_name": "Contract Approval Ladder",
+     "confidence": 0.55,
+     "reasoning": "The Contract Approval Ladder is the designated workflow for commercial contracts including supply agreements, covering AI risk review, legal review, and finance review before final sign-off \u2014 a direct match for this request.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-47": {
+    "predicted": {
+     "workflow": "Contract Approval Ladder",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "918443de-17d5-43e2-95d6-76abbf220e62",
+     "flow_name": "Contract Approval Ladder",
+     "confidence": 0.62,
+     "reasoning": "The Contract Approval Ladder is the best fit \u2014 it covers commercial contracts including distribution agreements, routes through AI Risk Review, Legal Review, and Finance Review (relevant given the non-standard 60-day payment term), and is the catalog's stated default for any commercial contract.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-48": {
+    "predicted": {
+     "workflow": "Contract Approval Ladder",
+     "escalate": false
+    },
+    "raw_flow": {
+     "flow_id": "918443de-17d5-43e2-95d6-76abbf220e62",
+     "flow_name": "Contract Approval Ladder",
+     "confidence": 0.72,
+     "reasoning": "The Contract Approval Ladder is the best fit for a commercial services contract renewal. The Vendor Due Diligence workflow is designed for new third-party onboarding with sanctions screening, which is not the primary need here; the Contract Approval Ladder covers supply/services contracts and includes AI risk review and finance review appropriate for a renewal approval.",
+     "alternatives": [],
+     "needs_human": false,
+     "source": "llm"
+    }
+   },
+   "routing-49": {
+    "predicted": {
+     "workflow": null,
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": null,
+     "flow_name": null,
+     "confidence": 0.35,
+     "reasoning": "The request spans at least two distinct matter types (data-sharing/NDA and a supply contract) and the requester themselves is unsure what they need. No single workflow covers both, and critical details are missing; a human intake lawyer must clarify scope before routing.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   },
+   "routing-50": {
+    "predicted": {
+     "workflow": "Legal Notice Response",
+     "escalate": true
+    },
+    "raw_flow": {
+     "flow_id": "51c14bae-c69c-42f8-a3ec-5e256743c160",
+     "flow_name": "Legal Notice Response",
+     "confidence": 0.55,
+     "reasoning": "The Legal Notice Response workflow is the best fit: it handles statutory/demand notices with hard reply deadlines, and its first step (Notice Logging \u2192 AI Deadline & Claim Extraction) will quickly determine whether this is a genuine legal notice requiring action or spam \u2014 exactly the ambiguity the requester flags. A human should also confirm routing given the uncertainty.",
+     "alternatives": [],
+     "needs_human": true,
+     "source": "llm"
+    }
+   }
+  }
+ }
+}

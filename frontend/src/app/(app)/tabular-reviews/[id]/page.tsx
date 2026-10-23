@@ -14,7 +14,7 @@ import {
   Upload,
 } from "lucide-react";
 import { ImportContractModal } from "@/components/import-contract-modal";
-import { contractsApi, mattersApi, tabularApi } from "@/lib/endpoints";
+import { contractsApi, tabularApi } from "@/lib/endpoints";
 import {
   Badge,
   Breadcrumbs,
@@ -35,7 +35,7 @@ import {
   THead,
   TR,
 } from "@/components/ui";
-import { fmtRelative, statusTone, titleCase } from "@/lib/utils";
+import { fmtRelative, plural, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { TabularReviewCell } from "@/lib/types";
 
@@ -63,10 +63,6 @@ export default function TabularReviewDetailPage({
     queryKey: ["contracts"],
     queryFn: contractsApi.list,
   });
-  const { data: projects } = useQuery({
-    queryKey: ["projects"],
-    queryFn: mattersApi.list,
-  });
 
   const contractTitle = useMemo(() => {
     const map = new Map<string, string>();
@@ -87,7 +83,6 @@ export default function TabularReviewDetailPage({
     );
 
   const { review, columns, cells } = data;
-  const project = (projects ?? []).find((p) => p.id === review.matter_id);
   const sortedColumns = [...columns].sort((a, b) => a.position - b.position);
   const cellAt = (contractId: string, columnId: string) =>
     cells.find(
@@ -108,18 +103,10 @@ export default function TabularReviewDetailPage({
     <div className="space-y-4">
       <div>
         <Breadcrumbs
-          items={
-            project
-              ? [
-                  { label: "Matters", href: "/matters" },
-                  { label: project.name, href: `/matters/${project.id}` },
-                  { label: review.name },
-                ]
-              : [
-                  { label: "Tabular Reviews", href: "/tabular-reviews" },
-                  { label: review.name },
-                ]
-          }
+          items={[
+            { label: "Tabular Reviews", href: "/tabular-reviews" },
+            { label: review.name },
+          ]}
         />
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -131,8 +118,8 @@ export default function TabularReviewDetailPage({
                 {titleCase(review.status)}
               </Badge>
               <span className="text-sm text-slate-500">
-                {review.source_contract_ids.length} contracts ·{" "}
-                {sortedColumns.length} columns
+                {plural(review.source_contract_ids.length, "contract")} ·{" "}
+                {plural(sortedColumns.length, "column")}
               </span>
             </div>
           </div>

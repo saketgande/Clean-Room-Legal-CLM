@@ -1,0 +1,7 @@
+{
+  "task": "T017",
+  "agent": "backend-dev",
+  "status": "done",
+  "detail": "eval/exam/evaldb.py: reset, migrate, bootstrap, load_playbooks, load_workflows, ingest_document (+IngestFailed); 77 scratch checks against a real scratch Postgres db pass (no repo test file assigned; T019 covers it end to end); all test_exam_* 531 passed; ruff clean",
+  "updated": "2026-10-06T19:52:00Z"
+}

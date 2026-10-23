@@ -10,7 +10,7 @@ Owner agents: backend-dev
 
 ## Endpoints
 
-- `GET /analytics/ai-usage` -- permission: `admin_panel:access` -- request: ? -- response: ?
+- `GET /analytics/ai-usage` -- permission: `admin_panel:access` -- request: Literal['real', 'exam'] -- response: ?
 
 ## Schemas
 

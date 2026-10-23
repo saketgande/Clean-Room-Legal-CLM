@@ -1,0 +1,128 @@
+{
+ "schema": "aegis-exam-manifest/1",
+ "seed": "aegis-exam-1",
+ "public": {
+  "missing": [],
+  "past_25k_cutoff": 25000,
+  "cuad": {
+   "documents": 40,
+   "documents_past_25k_labels": 40,
+   "candidates_over_25k": 302,
+   "labels_not_found_in_text": 0,
+   "review_deviations": 138,
+   "review_deviations_past_25k": 117,
+   "extraction_fields": 254,
+   "extraction_fields_past_25k": 123,
+   "extraction_fields_left_out": {
+    "effective_date: no single complete date": 6,
+    "expiration_date: no single complete date": 35,
+    "governing_law: no jurisdiction named": 2,
+    "notice_period: notice may sit in the termination or renewal clause": 21,
+    "parties: more than 6 named": 2
+   }
+  },
+  "qa": {
+   "questions": 100,
+   "documents": 37,
+   "past_25k": 58
+  },
+  "contractnli": {
+   "documents": 10,
+   "verdicts": 170,
+   "by_verdict": {
+    "compliant": 75,
+    "deviation": 19,
+    "missing": 76
+   },
+   "documents_over_25k": 4
+  }
+ },
+ "constructed": {
+  "missing": [],
+  "rules_without_severity": [],
+  "documents": {
+   "common_paper": 18,
+   "aegis_review": 24,
+   "aegis_long": 4,
+   "scan_twins": [
+    "scan-cp-msa-03",
+    "scan-cp-dpa-02",
+    "scan-ae-msa-02",
+    "scan-ae-saas-02",
+    "scan-ae-vendor-03",
+    "scan-ae-long-01"
+   ],
+   "portfolio_extra": 12,
+   "portfolio_total": 40
+  },
+  "review": {
+   "documents": 46,
+   "controls": 9,
+   "common_paper_controls": 3,
+   "aegis_controls": 6
+  },
+  "plants": {
+   "total": 96,
+   "by_severity": {
+    "critical": 3,
+    "high": 39,
+    "low": 5,
+    "medium": 49
+   },
+   "by_status": {
+    "deviation": 80,
+    "missing": 16
+   },
+   "past_25k": 12,
+   "past_25k_documents": [
+    "ae-long-01",
+    "ae-long-02",
+    "ae-long-03",
+    "ae-long-04"
+   ]
+  },
+  "long_document_lengths": {
+   "ae-long-01": 55741,
+   "ae-long-02": 55309,
+   "ae-long-03": 55979,
+   "ae-long-04": 55361
+  },
+  "portfolio": {
+   "pq-01": 8,
+   "pq-02": 4,
+   "pq-03": 3,
+   "pq-04": 6,
+   "pq-05": 5,
+   "pq-06": 4,
+   "pq-07": 3,
+   "pq-08": 3,
+   "pq-09": 33
+  },
+  "extraction": {
+   "items": 58,
+   "fields": 244
+  }
+ },
+ "templates": {
+  "consultancy": "e18bb3084bbb21ec2f66b30813caf42045176a65a3a24904bd5f93e33d35381a",
+  "dpa": "4f2c4c573f11b8174fd4782720aec464b3ffef4e4a73d4fb9e4a29c732b29325",
+  "msa": "1356649695f09a8b1a03de5af2c2f7e35151d981763d25c2fc38a0dc95acdda5",
+  "nda": "d34d3fd04e6c5b43f49495ad30e4e8ea1df32ef04d458bb34b39ae97a6320d6a",
+  "saas": "806f43dc852f329466b7b4f31c1b6e256533c72831f2a5e885fd02903711194a",
+  "sow": "dd47abd9c8416aad0a9397824cb00a89f217a466063edeaf798bb2a737aecaa1",
+  "vendor": "9e98318fe137d79f2ad409d7b49ec709946f46757acc62f5632934dcc6f31328"
+ },
+ "severity_source": {
+  "module": "app/playbooks/library.py",
+  "playbooks": [
+   "Consultancy Agreement Playbook",
+   "Customer Agreement Playbook",
+   "Data Processing Agreement Playbook",
+   "Master Services Agreement Playbook",
+   "Software / SaaS Agreement Playbook",
+   "Statement of Work Playbook",
+   "Vendor Agreement Playbook"
+  ]
+ },
+ "pymupdf": "1.28.0"
+}

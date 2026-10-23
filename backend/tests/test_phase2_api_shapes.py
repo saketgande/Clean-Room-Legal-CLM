@@ -6,8 +6,6 @@ from app.contract_files.schemas import ContractShareCreate
 from app.contract_files.service import _text_snapshot_validation_status
 from app.core.enums import ShareAccessMode
 from app.integrations.storage import StorageService
-from app.matters.access import PROJECT_SHARE_SHARE_LEVELS, PROJECT_UPDATE_SHARE_LEVELS
-from app.matters.schemas import MatterFolderUpdate, MatterShareCreate
 from app.search.fts import text_matches
 
 
@@ -45,28 +43,6 @@ def test_contract_share_schema_defaults_to_view_only_without_download():
 def test_contract_share_passcode_requires_minimum_length():
     with pytest.raises(ValidationError):
         ContractShareCreate(passcode="123")
-
-
-def test_project_folder_update_can_clear_parent_folder():
-    explicit_root = MatterFolderUpdate(parent_folder_id=None)
-    untouched = MatterFolderUpdate()
-
-    assert "parent_folder_id" in explicit_root.model_dump(exclude_unset=True)
-    assert "parent_folder_id" not in untouched.model_dump(exclude_unset=True)
-
-
-def test_project_share_access_levels_are_ordered():
-    assert PROJECT_UPDATE_SHARE_LEVELS == {"update", "share"}
-    assert PROJECT_SHARE_SHARE_LEVELS == {"share"}
-
-
-def test_project_share_schema_restricts_access_levels():
-    assert MatterShareCreate(user_id="user-1", access_level="read").access_level == "read"
-    assert MatterShareCreate(user_id="user-1", access_level="update").access_level == "update"
-    assert MatterShareCreate(user_id="user-1", access_level="share").access_level == "share"
-
-    with pytest.raises(ValidationError):
-        MatterShareCreate(user_id="user-1", access_level="admin")
 
 
 def test_text_matches_returns_limited_case_insensitive_excerpts():

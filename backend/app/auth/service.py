@@ -45,10 +45,6 @@ _LOGIN_INVALID_CREDENTIALS = "Invalid email or password"
 _DUMMY_PASSWORD_HASH = "$2b$12$OaXwEt/8jCeiZ6W/9ZFURuXp292uSJDCEDX6EiAMMTmAt0JJRci8y"
 
 
-def _normalize_domain(email: str) -> str:
-    return email.rsplit("@", 1)[-1].lower()
-
-
 def _mask_email(email: str | None) -> str | None:
     """Mask the local-part of an email for audit metadata.
 
@@ -245,12 +241,19 @@ class AuthService:
         user.created_by_user_id = user.id
         user.updated_by_user_id = user.id
         self.bootstrap_roles(org.id, actor_user_id=user.id)
-        # Seed the default approver groups (Legal Counsel, Finance, …) so the
-        # approval-routing form has real options out of the box. Imported locally to
-        # keep auth's import graph light.
-        from app.approvals.service import ensure_default_approver_groups
+        # Seed the default teams (Legal Counsel, Finance, …) so workflow steps have
+        # real teams to name out of the box. Imported locally to keep auth's import
+        # graph light.
+        from app.intake.teams import ensure_default_teams
 
-        ensure_default_approver_groups(db, org_id=org.id, actor_user_id=user.id)
+        ensure_default_teams(db, org_id=org.id, actor_user_id=user.id)
+        # The root org unit, the admin's role grant and every role's default
+        # screen access. The migrations seed these only for organisations that
+        # already existed, so a fresh install's admin otherwise holds no grant
+        # (User.roles above is view-only) and sees no Legal Intake, no Contracts.
+        from app.menu_security.bootstrap import ensure_org_access
+
+        ensure_org_access(db, org_id=org.id, actor_user_id=user.id)
         write_audit_log(
             db,
             action="organization.setup_completed",
@@ -907,7 +910,7 @@ class AuthService:
     ) -> User:
         db = self.db
         if not role_id and not role_name:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "role_id or role_name is required")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "role_id or role_name is required")
         role = next(
             (
                 item

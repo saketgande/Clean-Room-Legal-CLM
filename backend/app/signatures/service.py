@@ -13,11 +13,14 @@ from app.contract_files.models import (
     StorageObject,
 )
 from app.contract_files.service import (
+    _persist_document_elements,
     next_version_number,
+    promote_version,
     queue_activation_ai_jobs,
     requeue_contract_ai_jobs,
 )
-from app.contracts.lifecycle import transition_contract_stage
+from app.contracts.blanks import find_blanks
+from app.contracts.lifecycle import transition_contract_stage, version_approval_state
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
@@ -48,6 +51,46 @@ class SignaturesService:
         self.storage = storage or storage_service
         self.resend = resend or resend_client
 
+    def ensure_text_is_complete(self, *, text: str | None, override: bool) -> None:
+        """Refuse to send a contract that still has a fill-in blank in it ("[INSERT CORRECT EXPIRY
+        DATE]"). The stage gate counts decisions, not text, so a contract could be approved and
+        sent with one. Whoever may override the signature gate may send it anyway."""
+        found = find_blanks(text)
+        if found and not override:
+            shown = ", ".join(f"\u201c{b}\u201d" for b in found[:3])
+            more = f" and {len(found) - 3} more" if len(found) > 3 else ""
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"This contract still has blanks to fill in: {shown}{more}. "
+                "Fill them in before sending it for signature.",
+            )
+
+    def ensure_version_is_approved(self, *, contract, version, override: bool) -> None:
+        """Refuse to send a version that nobody approved. Approval belongs to a version, but the
+        stage gate looks only at the contract's stage, so a contract approved at one version and
+        edited afterwards stayed at Signature and could go out with the new, unapproved text.
+        A contract that never went through approval (a fast-lane NDA) has nothing to be out of date.
+        Whoever may override the signature gate may send it anyway."""
+        if override:
+            return
+        state = version_approval_state(self.db, contract, version.id)
+        reason = {
+            "changed": "This version was changed after the contract was approved. Approval belongs to a version, "
+                       "so this one has to be approved again.",
+            "pending": "This version is still waiting for approval.",
+            "rejected": "Approval of this version was rejected.",
+        }.get(state)
+        if reason:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                f"{reason} Send it through approval before it goes out for signature.",
+            )
+
+    def ensure_version_is_complete(self, *, version, override: bool) -> None:
+        """ensure_text_is_complete for the version that is about to be sent."""
+        snapshot = self.db.get(ContractTextSnapshot, version.text_snapshot_id) if version.text_snapshot_id else None
+        self.ensure_text_is_complete(text=snapshot.text if snapshot else None, override=override)
+
     def validate_signature_recipients(
         self,
         *,
@@ -64,7 +107,7 @@ class SignaturesService:
         db = self.db
         if not recipients:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY, "At least one recipient is required"
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "At least one recipient is required"
             )
         allowed = {
             email.lower()
@@ -91,7 +134,7 @@ class SignaturesService:
         )
         if invalid:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "Recipients must be a contract party or an organization user: "
                 + ", ".join(invalid),
             )
@@ -121,7 +164,7 @@ class SignaturesService:
                 if artifact_is_executed
                 else "Signature completion record (executed copy not downloaded)"
             ),
-            is_authoritative=True,
+            is_authoritative=False,  # promoted below, once the current one is demoted
             created_by_user_id=user.id,
             updated_by_user_id=user.id,
         )
@@ -149,21 +192,13 @@ class SignaturesService:
             db.add(snapshot)
             db.flush()
             signed.text_snapshot_id = snapshot.id
-        versions = db.scalars(
-            select(ContractVersion).where(
-                ContractVersion.org_id == user.org_id,
-                ContractVersion.contract_id == contract.id,
-                ContractVersion.deleted_at.is_(None),
-            )
-        ).all()
-        for row in versions:
-            row.is_authoritative = row.id == signed.id
-            row.updated_by_user_id = user.id
+            # The signed text is the base text, so it takes the base's clause tree; without
+            # elements clause extraction fell back to the old full-text skill.
+            _persist_document_elements(db, snapshot, elements=[])
+        promote_version(db, contract=contract, version=signed, actor_user_id=user.id)
         contract_file.current_version_id = signed.id
         contract_file.updated_by_user_id = user.id
         contract.current_contract_file_id = contract_file.id
-        contract.current_authoritative_version_id = signed.id
-        contract.updated_by_user_id = user.id
         return signed
 
     async def _download_and_store_signed_document(
@@ -345,6 +380,12 @@ class SignaturesService:
             request_id=request_id,
             details={"signed_contract_version_id": signed_version.id},
         )
+        # The signature date is an anchor: a deadline "within 30 days of signing"
+        # waiting on it is counted now, in this transaction, not at the next re-run.
+        from app.core.deadlines import recompute_contract_deadlines
+
+        db.flush()
+        recompute_contract_deadlines(db, contract)
         # Re-run metadata/clause/embeddings on the final executed version, then
         # extract obligations + renewal terms now that the contract is ACTIVE.
         requeue_contract_ai_jobs(db, user=user, contract=contract, version=signed_version)

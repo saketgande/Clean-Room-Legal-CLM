@@ -178,7 +178,9 @@ async def classify_goods(
     """NICE-class suggestion, called as the user pauses typing on the
     create/intake form — debounced client-side, cached server-side."""
     try:
-        return await service.suggest_nice_class(org_id=current_user.org_id, request=payload)
+        return await service.suggest_nice_class(
+            org_id=current_user.org_id, request=payload, user_id=current_user.id
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -194,7 +196,9 @@ async def explain_conflict(
     """"Explain this conflict" — one on-demand call per result the user
     clicks into on the search-similar page, not the whole result set."""
     try:
-        return await service.explain_conflict(org_id=current_user.org_id, request=payload)
+        return await service.explain_conflict(
+            org_id=current_user.org_id, request=payload, user_id=current_user.id
+        )
     except HTTPException:
         raise
     except Exception as exc:

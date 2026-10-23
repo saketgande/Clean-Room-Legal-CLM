@@ -1,0 +1,1 @@
+{"task": "T015", "agent": "backend-dev", "status": "done", "detail": "eval/exam/owner.py (FrozenOCR, verify_quote, read_as_app, owner_import, run_ocr, run_prefill, load_facts, regenerate_facts_sheet, stale_keys, owner_status) + owner-command tests in tests/test_exam_gate.py; pytest tests/test_exam_gate.py 90 passed; ruff clean", "updated": "2026-10-06T18:21:20Z"}

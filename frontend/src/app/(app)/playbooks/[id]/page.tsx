@@ -27,14 +27,9 @@ import {
   TR,
   Textarea,
 } from "@/components/ui";
-import { cn, fmtDateTime, riskTone, statusTone, titleCase } from "@/lib/utils";
+import { cn, riskTone, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
-import type {
-  PlaybookInsights,
-  PlaybookRecommendation,
-  PlaybookRunDetailResponse,
-  PlaybookVersionResponse,
-} from "@/lib/types";
+import type { PlaybookInsights, PlaybookRecommendation, PlaybookRunDetailResponse } from "@/lib/types";
 
 export default function PlaybookDetailPage({
   params,

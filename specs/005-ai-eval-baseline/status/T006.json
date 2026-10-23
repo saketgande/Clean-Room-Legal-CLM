@@ -1,0 +1,1 @@
+{"task": "T006", "agent": "backend-dev", "status": "done", "detail": "exam_meter hook (post_messages + stream_with_tools), complete_json, 4 batch methods, AICallContext.eval_run_id, FakeAnthropic fake; test_exam_claude_client 25 passed, adjacent AI/gateway suites 108 passed, ruff clean", "updated": "2026-10-06T17:28:08Z"}

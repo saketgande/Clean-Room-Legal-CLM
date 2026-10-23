@@ -1,6 +1,6 @@
 "use client";
 
-// Global search — contracts / full text / clauses / projects (new mockup style, scoped `.srch`).
+// Global search — contracts / full text / clauses (new mockup style, scoped `.srch`).
 // Pure visual reskin: every query fn, param, and result field below is unchanged from the old version.
 
 import { useState } from "react";
@@ -11,25 +11,23 @@ import {
   FileText,
   AlignLeft,
   Quote,
-  FolderKanban,
   Loader2,
 } from "lucide-react";
 import { searchApi } from "@/lib/endpoints";
-import { titleCase } from "@/lib/utils";
+import { clauseConfidenceLabel } from "@/lib/clause-confidence";
+import { titleCase, riskBand, RISK_UNKNOWN_LABEL, type RiskBand } from "@/lib/utils";
 import type {
   ClauseSearchResult,
   ContractResponse,
   ContractTextSearchResult,
-  MatterResponse,
 } from "@/lib/types";
 
-type TabId = "contracts" | "text" | "clauses" | "projects";
+type TabId = "contracts" | "text" | "clauses";
 
 const TABS: { id: TabId; label: string; icon: typeof FileText }[] = [
   { id: "contracts", label: "Contracts", icon: FileText },
   { id: "text", label: "Full text", icon: AlignLeft },
   { id: "clauses", label: "Clauses", icon: Quote },
-  { id: "projects", label: "Matters", icon: FolderKanban },
 ];
 
 export default function SearchPage() {
@@ -41,7 +39,7 @@ export default function SearchPage() {
       <div className="hd">
         <div>
           <h1>Search</h1>
-          <p className="sub">Look up contracts and matters by name, metadata and dates.</p>
+          <p className="sub">Look up contracts by name, metadata and dates.</p>
         </div>
       </div>
 
@@ -64,7 +62,6 @@ export default function SearchPage() {
       {tab === "contracts" && <ContractsTab />}
       {tab === "text" && <TextTab />}
       {tab === "clauses" && <ClausesTab />}
-      {tab === "projects" && <MattersTab />}
 
       <p className="foot">
         Looking for something <em>inside</em> your contracts — clauses, wording,
@@ -112,7 +109,8 @@ function ContractsTab() {
       searchApi.contracts({
         q: q || undefined,
         stage: stage || undefined,
-        risk: risk || undefined,
+        // The route's parameter is risk_level; sending "risk" was silently ignored.
+        risk_level: risk || undefined,
         counterparty: counterparty || undefined,
       }),
     );
@@ -144,12 +142,13 @@ function ContractsTab() {
         </div>
         <div className="fld">
           <label>Risk</label>
-          <input
-            className="plain"
-            placeholder="e.g. high"
-            value={risk}
-            onChange={(e) => setRisk(e.target.value)}
-          />
+          <select className="plain" value={risk} onChange={(e) => setRisk(e.target.value)}>
+            <option value="">Any risk</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="unknown">Not reviewed</option>
+          </select>
         </div>
         <div className="fld">
           <label>Counterparty</label>
@@ -184,7 +183,7 @@ function ContractsTab() {
                 </div>
               </div>
               <span className="pill blue">{titleCase(c.lifecycle_stage)}</span>
-              {c.risk_level && <span className="pill slate">{titleCase(c.risk_level)}</span>}
+              <RiskPill band={riskBand(c.risk_summary, c.current_authoritative_version_id)} />
               <ArrowRight className="rarr" />
             </Link>
           ))}
@@ -192,6 +191,12 @@ function ContractsTab() {
       )}
     </div>
   );
+}
+
+function RiskPill({ band }: { band: RiskBand }) {
+  return band === "unknown"
+    ? <span className="pill slate" title={RISK_UNKNOWN_LABEL}>Not reviewed</span>
+    : <span className="pill slate">{titleCase(band)} risk</span>;
 }
 
 // ---- Full text -------------------------------------------------------------
@@ -331,61 +336,7 @@ function ClausesTab() {
                 <div className="rmeta excerpt">{r.excerpt}</div>
               </div>
               <span className="pill blue">{titleCase(r.clause_type)}</span>
-              <span className="conf">{Math.round(r.confidence * 100)}%</span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---- Matters ------------------------------------------------------------
-function MattersTab() {
-  const [q, setQ] = useState("");
-  const { results, loading, error, run } = useSearch<MatterResponse>();
-
-  function search() {
-    run(() => searchApi.projects({ q: q || undefined }));
-  }
-
-  return (
-    <div className="pane">
-      <div className="bar">
-        <div className="fld grow">
-          <label>Query</label>
-          <div className="inputbar">
-            <SearchIcon className="ic" />
-            <input
-              placeholder="Matter name or description…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && search()}
-            />
-          </div>
-        </div>
-        <button className="btn pri" onClick={search} disabled={loading}>
-          {loading ? <Loader2 className="ic spin" /> : <SearchIcon className="ic" />}
-          Search
-        </button>
-      </div>
-
-      {loading ? (
-        <CenterLoading />
-      ) : error ? (
-        <ErrorPanel error={error} />
-      ) : results === null ? null : results.length === 0 ? (
-        <NoResults />
-      ) : (
-        <div className="grid">
-          {results.map((p) => (
-            <Link key={p.id} href={`/matters/${p.id}`} className="pcard">
-              <div className="pch">
-                <h3>{p.name}</h3>
-                <ArrowRight className="rarr" />
-              </div>
-              <span className="pill slate">{titleCase(p.matter_type)}</span>
-              {p.description && <p className="pdesc">{p.description}</p>}
+              {r.confidence && <span className="conf">{clauseConfidenceLabel(r.confidence)}</span>}
             </Link>
           ))}
         </div>
@@ -470,12 +421,6 @@ const SRCH_CSS = `
 .srch .snips{list-style:none;margin:9px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
 .srch .snips li{border:1px solid var(--border);border-radius:8px;background:var(--inset);padding:8px 11px;font-size:12.5px;line-height:1.55;color:var(--ink-2)}
 
-.srch .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
-.srch .pcard{display:flex;flex-direction:column;gap:8px;border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);padding:14px 15px;text-decoration:none;color:inherit;transition:.12s}
-.srch .pcard:hover{border-color:var(--accent);transform:translateY(-1px)}
-.srch .pch{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.srch .pch h3{margin:0;font-size:13.5px;font-weight:650;color:var(--ink)}
-.srch .pdesc{margin:0;font-size:12.5px;color:var(--ink-2);line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 
 .srch .state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:52px 20px;text-align:center;color:var(--ink-3);border:1px dashed var(--border-strong);border-radius:12px;background:var(--inset)}
 .srch .state .statei{width:22px;height:22px;color:var(--ink-3);margin-bottom:4px}

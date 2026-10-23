@@ -6,17 +6,18 @@
 // palette/brief/tiles/btn from the shell's injected CSS).
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { intakeApi } from "@/lib/endpoints";
+import Link from "next/link";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { approvalsApi, intakeApi } from "@/lib/endpoints";
+import { dueText } from "@/lib/approval-due";
+import { contractDisplayName, plural } from "@/lib/utils";
 import { CenterSpinner, ErrorState } from "@/components/ui";
-import type { IntakeRequest, IntakeTask } from "@/lib/types";
+import type { ApprovalRequest, IntakeRequest, IntakeTask } from "@/lib/types";
 
 // Refetch on window focus rather than poll — see the note on LIVE_POLL in
 // intake/page.tsx for the trade-off (sla_status won't advance on its own
 // while the tab sits unfocused).
 const POLL = { refetchOnWindowFocus: true } as const;
-
-const isOpenReq = (r: IntakeRequest) => r.status !== "closed" && r.status !== "approved";
 function counterpartyOf(r: IntakeRequest): string | null {
   const parties = (r.parties ?? []) as { name?: string; role?: string }[];
   const cp = parties.find((p) => /counter|vendor|supplier|opposing|third|other/i.test(p.role ?? "")) ?? parties[0];
@@ -46,7 +47,7 @@ function stageOf(r: IntakeRequest): { name: string; done: number; total: number 
   if (!steps.length) return null;
   const done = steps.filter((s) => s.done).length;
   const active = steps.find((s) => s.active);
-  return { name: active?.label ?? "In progress", done, total: steps.length };
+  return { name: active?.label ?? (done === steps.length ? "Complete" : "In progress"), done, total: steps.length };
 }
 
 function AssignedCard({ r, onOpen }: { r: IntakeRequest; onOpen: (id: string) => void }) {
@@ -77,11 +78,36 @@ function AssignedCard({ r, onOpen }: { r: IntakeRequest; onOpen: (id: string) =>
   );
 }
 
+/** What an approval is about: the agreement, or the request when there is no contract. */
+function approvalSubject(a: ApprovalRequest): string {
+  if (a.contract_id) return a.contract_title ? contractDisplayName({ title: a.contract_title, contract_type: a.contract_type }) : "Contract";
+  return [a.intake_ref, a.intake_title].filter(Boolean).join(" · ") || "Request";
+}
+
+function ApprovalCard({ a }: { a: ApprovalRequest }) {
+  return (
+    <div className={`tcard ${a.overdue ? "over" : ""}`}>
+      <div className="ticon approval">
+        <svg className="ic" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg>
+      </div>
+      <div className="tmid">
+        <div className="tmatter"><span className="cp">{approvalSubject(a)}</span></div>
+        <div className="ask">Waiting for your approval</div>
+        <div className="tdetail">{a.step_order ? `Step ${a.step_order}` : "Approval"}</div>
+      </div>
+      <div className="tright">
+        <span className={`due ${a.overdue ? "over" : ""}`}>{a.overdue ? "overdue · " : "due "}{dueText(a)}</span>
+        <div className="actions"><Link href="/approvals" className="btn pri sm">Review</Link></div>
+      </div>
+    </div>
+  );
+}
+
 function RaisedRow({ r, i, onOpen }: { r: IntakeRequest; i: number; onOpen: (id: string) => void }) {
   const cp = counterpartyOf(r);
   const st = stageOf(r);
   const stuck = r.sla_status === "overdue";
-  const status = r.status === "closed" || r.status === "approved" ? "done" : stuck ? "stuck" : (r.workflow ?? []).some((s) => s.active) ? "progress" : "input";
+  const status = r.status === "closed" || r.status === "approved" ? "done" : stuck ? "stuck" : (r.workflow ?? []).some((s) => s.active) || r.contract_id ? "progress" : "input";
   const statlbl = status === "done" ? "executed" : status === "stuck" ? "overdue" : status === "progress" ? "in progress" : "awaiting triage";
   const segs = st ? Array.from({ length: st.total }, (_, k) => {
     const cls = k < st.done - 1 ? "done" : k === st.done - 1 ? "cur" : "";
@@ -95,7 +121,7 @@ function RaisedRow({ r, i, onOpen }: { r: IntakeRequest; i: number; onOpen: (id:
         <div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 7 }}><span className="nm">{(r.subject || r.type_label)}</span><span className="ref">{r.ref}</span></div>
         <div className="dim" style={{ fontSize: 11.5 }}>{r.type_label}</div></div></div></td>
       <td><div style={{ fontWeight: 600 }}>{cp ?? "—"}</div></td>
-      <td className="stagecell">{st ? <><div className="stagenm">{st.name}<span className="cnt">{st.done}/{st.total}</span></div><div className="sbar">{segs}</div></> : <span className="dim">not started</span>}</td>
+      <td className="stagecell">{st ? <><div className="stagenm">{st.name}<span className="cnt">{st.done}/{st.total}</span></div><div className="sbar">{segs}</div></> : <span className="dim">{r.contract_id ? "contract drafted" : "not started"}</span>}</td>
       <td><span className={`rstat ${status}`}>{statlbl}</span></td>
       <td><button className="btn sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>Open →</button></td>
     </tr>
@@ -105,25 +131,40 @@ function RaisedRow({ r, i, onOpen }: { r: IntakeRequest; i: number; onOpen: (id:
 export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
   const { data: mw, isLoading: mwLoading, error: mwError } = useQuery({ queryKey: ["intake-mywork"], queryFn: intakeApi.myWork, ...POLL });
   const { data: mineData, isLoading: mineLoading } = useQuery({ queryKey: ["intake-mine"], queryFn: intakeApi.mine, ...POLL });
+  // Same query key as the Approvals page. A person without approval access just has none here; that must not
+  // take the rest of the board down with it.
+  const { data: approvalData } = useQuery({ queryKey: ["approvals"], queryFn: approvalsApi.list, retry: false, ...POLL });
+  const qc = useQueryClient();
+  const markDone = useMutation({
+    mutationFn: (id: string) => intakeApi.updateTask(id, { status: "done" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["intake-mywork"] }),
+  });
 
   const assigned = useMemo(() => {
     const seen = new Set<string>();
     return [...(mw?.awaiting_review ?? []), ...(mw?.my_tickets ?? [])].filter((r) => { if (seen.has(r.id)) return false; seen.add(r.id); return true; });
   }, [mw]);
-  const raised = useMemo(() => (mineData ?? []).filter((r) => true), [mineData]);
+  const raised = useMemo(() => mineData ?? [], [mineData]);
   const tasks = mw?.my_tasks ?? [];
+  // Waiting on this person right now: still pending, and theirs to decide (the same test as the Approvals page).
+  const approvals = useMemo(
+    () => (approvalData ?? []).filter((a) => a.status === "pending" && a.can_decide),
+    [approvalData],
+  );
 
   const over = assigned.filter((r) => urgency(r) === "over");
   const soon = assigned.filter((r) => urgency(r) === "soon");
   const later = assigned.filter((r) => urgency(r) === "later");
-  const onDesk = assigned.length + tasks.length;
+  const onDesk = assigned.length + tasks.length + approvals.length;
+  const overdueCount = over.length + approvals.filter((a) => a.overdue).length;
   const starter = over[0] ?? soon[0] ?? assigned[0];
   const doneRecent = raised.filter((r) => r.status === "approved" || r.status === "closed").length;
 
   const tiles: { n: number; l: string; c?: string }[] = [
     { n: onDesk, l: "on your desk", c: "c" },
-    { n: over.length, l: "overdue", c: "c" },
+    { n: overdueCount, l: "overdue", c: "c" },
     { n: soon.length, l: "due soon", c: "w" },
+    { n: approvals.length, l: "approvals" },
     { n: tasks.length, l: "tasks" },
     { n: raised.length, l: "raised by you" },
   ];
@@ -154,8 +195,8 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
         <div className="briefhd"><div className="aiglyph">✦</div><div><b>Your day</b> <span className="when">· AI read your desk · updated just now</span></div></div>
         <div className="briefbody">
           <p className="summary">
-            <b>{onDesk} items on your desk.</b>{" "}
-            {over.length ? <><span className="c">{over.length} overdue</span>, </> : null}{soon.length} due soon.{" "}
+            <b>{plural(onDesk, "item")} on your desk.</b>{" "}
+            {overdueCount ? <><span className="c">{overdueCount} overdue</span>, </> : null}{soon.length} due soon.{" "}
             {starter ? <>Start with <b>{starter.ref}</b> — {(starter.subject || starter.type_label)}. </> : null}
             You&rsquo;ve raised <b>{raised.length}</b>{doneRecent ? <>, {doneRecent} executed</> : null}.
           </p>
@@ -173,10 +214,16 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
       </div>
 
       {/* assigned */}
-      {assigned.length === 0 && tasks.length === 0 ? (
+      {assigned.length === 0 && tasks.length === 0 && approvals.length === 0 ? (
         <div className="grouphd" style={{ marginTop: 22 }}>Nothing on your desk — inbox zero 🎉</div>
       ) : (
         <>
+          {approvals.length ? (
+            <>
+              <div className={`grouphd ${approvals.some((a) => a.overdue) ? "crit" : "warn"}`}>Waiting for your approval<span className="gc">{approvals.length}</span></div>
+              {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
+            </>
+          ) : null}
           {group("Overdue", over, "crit")}
           {group("Due soon", soon, "warn")}
           {group("Later", later, "")}
@@ -187,7 +234,7 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
                 <div key={t.id} className="tcard">
                   <div className="ticon info"><svg className="ic" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8" /><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" /></svg></div>
                   <div className="tmid"><div className="ask">{t.title}</div>{t.description ? <div className="tdetail">{t.description}</div> : null}<div className="tmeta"><span className="chip">{t.status}</span></div></div>
-                  <div className="tright"><div className="actions"><button className="btn sm">{t.status === "done" ? "Done" : "Mark done"}</button></div></div>
+                  <div className="tright"><div className="actions"><button className="btn sm" disabled={t.status === "done" || markDone.isPending} onClick={() => markDone.mutate(t.id)}>{t.status === "done" ? "Done" : "Mark done"}</button></div></div>
                 </div>
               ))}
             </>
@@ -212,7 +259,7 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 const MW_CSS = `
-.mw .tiles{grid-template-columns:repeat(5,1fr)}
+.mw .tiles{grid-template-columns:repeat(6,1fr)}
 .mw .starthere{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));background:var(--accent-soft);border-radius:11px}
 .mw .starthere .bolt{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none}
 .mw .starthere .st-t{font-size:12.5px;color:var(--ink)} .mw .starthere .st-t b{font-weight:680} .mw .starthere .lbl{color:var(--accent);font-weight:700}

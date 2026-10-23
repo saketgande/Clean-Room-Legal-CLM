@@ -1,0 +1,208 @@
+CONSULTANCY AGREEMENT
+
+This Consultancy Agreement (the "Agreement") is entered into as of {effective_date} (the "Effective Date") by and between {company} (the "Company") and {counterparty} (the "Consultant"). The Company and the Consultant are each a "Party" and together the "Parties".
+
+BACKGROUND
+
+The Company wishes to engage the Consultant to provide certain consultancy services, and the Consultant has agreed to provide those services as an independent contractor on the terms of this Agreement.
+
+1. DEFINITIONS AND INTERPRETATION
+
+1.1 In this Agreement the following terms have the following meanings:
+
+"Applicable Law" means all laws, regulations, rules and binding guidance applicable to a Party or to the Services, as amended from time to time.
+
+"Competitor" means any person whose business competes with any business of the Company or its affiliates in which the Consultant is engaged under this Agreement.
+
+"Confidential Information" has the meaning given in Clause 9.1.
+
+"Fees" means the fees for the Services set out in the Engagement Schedule.
+
+"Engagement Schedule" means the schedule at the end of this Agreement, or any engagement letter or statement of work signed by both Parties that refers to this Agreement, describing the Services, the Deliverables, the timetable and the Fees.
+
+"Intellectual Property Rights" means patents, rights in inventions, copyright and related rights, moral rights, trade marks, rights in designs, rights in software, database rights, rights in confidential information (including know-how and trade secrets) and all other intellectual property rights, whether registered or unregistered, anywhere in the world.
+
+"Personnel" means the employees, officers, agents and approved subcontractors of a Party.
+
+"Services" means the consultancy services described in the Engagement Schedule.
+
+"Work Product" means all reports, advice, analyses, documents, software, designs, data, inventions, materials and other work product created by or on behalf of the Consultant, alone or with others, in providing the Services.
+
+1.2 Headings are for convenience only. The words "including" and "include" mean "including without limitation".
+
+2. ENGAGEMENT AND SERVICES
+
+2.1 The Company engages the Consultant to provide the Services, and the Consultant agrees to provide the Services in accordance with this Agreement and the Engagement Schedule.
+
+2.2 The Consultant shall:
+(a) provide the Services with all due skill, care and diligence and in accordance with good professional practice;
+(b) devote such time and attention to the Services as is necessary for their proper performance and meet any agreed timetable;
+(c) comply with all Applicable Law and with the Company's reasonable policies on health and safety, information security, conduct and site access notified to it; and
+(d) keep the Company informed of the progress of the Services and provide such reports as the Company reasonably requests.
+
+2.3 The Consultant shall not subcontract or delegate the Services without the Company's prior written consent and remains responsible for the acts and omissions of any approved subcontractor.
+
+2.4 The Consultant has no authority to bind the Company or to hold itself out as able to do so.
+
+3. INDEPENDENT CONTRACTOR
+
+3.1 The Consultant is engaged as an independent contractor. Nothing in this Agreement creates an employment relationship, partnership, joint venture or agency between the Company and the Consultant or any of the Consultant's Personnel, and none of them is entitled to any salary, benefits, leave, gratuity, bonus, pension, insurance or other entitlement of an employee of the Company.
+
+3.2 The Consultant is solely responsible for all income tax, goods and services tax, social security, provident fund and other statutory contributions, levies and benefits payable in respect of the Fees and of its Personnel, and shall indemnify the Company against any such liability, together with any related interest and penalties, that is assessed against the Company.
+
+3.3 The Consultant determines the manner and method of performing the Services, subject to meeting the requirements of this Agreement, and shall provide its own tools, equipment and facilities at its own cost, except where the Company agrees in writing to provide access to its premises or systems for the purposes of the Services.
+
+4. CONFLICTS OF INTEREST
+
+4.1 The Consultant confirms that, at the Effective Date, it has disclosed to the Company in writing every interest, engagement or relationship that conflicts, or may reasonably be expected to conflict, with its performance of the Services or with the interests of the Company.
+
+4.2 The Consultant shall promptly disclose in writing any actual or potential conflict of interest that arises during the term of this Agreement and shall take such steps as the Company reasonably requires to avoid or manage it.
+
+4.3 During the term of this Agreement the Consultant shall not, and shall procure that its Personnel engaged in the Services do not, advise or act for any Competitor on the same matter or subject matter as the Services without the Company's prior written consent.
+
+4.4 The Consultant shall not accept any payment, gift or benefit from any third party in connection with the Services.
+
+5. TERM
+
+5.1 This Agreement commences on the Effective Date and {agreement_term}, unless terminated earlier in accordance with Clause 7.
+
+6. FEES, INVOICING AND PAYMENT
+
+6.1 In consideration of the Services, the Company shall pay the Consultant the Fees set out in the Engagement Schedule.{value_sentence}
+
+6.2 The Consultant shall invoice the Company monthly in arrears, or as set out in the Engagement Schedule. Each invoice must itemise the Services performed, include any supporting timesheets the Company reasonably requests, and comply with Applicable Law on tax invoices.
+
+6.3 The Company shall pay valid, undisputed invoices within {payment_days} days of receipt.
+
+6.4 The Company may withhold any amount it disputes in good faith, provided that it notifies the Consultant of the dispute and its reasons before the due date. The Company shall pay any amount agreed or determined to be due within {payment_days} days of resolution of the dispute.
+
+6.5 Any advance payment shall not exceed twenty percent (20%) of the total Fees and shall be credited against the first invoices issued under this Agreement.
+
+6.6 Fees are exclusive of goods and services tax, which the Company shall pay against a valid tax invoice. The Company may deduct any tax it is required by law to withhold and shall provide the Consultant with the relevant withholding certificate.
+
+6.7 The Fees are the entire consideration for the Services. Expenses are reimbursed only where approved by the Company in writing in advance, at cost and in accordance with the Company's expenses policy, against receipts.
+
+7. TERMINATION
+
+7.1 The Company may terminate this Agreement for convenience at any time on fifteen (15) days' written notice to the Consultant.
+
+7.2 Either Party may terminate this Agreement immediately on written notice if the other Party:
+(a) commits a material breach of this Agreement which is not capable of remedy, or which is capable of remedy and is not cured within thirty (30) days of written notice requiring it to be cured; or
+(b) becomes insolvent, has a receiver, liquidator, administrator or resolution professional appointed over any of its assets, enters into any arrangement with its creditors, or suffers any analogous event in any jurisdiction.
+
+7.3 On termination for any reason:
+(a) the Company shall pay the Consultant for Services properly performed up to the date of termination, less any amounts already paid, and the Company has no other liability to the Consultant for that termination;
+(b) the Consultant shall refund any Fees paid for Services not performed;
+(c) the Consultant shall promptly deliver to the Company all Work Product, whether complete or in progress, and all Company property in its possession; and
+(d) each Party shall return or destroy the other Party's Confidential Information in accordance with Clause 9.5.
+
+7.4 Termination does not affect any rights or remedies accrued up to the date of termination. Clauses 3, 6, 7.3, 7.4, 8, 9, 10, 11, 12, 13, 15 and any other provisions that by their nature are intended to survive, survive termination or expiry of this Agreement.
+
+8. INTELLECTUAL PROPERTY
+
+8.1 All Intellectual Property Rights in the Work Product vest in the Company on creation. The Consultant hereby assigns to the Company, by way of present assignment of future rights, all right, title and interest in and to the Work Product and all intellectual property in it, with full title guarantee, throughout the world and for the full term of those rights, and shall procure an equivalent assignment from each of its Personnel.
+
+8.2 The Consultant irrevocably and unconditionally waives, and shall procure that its Personnel waive, all moral rights in the Work Product to the extent permitted by Applicable Law.
+
+8.3 To the extent any materials owned by the Consultant before the Effective Date are incorporated in the Work Product, the Consultant grants the Company a perpetual, irrevocable, worldwide, royalty-free, non-exclusive licence to use, copy, modify and sublicense those materials as part of the Work Product.
+
+8.4 The Consultant shall, during and after the term of this Agreement, execute such documents and do such things as the Company reasonably requests to perfect, register or enforce the Company's rights in the Work Product, and appoints the Company as its attorney to do so if it fails to act within fourteen (14) days of a request.
+
+8.5 The Consultant warrants that the Work Product is its original work and that neither the Work Product nor its use by the Company infringes the Intellectual Property Rights of any third party.
+
+9. CONFIDENTIALITY
+
+9.1 "Confidential Information" means all non-public information, in any form or medium, disclosed by or on behalf of one Party (the "Disclosing Party") to the other Party (the "Receiving Party") in connection with this Agreement, including information about the Disclosing Party's business, customers, suppliers, products, pricing, finances, technology and personal data, the Work Product and the terms of this Agreement, whether or not marked as confidential.
+
+9.2 Confidential Information does not include information that the Receiving Party can show by written evidence:
+(a) is or becomes generally available to the public other than through a breach of this Agreement;
+(b) was lawfully in its possession free of any obligation of confidence before it was disclosed by the Disclosing Party;
+(c) is lawfully received from a third party who is not under an obligation of confidence in respect of it; or
+(d) is independently developed by the Receiving Party without use of or reference to the Disclosing Party's Confidential Information.
+
+9.3 The Receiving Party shall:
+(a) keep the Disclosing Party's Confidential Information confidential and protect it using at least the degree of care it uses for its own confidential information of a similar nature, and in any event no less than a reasonable degree of care;
+(b) use it only to perform its obligations or exercise its rights under this Agreement; and
+(c) not disclose it to any person except to its Personnel and professional advisers who need to know it for that purpose and who are bound by obligations of confidentiality no less protective than this Clause 9. The Receiving Party is responsible for any breach of this Clause 9 by those persons.
+
+9.4 The Receiving Party may disclose Confidential Information to the extent required by law, by a court or regulatory authority of competent jurisdiction, or by the rules of a stock exchange, provided that, where lawful, it gives the Disclosing Party prompt prior written notice, cooperates with any effort to obtain a protective order, and discloses only the minimum information required.
+
+9.5 On termination of this Agreement or on the Disclosing Party's written request, the Receiving Party shall within thirty (30) days return or securely destroy the Disclosing Party's Confidential Information and confirm in writing that it has done so, except for copies it is required to keep by law, which remain subject to this Clause 9.
+
+9.6 The obligations in this Clause 9 continue during the term of this Agreement and for five (5) years after its termination or expiry, and in respect of trade secrets, for as long as the information remains a trade secret under Applicable Law.
+
+9.7 Each Party acknowledges that damages alone may not be an adequate remedy for breach of this Clause 9 and that the Disclosing Party is entitled to seek injunctive relief or specific performance for any threatened or actual breach.
+
+9.8 Where the Consultant processes personal data on behalf of the Company, it shall comply with the Digital Personal Data Protection Act, 2023 and any other applicable data protection law, act only on the Company's documented instructions, keep the data secure, and notify the Company within seventy-two (72) hours of becoming aware of any breach affecting it.
+
+10. NON-SOLICITATION
+
+10.1 During the term of this Agreement and for twelve (12) months after it ends, neither Party shall, without the other Party's prior written consent, directly or indirectly solicit or entice away, or attempt to solicit or entice away, any employee or Personnel of the other Party with whom it had material dealings in connection with the Services.
+
+10.2 General recruitment advertising not specifically directed at those persons, and hiring a person who responds to it without other solicitation, is not a breach of this Clause 10.
+
+11. INDEMNITY
+
+11.1 The Consultant shall indemnify the Company against all losses, damages, liabilities, costs (including reasonable legal fees) and expenses arising out of any third-party claim to the extent arising from the Consultant's breach of this Agreement, the negligence, wilful misconduct or fraud of the Consultant or its Personnel, any claim that the Work Product infringes the Intellectual Property Rights of a third party, or any claim by the Consultant's Personnel or any authority that the Company is their employer or is liable for their taxes or contributions.
+
+12. LIMITATION OF LIABILITY
+
+12.1 Subject to Clauses 12.3 and 12.4, each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement.
+
+12.2 Subject to Clauses 12.3 and 12.4, neither Party is liable to the other for any indirect, special or consequential loss or damage.
+
+12.3 The limitations and exclusions in Clauses 12.1 and 12.2 do not apply to:
+(a) a Party's breach of Clause 9 (Confidentiality);
+(b) the Consultant's obligations under Clause 3.2 or Clause 11;
+(c) a Party's gross negligence or wilful misconduct;
+(d) fraud or fraudulent misrepresentation; or
+(e) death or personal injury caused by negligence.
+
+12.4 Nothing in this Agreement limits or excludes any liability that cannot be limited or excluded under Applicable Law.
+
+13. GOVERNING LAW AND DISPUTE RESOLUTION
+
+13.1 This Agreement and any dispute arising out of or in connection with it are governed by the laws of {governing_law}, without regard to its conflict-of-laws rules.
+
+13.2 The Parties shall first attempt to resolve any dispute through good-faith negotiation for thirty (30) days after either Party notifies the other of the dispute. If it is not resolved within that period, the courts of competent jurisdiction under the laws of {governing_law} have exclusive jurisdiction, provided that either Party may seek urgent interim or injunctive relief in any court of competent jurisdiction.
+
+14. NOTICES
+
+14.1 Notices under this Agreement must be in writing and delivered by hand, by courier or by email to the address of the receiving Party set out in this Agreement or as notified in writing from time to time. A notice is effective on delivery by hand or courier, or on the next business day after it is sent by email, provided no delivery failure message is received.
+
+15. GENERAL
+
+15.1 Compliance. The Consultant shall comply with all applicable anti-bribery and anti-corruption laws, including the Prevention of Corruption Act, 1988, and with all applicable sanctions and export control laws.
+
+15.2 Assignment. The Consultant may not assign, transfer or subcontract this Agreement or any of its rights or obligations without the Company's prior written consent. The Company may assign this Agreement to any of its affiliates or to a successor to all or substantially all of its business on written notice.
+
+15.3 Entire agreement. This Agreement, together with the Engagement Schedule, constitutes the entire agreement between the Parties relating to its subject matter and supersedes all prior agreements, proposals and understandings. Any terms on the Consultant's proposals, invoices or other documents do not apply.
+
+15.4 Amendment and waiver. No amendment to this Agreement is effective unless it is in writing and signed by authorised representatives of both Parties. No failure or delay in exercising any right is a waiver of that right.
+
+15.5 Severability. If any provision of this Agreement is held invalid or unenforceable, the remaining provisions continue in full force, and the Parties shall negotiate in good faith a valid replacement provision that most closely achieves the original intent.
+
+15.6 Third parties. No person other than the Parties has any right to enforce this Agreement.
+
+15.7 Counterparts and electronic signature. This Agreement may be executed in counterparts, each of which is an original and which together constitute one instrument. Signatures delivered electronically or by any electronic signature service are binding.
+
+ENGAGEMENT SCHEDULE
+
+Services: [Describe the consultancy services to be provided.]
+
+Deliverables and timetable: [List each item of Work Product to be delivered and its due date.]
+
+Fees: [State the fee basis, e.g. a fixed fee, or a daily or hourly rate with a not-to-exceed amount.]
+
+Consultant's key individual(s): [Name each individual who will perform the Services. The Consultant shall not replace them without the Company's prior written consent.]
+
+Company contact: [Name and role.]
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

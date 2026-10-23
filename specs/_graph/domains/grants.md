@@ -25,7 +25,7 @@ GrantCreate, GrantResponse
 
 ## Frontend counterpart
 
-Api group: `grantsApi` (confidence: exact)
-- `grantsApi.create()` -> `POST /grants`
-- `grantsApi.list()` -> `GET /grants?resource_type=${encodeURIComponent(resourceType)}&resource_id=${encodeURIComponent(resourceId)}`
-- `grantsApi.revoke()` -> `DELETE /grants/${id}`
+Api group: `roleGrantsApi` (confidence: heuristic)
+- `roleGrantsApi.create()` -> `POST /role-grants`
+- `roleGrantsApi.list()` -> `GET /role-grants${qs(params ?? {})}`
+- `roleGrantsApi.revoke()` -> `DELETE /role-grants/${id}`

@@ -158,14 +158,17 @@ def _build_contract_facts(db: Session, *, record_id: str, org_id: str) -> dict[s
 
 
 def _build_intake_request_facts(db: Session, *, record_id: str, org_id: str) -> dict[str, Any]:
-    from app.intake.approval_bridge import ApprovalBridgeService, IntakeApprovalSubject
+    from app.intake.approval_bridge import IntakeApprovalSubject
     from app.intake.models import IntakeRequest
 
     request = db.get(IntakeRequest, record_id)
     if request is None or request.org_id != org_id:
         raise HTTPException(404, "Request not found")
 
-    subject = IntakeApprovalSubject(request, type_key=ApprovalBridgeService(db)._type_key_for(request))
+    # Request types are gone (0058): a request names its agreement form, so the
+    # form key is what "request type" means in a chain condition now.
+    form_key = (request.field_values or {}).get("request_form")
+    subject = IntakeApprovalSubject(request, type_key=form_key)
 
     facts: dict[str, Any] = {
         fact_name: _json_safe(getattr(request, attr_name, None))

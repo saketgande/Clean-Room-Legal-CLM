@@ -1,9 +1,8 @@
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.ai import prompt_versions, registry
-from app.ai.agent_catalog import STANDALONE_AGENTS, all_agents, get_agent_prompt
-from app.intake import gates
+from app.ai.agent_catalog import STANDALONE_AGENTS, all_agents
+from app.ai.gateway import ai_gateway
 
 
 def test_standalone_agents_have_default_prompts():
@@ -19,22 +18,9 @@ def test_all_agents_lists_skills_and_standalone_with_no_dead_skill():
     assert "contract_brain_query_parse" not in prompt_versions.DEFAULT_SKILL_PROMPTS
 
 
-def test_get_agent_prompt_falls_back_to_default_when_no_db_override():
+def test_agent_prompt_falls_back_to_default_when_no_db_override():
     db = MagicMock()
     db.scalar.return_value = None  # no active AIPromptVersion row for this org
-    bundle = get_agent_prompt(db, agent_id="flow_router", org_id="org-1")
+    bundle = ai_gateway.prompt_for(db, "flow_router", org_id="org-1")
     assert bundle.skill_prompt == prompt_versions.DEFAULT_SKILL_PROMPTS["flow_router"]
     assert bundle.prompt_key == "flow_router"
-
-
-def test_classify_gates_trusts_empty_ai_result_but_falls_back_on_none():
-    """M5 regression: an AI-classified [] (no gates apply) must NOT trigger the
-    keyword fallback — only a None (mock/degraded/error) should."""
-    request = SimpleNamespace(org_id="org-1", type_label="NDA", description="", field_values={})
-
-    with patch.object(gates, "_classify_ai", return_value=[]):
-        assert gates.classify_gates(MagicMock(), request) == []
-
-    with patch.object(gates, "_classify_ai", return_value=None):
-        result = gates.classify_gates(MagicMock(), request)
-        assert result == gates.detect_keyword(gates._request_text(request))

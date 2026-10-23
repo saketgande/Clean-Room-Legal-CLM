@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Check,
   Download,
   FileDown,
   FileText,
+  GitCompare,
   Loader2,
   MessageSquarePlus,
   PenLine,
@@ -16,6 +17,9 @@ import { contractsApi } from "@/lib/endpoints";
 import { splitBlocks, anchorEdit } from "@/lib/contract-blocks";
 import { Badge, Button, Select } from "@/components/ui";
 import { titleCase } from "@/lib/utils";
+import { editCaution } from "@/lib/lifecycle-actions";
+import { versionLabel } from "@/lib/version-label";
+import { VersionCompare } from "@/components/version-compare";
 import { useToast } from "@/components/toast";
 import type {
   ContractComment,
@@ -189,9 +193,22 @@ export function ContractDocument({
   onSelectEdit,
   onSelectComment,
   highlightQuote,
+  variant,
+  toolbar,
+  mode = "markup",
+  zoom = 1,
 }: {
   contractId: string;
   className?: string;
+  /** "page": the contract shown as a sheet of paper on a grey desk (the CLM workspace). */
+  variant?: "page";
+  /** Page variant: controls that float at the top of the desk (view mode, next change, zoom). */
+  toolbar?: ReactNode;
+  /** Page variant: Markup shows tracked changes; Final shows the text with every pending change
+   *  accepted; Original shows it with none. Display only: nothing is decided by switching. */
+  mode?: "markup" | "final" | "original";
+  /** Page variant: text size, 1 = normal. */
+  zoom?: number;
   edits?: ContractEditResponse[];
   activeEditId?: string | null;
   onSelectEdit?: (id: string) => void;
@@ -199,16 +216,31 @@ export function ContractDocument({
   highlightQuote?: string | null;
 }) {
   const [override, setOverride] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
   const qc = useQueryClient();
   const { notify } = useToast();
+  const page = variant === "page";
 
   const { data: contract } = useQuery({
     queryKey: ["contract", contractId],
     queryFn: () => contractsApi.get(contractId),
   });
+  // Same query the contract page's other tabs use (one request, shared): it says whether the text on screen
+  // was approved, which decides what editing it means.
+  const { data: reviewStatus } = useQuery({
+    queryKey: ["review-status", contractId],
+    queryFn: () => contractsApi.reviewStatus(contractId),
+  });
+  const caution = editCaution(contract?.lifecycle_stage, reviewStatus?.version_approval);
   const { data: versions } = useQuery({
     queryKey: ["contract", contractId, "versions"],
     queryFn: () => contractsApi.versions(contractId),
+    // A fresh upload's text is extracted in the background: check again until it lands.
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      const pending = !!data && data.length > 0 && !data.some((v) => v.text_snapshot_id);
+      return pending && query.state.dataUpdateCount < 100 ? 3000 : false;
+    },
   });
   const { data: comments } = useQuery({
     queryKey: ["contract-comments", contractId],
@@ -269,14 +301,20 @@ export function ContractDocument({
   const shownVersion = (versions ?? []).find(
     (v) => v.id === resolved?.versionId,
   );
+  const currentVersion = (versions ?? []).find(
+    (v) => v.id === contract?.current_authoritative_version_id,
+  );
 
-  // Redlines anchor to the version they were created against. Render that base
-  // text so accepted edits still show as struck original + inserted
-  // replacement (rather than silently becoming the new authoritative text).
+
+  // Redlines anchor to the version they were created against, so while any is
+  // still undecided we render that base text with the changes on it. Once every
+  // change is decided the backend has made a new version from the accepted ones
+  // — show that plain, not the old base with struck-out words forever.
+  const pending = useMemo(() => (edits ?? []).filter((e) => e.status === "proposed"), [edits]);
   const baseVersionId = useMemo(() => {
-    if (!edits || edits.length === 0) return null;
+    if (pending.length === 0) return null;
     const counts = new Map<string, number>();
-    for (const e of edits)
+    for (const e of pending)
       counts.set(
         e.contract_version_id,
         (counts.get(e.contract_version_id) ?? 0) + 1,
@@ -284,7 +322,14 @@ export function ContractDocument({
     return (
       [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
     );
-  }, [edits]);
+  }, [pending]);
+  const batch = useMemo(
+    () => (edits ?? []).filter((e) => e.contract_version_id === baseVersionId),
+    [edits, baseVersionId],
+  );
+  // Missing clauses have no original text to sit on; the backend appends them to
+  // the end of the document, so that's where they show.
+  const appended = batch.filter((e) => !e.original_text && e.replacement_text && e.status !== "rejected");
 
   const { data: redlineBase } = useQuery({
     queryKey: ["contract", contractId, "redline-base", baseVersionId],
@@ -293,9 +338,7 @@ export function ContractDocument({
       contractsApi.versionText(contractId, baseVersionId as string),
   });
 
-  const redlineMode = Boolean(
-    edits && edits.length > 0 && redlineBase?.text,
-  );
+  const redlineMode = Boolean(baseVersionId && redlineBase?.text);
   const docText = redlineMode
     ? (redlineBase as ContractTextSnapshotResponse).text
     : resolved?.snap?.text;
@@ -305,8 +348,8 @@ export function ContractDocument({
   // actually changes, not on every render of this component (e.g. typing in
   // an unrelated comment box).
   const redlineSegments = useMemo(
-    () => (redlineMode && docText && edits ? buildSegments(docText, edits) : null),
-    [redlineMode, docText, edits],
+    () => (redlineMode && docText ? buildSegments(docText, batch) : null),
+    [redlineMode, docText, batch],
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -319,6 +362,18 @@ export function ContractDocument({
     }, 120);
     return () => window.clearTimeout(id);
   }, [highlightQuote, docText]);
+
+  // "Show in document" picks a change: bring it into view, not just ring it —
+  // the change is usually further down than the reader is.
+  useEffect(() => {
+    if (!activeEditId) return;
+    const id = window.setTimeout(() => {
+      scrollRef.current
+        ?.querySelector(`#edit-${CSS.escape(activeEditId)}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
+    return () => window.clearTimeout(id);
+  }, [activeEditId, redlineSegments]);
 
   // ---- Word-style direct editing ------------------------------------------
   // Edit turns the page into a writable surface; Save creates a NEW
@@ -355,7 +410,7 @@ export function ContractDocument({
       });
       qc.invalidateQueries({ queryKey: ["contract", contractId] });
       qc.invalidateQueries({ queryKey: ["review-status", contractId] });
-      notify("Saved as a new version", "success");
+      notify(caution?.saved ?? "Saved as a new version", "success");
       setEditing(false);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed to save", "error");
@@ -388,14 +443,20 @@ export function ContractDocument({
       setSelection(null);
       return;
     }
-    const start = docText.indexOf(quote);
+    const holder = scrollRef.current;
+    if (!holder) return;
+    // Count repeats inside the document text only: the title line and toolbar around it are not part of it.
+    const article = holder.querySelector("article");
+    if (!article || !article.contains(sel.getRangeAt(0).startContainer)) {
+      setSelection(null);
+      return;
+    }
+    const start = selectionOffset(docText, quote, article as HTMLElement, sel.getRangeAt(0));
     if (start < 0) {
       // Selection crossed redline markup or reflowed text — can't anchor it.
       setSelection(null);
       return;
     }
-    const holder = scrollRef.current;
-    if (!holder) return;
     const rect = sel.getRangeAt(0).getBoundingClientRect();
     const box = holder.getBoundingClientRect();
     const x = Math.min(
@@ -430,7 +491,7 @@ export function ContractDocument({
         start_hint: selection.start,
       });
       invalidateAfterMutation();
-      notify("Redline proposed — review it in the Redlines panel", "success");
+      notify("Redline proposed — accept or reject it in the Review tab", "success");
       setSelection(null);
     } catch (e) {
       notify(e instanceof Error ? e.message : "Failed to propose", "error");
@@ -466,13 +527,21 @@ export function ContractDocument({
   return (
     <div
       className={
-        "flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-slate-100 " +
+        (page
+          ? "cd cd-page flex h-full flex-col overflow-hidden "
+          : "flex h-full flex-col overflow-hidden rounded-md border border-slate-200 bg-slate-100 ") +
         (className ?? "")
       }
     >
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+      <div
+        className={
+          page
+            ? "cd-head flex shrink-0 items-center justify-between gap-3"
+            : "flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3"
+        }
+      >
         <div className="min-w-0">
-          <p className="truncate text-[13px] font-semibold text-slate-900">
+          <p className={"truncate text-[13px] font-semibold text-slate-900" + (page ? " cd-title" : "")}>
             {contract?.title ?? "Contract"}
           </p>
           <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
@@ -495,7 +564,7 @@ export function ContractDocument({
                 proposed
               </span>
             )}
-            <span className="hidden text-slate-400 sm:inline">
+            <span className={"hidden text-slate-400 sm:inline" + (page ? " cd-hint" : "")}>
               · select text to redline or comment
             </span>
           </div>
@@ -528,17 +597,29 @@ export function ContractDocument({
                 <Select
                   value={resolved?.versionId ?? ""}
                   onChange={(e) => setOverride(e.target.value)}
-                  className="h-8 w-36 text-xs"
+                  className="h-8 w-60 text-xs"
+                  title="The version marked current is the text in use. Versions marked not in use are proposals that were never applied."
                 >
                   {(versions ?? [])
                     .filter((v) => v.text_snapshot_id)
                     .sort((a, b) => b.version_number - a.version_number)
                     .map((v) => (
                       <option key={v.id} value={v.id}>
-                        V{v.version_number} · {titleCase(v.source)}
+                        {versionLabel(v, currentVersion)}
                       </option>
                     ))}
                 </Select>
+              )}
+              {(versions ?? []).filter((v) => v.text_snapshot_id).length > 1 && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  title="See what changed between any two versions"
+                  onClick={() => setComparing(true)}
+                >
+                  <GitCompare className="h-3.5 w-3.5" />
+                  Compare versions
+                </Button>
               )}
               {authoritativeText && (
                 <Button
@@ -573,7 +654,8 @@ export function ContractDocument({
                   }
                 >
                   <Download className="h-3.5 w-3.5" />
-                  Original
+                  {/* On the contract page "Original" is also a way of viewing the text, so this one says what it does. */}
+                  {page ? "Download original" : "Original"}
                 </Button>
               )}
             </>
@@ -581,11 +663,26 @@ export function ContractDocument({
         </div>
       </div>
 
+      {editing && caution ? (
+        <div
+          role="note"
+          className={page ? "cd-caution" : "mx-4 mt-2 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900"}
+        >
+          {caution.notice}
+        </div>
+      ) : null}
+
       <div
         ref={scrollRef}
-        className="relative flex-1 overflow-y-auto bg-slate-100"
+        className={page ? "cd-scroll relative flex-1 overflow-y-auto" : "relative flex-1 overflow-y-auto bg-slate-100"}
+        data-mode={page ? mode : undefined}
         onMouseUp={captureSelection}
       >
+        {page && toolbar ? (
+          <div className="cd-tool">
+            <div className="cd-pill">{toolbar}</div>
+          </div>
+        ) : null}
         {isLoading ? (
           <div className="flex items-center justify-center gap-2 py-20 text-sm text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -598,7 +695,11 @@ export function ContractDocument({
             autoFocus
             spellCheck={false}
             aria-label="Edit contract text"
-            className="block h-full w-full resize-none whitespace-pre-wrap bg-slate-100 px-12 py-10 font-sans text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-200"
+            className={
+              page
+                ? "cd-edit block w-full resize-none whitespace-pre-wrap focus:outline-none"
+                : "block h-full w-full resize-none whitespace-pre-wrap bg-slate-100 px-12 py-10 font-sans text-[15px] leading-7 text-slate-800 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-200"
+            }
           />
         ) : !docText ? (
           <div className="flex flex-col items-center justify-center gap-2 py-20 text-center text-slate-400">
@@ -612,9 +713,22 @@ export function ContractDocument({
             </p>
           </div>
         ) : (
-          <article className="w-full whitespace-pre-wrap px-12 py-10 font-sans text-[15px] leading-7 text-slate-800">
+          <div className={page ? "cd-sheet" : "contents"} style={page ? ({ "--z": zoom } as CSSProperties) : undefined}>
+          {page ? (
+            <div className="cd-ph">
+              <span>{contract?.title ?? "Contract"}</span>
+              <span>{shownVersion ? `V${shownVersion.version_number}` : ""}</span>
+            </div>
+          ) : null}
+          <article
+            className={
+              page
+                ? "cd-article whitespace-pre-wrap"
+                : "w-full whitespace-pre-wrap px-12 py-10 font-sans text-[15px] leading-7 text-slate-800"
+            }
+          >
             {redlineSegments
-              ? redlineSegments.map((seg, i) => {
+              ? <>{redlineSegments.map((seg, i) => {
                   if (seg.kind === "text") return <span key={i}>{seg.text}</span>;
                   const e = seg.edit;
                   const active = activeEditId === e.id;
@@ -626,17 +740,18 @@ export function ContractDocument({
                       <span
                         key={i}
                         id={`edit-${e.id}`}
+                        data-st="accepted"
                         onClick={() => onSelectEdit?.(e.id)}
                         className={"cursor-pointer" + ring}
                       >
-                        <del className="bg-danger-subtle text-danger line-through decoration-danger/60">
-                          {seg.text}
-                        </del>
-                        {e.replacement_text && (
-                          <ins className="bg-success-subtle text-success no-underline">
-                            {e.replacement_text}
-                          </ins>
-                        )}
+                        {/* Accepted = this is now the wording; the rest of the
+                            redline is still being decided. */}
+                        <ins
+                          title="Accepted change"
+                          className="bg-success-subtle text-slate-800 no-underline"
+                        >
+                          {e.replacement_text ?? seg.text}
+                        </ins>
                       </span>
                     );
                   }
@@ -649,6 +764,7 @@ export function ContractDocument({
                       <span
                         key={i}
                         id={`edit-${e.id}`}
+                        data-st="proposed"
                         onClick={() => onSelectEdit?.(e.id)}
                         title={e.rationale ?? "Proposed change — click to review"}
                         className={"cursor-pointer" + ring}
@@ -666,6 +782,7 @@ export function ContractDocument({
                     <mark
                       key={i}
                       id={`edit-${e.id}`}
+                      data-st="proposed"
                       onClick={() => onSelectEdit?.(e.id)}
                       title={e.rationale ?? "Suggested change"}
                       className={
@@ -676,7 +793,28 @@ export function ContractDocument({
                       {seg.text}
                     </mark>
                   );
-                })
+                })}
+                {appended.map((e) => (
+                  <span
+                    key={e.id}
+                    id={`edit-${e.id}`}
+                    data-st={e.status}
+                    onClick={() => onSelectEdit?.(e.id)}
+                    title={e.rationale ?? "New clause — click to review"}
+                    className={"cursor-pointer" + (activeEditId === e.id ? " ring-2 ring-offset-1 ring-brand-600 rounded" : "")}
+                  >
+                    {"\n\n"}
+                    <ins
+                      className={
+                        e.status === "accepted"
+                          ? "bg-success-subtle text-slate-800 no-underline"
+                          : "bg-success-subtle text-success underline decoration-dotted decoration-success/60 underline-offset-2"
+                      }
+                    >
+                      {e.replacement_text}
+                    </ins>
+                  </span>
+                ))}</>
               : highlightQuote && docText
                 ? (() => {
                     const span = findSpan(docText, highlightQuote);
@@ -713,6 +851,7 @@ export function ContractDocument({
                     )
                   : docText}
           </article>
+          </div>
         )}
 
         {selection && (
@@ -817,6 +956,67 @@ export function ContractDocument({
           </div>
         )}
       </div>
+      <VersionCompare
+        contractId={contractId}
+        versions={versions ?? []}
+        current={currentVersion}
+        open={comparing}
+        onClose={() => setComparing(false)}
+      />
     </div>
   );
 }
+
+/** Where the selected quote starts in the document text. A repeated passage
+ *  ("Intentionally omitted", a notice address) is told apart by counting the
+ *  quote in the rendered text before the selection; -1 when that can't settle it. */
+function selectionOffset(docText: string, quote: string, holder: HTMLElement, range: Range): number {
+  let seen = -1;
+  try {
+    const before = document.createRange();
+    before.selectNodeContents(holder);
+    before.setEnd(range.startContainer, range.startOffset);
+    seen = before.toString().split(quote).length - 1;
+  } catch {
+    seen = -1;
+  }
+  let at = -1;
+  for (let i = 0; seen >= 0 && i <= seen; i++) {
+    at = docText.indexOf(quote, at + 1);
+    if (at < 0) break;
+  }
+  if (at >= 0) return at;
+  const first = docText.indexOf(quote);
+  return first >= 0 && first === docText.lastIndexOf(quote) ? first : -1;
+}
+
+/** Styles for the `variant="page"` look: a white sheet on a grey desk, in a serif face, with the
+ *  tracked changes drawn the way a word processor does. Scoped to the CLM workspace (`.clm`),
+ *  which defines the colour variables used here. */
+export const DOCUMENT_PAGE_CSS = `
+.clm .cd-page{background:transparent}
+.clm .cd-head{padding:10px 20px 0;min-height:0;flex-wrap:wrap;row-gap:6px}
+.clm .cd-head .btn,.clm .cd-head button{white-space:nowrap}
+.clm .cd-head span{white-space:nowrap}
+.clm .cd-head .cd-title,.clm .cd-head .cd-hint{display:none}
+.clm .cd-caution{margin:8px 20px 0;padding:8px 12px;border:1px solid var(--warn);background:var(--warn-soft);color:var(--ink);border-radius:8px;font-size:12.5px;line-height:1.45}
+.clm .cd-scroll{background:var(--bg);padding:0 24px 80px}
+.clm .cd-tool{position:sticky;top:12px;height:0;z-index:6;display:flex;justify-content:center;align-items:flex-start;pointer-events:none}
+.clm .cd-pill{pointer-events:auto;display:flex;align-items:center;gap:6px;padding:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 6px 20px -8px rgba(20,24,34,.35)}
+.clm .cd-sheet{--z:1;width:min(100%,52em);font-size:calc(15px*var(--z));margin:64px auto 0;background:var(--paper);color:var(--paper-ink);font-family:"Tinos","Times New Roman",Times,serif;line-height:1.55;box-shadow:var(--sheet-shadow);border-radius:2px;min-height:40em;padding-bottom:3em}
+.clm .cd-ph{display:flex;justify-content:space-between;gap:1em;padding:1.5em 3.6em 0;font-style:italic;font-size:.78em;color:var(--paper-muted)}
+.clm .cd-article{padding:1.7em 3.6em 1em;font-family:inherit;font-size:1em;line-height:inherit;color:inherit}
+.clm .cd-edit{width:min(100%,52em);margin:64px auto 0;min-height:40em;padding:3.4em 3.6em;background:var(--paper);color:var(--paper-ink);font:15px/1.55 "Tinos","Times New Roman",Times,serif;border-radius:2px;box-shadow:var(--sheet-shadow);display:block}
+.clm .cd-article ::selection,.clm .cd-edit::selection{background:rgba(47,86,224,.24)}
+.clm .cd-article del{color:var(--p-del);background:var(--p-del-bg);text-decoration:line-through;text-decoration-thickness:1px;border-radius:2px;padding:0 .08em}
+.clm .cd-article ins{color:var(--p-ins);background:var(--p-ins-bg);text-decoration:none;border-radius:2px;padding:0 .08em;margin-left:.18em;box-shadow:inset 0 -1.5px 0 rgba(11,107,85,.5)}
+.clm .cd-article [data-st="accepted"] ins{color:inherit;background:rgba(11,107,85,.1);box-shadow:none}
+.clm .cd-article mark{color:inherit;text-decoration:none;border-radius:2px;background:var(--p-cmt);box-shadow:inset 0 -2px 0 var(--p-cmt-line)}
+.clm .cd-article mark[data-st],.clm .cd-article #cite-hl{background:var(--p-hl);box-shadow:none}
+.clm .cd-article [id^="edit-"]{--tw-ring-color:var(--accent)}
+.clm .cd-scroll[data-mode="final"] [data-st="proposed"] del{display:none}
+.clm .cd-scroll[data-mode="final"] [data-st="proposed"] ins{color:inherit;background:none;box-shadow:none;margin:0;padding:0}
+.clm .cd-scroll[data-mode="original"] [data-st="proposed"] ins{display:none}
+.clm .cd-scroll[data-mode="original"] [data-st="proposed"] del{color:inherit;background:none;text-decoration:none;padding:0}
+@media (max-width:640px){.clm .cd-scroll{padding:0 12px 60px}.clm .cd-ph,.clm .cd-article{padding-left:1.5em;padding-right:1.5em}.clm .cd-edit{padding:2em 1.5em}}
+`;

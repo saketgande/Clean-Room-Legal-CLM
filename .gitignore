@@ -49,3 +49,18 @@ frontend/.env.production
 
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# Documents reader report output. Every report carries a contract's full text, so
+# it must never be committed.
+backend/docstudio_out/
+
+# AI evaluation exam (specs/005-ai-eval-baseline, FR-36). Real contracts, their
+# text, OCR output, label spreadsheets and the dedicated exam key live only in
+# these paths; the committed exam content and reports are numbers/synthetic only.
+backend/eval/private/
+backend/eval/contracts/
+backend/eval/.work/
+backend/eval/**/*.xlsx
+
+# Local database / file backups (never commit)
+backups/

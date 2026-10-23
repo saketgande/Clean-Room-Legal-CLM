@@ -74,3 +74,20 @@ def test_flat_text_fallback_splits_into_clauses():
     assert all(e["source"] == "from_flat_text" for e in els)
     for e in els:
         assert doc[e["char_start"]:e["char_end"]] == e["text"]
+
+
+def test_a_clause_number_behind_a_markdown_prefix_is_read():
+    """OCR returns numbered headings as markdown. A number hidden behind "## " was not read,
+    so every section of a scanned contract dropped out of clause labelling."""
+    els, ok = build_elements([{"type": "text", "content": "## 4. CHARGES"}], "## 4. CHARGES")
+    assert ok and els[0]["number_label"] == "4." and els[0]["element_type"] == "clause"
+
+
+def test_a_bullet_that_starts_with_a_number_is_not_a_clause():
+    """Reading numbers behind a markdown prefix must not turn "- 2024 revenue" or "- 30 days"
+    into level-1 clauses that cut the real section short."""
+    for bullet in ("- 2024 revenue grew 5%", "* 30 days notice is required", "# 2024 Annual Report"):
+        els, ok = build_elements([{"type": "text", "content": bullet}], bullet)
+        assert ok and els[0]["number_label"] is None, bullet
+    els, _ = build_elements([{"type": "text", "content": "- 1.1 The Supplier"}], "- 1.1 The Supplier")
+    assert els[0]["number_label"] == "1.1"

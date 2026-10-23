@@ -13,13 +13,19 @@ Owner agents: backend-dev, db-engineer
 - `ContractShare` (table `contract_share`, org_scoped=True, soft_delete=True) -- FKs: contract_id->contract.id, contract_version_id->contract_version.id
 - `ContractTextSnapshot` (table `contract_text_snapshot`, org_scoped=True, soft_delete=True) -- FKs: contract_id->contract.id, contract_version_id->contract_version.id
 - `ContractVersion` (table `contract_version`, org_scoped=True, soft_delete=True) -- FKs: contract_id->contract.id, contract_file_id->contract_file.id, storage_object_id->storage_object.id, text_snapshot_id->contract_text_snapshot.id
+- `RevisionChange` (table `revision_change`, org_scoped=True, soft_delete=False) -- FKs: round_id->revision_round.id, contract_id->contract.id, decided_by_user_id->user.id
+- `RevisionRound` (table `revision_round`, org_scoped=True, soft_delete=False) -- FKs: contract_id->contract.id, base_version_id->contract_version.id, revision_version_id->contract_version.id, outcome_version_id->contract_version.id
 - `StorageObject` (table `storage_object`, org_scoped=True, soft_delete=True) -- FKs: (none)
 
 ## Endpoints
 
+- `GET /contracts/{contract_id}/clauses` -- permission: `contract:read` -- request: ? -- response: ?
+- `GET /contracts/{contract_id}/editor/config` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/edits` -- permission: `contract:redline` -- request: str | None -- response: list[ContractEditResponse]
+- `GET /contracts/{contract_id}/edits/draft-issue-fixes` -- permission: `contract:redline` -- request: ? -- response: IssueFixJobResponse | None
 - `GET /contracts/{contract_id}/export-docx` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/files` -- permission: `contract_file:read` -- request: ? -- response: list[ContractFileResponse]
+- `GET /contracts/{contract_id}/revisions/current` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/shares` -- permission: `contract_file:share` -- request: ? -- response: list[ContractShareResponse]
 - `GET /contracts/{contract_id}/versions` -- permission: `contract_file:read` -- request: ? -- response: list[ContractVersionResponse]
 - `GET /contracts/{contract_id}/versions/{version_id}/download` -- permission: `contract_file:read` -- request: ? -- response: ?
@@ -29,25 +35,30 @@ Owner agents: backend-dev, db-engineer
 - `GET /external-shares/{token}/download` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: ?
 - `POST /contracts/{contract_id}/counterparty-revision` -- permission: `contract_file:update` -- request: Response -- response: ContractVersionResponse
 - `POST /contracts/{contract_id}/edits/ai-redline` -- permission: `contract:redline` -- request: AiRedlineRequest -- response: ?
+- `POST /contracts/{contract_id}/edits/draft-issue-fixes` -- permission: `contract:redline` -- request: ? -- response: DraftIssueFixesResponse
 - `POST /contracts/{contract_id}/edits/propose` -- permission: `contract:redline` -- request: ManualEditProposal -- response: ContractEditResponse
 - `POST /contracts/{contract_id}/edits/{edit_id}/accept` -- permission: `contract:redline` -- request: ContractEditDecisionRequest -- response: ContractEditResponse
 - `POST /contracts/{contract_id}/edits/{edit_id}/reject` -- permission: `contract:redline` -- request: ContractEditDecisionRequest -- response: ContractEditResponse
 - `POST /contracts/{contract_id}/negotiation-revision` -- permission: `contract_file:update` -- request: Response -- response: ContractVersionResponse
 - `POST /contracts/{contract_id}/notify-team` -- permission: `contract_file:read` -- request: NotifyTeamPayload -- response: ?
+- `POST /contracts/{contract_id}/revisions/{round_id}/changes/{change_id}` -- permission: `contract:redline` -- request: RevisionDecision -- response: ?
+- `POST /contracts/{contract_id}/revisions/{round_id}/finish` -- permission: `contract:redline` -- request: ? -- response: ?
 - `POST /contracts/{contract_id}/shares` -- permission: `contract_file:share` -- request: ContractShareCreate -- response: ContractShareCreateResponse
 - `POST /contracts/{contract_id}/shares/{share_id}/revoke` -- permission: `contract_file:share` -- request: ? -- response: ContractShareResponse
 - `POST /contracts/{contract_id}/versions` -- permission: `contract_file:update` -- request: Response -- response: ContractVersionResponse
 - `POST /contracts/{contract_id}/versions/{version_id}/restore` -- permission: `contract_file:update` -- request: ? -- response: ContractVersionResponse
 - `POST /external-shares/{token}/comments` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ExternalCommentResponse
+- `POST /external-shares/{token}/submit` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `PUT /contracts/{contract_id}/text` -- permission: `contract:redline` -- request: ManualTextUpdate -- response: ContractVersionResponse
 
 ## Schemas
 
-ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse, StorageObjectResponse
+ContractEditDecisionRequest, ContractEditResponse, ContractFileResponse, ContractShareCreate, ContractShareCreateResponse, ContractShareResponse, ContractTextSnapshotResponse, ContractVersionResponse, DraftIssueFixesResponse, ExternalCommentCreate, ExternalCommentResponse, ExternalShareResponse, IssueFixJobResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
-(none matched -- check specs/_graph/repo-graph.json for the full migration chain)
+- `0046_contract_share_step_link` (backend/alembic/versions/0046_contract_share_step_link.py)
+- `0063_revision_rounds` (backend/alembic/versions/0063_revision_rounds.py)
 
 ## Frontend counterpart
 

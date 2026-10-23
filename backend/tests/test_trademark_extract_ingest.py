@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy import delete, func, select
 
+import app.models  # noqa: F401  (registers every mapper)
 from app.core.config import settings
 from app.trademarks import service as service_module
 from app.trademarks.models import DocumentExtract, Trademark

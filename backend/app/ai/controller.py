@@ -1,15 +1,16 @@
-from datetime import timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
+from app.ai.confirmations import confirmation_details
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
-from app.ai.cost_guard import enforce_daily_token_cap, record_token_usage
 from app.ai.fallback import fallback_metadata_from_text
+from app.ai.gateway import AICallContext, gateway_for
 from app.ai.models import AICitation, AIConfirmation, AISkillRun
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
@@ -18,9 +19,8 @@ from app.ai.registry import skill_registry
 from app.ai.schemas import (
     CitationInput,
     ClauseExtractionOutput,
+    ClauseLabelingOutput,
     ContractMetadataOutput,
-    ObligationExtractionOutput,
-    RenewalExtractionOutput,
 )
 from app.ai.skill import SkillSpec
 from app.ai.tool_policy import flag_value_is_enabled, is_tool_enabled
@@ -34,19 +34,19 @@ from app.assistant.models import (
 )
 from app.auth.models import User
 from app.contract_brain.models import ClauseExtraction
+from app.contract_files.blocks import locate_phrase
+from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract, ContractParty
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
-from app.core.enums import AICallStatus, AISkillRunStatus, AIValidationStatus
+from app.core.enums import AISkillRunStatus, AIValidationStatus, AssistantSessionType
 from app.core.models import AdminSetting, AICallLog, UsageRecord
 from app.core.rbac import has_permission
-from app.integrations.claude import ClaudeProvider, ClaudeProviderResponse
+from app.integrations.claude import ClaudeProvider
 from app.integrations.claude import claude_client as _default_claude_client
 from app.jobs.models import JobRun
-from app.obligations.models import Obligation, ObligationReminder
-from app.renewals.models import RenewalEvent
 
 INTERNAL_RESULT_KEYS = {
     "text_snapshot_id",
@@ -57,7 +57,6 @@ INTERNAL_RESULT_KEYS = {
     "base_version_id",
     "contract_edit_id",
     "current_authoritative_version_id",
-    "matter_id",
     "workflow_id",
     "workflow_run_id",
     "playbook_id",
@@ -77,6 +76,22 @@ INTERNAL_RESULT_KEYS = {
     "confirmation_id",
 }
 
+# Analysis jobs whose result depends only on the snapshot text (and the prompt),
+# so a byte-identical earlier snapshot's run can stand in (carry_forward_job).
+# Clause jobs run either skill, depending on whether the reader segmented the text.
+REUSABLE_JOB_SKILLS: dict[str, tuple[str, ...]] = {
+    "metadata_extraction": ("contract_metadata_extraction",),
+    "clause_extraction": ("clause_labeling", "clause_extraction"),
+    "obligation_extraction": ("obligation_extraction",),
+    "renewal_extraction": ("renewal_extraction",),
+}
+
+
+def _is_refusal(exc: Exception) -> bool:
+    """A rule said no (HTTP 4xx with a message written for people), as opposed to the tool breaking.
+    The chat shows a refusal as "not done", not as a failure: the answer that follows explains it."""
+    return isinstance(exc, HTTPException) and isinstance(exc.detail, str) and 400 <= exc.status_code < 500
+
 
 def _safe_tool_error(exc: Exception) -> str:
     if isinstance(exc, HTTPException) and isinstance(exc.detail, str):
@@ -84,6 +99,13 @@ def _safe_tool_error(exc: Exception) -> str:
     if isinstance(exc, ValidationError):
         return "Tool input validation failed"
     return "Tool execution failed"
+
+
+# Contract fields the metadata extractor may fill. risk_level is deliberately absent.
+AI_FILLABLE_CONTRACT_FIELDS = (
+    "contract_type", "counterparty_name", "jurisdiction", "value_amount",
+    "currency", "effective_date", "expiration_date",
+)
 
 
 class AIController:
@@ -114,6 +136,120 @@ class AIController:
             resource_id=job.resource_id,
             job_id=job.id,
         )
+
+    def carry_forward_job(self, db: Session, *, job: JobRun) -> str | None:
+        """Satisfy an analysis job from an earlier snapshot of the SAME contract
+        whose text is byte-identical, instead of paying the model again for the
+        same answer (a signed copy, a no-op editor save, an unchanged counterparty
+        return). Returns the donor snapshot id when carried, else None (run as usual).
+
+        The donor is the newest run of the job's skill on same-text snapshots, whatever
+        its status, and it is reused only if it succeeded under today's prompt, model and
+        skill version: anything else must re-run. (Taking the newest SUCCEEDED run instead
+        would also copy the rows of a later needs_review run on the same snapshot.) Clause
+        jobs copy the donor snapshot's rows onto this version through _replace_clauses (its
+        current-version and empty-result guards still apply). Metadata, obligations and
+        renewals are contract-level: the donor's stored answer is written again through the
+        normal path, because the text in between may have changed those values (a restore,
+        or an edit back to old wording). Does not commit — the caller marks the job and
+        commits.
+
+        ponytail: a donor whose job is still running isn't found, so the second
+        job pays once. Waiting on/re-queueing behind the in-flight job if it matters."""
+        skills = REUSABLE_JOB_SKILLS.get(job.job_type)
+        meta = job.metadata_json or {}
+        if not skills or not meta.get("text_snapshot_id"):
+            return None
+        snapshot = db.get(ContractTextSnapshot, meta["text_snapshot_id"])
+        if snapshot is None or snapshot.org_id != job.org_id or snapshot.contract_id != job.resource_id:
+            return None
+        donor = db.scalar(
+            select(AISkillRun)
+            .join(ContractTextSnapshot, ContractTextSnapshot.id == AISkillRun.text_snapshot_id)
+            .where(
+                AISkillRun.org_id == job.org_id,
+                AISkillRun.contract_id == snapshot.contract_id,
+                AISkillRun.skill_name.in_(skills),
+                ContractTextSnapshot.org_id == job.org_id,
+                ContractTextSnapshot.contract_id == snapshot.contract_id,
+                ContractTextSnapshot.id != snapshot.id,
+                ContractTextSnapshot.text == snapshot.text,
+            )
+            .order_by(AISkillRun.created_at.desc())
+            .limit(1)
+        )
+        if donor is None or donor.status != AISkillRunStatus.SUCCEEDED:
+            return None
+        spec = skill_registry.get(donor.skill_name)
+        active = get_active_prompt_bundle(
+            db,
+            org_id=job.org_id,
+            prompt_key=spec.prompt_key,
+            default_version=spec.prompt_version,
+            model_config={"temperature": spec.temperature, "max_tokens": spec.max_tokens},
+        )
+        if (
+            donor.prompt_hash != active.prompt_hash
+            or donor.model != active.model_name
+            or donor.skill_version != spec.version
+        ):
+            return None
+        contract = db.get(Contract, snapshot.contract_id)
+        version = db.get(ContractVersion, snapshot.contract_version_id)
+        if contract is None or version is None:
+            return None
+        if job.job_type == "clause_extraction":
+            # The newest succeeded run on that snapshot wrote the rows created
+            # since it started (a failed run rolls back and writes none).
+            rows = [
+                {"clause_type": c.clause_type, "heading": c.heading, "text": c.text,
+                 "start_char": c.start_char, "end_char": c.end_char, "confidence": c.confidence}
+                for c in db.scalars(
+                    select(ClauseExtraction)
+                    .where(
+                        ClauseExtraction.org_id == job.org_id,
+                        ClauseExtraction.contract_id == snapshot.contract_id,
+                        ClauseExtraction.text_snapshot_id == donor.text_snapshot_id,
+                        ClauseExtraction.created_at >= donor.started_at,
+                    )
+                    .order_by(ClauseExtraction.start_char.asc().nulls_last(), ClauseExtraction.created_at)
+                ).all()
+            ]
+            if not rows:
+                # The donor's clauses were never kept (its version stopped being
+                # current mid-run), so there is nothing to carry: pay.
+                return None
+            self._replace_clauses(
+                db,
+                rows=rows,
+                context=SimpleNamespace(contract=contract, version=version, snapshot=snapshot),
+                created_by_user_id=job.created_by_user_id,
+            )
+        else:
+            if not donor.output_payload:
+                return None
+            self._persist_skill_output(
+                db,
+                spec=spec,
+                output=spec.output_model.model_validate(donor.output_payload),
+                contract_context=SimpleNamespace(contract=contract, version=version, snapshot=snapshot),
+                created_by_user_id=job.created_by_user_id,
+                request_id=None,
+                skill_run=donor,
+                ai_call_log=None,
+            )
+        write_timeline_event(
+            db,
+            org_id=job.org_id,
+            resource_type=job.resource_type or "contract",
+            resource_id=job.resource_id,
+            event_type="ai.skill_succeeded",
+            title=f"AI skill completed: {donor.skill_name} (text unchanged — earlier result reused)",
+            actor_user_id=job.created_by_user_id,
+            job_id=job.id,
+            details={"carried_from_snapshot_id": donor.text_snapshot_id, "donor_skill_run_id": donor.id},
+        )
+        return donor.text_snapshot_id
 
     @staticmethod
     def _load_session_history(
@@ -199,9 +335,9 @@ class AIController:
         assistant_run_id: str,
         message: str,
         request_id: str | None,
-        matter_id: str | None = None,
         contract_id: str | None = None,
         contract_ids: list[str] | None = None,
+        session_type: str | None = None,
     ):
         spec = skill_registry.get("assistant_streaming")
         model_config = {"temperature": spec.temperature, "max_tokens": spec.max_tokens}
@@ -231,7 +367,6 @@ class AIController:
             model_config_hash=prompt_bundle.model_config_hash,
             input_payload={
                 "message": message,
-                "matter_id": matter_id,
                 "contract_id": contract_id,
                 "contract_ids": contract_ids or [],
                 "handles": handles,
@@ -244,8 +379,8 @@ class AIController:
         db.flush()
         db.commit()
 
-        contract_summaries = self._contract_context_summaries(db, org_id=org_id, handles=handles)
-        contract_inventory = self._contract_inventory(db, user=user)
+        contract_summaries = self._contract_context_summaries(db, user=user, org_id=org_id, handles=handles)
+        contract_inventory, contract_total = self._contract_inventory(db, user=user)
         # Prior conversation turns give the assistant in-session memory. The
         # current user message was already persisted by the route, so exclude it
         # to avoid duplicating it (the enriched current turn is appended below).
@@ -267,13 +402,14 @@ class AIController:
                 "role": "user",
                 "content": self._assistant_user_prompt(
                     message=message,
-                    matter_id=matter_id,
                     contract_id=contract_id,
                     contract_ids=contract_ids or [],
                     handles=handles,
                     contract_summaries=contract_summaries,
                     contract_inventory=contract_inventory,
+                    contract_total=contract_total,
                     blackboard=blackboard_text,
+                    session_type=session_type,
                 ),
             },
         ]
@@ -282,32 +418,45 @@ class AIController:
 
         try:
             for iteration in range(settings.ai_max_tool_iterations):
-                enforce_daily_token_cap(org_id)
+                # One model round through the AI gateway (feature "assistant_streaming"):
+                # same system prompt (shared legal prompt + the assistant's own, passed as
+                # system_context), budget and tools; it records the round in the AI ledger
+                # on this session, which this loop commits.
                 provider_response = None
-                async for chunk in self.claude_client.stream_with_tools(
-                    system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                async for chunk in gateway_for(self.claude_client).stream(
+                    db,
+                    "assistant_streaming",
+                    ctx=AICallContext(
+                        org_id=org_id,
+                        user_id=created_by_user_id,
+                        resource=("assistant_session", session_id),
+                        request_id=request_id,
+                        session_id=session_id,
+                        assistant_run_id=assistant_run_id,
+                        skill_run_id=skill_run.id,
+                    ),
                     messages=messages,
                     tools=tools,
-                    max_tokens=_clamp_max_tokens(spec.max_tokens),
-                    temperature=spec.temperature,
-                    model=prompt_bundle.model_name,
+                    system_context=prompt_bundle.skill_prompt,
+                    log_input=skill_run.input_payload,
+                    prompt=prompt_bundle,
+                    record_on=db,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
                         yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
                     else:
                         provider_response = chunk["response"]
-                self._log_assistant_ai_call(
+                self._record_usage(
                     db,
                     org_id=org_id,
                     created_by_user_id=created_by_user_id,
-                    request_id=request_id,
+                    resource_type="assistant_session",
+                    resource_id=session_id,
+                    token_usage=provider_response.token_usage,
                     skill_run=skill_run,
-                    spec=spec,
-                    provider_response=provider_response,
-                    assistant_run_id=assistant_run_id,
-                    session_id=session_id,
                 )
+                db.commit()
                 if not provider_response.tool_use_blocks:
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
@@ -373,6 +522,7 @@ class AIController:
                                     "tool_call_id": result.get("tool_call_id"),
                                     "confirmation_id": result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
+                                    "details": _card_details(result, tool_use.get("input")),
                                 },
                             }
                             return
@@ -432,6 +582,7 @@ class AIController:
                                 "tool_name": tool_name,
                                 "tool_use_id": tool_use.get("id"),
                                 "error": safe_error,
+                                "refused": _is_refusal(exc),
                             },
                         }
                         tool_result_blocks.append(
@@ -580,32 +731,45 @@ class AIController:
         final_answer_parts: list[str] = []
         try:
             for _iteration in range(settings.ai_max_tool_iterations):
-                enforce_daily_token_cap(user.org_id)
+                # One model round through the AI gateway (feature "assistant_streaming"):
+                # same system prompt (shared legal prompt + the assistant's own, passed as
+                # system_context), budget and tools; it records the round in the AI ledger
+                # on this session, which this loop commits.
                 provider_response = None
-                async for chunk in self.claude_client.stream_with_tools(
-                    system_prompt=prompt_bundle.shared_system_prompt + "\n\n" + prompt_bundle.skill_prompt,
+                async for chunk in gateway_for(self.claude_client).stream(
+                    db,
+                    "assistant_streaming",
+                    ctx=AICallContext(
+                        org_id=user.org_id,
+                        user_id=user.id,
+                        resource=("assistant_session", run.session_id),
+                        request_id=request_id,
+                        session_id=run.session_id,
+                        assistant_run_id=assistant_run_id,
+                        skill_run_id=skill_run.id,
+                    ),
                     messages=messages,
                     tools=self._assistant_tool_schemas(db, user=user),
-                    max_tokens=_clamp_max_tokens(spec.max_tokens),
-                    temperature=spec.temperature,
-                    model=prompt_bundle.model_name,
+                    system_context=prompt_bundle.skill_prompt,
+                    log_input=skill_run.input_payload,
+                    prompt=prompt_bundle,
+                    record_on=db,
                 ):
                     if chunk["type"] == "text_delta":
                         final_answer_parts.append(chunk["text"])
                         yield {"event": "message_delta", "payload": {"text": chunk["text"]}}
                     else:
                         provider_response = chunk["response"]
-                self._log_assistant_ai_call(
+                self._record_usage(
                     db,
                     org_id=user.org_id,
                     created_by_user_id=user.id,
-                    request_id=request_id,
+                    resource_type="assistant_session",
+                    resource_id=run.session_id,
+                    token_usage=provider_response.token_usage,
                     skill_run=skill_run,
-                    spec=spec,
-                    provider_response=provider_response,
-                    assistant_run_id=assistant_run_id,
-                    session_id=run.session_id,
                 )
+                db.commit()
                 if not provider_response.tool_use_blocks:
                     skill_run.status = AISkillRunStatus.SUCCEEDED
                     skill_run.validation_status = AIValidationStatus.VALID
@@ -664,6 +828,7 @@ class AIController:
                                     "tool_call_id": loop_result.get("tool_call_id"),
                                     "confirmation_id": loop_result.get("confirmation_id"),
                                     "assistant_run_id": assistant_run_id,
+                                    "details": _card_details(loop_result, tool_use.get("input")),
                                 },
                             }
                             return
@@ -696,6 +861,7 @@ class AIController:
                                 "tool_name": tool_name,
                                 "tool_use_id": tool_use.get("id"),
                                 "error": safe_error,
+                                "refused": _is_refusal(exc),
                             },
                         }
                         tool_result_blocks.append(
@@ -746,17 +912,17 @@ class AIController:
         self,
         *,
         message: str,
-        matter_id: str | None,
         contract_id: str | None,
         contract_ids: list[str],
         handles: list[dict[str, Any]],
         contract_summaries: list[dict[str, Any]] | None = None,
         contract_inventory: list[dict[str, Any]] | None = None,
+        contract_total: int | None = None,
         blackboard: str = "",
+        session_type: str | None = None,
     ) -> str:
         safe_handles = [{"handle": h.get("handle")} for h in handles]
         scope = {
-            "has_project_scope": bool(matter_id),
             "primary_contract_handle": _handle_for_contract_id(contract_id, handles),
             "contract_handles": [
                 handle
@@ -764,8 +930,19 @@ class AIController:
                 if (handle := _handle_for_contract_id(contract, handles))
             ],
         }
+        # The list below is capped, so it must never read as the whole book: counts and
+        # filtered lists come from query_contracts, which checks every contract.
+        shown = len(contract_inventory or [])
+        total = shown if contract_total is None else contract_total
+        inventory_heading = (
+            f"The {shown} most recent of the user's {total} contracts (not the full list — use "
+            "query_contracts for counts and lists;"
+            if total > shown
+            else f"The user's {total} contracts (use query_contracts for counts and filtered lists;"
+        )
         parts = [
             f"User message:\n{message}",
+            _SESSION_CONTEXT.get(session_type or "", ""),  # filtered out below when empty
             blackboard,  # shared agent memory — filtered out below when empty
             "Available contract handles for tool use:",
             self._json_tool_result(safe_handles),
@@ -774,26 +951,30 @@ class AIController:
             "Contract status context:",
             self._json_tool_result(contract_summaries or []),
             (
-                "The user's contract portfolio (resolve a name with find_contracts to get a handle; "
-                "use my_attention_items for what-needs-attention questions and list_obligations for due-date questions):"
+                f"{inventory_heading} resolve a name with find_contracts to get a handle; "
+                "use my_attention_items for what-needs-attention questions and list_obligations "
+                "for due-date questions):"
             ),
             self._json_tool_result(contract_inventory or []),
-            "Use tools when contract/project data is needed. Use handles like contract-0 in tool inputs.",
+            "Use tools when contract data is needed. Use handles like contract-0 in tool inputs.",
         ]
         return "\n\n".join(part for part in parts if part)
 
-    def _contract_inventory(self, db: Session, *, user: User) -> list[dict[str, Any]]:
-        """A compact list of contracts the user can access."""
+    def _contract_inventory(self, db: Session, *, user: User) -> tuple[list[dict[str, Any]], int]:
+        """The 60 newest contracts the user can open (a compact list), and how many they can open."""
         from sqlalchemy import select as _select
 
         from app.contracts.models import Contract as _Contract
 
+        open_to_user = (
+            _Contract.org_id == user.org_id,
+            _Contract.deleted_at.is_(None),
+            accessible_contract_filter(user),
+        )
         rows = db.scalars(
-            _select(_Contract)
-            .where(accessible_contract_filter(user))
-            .order_by(_Contract.created_at.desc())
-            .limit(60)
+            _select(_Contract).where(*open_to_user).order_by(_Contract.created_at.desc()).limit(60)
         ).all()
+        total = db.scalar(_select(func.count()).select_from(_Contract).where(*open_to_user)) or 0
         return [
             {
                 "contract_id": c.id,
@@ -802,75 +983,7 @@ class AIController:
                 "stage": c.lifecycle_stage,
             }
             for c in rows
-        ]
-
-    def _log_assistant_ai_call(
-        self,
-        db: Session,
-        *,
-        org_id: str,
-        created_by_user_id: str | None,
-        request_id: str | None,
-        skill_run: AISkillRun,
-        spec: SkillSpec,
-        provider_response: ClaudeProviderResponse,
-        assistant_run_id: str,
-        session_id: str,
-    ) -> AICallLog:
-        text_output = "".join(
-            block.get("text", "")
-            for block in provider_response.content_blocks
-            if block.get("type") == "text"
-        )
-        row = AICallLog(
-            org_id=org_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            session_id=session_id,
-            assistant_run_id=assistant_run_id,
-            resource_type="assistant_session",
-            resource_id=session_id,
-            provider=self.claude_client.provider,
-            model=provider_response.model,
-            model_config_hash=skill_run.model_config_hash,
-            prompt_key=skill_run.prompt_key,
-            prompt_version=skill_run.prompt_version,
-            prompt_hash=skill_run.prompt_hash,
-            input_payload=skill_run.input_payload,
-            output_schema_name=spec.output_schema_name,
-            prompt_tokens=provider_response.token_usage.get("prompt_tokens"),
-            completion_tokens=provider_response.token_usage.get("completion_tokens"),
-            total_tokens=provider_response.token_usage.get("total_tokens"),
-            latency_ms=provider_response.latency_ms,
-            status=AICallStatus.SUCCEEDED,
-            validation_status=AIValidationStatus.NOT_VALIDATED,
-            provider_request_id=provider_response.provider_request_id,
-            stop_reason=provider_response.stop_reason,
-            redaction_status="redacted",
-            raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None,
-            validated_output={
-                "text": text_output,
-                "tool_uses": [
-                    {"id": block.get("id"), "name": block.get("name")}
-                    for block in provider_response.tool_use_blocks
-                ],
-            },
-            created_by_user_id=created_by_user_id,
-            updated_by_user_id=created_by_user_id,
-        )
-        db.add(row)
-        db.flush()
-        self._record_usage(
-            db,
-            org_id=org_id,
-            created_by_user_id=created_by_user_id,
-            resource_type="assistant_session",
-            resource_id=session_id,
-            provider_response=provider_response,
-            skill_run=skill_run,
-        )
-        db.commit()
-        return row
+        ], total
 
     def _handle_for_contract(
         self,
@@ -916,6 +1029,7 @@ class AIController:
         self,
         db: Session,
         *,
+        user: User | None,
         org_id: str,
         handles: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
@@ -928,7 +1042,7 @@ class AIController:
             if contract is None or contract.org_id != org_id or contract.deleted_at is not None:
                 continue
             try:
-                ctx = build_contract_context(db, org_id=org_id, contract_id=contract_id)
+                ctx = build_contract_context(db, user=user, org_id=org_id, contract_id=contract_id)
             except Exception:
                 ctx = None
             parties = db.scalars(
@@ -1046,12 +1160,17 @@ class AIController:
             default_version=spec.prompt_version,
             model_config=model_config,
         )
+        # Whose walls and clearance apply to the contract text this skill reads. A
+        # background job has no live actor: it was authorized when it was queued.
+        actor = None if job_id else (db.get(User, created_by_user_id) if created_by_user_id else None)
         contract_context = self._maybe_contract_context(
             db,
+            user=actor,
             org_id=org_id,
             input_payload=input_payload,
             resource_type=resource_type,
             resource_id=resource_id,
+            skill_name=spec.name,
         )
         built_prompt = prompt_builder.build_structured_skill_prompt(
             spec=spec,
@@ -1100,20 +1219,42 @@ class AIController:
             details={"skill_run_id": skill_run.id, "skill_name": spec.name},
         )
 
+        # Commit BEFORE waiting on Claude when this call owns the commit: a
+        # caller's earlier audit write holds the app-wide audit-chain lock
+        # until commit, and the AI call can take minutes — every other writer
+        # would queue behind it. Both outcomes below commit anyway, so this
+        # only makes the lock go sooner. commit=False callers keep their
+        # atomicity and hold it (bounded by the DB's idle-transaction timeout).
+        if commit:
+            db.commit()
         ai_call_log: AICallLog | None = None
         try:
-            enforce_daily_token_cap(org_id)
-            provider_response = await self.claude_client.complete_structured(
-                system_prompt=built_prompt.system_prompt,
+            # Feature = this skill, through the AI gateway: same prompt (built
+            # above), budget and schema; the gateway checks the output against
+            # spec.output_model (a cut-off answer or a missing/invalid tool call
+            # raises into the fallback below) and records the call. The ledger
+            # row goes on THIS session (record_on=db): the citations below point
+            # at it by foreign key, and it commits or rolls back with the run.
+            result = await gateway_for(self.claude_client).structured(
+                db,
+                spec.name,
+                ctx=AICallContext(
+                    org_id=org_id,
+                    user_id=created_by_user_id,
+                    resource=(resource_type, resource_id) if (resource_type or resource_id) else None,
+                    request_id=request_id,
+                    job_id=job_id,
+                    session_id=session_id,
+                    assistant_run_id=assistant_run_id,
+                    tool_call_id=tool_call_id,
+                    skill_run_id=skill_run.id,
+                ),
                 user_prompt=built_prompt.user_prompt,
-                tool_name=spec.return_tool_name,
-                input_schema=spec.output_model.model_json_schema(),
-                max_tokens=_clamp_max_tokens(spec.max_tokens),
-                temperature=spec.temperature,
-                model=prompt_bundle.model_name,
+                log_input=skill_run.input_payload,  # already redacted
+                prompt=prompt_bundle,
+                record_on=db,
             )
-            raw_output = self._extract_structured_output(provider_response, spec)
-            validated = spec.output_model.model_validate(raw_output)
+            validated = result.data
             validation_status = self._validate_and_store_citations(
                 db,
                 org_id=org_id,
@@ -1132,25 +1273,11 @@ class AIController:
             )
             skill_run.output_payload = validated.model_dump(mode="json")
             skill_run.finished_at = utcnow()
-            ai_call_log = self._log_ai_call(
-                db,
-                org_id=org_id,
-                created_by_user_id=created_by_user_id,
-                request_id=request_id,
-                skill_run=skill_run,
-                spec=spec,
-                provider_response=provider_response,
-                raw_output=raw_output,
-                validated=validated,
-                status=AICallStatus.SUCCEEDED,
-                validation_status=validation_status,
-                job_id=job_id,
-                session_id=session_id,
-                assistant_run_id=assistant_run_id,
-                tool_call_id=tool_call_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-            )
+            ai_call_log = db.get(AICallLog, result.call_id)
+            # The gateway judged the schema; the citation check is this run's
+            # final verdict, as the ledger row recorded before the gateway.
+            ai_call_log.validation_status = validation_status
+            ai_call_log.redaction_status = "redacted"
             self._persist_skill_output(
                 db,
                 spec=spec,
@@ -1167,7 +1294,7 @@ class AIController:
                 created_by_user_id=created_by_user_id,
                 resource_type=resource_type,
                 resource_id=resource_id,
-                provider_response=provider_response,
+                token_usage=result.usage,
                 skill_run=skill_run,
             )
             write_timeline_event(
@@ -1265,10 +1392,12 @@ class AIController:
         self,
         db: Session,
         *,
+        user: User | None,
         org_id: str,
         input_payload: dict[str, Any],
         resource_type: str | None,
         resource_id: str | None,
+        skill_name: str | None = None,
     ) -> ContractAIContext | None:
         contract_id = input_payload.get("contract_id")
         if resource_type == "contract" and resource_id:
@@ -1277,6 +1406,7 @@ class AIController:
             return None
         return build_contract_context(
             db,
+            user=user,
             org_id=org_id,
             contract_id=contract_id,
             contract_version_id=input_payload.get("contract_version_id"),
@@ -1285,13 +1415,9 @@ class AIController:
             # redline path passes the instruction) gets only the relevant clauses
             # instead of the whole truncated document.
             focus_query=input_payload.get("focus_query"),
+            # playbook_review must not see the band its own findings produce.
+            skill_name=skill_name,
         )
-
-    def _extract_structured_output(self, response: ClaudeProviderResponse, spec: SkillSpec) -> dict[str, Any]:
-        for block in response.tool_use_blocks:
-            if block.get("name") == spec.return_tool_name:
-                return block.get("input") or {}
-        raise RuntimeError(f"Claude did not return expected tool output: {spec.return_tool_name}")
 
     def _validate_and_store_citations(
         self,
@@ -1339,63 +1465,6 @@ class AIController:
             )
         return status
 
-    def _log_ai_call(
-        self,
-        db: Session,
-        *,
-        org_id: str,
-        created_by_user_id: str | None,
-        request_id: str | None,
-        skill_run: AISkillRun,
-        spec: SkillSpec,
-        provider_response: ClaudeProviderResponse,
-        raw_output: dict[str, Any],
-        validated: BaseModel,
-        status: str,
-        validation_status: str,
-        job_id: str | None,
-        session_id: str | None,
-        assistant_run_id: str | None,
-        tool_call_id: str | None,
-        resource_type: str | None,
-        resource_id: str | None,
-    ) -> AICallLog:
-        row = AICallLog(
-            org_id=org_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            job_id=job_id,
-            session_id=session_id,
-            assistant_run_id=assistant_run_id,
-            tool_call_id=tool_call_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            provider=self.claude_client.provider,
-            model=provider_response.model,
-            model_config_hash=skill_run.model_config_hash,
-            prompt_key=skill_run.prompt_key,
-            prompt_version=skill_run.prompt_version,
-            prompt_hash=skill_run.prompt_hash,
-            input_payload=skill_run.input_payload,
-            output_schema_name=spec.output_schema_name,
-            prompt_tokens=provider_response.token_usage.get("prompt_tokens"),
-            completion_tokens=provider_response.token_usage.get("completion_tokens"),
-            total_tokens=provider_response.token_usage.get("total_tokens"),
-            latency_ms=provider_response.latency_ms,
-            status=status,
-            validation_status=validation_status,
-            provider_request_id=provider_response.provider_request_id,
-            stop_reason=provider_response.stop_reason,
-            redaction_status="redacted",
-            raw_ai_output=provider_response.raw_response if settings.ai_store_raw_outputs else None,
-            validated_output=validated.model_dump(mode="json"),
-            created_by_user_id=created_by_user_id,
-            updated_by_user_id=created_by_user_id,
-        )
-        db.add(row)
-        db.flush()
-        return row
-
     def _persist_skill_output(
         self,
         db: Session,
@@ -1414,6 +1483,8 @@ class AIController:
             self._persist_metadata(db, output=output, context=contract_context, created_by_user_id=created_by_user_id, request_id=request_id, skill_run=skill_run)
         elif spec.name == "clause_extraction":
             self._persist_clauses(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
+        elif spec.name == "clause_labeling":
+            self._persist_clause_labels(db, output=output, context=contract_context, created_by_user_id=created_by_user_id)
         # NOTE: contract_edit_suggestions is intentionally NOT auto-persisted
         # here. The edit_contract tool (its only caller) persists anchored,
         # version-linked ContractEdit rows itself. Auto-persisting here created
@@ -1436,6 +1507,11 @@ class AIController:
     ) -> None:
         metadata = output if isinstance(output, ContractMetadataOutput) else ContractMetadataOutput.model_validate(output)
         contract = context.contract
+        # The row was loaded before a slow model call. Re-read it under a lock, or
+        # a flag or value written meanwhile (auto_review_pending, a person's edit)
+        # is silently overwritten by the stale metadata_json copied below.
+        if db is not None:
+            db.refresh(contract, with_for_update=True)
         before = {
             "title": contract.title,
             "contract_type": contract.contract_type,
@@ -1448,25 +1524,39 @@ class AIController:
             "expiration_date": contract.expiration_date,
         }
         suggestions = metadata.model_dump(mode="json", exclude_none=True)
+        # Read before the copy below: it is shallow, so setdefault() writes into
+        # the very ai_suggestions dict this would otherwise read back.
+        previous_text = dict(((contract.metadata_json or {}).get("ai_suggestions") or {}).get("metadata") or {})
         existing_metadata = dict(contract.metadata_json or {})
         existing_metadata.setdefault("ai_suggestions", {})["metadata"] = suggestions
         existing_metadata["latest_metadata_skill_run_id"] = skill_run.id
-        contract.metadata_json = existing_metadata
+        # AI values are suggestions (kept above). One is written onto the contract
+        # only to fill a blank, or to refresh a value the AI itself wrote earlier,
+        # never over a value a person entered. risk_level belongs to the weighted
+        # risk score (contracts/risk.py), not to this extractor.
+        applied: list[str] = []
         if metadata.confidence == "high" and metadata.citations:
-            for field in [
-                "contract_type",
-                "counterparty_name",
-                "jurisdiction",
-                "risk_level",
-                "value_amount",
-                "currency",
-                "effective_date",
-                "expiration_date",
-            ]:
+            sources = dict(existing_metadata.get("field_sources") or {})
+            for field in AI_FILLABLE_CONTRACT_FIELDS:
                 value = getattr(metadata, field)
-                if value is not None:
+                if value is None:
+                    continue
+                if getattr(contract, field) in (None, "") or sources.get(field) == "ai":
                     setattr(contract, field, value)
+                    sources[field] = "ai"
+                    applied.append(field)
+            existing_metadata["field_sources"] = sources
+        contract.metadata_json = existing_metadata
         contract.updated_by_user_id = created_by_user_id
+        # A new anchor date, or a new text reading that may now disagree with the
+        # form's, changes every deadline counted from it.
+        if any(
+            before[f] != getattr(contract, f) or previous_text.get(f) != suggestions.get(f)
+            for f in ("effective_date", "expiration_date")
+        ):
+            from app.core.deadlines import recompute_contract_deadlines
+
+            recompute_contract_deadlines(db, contract)
         write_audit_log(
             db,
             action="contract.ai_metadata_extracted",
@@ -1491,7 +1581,7 @@ class AIController:
             skill_run_id=skill_run.id,
             details={
                 "confidence": metadata.confidence,
-                "applied_to_contract": metadata.confidence == "high" and bool(metadata.citations),
+                "applied_fields": applied,
                 "fields": sorted(suggestions.keys()),
             },
         )
@@ -1505,7 +1595,68 @@ class AIController:
         created_by_user_id: str | None,
     ) -> None:
         clauses = output if isinstance(output, ClauseExtractionOutput) else ClauseExtractionOutput.model_validate(output)
+        if context.snapshot is None:
+            return
+        rows = []
+        for clause in clauses.clauses:
+            # Never store the model's own start_char/end_char: it reads the text
+            # but cannot count it, and the error compounds with depth (measured
+            # on this corpus: 57% of stored offsets pointed at the wrong span,
+            # median 68 chars off and growing to 188 past 6k). Locate the text it
+            # returned instead — exact, or None so a citation that cannot be
+            # resolved shows as unlocated rather than quoting the wrong clause.
+            span = locate_phrase(context.snapshot.text, clause.text)
+            start_char, end_char = span if span else (None, None)
+            rows.append({"clause_type": clause.clause_type, "heading": clause.heading, "text": clause.text,
+                         "start_char": start_char, "end_char": end_char, "confidence": clause.confidence})
+        self._replace_clauses(db, rows=rows, context=context, created_by_user_id=created_by_user_id)
+
+    def _persist_clause_labels(
+        self,
+        db: Session,
+        *,
+        output: BaseModel,
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+    ) -> None:
+        """Labels name the Documents reader's segments; each stored clause takes
+        that segment's own text and exact offsets (ai/clause_segments.py). The
+        segments are rebuilt from the same pinned snapshot the prompt was built
+        from, so a label's id means the same span here as it did there."""
+        from app.ai.clause_segments import clause_rows, segments_from_elements
+        from app.contract_files.models import ContractDocumentElement
+
+        labels = output if isinstance(output, ClauseLabelingOutput) else ClauseLabelingOutput.model_validate(output)
+        if context.snapshot is None:
+            return
+        elements = db.scalars(
+            select(ContractDocumentElement)
+            .where(ContractDocumentElement.text_snapshot_id == context.snapshot.id)
+            .order_by(ContractDocumentElement.seq)
+        ).all()
+        segments = segments_from_elements(list(elements), context.snapshot.text or "")
+        rows = clause_rows(segments, labels.labels, context.snapshot.text or "")
+        self._replace_clauses(db, rows=rows, context=context, created_by_user_id=created_by_user_id)
+
+    def _replace_clauses(
+        self,
+        db: Session,
+        *,
+        rows: list[dict],
+        context: ContractAIContext,
+        created_by_user_id: str | None,
+    ) -> None:
         if context.version is None or context.snapshot is None:
+            return
+        # Lock the contract so two extractions can't replace the index at once, and
+        # let only its current version replace it: an older version's extraction
+        # finishing last must not bring its clauses back.
+        current_version_id = db.scalar(
+            select(Contract.current_authoritative_version_id)
+            .where(Contract.id == context.contract.id)
+            .with_for_update()
+        )
+        if current_version_id != context.version.id:
             return
         existing = db.scalars(
             select(ClauseExtraction).where(
@@ -1514,24 +1665,32 @@ class AIController:
                 ClauseExtraction.is_stale.is_(False),
             )
         ).all()
+        if not rows:
+            if existing:
+                # Validate the replacement before the destructive swap: an empty
+                # extraction must not wipe the clauses search, risk and the graph use.
+                raise ValueError(
+                    f"Clause extraction returned no clauses; kept the {len(existing)} existing clause(s)."
+                )
+            return
         for clause in existing:
             clause.is_stale = True
             clause.updated_by_user_id = created_by_user_id
         from app.contract_brain.clause_taxonomy import canonical_clause_type
 
-        for clause in clauses.clauses:
+        for row in rows:
             db.add(
                 ClauseExtraction(
                     org_id=context.contract.org_id,
                     contract_id=context.contract.id,
                     contract_version_id=context.version.id,
                     text_snapshot_id=context.snapshot.id,
-                    clause_type=canonical_clause_type(clause.clause_type),
-                    heading=clause.heading,
-                    text=clause.text,
-                    start_char=clause.start_char,
-                    end_char=clause.end_char,
-                    confidence=clause.confidence,
+                    clause_type=canonical_clause_type(row["clause_type"]),
+                    heading=row["heading"],
+                    text=row["text"],
+                    start_char=row["start_char"],
+                    end_char=row["end_char"],
+                    confidence=row["confidence"],
                     created_by_user_id=created_by_user_id,
                     updated_by_user_id=created_by_user_id,
                 )
@@ -1545,14 +1704,14 @@ class AIController:
         created_by_user_id: str | None,
         resource_type: str | None,
         resource_id: str | None,
-        provider_response: ClaudeProviderResponse,
+        token_usage: dict[str, int | None],
         skill_run: AISkillRun,
     ) -> None:
         for metric, quantity in [
             ("ai.call", 1),
-            ("ai.prompt_tokens", provider_response.token_usage.get("prompt_tokens") or 0),
-            ("ai.completion_tokens", provider_response.token_usage.get("completion_tokens") or 0),
-            ("ai.total_tokens", provider_response.token_usage.get("total_tokens") or 0),
+            ("ai.prompt_tokens", token_usage.get("prompt_tokens") or 0),
+            ("ai.completion_tokens", token_usage.get("completion_tokens") or 0),
+            ("ai.total_tokens", token_usage.get("total_tokens") or 0),
         ]:
             db.add(
                 UsageRecord(
@@ -1567,9 +1726,6 @@ class AIController:
                     updated_by_user_id=created_by_user_id,
                 )
             )
-        # Accumulate this call's tokens into the per-org daily cap counter so the
-        # next enforce_daily_token_cap() sees today's running spend (fail-open).
-        record_token_usage(org_id, provider_response.token_usage.get("total_tokens"))
 
     def _finish_job(self, db: Session, *, job_id: str, status: str, error_message: str | None) -> None:
         job = db.get(JobRun, job_id)
@@ -1590,91 +1746,13 @@ class AIController:
         request_id: str | None,
         skill_run: AISkillRun,
     ) -> None:
-        extracted = (
-            output
-            if isinstance(output, ObligationExtractionOutput)
-            else ObligationExtractionOutput.model_validate(output)
-        )
-        contract = context.contract
-        # Replace prior AI-extracted, still-open obligations so re-extraction
-        # on a new authoritative version does not duplicate.
-        existing = db.scalars(
-            select(Obligation).where(
-                Obligation.org_id == contract.org_id,
-                Obligation.contract_id == contract.id,
-                Obligation.deleted_at.is_(None),
-            )
-        ).all()
-        today = utcnow().date()
-        for ob in existing:
-            if (ob.metadata_json or {}).get("source") == "ai_extraction" and ob.status not in {
-                "completed",
-                "cancelled",
-            }:
-                ob.deleted_at = utcnow()
-                ob.deleted_by_user_id = created_by_user_id
-                ob.updated_by_user_id = created_by_user_id
-        created = 0
-        for item in extracted.obligations:
-            citation = item.citations[0].model_dump(mode="json") if item.citations else None
-            obligation = Obligation(
-                org_id=contract.org_id,
-                contract_id=contract.id,
-                contract_version_id=context.version.id if context.version else None,
-                owner_user_id=contract.owner_user_id,
-                responsible_party=item.responsible_party,
-                obligation_type=item.obligation_type,
-                description=item.description,
-                due_date=item.due_date,
-                recurrence=item.recurrence,
-                status="open",
-                source_citation=citation,
-                metadata_json={
-                    "source": "ai_extraction",
-                    "confidence": item.confidence,
-                    "source_clause_type": item.source_clause_type,
-                    "skill_run_id": skill_run.id,
-                },
-                created_by_user_id=created_by_user_id,
-                updated_by_user_id=created_by_user_id,
-            )
-            db.add(obligation)
-            db.flush()
-            created += 1
-            if item.due_date is not None:
-                remind_at = item.due_date - timedelta(days=7)
-                remind_at = max(remind_at, today)
-                db.add(
-                    ObligationReminder(
-                        org_id=contract.org_id,
-                        obligation_id=obligation.id,
-                        remind_at=remind_at,
-                        channel="email",
-                        created_by_user_id=created_by_user_id,
-                        updated_by_user_id=created_by_user_id,
-                    )
-                )
-        write_audit_log(
-            db,
-            action="contract.obligations_extracted",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=contract.org_id,
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            after={"obligation_count": created, "skill_run_id": skill_run.id},
-        )
-        write_timeline_event(
-            db,
-            org_id=contract.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.obligations_extracted",
-            title=f"Obligations extracted ({created})",
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            details={"obligation_count": created},
+        # The AI copies the wording; the obligations domain computes every date
+        # from the contract's anchors (core/deadlines.py).
+        from app.obligations.service import apply_extracted_obligations
+
+        apply_extracted_obligations(
+            db, contract=context.contract, version=context.version, output=output,
+            skill_run=skill_run, created_by_user_id=created_by_user_id, request_id=request_id,
         )
 
     def _persist_renewal(
@@ -1687,85 +1765,11 @@ class AIController:
         request_id: str | None,
         skill_run: AISkillRun,
     ) -> None:
-        renewal = (
-            output
-            if isinstance(output, RenewalExtractionOutput)
-            else RenewalExtractionOutput.model_validate(output)
-        )
-        contract = context.contract
-        window_start = renewal.notice_date
-        if (
-            window_start is None
-            and renewal.expiration_date is not None
-            and renewal.notice_period_days
-        ):
-            window_start = renewal.expiration_date - timedelta(days=renewal.notice_period_days)
-        event = db.scalar(
-            select(RenewalEvent).where(
-                RenewalEvent.org_id == contract.org_id,
-                RenewalEvent.contract_id == contract.id,
-            )
-        )
-        meta = {
-            "auto_renewal": renewal.auto_renewal,
-            "renewal_term": renewal.renewal_term,
-            "termination_rights_summary": renewal.termination_rights_summary,
-            "confidence": renewal.confidence,
-            "needs_review": renewal.needs_review,
-            "skill_run_id": skill_run.id,
-            "citations": [c.model_dump(mode="json") for c in renewal.citations],
-        }
-        if event is None:
-            event = RenewalEvent(
-                org_id=contract.org_id,
-                contract_id=contract.id,
-                contract_version_id=context.version.id if context.version else None,
-                expiration_date=renewal.expiration_date,
-                notice_date=renewal.notice_date,
-                renewal_window_starts_at=window_start,
-                owner_user_id=contract.owner_user_id,
-                metadata_json=meta,
-                created_by_user_id=created_by_user_id,
-                updated_by_user_id=created_by_user_id,
-            )
-            db.add(event)
-        else:
-            event.expiration_date = renewal.expiration_date
-            event.notice_date = renewal.notice_date
-            event.renewal_window_starts_at = window_start
-            event.contract_version_id = context.version.id if context.version else event.contract_version_id
-            event.metadata_json = meta
-            event.updated_by_user_id = created_by_user_id
-        db.flush()
-        write_audit_log(
-            db,
-            action="contract.renewal_extracted",
-            resource_type="contract",
-            resource_id=contract.id,
-            org_id=contract.org_id,
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            after={
-                "expiration_date": str(renewal.expiration_date),
-                "notice_date": str(renewal.notice_date),
-                "skill_run_id": skill_run.id,
-            },
-        )
-        write_timeline_event(
-            db,
-            org_id=contract.org_id,
-            resource_type="contract",
-            resource_id=contract.id,
-            event_type="contract.renewal_extracted",
-            title="Renewal terms extracted",
-            actor_user_id=created_by_user_id,
-            request_id=request_id,
-            skill_run_id=skill_run.id,
-            details={
-                "expiration_date": str(renewal.expiration_date),
-                "notice_date": str(renewal.notice_date),
-                "needs_review": renewal.needs_review,
-            },
+        from app.renewals.service import apply_extracted_renewal
+
+        apply_extracted_renewal(
+            db, contract=context.contract, version=context.version, output=output,
+            skill_run=skill_run, created_by_user_id=created_by_user_id, request_id=request_id,
         )
 
     def _fallback_output(
@@ -1786,11 +1790,42 @@ def _collect_citations(output: BaseModel) -> list[CitationInput]:
     root_citations = getattr(output, "citations", None)
     if root_citations:
         citations.extend(root_citations)
-    for item_name in ["clauses", "edits", "deviations", "obligations"]:
+    for item_name in ["clauses", "edits", "deviations", "obligations", "answers"]:
         for item in getattr(output, item_name, []) or []:
             citations.extend(getattr(item, "citations", []) or [])
     return citations
 
+
+# Per-session-type context for the assistant turn. Static text only (never user
+# input), keyed by AssistantSession.session_type.
+_SESSION_CONTEXT: dict[str, str] = {
+    AssistantSessionType.LEGAL_QUESTION: (
+        "Session context: the user opened this chat from Legal Intake's \"General legal question\" "
+        "form — they came to ask Legal a question. Their first message is the question followed by "
+        "the jurisdiction, urgency and any related contract they gave. \"Jurisdiction: Not specified\" "
+        "means they left it blank: then answer under Indian law, and open your answer by saying you "
+        "assumed India and they should tell you if another jurisdiction applies. Follow "
+        "<general_legal_questions>: answer first, state the jurisdiction and "
+        "assumptions you relied on, then judge whether a lawyer is needed and, if so, offer in one "
+        "sentence to send it to the legal team. File with create_intake_request only after they say "
+        "yes, with type_label exactly \"Legal Question — General\" and a priority matching the "
+        "urgency they gave (No rush=Low, Within a week=Medium, Within 48 hours=High, Today=Critical)."
+    ),
+}
+
+
+
+
+# Shared with the session API (restoring a confirmation card after a reload).
+_confirmation_details = confirmation_details
+
+
+def _card_details(tool_result: dict[str, Any], tool_input: Any) -> dict[str, str]:
+    """What a confirmation card shows. A tool that can say what it will do in words
+    (a stage move: which contract, from where to where) hands that back with its
+    confirmation; otherwise the card shows the action's own arguments."""
+    card = tool_result.get("details")
+    return card if isinstance(card, dict) and card else _confirmation_details(tool_input)
 
 def _handle_for_contract_id(contract_id: str | None, handles: list[dict[str, Any]]) -> str | None:
     if not contract_id:
@@ -1806,15 +1841,6 @@ def _redacted_input(payload: dict[str, Any]) -> dict[str, Any]:
     # Scrub inline PII (emails, 16+ digit numbers) and oversized/sensitive text
     # recursively before this payload is persisted on the skill run + AI call log.
     return redact_ai_payload(payload)
-
-
-def _clamp_max_tokens(max_tokens: int) -> int:
-    """Clamp a per-request/per-skill max_tokens to the configured ceiling so a
-    misconfigured skill can never request an unbounded completion."""
-    ceiling = settings.claude_max_tokens_ceiling
-    if ceiling and ceiling > 0:
-        return min(max_tokens, ceiling)
-    return max_tokens
 
 
 ai_controller = AIController()

@@ -10,11 +10,15 @@ from typing import Any, Protocol, runtime_checkable
 import anthropic
 import httpx
 
+from app.ai.cost_guard import reserve_tokens, settle_tokens
 from app.core.config import settings
 from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
 from app.integrations._http_retry import resilient_call
 
 logger = logging.getLogger(__name__)
+
+
+_BLOCKING_CALL_TIMEOUT_SECONDS = 300
 
 
 def run_coro_blocking(make_coro):
@@ -34,8 +38,16 @@ def run_coro_blocking(make_coro):
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(make_coro())  # no loop on this thread — the common case
-    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(lambda: asyncio.run(make_coro())).result()
+    # A running loop means this call blocks that loop until the coroutine finishes.
+    # Async callers should hand the whole sync call to a thread (run_in_threadpool)
+    # instead; the warning makes regressions visible and the timeout bounds the
+    # stall. shutdown(wait=False): a `with` block would wait for the thread anyway.
+    logger.warning("run_coro_blocking called from a running event loop; it blocks that loop")
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return ex.submit(lambda: asyncio.run(make_coro())).result(timeout=_BLOCKING_CALL_TIMEOUT_SECONDS)
+    finally:
+        ex.shutdown(wait=False)
 
 
 @dataclass(frozen=True)
@@ -164,6 +176,14 @@ async def aclose_claude_client() -> None:
         await client.close()
 
 
+# Set only by the AI exam's own process (backend/eval/exam, specs/005-ai-eval-baseline);
+# always None in the app. Duck-typed: .before(payload) and .after(payload, response).
+# It is the one choke point every paid request passes, so the exam can enforce its
+# spending ceiling and run a batch capture/replay without a second copy of any skill.
+# Mock mode returns before reaching it, so tests and dev mocks never touch it.
+exam_meter: Any = None
+
+
 def _cached_system(system_prompt: str) -> Any:
     """The system prompt as a cache-marked content block so Anthropic serves it
     from cache on repeat turns instead of re-billing the whole thing. Falls back
@@ -191,12 +211,37 @@ def _cached_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return marked
 
 
+def _total_tokens(raw_response: dict[str, Any]) -> int:
+    usage = raw_response.get("usage") or {}
+    return (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0)
+
+
+def _estimated_tokens(json_payload: dict[str, Any]) -> int:
+    """What to reserve against the daily cap before a request: roughly four
+    characters per token for everything sent, plus the longest reply allowed.
+    Image bytes are skipped (billed per image, far below their size). The real
+    total replaces this estimate as soon as the call returns."""
+
+    def chars(value: Any) -> int:
+        if isinstance(value, str):
+            return len(value)
+        if isinstance(value, dict):
+            return 0 if value.get("type") == "base64" else sum(chars(v) for v in value.values())
+        if isinstance(value, list):
+            return sum(chars(v) for v in value)
+        return 0
+
+    sent = chars([json_payload.get("system"), json_payload.get("messages"), json_payload.get("tools")])
+    return sent // 4 + int(json_payload.get("max_tokens") or 0)
+
+
 class ClaudeClient:
     provider = "claude"
 
     async def complete_structured(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         tool_name: str,
@@ -210,6 +255,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -238,6 +284,7 @@ class ClaudeClient:
     async def complete_vision_structured(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         image_bytes: bytes,
@@ -258,6 +305,7 @@ class ClaudeClient:
         started = time.perf_counter()
         image_b64 = base64.b64encode(image_bytes).decode("ascii")
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -299,6 +347,7 @@ class ClaudeClient:
     async def complete_text(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         user_prompt: str,
         max_tokens: int,
@@ -317,6 +366,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -332,9 +382,54 @@ class ClaudeClient:
             model=model or settings.claude_model,
         )
 
+    async def complete_json(
+        self,
+        *,
+        org_id: str | None,
+        system_prompt: str,
+        user_prompt: str,
+        json_schema: dict[str, Any],
+        max_tokens: int,
+        model: str,
+    ) -> ClaudeProviderResponse:
+        """One JSON answer shaped by ``json_schema``, through structured outputs
+        (``output_config.format``) instead of a forced tool call. For models that
+        refuse the tool route: claude-sonnet-5-5 answers 400 to a forced
+        ``tool_choice`` and to any non-default ``temperature``, so this payload
+        carries neither (nor any tools). The answer is one text block of JSON —
+        callers parse it themselves."""
+        if settings.mock_claude:
+            raw = {
+                "id": "mock-json",
+                "model": model,
+                "content": [{"type": "text", "text": "{}"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            }
+            return self._to_provider_response(raw, latency_ms=0.0, provider_request_id="mock-json", model=model)
+
+        started = time.perf_counter()
+        response_json, request_id = await self._post_messages(
+            org_id=org_id,
+            json_payload={
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": _cached_system(system_prompt),
+                "messages": [{"role": "user", "content": user_prompt}],
+                "output_config": {"format": {"type": "json_schema", "schema": json_schema}},
+            },
+        )
+        return self._to_provider_response(
+            response_json,
+            latency_ms=(time.perf_counter() - started) * 1000,
+            provider_request_id=request_id,
+            model=model,
+        )
+
     async def complete_with_tools(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
@@ -344,6 +439,7 @@ class ClaudeClient:
     ) -> ClaudeProviderResponse:
         if not tools:
             return await self.complete_text(
+                org_id=org_id,
                 system_prompt=system_prompt,
                 user_prompt=_last_user_text(messages),
                 max_tokens=max_tokens,
@@ -355,6 +451,7 @@ class ClaudeClient:
 
         started = time.perf_counter()
         response_json, request_id = await self._post_messages(
+            org_id=org_id,
             json_payload={
                 "model": model or settings.claude_model,
                 "max_tokens": max_tokens,
@@ -375,6 +472,7 @@ class ClaudeClient:
     async def stream_with_tools(
         self,
         *,
+        org_id: str | None,
         system_prompt: str,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
@@ -401,6 +499,7 @@ class ClaudeClient:
                 self._mock_tool_response(messages=messages, tools=tools, model=model or settings.claude_model)
                 if tools
                 else await self.complete_text(
+                    org_id=org_id,
                     system_prompt=system_prompt,
                     user_prompt=_last_user_text(messages),
                     max_tokens=max_tokens,
@@ -429,14 +528,22 @@ class ClaudeClient:
             json_payload["tool_choice"] = {"type": "auto"}
 
         client = _anthropic_client()
+        if exam_meter is not None and exam_meter.before(json_payload) is not None:
+            # The exam never streams, so a stored batch answer offered here would
+            # be dropped on the floor — fail loudly instead of ignoring it.
+            raise RuntimeError("exam_meter offered a replay to a streaming call")
+        reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
+        used = 0
+        final_message: dict[str, Any] | None = None
         started = time.perf_counter()
         try:
             async with client.messages.stream(**json_payload) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
                         yield {"type": "text_delta", "text": event.delta.text}
-                final_message = await stream.get_final_message()
+                final_message = (await stream.get_final_message()).to_dict()
                 request_id = stream.request_id
+            used = _total_tokens(final_message)
         except anthropic.APIStatusError as exc:
             logger.error(
                 "Anthropic /v1/messages %s (model=%s, max_tokens=%s): %s",
@@ -450,21 +557,31 @@ class ClaudeClient:
                 },
             )
             raise
+        finally:
+            settle_tokens(reservation, used)
+            if exam_meter is not None:
+                exam_meter.after(json_payload, final_message)
 
         yield {
             "type": "final",
             "response": self._to_provider_response(
-                final_message.to_dict(),
+                final_message,
                 latency_ms=(time.perf_counter() - started) * 1000,
                 provider_request_id=request_id,
                 model=model or settings.claude_model,
             ),
         }
 
-    async def _post_messages(self, *, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    async def _post_messages(self, *, org_id: str | None, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
         if not settings.claude_api_key:
             raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
         client = _anthropic_client()
+        if exam_meter is not None:
+            # Outside the retry wrapper: one admission (and one replay lookup) per
+            # logical call, however many attempts the request itself takes.
+            replayed = exam_meter.before(json_payload)
+            if replayed is not None:
+                return replayed
 
         @resilient_call("claude")
         async def _do_request() -> tuple[dict[str, Any], str | None]:
@@ -500,7 +617,71 @@ class ClaudeClient:
                 raise
             return final_message.to_dict(), request_id
 
-        return await _do_request()
+        # Metered here, once around all retries, so no caller can skip the daily cap.
+        reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
+        used = 0
+        response_json: dict[str, Any] | None = None
+        try:
+            response_json, request_id = await _do_request()
+            used = _total_tokens(response_json)
+        finally:
+            settle_tokens(reservation, used)
+            if exam_meter is not None:
+                exam_meter.after(json_payload, response_json)
+        return response_json, request_id
+
+    # -- Message Batches: used only by the AI exam (backend/eval/exam) ----------
+    # Half-price delivery for the exam's public and constructed items; the app never
+    # calls these. Same exam key as every other call, via _anthropic_client().
+
+    @staticmethod
+    def _batch_client() -> anthropic.AsyncAnthropic:
+        if settings.mock_claude:
+            raise RuntimeError("Message Batches are not available while MOCK_CLAUDE is on")
+        if not settings.claude_api_key:
+            raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
+        return _anthropic_client()
+
+    async def create_batch(self, requests: list[dict[str, Any]]) -> str:
+        """Submit ``[{"custom_id", "params"}]`` as one batch; returns its id.
+
+        Deliberately NOT retried: a lost reply to a create that did succeed would
+        otherwise make (and bill) a second batch. The caller owns that decision."""
+        batch = await self._batch_client().messages.batches.create(requests=requests)
+        return batch.id
+
+    async def batch_status(self, batch_id: str) -> dict[str, Any]:
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _retrieve() -> dict[str, Any]:
+            return (await client.messages.batches.retrieve(batch_id)).to_dict()
+
+        return await _retrieve()
+
+    async def batch_results(self, batch_id: str) -> dict[str, dict[str, Any]]:
+        """``custom_id`` -> the result object (``succeeded`` / ``errored`` /
+        ``canceled`` / ``expired``). Fetching results is free, so a retry restarts
+        the download from the top."""
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _fetch() -> dict[str, dict[str, Any]]:
+            results: dict[str, dict[str, Any]] = {}
+            async for item in await client.messages.batches.results(batch_id):
+                results[item.custom_id] = item.result.to_dict()
+            return results
+
+        return await _fetch()
+
+    async def cancel_batch(self, batch_id: str) -> None:
+        client = self._batch_client()
+
+        @resilient_call("claude")
+        async def _cancel() -> None:
+            await client.messages.batches.cancel(batch_id)
+
+        await _cancel()
 
     def _to_provider_response(
         self,
@@ -521,7 +702,7 @@ class ClaudeClient:
             token_usage={
                 "prompt_tokens": usage.get("input_tokens"),
                 "completion_tokens": usage.get("output_tokens"),
-                "total_tokens": (usage.get("input_tokens") or 0) + (usage.get("output_tokens") or 0),
+                "total_tokens": _total_tokens(raw_response),
                 # Prompt-cache accounting: cache_creation is billed once (a bit
                 # above normal input), cache_read is the cheap hit on later turns.
                 "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),

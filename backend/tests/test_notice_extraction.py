@@ -7,7 +7,7 @@ and the deterministic fallback used under mock mode / API failure — which is
 deliberately unwilling to invent a deadline it cannot literally see.
 """
 
-from app.notices.extraction import _clean_date, _clean_str, _heuristic
+from app.notices.extraction import _clean_date, _clean_str, _heuristic, clean_deadline
 
 # --- date sanitising -------------------------------------------------------
 
@@ -46,7 +46,8 @@ def test_heuristic_never_guesses_a_deadline():
     result = _heuristic(
         "You are called upon to remedy the breach within 21 days of receipt hereof."
     )
-    assert result["response_due_date"] is None
+    assert result["deadline"] is None
+    assert "response_due_date" not in result
 
 
 def test_heuristic_reads_a_literal_iso_date():
@@ -75,3 +76,61 @@ def test_heuristic_reports_zero_confidence_when_it_finds_nothing():
     assert result["notice_type"] is None
     assert result["notice_date"] is None
     assert result["confidence"] == 0.0
+
+
+# --- deadline wording --------------------------------------------------------
+
+def test_clean_deadline_keeps_valid_wording():
+    raw = {"stated": True, "explicit_date": None, "period_count": 15, "period_unit": "days",
+           "clear_days": True, "runs_from": "receipt", "runs_from_text": "of receipt hereof",
+           "quote": " within 15 clear days "}
+    assert clean_deadline(raw) == {**raw, "quote": "within 15 clear days"}
+
+
+def test_clear_days_is_only_ever_a_real_true():
+    """A missing or non-boolean clear_days must read as plain days, not 'clear'."""
+    base = {"stated": True, "period_count": 15, "period_unit": "days", "quote": "within 15 days"}
+    assert clean_deadline(base)["clear_days"] is False
+    assert clean_deadline({**base, "clear_days": "yes"})["clear_days"] is False
+
+
+def test_an_explicit_date_not_written_in_the_notice_is_dropped():
+    """A date the model counted itself (here from '30 days') was taken as the
+    notice's own stated deadline; it must be dropped so the period is counted."""
+    raw = {"stated": True, "explicit_date": "2026-11-05", "period_count": 30, "period_unit": "days",
+           "runs_from": "receipt", "quote": "pay within 30 days of receipt of this notice"}
+    out = clean_deadline(raw, text="Dated 6 October 2026. Pay within 30 days of receipt of this notice.")
+    assert out["explicit_date"] is None and out["period_count"] == 30
+
+
+def test_an_explicit_date_counts_only_when_its_quote_writes_it():
+    """A date the notice writes out survives; one found only somewhere else in the notice
+    does not: almost any notice has the year and some matching day number, so checking the
+    whole text let a date the model counted itself pass as "stated in notice"."""
+    raw = {"stated": True, "explicit_date": "2026-11-05", "quote": "reply on or before 05/11/2026"}
+    assert clean_deadline(raw)["explicit_date"] == "2026-11-05"
+    elsewhere = {**raw, "quote": "reply by the date given above"}
+    assert clean_deadline(elsewhere, text="Deadline: 5th November, 2026.")["explicit_date"] is None
+
+
+def test_not_stated_drops_any_stray_period():
+    """A period left beside stated=false would be counted into a deadline the
+    notice never gave."""
+    out = clean_deadline({"stated": False, "period_count": 30, "period_unit": "days", "runs_from": "receipt"})
+    assert out["stated"] is False
+    assert out["period_count"] is None and out["runs_from"] is None
+
+
+def test_clean_deadline_rejects_out_of_vocabulary_values():
+    """An unknown unit/anchor or a non-integer count must not reach the date
+    arithmetic; it becomes 'missing', which computes no date."""
+    out = clean_deadline({"stated": True, "period_count": True, "period_unit": "fortnights",
+                          "runs_from": "dispatch", "explicit_date": "within 15 days"})
+    assert (out["period_count"], out["period_unit"], out["runs_from"], out["explicit_date"]) == (
+        None, None, None, None)
+
+
+def test_clean_deadline_without_a_reading_is_none():
+    """Model output with no deadline object is 'no reading', not 'not stated'."""
+    assert clean_deadline(None) is None
+    assert clean_deadline("15 days") is None

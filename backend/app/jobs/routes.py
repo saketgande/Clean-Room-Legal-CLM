@@ -1,7 +1,7 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import and_, or_, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.database import utcnow
@@ -51,16 +51,39 @@ def _reap_stuck_jobs(db: Session, *, org_id: str) -> None:
 
 @router.get("")
 def list_jobs(
+    job_status: JobStatus | None = Query(None, alias="status"),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("admin_panel:access")),
 ):
+    """Newest first. ``limit``/``offset`` page through all of them; ``status`` narrows the list."""
     _reap_stuck_jobs(db, org_id=current_user.org_id)
+    query = select(JobRun).where(JobRun.org_id == current_user.org_id)
+    if job_status is not None:
+        query = query.where(JobRun.status == job_status)
+    # The id breaks ties so rows created in the same instant never move between pages.
     return db.scalars(
-        select(JobRun)
-        .where(JobRun.org_id == current_user.org_id)
-        .order_by(JobRun.created_at.desc())
-        .limit(100)
+        query.order_by(JobRun.created_at.desc(), JobRun.id.desc()).limit(limit).offset(offset)
     ).all()
+
+
+@router.get("/summary")
+def jobs_summary(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_permission("admin_panel:access")),
+):
+    """How many jobs are in each state, across ALL of them (the list above is only one page)."""
+    _reap_stuck_jobs(db, org_id=current_user.org_id)
+    counts = dict.fromkeys((s.value for s in JobStatus), 0)
+    rows = db.execute(
+        select(JobRun.status, func.count())
+        .where(JobRun.org_id == current_user.org_id)
+        .group_by(JobRun.status)
+    ).all()
+    for state, n in rows:
+        counts[str(getattr(state, "value", state))] = n
+    return {**counts, "total": sum(counts.values())}
 
 
 @router.get("/{job_id}")

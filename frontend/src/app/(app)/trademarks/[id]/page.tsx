@@ -17,7 +17,6 @@ import {
   Tabs,
 } from "@/components/ui";
 import { TrademarkComments } from "@/components/TrademarkComments";
-import { WorkflowPanel } from "@/app/(app)/intake/_workflow-panel";
 import { fmtDate, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { TrademarkDecision, TrademarkStatus } from "@/lib/types";
@@ -26,6 +25,7 @@ import { AssignmentsCard } from "./_assignments-card";
 import { DecisionPanel } from "./_decision-panel";
 import { DocumentsPanel } from "./_documents-panel";
 import { FilingPanel } from "./_filing-panel";
+import { ProgressPanel } from "./_progress-panel";
 import { SearchesPanel } from "./_searches-panel";
 import { StageTracker } from "./_stage-tracker";
 
@@ -206,7 +206,9 @@ export default function TrademarkDetailPage({
         </div>
       )}
 
-      {tab === "progress" && trademarkCase && <WorkflowPanel requestId={trademarkCase.request_id} />}
+      {tab === "progress" && trademarkCase && (
+        <ProgressPanel requestId={trademarkCase.request_id} trademarkId={trademark.id} />
+      )}
       {tab === "searches" && <SearchesPanel trademark={trademark} />}
       {tab === "decision" && <DecisionPanel trademark={trademark} />}
       {tab === "filing" && <FilingPanel trademark={trademark} />}

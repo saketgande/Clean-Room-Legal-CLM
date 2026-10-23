@@ -100,7 +100,7 @@ _OPERATOR_ORDER = ["gt", "lt", "eq", "in", "contains"]
 
 def get_field_catalog(module: str) -> dict[str, Any]:
     if module not in facts.MODULE_FACTS:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Unknown module '{module}'")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"Unknown module '{module}'")
     types = facts.FIELD_TYPES[module]
     labels = _FIELD_LABELS[module]
     fields = [
@@ -500,7 +500,7 @@ def create_rule(
     if payload.is_base_requirement:
         if payload.condition_expression is not None:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "A base requirement cannot carry a condition expression",
             )
         stmt = select(ApprovalChainStepRule.id).where(
@@ -517,7 +517,7 @@ def create_rule(
     else:
         if payload.condition_expression is None:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "A condition rule must carry a condition expression",
             )
         condition_expression = payload.condition_expression.model_dump()
@@ -562,7 +562,7 @@ def update_rule(db: Session, *, actor: User, rule_id: str, payload: ChainStepRul
     if payload.condition_expression is not None:
         if rule.is_base_requirement:
             raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
                 "A base requirement cannot carry a condition expression",
             )
         expr = payload.condition_expression.model_dump()
@@ -809,10 +809,10 @@ def create_instance(
 ) -> ApprovalChainInstance:
     definition = access.get_definition_or_404(db, actor.org_id, payload.definition_id)
     if not definition.is_active:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Chain definition is not active")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Chain definition is not active")
     if payload.module != definition.module:
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Definition is for module '{definition.module}', not '{payload.module}'",
         )
 
@@ -822,7 +822,7 @@ def create_instance(
         .order_by(ApprovalChainStep.sequence_order)
     ).all()
     if not steps:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Chain definition has no steps")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Chain definition has no steps")
 
     access.get_module_record_or_404(
         db, actor=actor, module=payload.module, record_id=payload.module_record_id,
@@ -1001,7 +1001,7 @@ def record_decision(
     if requirement.status != "pending" or requirement.superseded_at is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, "This requirement has already been decided")
     if payload.decision == "reject" and not payload.comment:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A comment is required to reject")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A comment is required to reject")
 
     step = db.get(ApprovalChainStep, requirement.step_id)
     subject = subjects.resolve_subject(

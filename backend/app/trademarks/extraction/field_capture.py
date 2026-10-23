@@ -9,6 +9,7 @@ second PDF/OCR stack.
 import re
 
 from app.contract_files.text_extraction import TextExtractionResult, extract_text
+from app.integrations.ocr import page_map_from_elements
 from app.trademarks.schemas import ExtractedRecord, FieldDefinition
 
 
@@ -37,6 +38,12 @@ async def extract_generic_records(
             if ocr.text:
                 text = ocr.text
                 used_ocr = True
+                # The native page map was measured against the text we just
+                # replaced. Keeping it would slice the OCR text at unrelated
+                # offsets and stamp a page number on whatever came out — every
+                # record attributed to the wrong page, with nothing to show
+                # for it. Rebuild from the OCR elements, or page nothing.
+                page_map = page_map_from_elements(text, ocr.elements) or {}
         except Exception:
             pass  # fall back to whatever native extraction produced
 
@@ -50,7 +57,15 @@ async def extract_generic_records(
         warnings: list[str] = []
         if offsets is None:
             page_text = ""
-            warnings.append(f"No extractable text found for page {page_number}")
+            warnings.append(
+                # Two different failures, and the operator needs to tell them
+                # apart: a blank page, versus a document whose OCR provider
+                # returned no page boundaries at all.
+                f"OCR ({reducto.provider}) returned no page boundaries — "
+                f"page {page_number} could not be isolated"
+                if used_ocr and not page_map
+                else f"No extractable text found for page {page_number}"
+            )
         else:
             page_text = text[offsets["start"] : offsets["end"]]
 
