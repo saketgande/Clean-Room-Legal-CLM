@@ -168,6 +168,24 @@ describe("a workflow step that stopped on an interrupted AI review", () => {
   });
 });
 
+describe("the Filed by row", () => {
+  it("names the agent when the request was filed with an API key", async () => {
+    h.intakeApi.get.mockResolvedValue({ ...request, filed_by_agent: true, filed_by_agent_name: "Agent: Bot" });
+    mount();
+    await screen.findByRole("heading", { name: "Acme MSA" });
+    expect(await screen.findByText("Filed by")).toBeInTheDocument();
+    expect(screen.getByText("Agent · Agent: Bot")).toBeInTheDocument();
+  });
+
+  it("is absent for a request not filed by an agent", async () => {
+    // Old data and demo fixtures have no such field and must render as before.
+    mount();
+    await screen.findByRole("heading", { name: "Acme MSA" });
+    await screen.findByText("Raised by");
+    expect(screen.queryByText("Filed by")).toBeNull();
+  });
+});
+
 describe("a workflow step that is waiting for another reason", () => {
   it("has no review notice: a person's own step, or an AI step that is waiting on a person for another reason", async () => {
     h.workflowsApi.runForRequest.mockResolvedValue(runOf([

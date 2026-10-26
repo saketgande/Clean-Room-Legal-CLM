@@ -84,6 +84,27 @@ describe("the Awaiting triage filter", () => {
 });
 
 
+describe("the agent flag", () => {
+  it("marks a request filed with an API key by the agent's name, and leaves other rows unflagged", async () => {
+    // Guards staff missing that a request came from an external agent, and old rows (no field) growing a pill.
+    h.intakeApi.list.mockResolvedValue([
+      { ...waiting, filed_by_agent: true, filed_by_agent_name: "Agent: Bot" },
+      running,
+    ]);
+    mount();
+    await screen.findByText("Nobody has started this");
+    expect(screen.getByText("agent · Agent: Bot")).toBeInTheDocument();
+    expect(screen.getAllByText(/^agent · /)).toHaveLength(1);
+  });
+
+  it("shows no agent pill when the field is absent or false", async () => {
+    h.intakeApi.list.mockResolvedValue([waiting, { ...running, filed_by_agent: false, filed_by_agent_name: null }]);
+    mount();
+    await screen.findByText("Nobody has started this");
+    expect(screen.queryByText(/^agent · /)).toBeNull();
+  });
+});
+
 describe("a queue that could not be loaded", () => {
   it("says so, with the reason, instead of showing a healthy queue of zeros", async () => {
     h.intakeApi.list.mockRejectedValue(new HttpError(403, "Missing permission: intake:read"));

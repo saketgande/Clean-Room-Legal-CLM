@@ -10,6 +10,9 @@ to a closed request and writes the immutable audit + timeline rows.
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass
@@ -19,11 +22,13 @@ from fastapi import HTTPException
 from sqlalchemy import cast, func, select
 from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
 from app.core.access import is_org_admin
 from app.core.audit import write_audit_log, write_timeline_event
+from app.core.auth_context import INTERNAL, AuthContext
 from app.core.config import settings
 from app.core.database import utcnow
 from app.intake.business_time import (
@@ -469,13 +474,11 @@ class _PreparedAttachment:
     extraction_quality: float | None
 
 
-def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
-    """Check one attachment and read its text, or raise an error that names the file.
+def _validate_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
+    """Everything that can refuse one attachment, without reading its text.
 
-    Runs before anything is saved, so a bad file stops the filing instead of
-    leaving a request behind with its attachment missing."""
+    Split from extraction so an idempotent repeat is answered before any OCR is paid for."""
     from app.contract_files.service import _scan_for_malware, validate_upload_mime
-    from app.contract_files.text_extraction import extract_text
 
     name = (filename or "attachment")[:300]
     if not content:
@@ -491,6 +494,14 @@ def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _Prepa
             exc.status_code, f'"{name}" is not a supported file type — use {_SUPPORTED_ATTACHMENTS}'
         ) from exc
     _scan_for_malware(content)  # no-op unless ClamAV is switched on
+    return _PreparedAttachment(name, mime_type[:120], len(content), None, None)
+
+
+def _extract_attachment(att: _PreparedAttachment, content: bytes) -> _PreparedAttachment:
+    """Read the text of an attachment that has passed _validate_attachment."""
+    from app.contract_files.text_extraction import extract_text
+
+    name, mime_type = att.filename, att.mime_type
     extracted, quality = "", None
     try:
         result = extract_text(content, mime_type=mime_type, filename=name)
@@ -501,7 +512,15 @@ def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _Prepa
         quality = result.quality_score
     except Exception:
         extracted = ""
-    return _PreparedAttachment(name, mime_type[:120], len(content), extracted or None, quality)
+    return _PreparedAttachment(name, mime_type, att.size_bytes, extracted or None, quality)
+
+
+def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
+    """Check one attachment and read its text, or raise an error that names the file.
+
+    Runs before anything is saved, so a bad file stops the filing instead of
+    leaving a request behind with its attachment missing."""
+    return _extract_attachment(_validate_attachment(filename, mime_type, content), content)
 
 
 def serialize_document(d) -> dict:
@@ -595,6 +614,9 @@ class IntakeService:
             "contract_title": self._contract_title(r.contract_id),
             "workflow": _workflow(r, self._latest_run(r)),
             "created_at": _iso(r.created_at),
+            "filed_by_agent": r.filed_via_api_key_id is not None,
+            "filed_by_agent_name": (self._user_label(r.requester_user_id)
+                                    if r.filed_via_api_key_id is not None else None),
             # Which document "Approve & draft" would produce — decided here, by the
             # same rule the draft endpoint uses, so the UI never guesses on its own.
             **_draftable(r),
@@ -839,7 +861,8 @@ class IntakeService:
 
     def create_request(self, *, actor: User, payload, request_id: str | None = None,
                        conversation: list | None = None, defer_triage: bool = False,
-                       external_message_id: str | None = None) -> dict:
+                       external_message_id: str | None = None,
+                       auth: AuthContext | None = None) -> dict:
         """File a request.
 
         ``external_message_id`` is a channel's idempotency key and MUST be set here
@@ -848,8 +871,27 @@ class IntakeService:
         exists with nothing to dedupe against. The partial unique index
         ``uq_intake_request_org_extmsg`` then does the real work — callers catch
         IntegrityError and treat it as "already filed".
+
+        ``payload.idempotency_key`` is the API caller's own key (a separate column and
+        index from the channel one, so an agent can never collide with an email id).
+        A key present means the key decides: the 2-minute duplicate check is skipped,
+        a repeat returns the original with ``idempotent_repeat`` true, and the same key
+        with other content, or from another user, is a 409.
         """
         db = self.db
+        auth = auth or INTERNAL
+        idem_key = getattr(payload, "idempotency_key", None) or None
+        # Snapshot before validation/party lookup, which write register names into the dict.
+        raw_field_values = copy.deepcopy(payload.field_values) if idem_key else None
+        source = payload.source
+        requester_name = payload.requester_name
+        filed_via_api_key_id = None
+        if auth.method == "api_key":
+            # A key identifies an agent, not a person: the display falls back to the
+            # identity's registered name and the origin cannot be claimed otherwise.
+            source, requester_name = "api", None
+            filed_via_api_key_id = auth.api_key_id
+        actor_id, org_id = actor.id, actor.org_id
         # The agreement wizard names its form in `request_form`; its required and
         # typed fields are enforced here, not only in the browser.
         from app.intake.agreement_forms import form_fields
@@ -863,16 +905,25 @@ class IntakeService:
         raw = [(a, _decode_b64(a.content_b64, a.filename)) for a in (getattr(payload, "attachments", None) or [])]
         if sum(len(content) for _, content in raw) > _FILING_MAX_BYTES:
             raise HTTPException(413, "Attachments add up to more than 40 MB — file the largest ones separately")
-        attachments = [_prepare_attachment(a.filename, a.mime_type, content) for a, content in raw]
-        if defer_triage:
+        attachments = [_validate_attachment(a.filename, a.mime_type, content) for a, content in raw]
+        idem_hash = None
+        if idem_key:
+            idem_hash = self._idempotency_hash(payload, raw_field_values, raw)
+            existing = self._find_by_idempotency_key(org_id=org_id, key=idem_key)
+            if existing is not None:
+                return self._repeat(existing, actor_id=actor_id, org_id=org_id, key=idem_key,
+                                    idem_hash=idem_hash, auth=auth, request_id=request_id)
+        elif defer_triage:
             duplicate = self._recent_duplicate_request(actor=actor, payload=payload,
                                                   field_values=field_values)
             if duplicate is not None:
-                return self.serialize_request(duplicate)
+                return self.serialize_request(duplicate) | {"idempotent_repeat": False}
         now = utcnow()
         r = IntakeRequest(
-            org_id=actor.org_id, ref=self._next_ref(), source=payload.source,
-            requester_user_id=actor.id, requester_name=payload.requester_name,
+            org_id=org_id, ref=self._next_ref(), source=source,
+            requester_user_id=actor_id, requester_name=requester_name,
+            idempotency_key=idem_key, idempotency_hash=idem_hash,
+            filed_via_api_key_id=filed_via_api_key_id,
             department=payload.department,
             type_label=payload.type_label.strip(),
             subject=_derive_subject(getattr(payload, "subject", None), payload.description, payload.type_label),
@@ -901,17 +952,45 @@ class IntakeService:
         else:
             self._apply_ai_triage(r)
         db.add(r)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            # Lost the race on the key: a concurrent identical call committed between
+            # our lookup and this insert. The partial unique index is what makes that
+            # safe; we answer as a repeat instead of surfacing a 500. Anything else
+            # (e.g. the channel index) is not ours to fold.
+            if not idem_key or "uq_intake_request_org_idemkey" not in str(exc):
+                raise
+            db.rollback()
+            existing = self._find_by_idempotency_key(org_id=org_id, key=idem_key)
+            if existing is None:
+                raise
+            return self._repeat(existing, actor_id=actor_id, org_id=org_id, key=idem_key,
+                                idem_hash=idem_hash, auth=auth, request_id=request_id)
         # Saved in the same transaction as the request and before triage is queued,
         # so triage can read what was attached.
-        for att in attachments:
-            self._attach(actor=actor, r=r, att=att)
+        # Text is read only now: a repeat, a conflict and the losing side of a race all
+        # returned above, so none of them pays for OCR.
+        for att, (_, content) in zip(attachments, raw, strict=True):
+            self._attach(actor=actor, r=r, att=_extract_attachment(att, content), auth=auth)
+        agent_filed = filed_via_api_key_id is not None
         write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
-                        org_id=actor.org_id, actor_user_id=actor.id, request_id=request_id,
-                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority})
-        write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
-                             event_type="intake.created", title=f"Request filed — {r.type_label}",
-                             actor_user_id=actor.id, request_id=request_id)
+                        org_id=org_id, actor_user_id=actor_id, request_id=request_id,
+                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority},
+                        metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id,
+                                  "source": source, "idempotency_key": idem_key,
+                                  "attachment_count": len(attachments),
+                                  "filed_by_agent": agent_filed})
+        if agent_filed:
+            write_timeline_event(
+                db, org_id=org_id, resource_type="intake_request", resource_id=r.id,
+                event_type="intake.created", actor_user_id=actor_id, request_id=request_id,
+                title=f"Request filed by agent {self._user_label(actor_id)} — {r.type_label}",
+                details={"filed_by_agent": True})
+        else:
+            write_timeline_event(db, org_id=org_id, resource_type="intake_request", resource_id=r.id,
+                                 event_type="intake.created", title=f"Request filed — {r.type_label}",
+                                 actor_user_id=actor_id, request_id=request_id)
         # The relationship-note job is queued HERE, inside the request's own
         # transaction: if the request exists, its job exists, so it can no longer
         # be lost to a crash or swallowed by a bare except.
@@ -934,13 +1013,55 @@ class IntakeService:
                 # The request is saved; the reclaim sweep re-dispatches the queued job.
                 logger.warning("could not dispatch intake triage for request %s", r.id, exc_info=True)
             self.dispatch_screening(screening_job)
-            return self.serialize_request(r)
+            return self.serialize_request(r) | {"idempotent_repeat": False}
         self._assign_and_notify(r, actor)
         db.commit()
         db.refresh(r)
         self.dispatch_screening(screening_job)
         self._enrich_after_commit(r, actor)
-        return self.serialize_request(r)
+        return self.serialize_request(r) | {"idempotent_repeat": False}
+
+    def _find_by_idempotency_key(self, *, org_id: str, key: str) -> IntakeRequest | None:
+        """The request this API key already filed. Its own method so a test can inject a race."""
+        return self.db.scalar(select(IntakeRequest).where(
+            IntakeRequest.org_id == org_id, IntakeRequest.idempotency_key == key))
+
+    @staticmethod
+    def _idempotency_hash(payload, field_values: dict | None, raw: list) -> str:
+        """Fingerprint of what was asked for. Priority, department, requester_name and
+        source are left out: they are routing hints (a client derives priority from the
+        date, so a retry across midnight must still match) and not the request's content."""
+        body = {
+            "type_label": payload.type_label.strip(),
+            "subject": getattr(payload, "subject", None),
+            "description": payload.description or "",
+            "field_values": field_values or {},
+            "attachments": [[a.filename, a.mime_type, hashlib.sha256(content).hexdigest()]
+                            for a, content in raw],
+        }
+        canon = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canon.encode()).hexdigest()
+
+    def _repeat(self, existing: IntakeRequest, *, actor_id: str, org_id: str, key: str,
+                idem_hash: str | None, auth: AuthContext, request_id: str | None) -> dict:
+        """Answer a retry with the original request, or refuse a reused key.
+
+        Different content and a different requester get the one same message, so a
+        caller can never learn that someone else's request holds a key (or its ref)."""
+        db = self.db
+        if existing.requester_user_id != actor_id or existing.idempotency_hash != idem_hash:
+            raise HTTPException(
+                409,
+                "This idempotency_key was already used for a different request — "
+                "use a new key to file a new request",
+            )
+        write_audit_log(db, action="intake.create_repeated", resource_type="intake_request",
+                        resource_id=existing.id, org_id=org_id, actor_user_id=actor_id,
+                        request_id=request_id, after={"ref": existing.ref},
+                        metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id,
+                                  "idempotency_key": key})
+        db.commit()
+        return self.serialize_request(existing) | {"idempotent_repeat": True}
 
     def _apply_ai_triage(self, r: IntakeRequest) -> None:
         """Context-aware triage: the AI reads the WHOLE request for category,
@@ -1880,7 +2001,8 @@ class IntakeService:
         db.refresh(r)
         return self.serialize_request(r)
 
-    def _attach(self, *, actor: User, r: IntakeRequest, att: _PreparedAttachment):
+    def _attach(self, *, actor: User, r: IntakeRequest, att: _PreparedAttachment,
+                auth: AuthContext = INTERNAL):
         from app.intake.models import IntakeDocument
 
         db = self.db
@@ -1895,16 +2017,17 @@ class IntakeService:
         write_audit_log(db, action="intake.document.added", resource_type="intake_request",
                         resource_id=r.id, org_id=actor.org_id, actor_user_id=actor.id,
                         after={"filename": att.filename, "bytes": att.size_bytes,
-                               "extracted_chars": len(att.extracted_text or "")})
+                               "extracted_chars": len(att.extracted_text or "")},
+                        metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id})
         return doc
 
     def add_document(self, *, actor: User, request_id: str, filename: str,
-                     mime_type: str, content: bytes) -> dict:
+                     mime_type: str, content: bytes, auth: AuthContext | None = None) -> dict:
         """Attach a document to a request that is already filed."""
         db = self.db
         att = _prepare_attachment(filename, mime_type, content)
         r = self.get_request(user=actor, request_id=request_id)
-        doc = self._attach(actor=actor, r=r, att=att)
+        doc = self._attach(actor=actor, r=r, att=att, auth=auth or INTERNAL)
         db.commit()
         db.refresh(doc)
         return serialize_document(doc)
@@ -1967,9 +2090,11 @@ def file_request_for_contract(db: Session, *, actor: User, contract) -> IntakeRe
 
 def create_request(db: Session, *, actor: User, payload, request_id: str | None = None,
                    conversation: list | None = None, defer_triage: bool = False,
-                   external_message_id: str | None = None) -> dict:
+                   external_message_id: str | None = None,
+                   auth: AuthContext | None = None) -> dict:
     return IntakeService(db).create_request(
         actor=actor, payload=payload, request_id=request_id, conversation=conversation, defer_triage=defer_triage, external_message_id=external_message_id,
+        auth=auth,
     )
 
 
@@ -2115,9 +2240,10 @@ def update_request(db: Session, *, actor: User, request_id: str, payload,
 
 
 def add_document(db: Session, *, actor: User, request_id: str, filename: str,
-                 mime_type: str, content: bytes) -> dict:
+                 mime_type: str, content: bytes, auth: AuthContext | None = None) -> dict:
     return IntakeService(db).add_document(
         actor=actor, request_id=request_id, filename=filename, mime_type=mime_type, content=content,
+        auth=auth,
     )
 
 

@@ -757,6 +757,7 @@ export function RequestOverview({ id, onBack, canManage }: { id: string; onBack:
 
           <div className="card"><div className="ch"><h2>At a glance</h2></div><div className="cb glance">
             <div className="row"><span className="k">Raised by</span><span className="v">{r.requester_name ?? "—"}</span></div>
+            {r.filed_by_agent ? <div className="row"><span className="k">Filed by</span><span className="v">Agent · {r.filed_by_agent_name ?? "unknown"}</span></div> : null}
             <div className="row"><span className="k">Department</span><span className="v">{r.department ?? "—"}</span></div>
             <div className="row"><span className="k">Request owner</span><span className="v" title="Looks after the whole request. A step can be assigned to someone else.">{r.assigned_to_label ?? "Unassigned"}</span></div>
             <div className="row"><span className="k">Stage</span><span className="v">{stageLabel ?? r.stage}</span></div>

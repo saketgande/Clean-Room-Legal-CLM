@@ -24,6 +24,9 @@ class RequestCreate(BaseModel):
     # Files sent with the filing itself: every one is checked before anything is
     # saved, so a bad file files nothing instead of leaving a half-made request.
     attachments: list[AttachmentIn] = Field(default_factory=list, max_length=5)
+    # A retry with the same key returns the original request instead of filing a
+    # second one (external agents retry on timeouts they cannot see the outcome of).
+    idempotency_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:-]{8,128}$")
 
 
 class DraftSave(BaseModel):
@@ -240,3 +243,12 @@ class RequestResponse(BaseModel):
     created_at: str | None = None
     draftable_doc_type: str | None = None  # nda|msa|dpa|vendor|… — what "Approve & draft" makes
     draftable_doc_label: str | None = None
+    # True when the request was filed with an API key (an external agent); the name
+    # is that identity's registered name, null otherwise.
+    filed_by_agent: bool = False
+    filed_by_agent_name: str | None = None
+
+
+class RequestCreateResponse(RequestResponse):
+    # True when the idempotency_key matched an earlier filing and nothing new was made.
+    idempotent_repeat: bool = False

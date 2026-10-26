@@ -169,6 +169,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:approvalsApi.reassignCandidates",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:approvalsApi.reviewByToken",
       "matched": true,
       "to": "endpoint:approvals:GET:/approvals/review/{token}",
@@ -572,8 +578,8 @@
     },
     {
       "from": "endpoint_client_fn:contractsApi.versionDiff",
-      "matched": true,
-      "to": "endpoint:contracts:GET:/contracts/{contract_id}/versions/{base_version_id}/diff/{target_version_id}",
+      "matched": false,
+      "to": null,
       "type": "calls"
     },
     {
@@ -932,14 +938,20 @@
     },
     {
       "from": "endpoint_client_fn:jobsApi.list",
-      "matched": true,
-      "to": "endpoint:jobs:GET:/jobs",
+      "matched": false,
+      "to": null,
       "type": "calls"
     },
     {
       "from": "endpoint_client_fn:jobsApi.run",
       "matched": true,
       "to": "endpoint:jobs:POST:/jobs/{job_id}/run",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:jobsApi.summary",
+      "matched": true,
+      "to": "endpoint:jobs:GET:/jobs/summary",
       "type": "calls"
     },
     {
@@ -1549,9 +1561,39 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:trademarksApi.atRisk",
+      "matched": true,
+      "to": "endpoint:trademarks:GET:/trademarks/reports/at-risk",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:trademarksApi.calendar",
+      "matched": true,
+      "to": "endpoint:trademarks:GET:/trademarks/calendar",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.classifyGoods",
+      "matched": true,
+      "to": "endpoint:trademarks:POST:/trademarks/classify-goods",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.commentCounts",
       "matched": false,
       "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.comments",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.continueFromIntake",
+      "matched": true,
+      "to": "endpoint:trademarks:POST:/trademarks/from-intake/{intake_request_id}",
       "type": "calls"
     },
     {
@@ -1564,6 +1606,18 @@
       "from": "endpoint_client_fn:trademarksApi.dashboard",
       "matched": true,
       "to": "endpoint:trademarks:GET:/trademarks/dashboard",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.digest",
+      "matched": true,
+      "to": "endpoint:trademarks:GET:/trademarks/reports/digest",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.explainConflict",
+      "matched": true,
+      "to": "endpoint:trademarks:POST:/trademarks/explain-conflict",
       "type": "calls"
     },
     {
@@ -1600,6 +1654,24 @@
       "from": "endpoint_client_fn:trademarksApi.list",
       "matched": true,
       "to": "endpoint:trademarks:GET:/trademarks",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.portfolioStats",
+      "matched": true,
+      "to": "endpoint:trademarks:GET:/trademarks/reports/stats",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.postComment",
+      "matched": false,
+      "to": null,
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:trademarksApi.regenerateDigest",
+      "matched": true,
+      "to": "endpoint:trademarks:POST:/trademarks/reports/digest/regenerate",
       "type": "calls"
     },
     {
@@ -1984,6 +2056,11 @@
     },
     {
       "from": "domain:backend:approvals",
+      "to": "endpoint:approvals:GET:/approvals/requests/{approval_request_id}/reassign-candidates",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:approvals",
       "to": "endpoint:approvals:GET:/approvals/review/{token}",
       "type": "contains"
     },
@@ -2135,6 +2212,11 @@
     {
       "from": "domain:backend:auth",
       "to": "endpoint:auth:GET:/users/invitations",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:auth",
+      "to": "endpoint:auth:GET:/users/{user_id}/api-keys",
       "type": "contains"
     },
     {
@@ -3099,6 +3181,11 @@
     },
     {
       "from": "domain:backend:jobs",
+      "to": "endpoint:jobs:GET:/jobs/summary",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:jobs",
       "to": "endpoint:jobs:GET:/jobs/{job_id}",
       "type": "contains"
     },
@@ -3869,6 +3956,21 @@
     },
     {
       "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:GET:/trademarks/reports/at-risk",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:GET:/trademarks/reports/digest",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:GET:/trademarks/reports/stats",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
       "to": "endpoint:trademarks:GET:/trademarks/{trademark_id}",
       "type": "contains"
     },
@@ -3880,6 +3982,11 @@
     {
       "from": "domain:backend:trademarks",
       "to": "endpoint:trademarks:POST:/trademarks",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:POST:/trademarks/classify-goods",
       "type": "contains"
     },
     {
@@ -3899,6 +4006,16 @@
     },
     {
       "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:POST:/trademarks/explain-conflict",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:POST:/trademarks/from-intake/{intake_request_id}",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
       "to": "endpoint:trademarks:POST:/trademarks/intake",
       "type": "contains"
     },
@@ -3909,12 +4026,22 @@
     },
     {
       "from": "domain:backend:trademarks",
+      "to": "endpoint:trademarks:POST:/trademarks/reports/digest/regenerate",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
       "to": "endpoint:trademarks:POST:/trademarks/search-similar",
       "type": "contains"
     },
     {
       "from": "domain:backend:trademarks",
       "to": "model:trademarks:DocumentExtract",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:trademarks",
+      "to": "model:trademarks:PortfolioDigest",
       "type": "contains"
     },
     {
@@ -4215,6 +4342,11 @@
     {
       "from": "domain:frontend:trademarks",
       "to": "page:/trademarks/calendar",
+      "type": "contains"
+    },
+    {
+      "from": "domain:frontend:trademarks",
+      "to": "page:/trademarks/dashboard",
       "type": "contains"
     },
     {
@@ -5065,6 +5197,13 @@
       "type": "fk"
     },
     {
+      "column": "filed_via_api_key_id",
+      "from": "model:intake:IntakeRequest",
+      "resolved": true,
+      "to": "model:auth:ApiKey",
+      "type": "fk"
+    },
+    {
       "column": "requester_user_id",
       "from": "model:intake:IntakeRequest",
       "resolved": true,
@@ -5492,6 +5631,13 @@
       "type": "fk"
     },
     {
+      "column": "source_intake_request_id",
+      "from": "model:trademarks:Trademark",
+      "resolved": true,
+      "to": "model:intake:IntakeRequest",
+      "type": "fk"
+    },
+    {
       "column": "source_document_extract_id",
       "from": "model:trademarks:Trademark",
       "resolved": true,
@@ -5604,6 +5750,12 @@
       "confidence": "exact",
       "from": "domain:backend:drafting_templates",
       "to": "endpoint_client_group:draftingTemplatesApi",
+      "type": "frontend_counterpart"
+    },
+    {
+      "confidence": "heuristic",
+      "from": "domain:backend:flows",
+      "to": "endpoint_client_group:workflowsApi",
       "type": "frontend_counterpart"
     },
     {
@@ -5945,6 +6097,11 @@
       "type": "migration_down"
     },
     {
+      "from": "migration:0042_trademark_intake_digest",
+      "to": "migration:0041_merge_heads",
+      "type": "migration_down"
+    },
+    {
       "from": "migration:0043_db_invariants",
       "to": "migration:0042_money_numeric",
       "type": "migration_down"
@@ -5952,6 +6109,11 @@
     {
       "from": "migration:0043_menu_screen_security",
       "to": "migration:0042_org_hierarchy_rbac",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0043_trademark_comments",
+      "to": "migration:0042_trademark_intake_digest",
       "type": "migration_down"
     },
     {
@@ -5990,13 +6152,33 @@
       "type": "migration_down"
     },
     {
+      "from": "migration:0047_merge_heads",
+      "to": "migration:0043_trademark_comments",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0047_merge_heads",
+      "to": "migration:0046_contract_share_step_link",
+      "type": "migration_down"
+    },
+    {
       "from": "migration:0048_intake_agreement_form_types",
       "to": "migration:0047_docstudio_original_file",
       "type": "migration_down"
     },
     {
+      "from": "migration:0048_trademark_suite_menu",
+      "to": "migration:0047_merge_heads",
+      "type": "migration_down"
+    },
+    {
       "from": "migration:0049_intake_drafts",
       "to": "migration:0048_intake_agreement_form_types",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0049_trademark_menu_labels",
+      "to": "migration:0048_trademark_suite_menu",
       "type": "migration_down"
     },
     {
@@ -6118,29 +6300,44 @@
       "from": "migration:0072_notice_deadline_basis",
       "to": "migration:0071_ai_call_log_eval_run",
       "type": "migration_down"
+    },
+    {
+      "from": "migration:0073_merge_trademark_suite",
+      "to": "migration:0049_trademark_menu_labels",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0073_merge_trademark_suite",
+      "to": "migration:0072_notice_deadline_basis",
+      "type": "migration_down"
+    },
+    {
+      "from": "migration:0074_intake_agent_filing",
+      "to": "migration:0073_merge_trademark_suite",
+      "type": "migration_down"
     }
   ],
   "metadata": {
     "counts": {
       "celery_task": 5,
-      "domain_backend": 38,
+      "domain_backend": 42,
       "domain_frontend": 26,
-      "edges_total": 1085,
-      "endpoint": 345,
-      "endpoint_client_fn": 297,
+      "edges_total": 1121,
+      "endpoint": 355,
+      "endpoint_client_fn": 309,
       "endpoint_client_group": 36,
       "integration": 5,
-      "migration": 79,
-      "model": 101,
-      "page": 38,
-      "schema": 221,
-      "ts_interface": 241,
-      "ui_primitive": 28
+      "migration": 86,
+      "model": 102,
+      "page": 39,
+      "schema": 231,
+      "ts_interface": 254,
+      "ui_primitive": 29
     },
-    "generated_at": "2026-10-08T11:11:14Z",
-    "git_head": "f0f1f705ccdea89ada580a7d15006c3c73adf759",
+    "generated_at": "2026-10-26T12:57:21Z",
+    "git_head": "b343542f1e5a638bf942cd24ef922f755a38df20",
     "warnings": [
-      "43 frontend client call(s) did not match any backend endpoint by method+path",
+      "48 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'delegationsApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "frontend Api group 'externalShareApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -6153,9 +6350,12 @@
       "no frontend Api group matched for backend domain 'contract_files' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'core' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'documents' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'ideal' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'integrations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'matters' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'observability' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'organizations' (add an entry to specs/_graph/domain-aliases.json to resolve)",
+      "no frontend Api group matched for backend domain 'projects' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'prompt_library' (add an entry to specs/_graph/domain-aliases.json to resolve)",
       "no frontend Api group matched for backend domain 'word_addin' (add an entry to specs/_graph/domain-aliases.json to resolve)"
     ]
@@ -6414,6 +6614,16 @@
       "type": "domain_backend"
     },
     {
+      "files": [],
+      "id": "domain:backend:flows",
+      "name": "flows",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/flows",
+      "type": "domain_backend"
+    },
+    {
       "files": [
         "models.py",
         "routes.py",
@@ -6427,6 +6637,16 @@
         "db-engineer"
       ],
       "path": "backend/app/grants",
+      "type": "domain_backend"
+    },
+    {
+      "files": [],
+      "id": "domain:backend:ideal",
+      "name": "ideal",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/ideal",
       "type": "domain_backend"
     },
     {
@@ -6468,6 +6688,16 @@
         "db-engineer"
       ],
       "path": "backend/app/jobs",
+      "type": "domain_backend"
+    },
+    {
+      "files": [],
+      "id": "domain:backend:matters",
+      "name": "matters",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/matters",
       "type": "domain_backend"
     },
     {
@@ -6605,6 +6835,16 @@
         "db-engineer"
       ],
       "path": "backend/app/playbooks",
+      "type": "domain_backend"
+    },
+    {
+      "files": [],
+      "id": "domain:backend:projects",
+      "name": "projects",
+      "owner_agents": [
+        "(none)"
+      ],
+      "path": "backend/app/projects",
       "type": "domain_backend"
     },
     {
@@ -7244,6 +7484,17 @@
     {
       "domain": "approvals",
       "file": "backend/app/approvals/routes.py",
+      "id": "endpoint:approvals:GET:/approvals/requests/{approval_request_id}/reassign-candidates",
+      "method": "GET",
+      "path": "/approvals/requests/{approval_request_id}/reassign-candidates",
+      "permission": "approval:decide",
+      "request_model": null,
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "approvals",
+      "file": "backend/app/approvals/routes.py",
       "id": "endpoint:approvals:GET:/approvals/review/{token}",
       "method": "GET",
       "path": "/approvals/review/{token}",
@@ -7492,6 +7743,17 @@
       "permission": "user:approve",
       "request_model": null,
       "response_model": "list[UserInvitationResponse]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "auth",
+      "file": "backend/app/auth/routes.py",
+      "id": "endpoint:auth:GET:/users/{user_id}/api-keys",
+      "method": "GET",
+      "path": "/users/{user_id}/api-keys",
+      "permission": "user:approve",
+      "request_model": null,
+      "response_model": "list[ApiKeyResponse]",
       "type": "endpoint"
     },
     {
@@ -8260,7 +8522,7 @@
       "method": "GET",
       "path": "/contracts/{contract_id}/versions/{base_version_id}/diff/{target_version_id}",
       "permission": "contract:read",
-      "request_model": null,
+      "request_model": "int | None",
       "response_model": "VersionDiffResponse",
       "type": "endpoint"
     },
@@ -8590,7 +8852,7 @@
       "method": "GET",
       "path": "/intake/forms",
       "permission": null,
-      "request_model": null,
+      "request_model": "Response",
       "response_model": null,
       "type": "endpoint"
     },
@@ -8623,7 +8885,7 @@
       "method": "GET",
       "path": "/intake/requests/mine",
       "permission": null,
-      "request_model": null,
+      "request_model": "Response",
       "response_model": "list[RequestResponse]",
       "type": "endpoint"
     },
@@ -8645,7 +8907,7 @@
       "method": "GET",
       "path": "/intake/requests/{request_id}",
       "permission": null,
-      "request_model": null,
+      "request_model": "Response",
       "response_model": "RequestResponse",
       "type": "endpoint"
     },
@@ -8667,7 +8929,7 @@
       "method": "GET",
       "path": "/intake/requests/{request_id}/documents",
       "permission": null,
-      "request_model": null,
+      "request_model": "Response",
       "response_model": null,
       "type": "endpoint"
     },
@@ -8689,7 +8951,7 @@
       "method": "GET",
       "path": "/intake/requests/{request_id}/sla",
       "permission": null,
-      "request_model": null,
+      "request_model": "Response",
       "response_model": null,
       "type": "endpoint"
     },
@@ -8822,7 +9084,7 @@
       "path": "/intake/requests",
       "permission": null,
       "request_model": "RequestCreate",
-      "response_model": "RequestResponse",
+      "response_model": "RequestCreateResponse",
       "type": "endpoint"
     },
     {
@@ -8843,7 +9105,7 @@
       "method": "POST",
       "path": "/intake/requests/{request_id}/documents",
       "permission": null,
-      "request_model": "dict",
+      "request_model": "Response",
       "response_model": null,
       "type": "endpoint"
     },
@@ -9018,6 +9280,17 @@
       "id": "endpoint:jobs:GET:/jobs",
       "method": "GET",
       "path": "/jobs",
+      "permission": "admin_panel:access",
+      "request_model": "JobStatus | None",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "jobs",
+      "file": "backend/app/jobs/routes.py",
+      "id": "endpoint:jobs:GET:/jobs/summary",
+      "method": "GET",
+      "path": "/jobs/summary",
       "permission": "admin_panel:access",
       "request_model": null,
       "response_model": null,
@@ -10329,7 +10602,7 @@
       "path": "/trademarks/calendar",
       "permission": "trademark:read",
       "request_model": null,
-      "response_model": "list[RenewalCalendarEntry]",
+      "response_model": "PortfolioRenewalsResponse",
       "type": "endpoint"
     },
     {
@@ -10352,6 +10625,39 @@
       "permission": "trademark:integrations_manage",
       "request_model": null,
       "response_model": "IntegrationStatusResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:GET:/trademarks/reports/at-risk",
+      "method": "GET",
+      "path": "/trademarks/reports/at-risk",
+      "permission": "trademark:read",
+      "request_model": null,
+      "response_model": "list[TrademarkSummary]",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:GET:/trademarks/reports/digest",
+      "method": "GET",
+      "path": "/trademarks/reports/digest",
+      "permission": "trademark:read",
+      "request_model": null,
+      "response_model": "PortfolioDigestResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:GET:/trademarks/reports/stats",
+      "method": "GET",
+      "path": "/trademarks/reports/stats",
+      "permission": "trademark:read",
+      "request_model": null,
+      "response_model": "PortfolioStatsResponse",
       "type": "endpoint"
     },
     {
@@ -10390,6 +10696,17 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:POST:/trademarks/classify-goods",
+      "method": "POST",
+      "path": "/trademarks/classify-goods",
+      "permission": "trademark:create",
+      "request_model": "ClassSuggestionRequest",
+      "response_model": "ClassSuggestionResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
       "id": "endpoint:trademarks:POST:/trademarks/documents/extract",
       "method": "POST",
       "path": "/trademarks/documents/extract",
@@ -10423,6 +10740,28 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:POST:/trademarks/explain-conflict",
+      "method": "POST",
+      "path": "/trademarks/explain-conflict",
+      "permission": "trademark:search",
+      "request_model": "ExplainConflictRequest",
+      "response_model": "ExplainConflictResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:POST:/trademarks/from-intake/{intake_request_id}",
+      "method": "POST",
+      "path": "/trademarks/from-intake/{intake_request_id}",
+      "permission": "trademark:create",
+      "request_model": "TrademarkFromIntakeRequest",
+      "response_model": "TrademarkResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
       "id": "endpoint:trademarks:POST:/trademarks/intake",
       "method": "POST",
       "path": "/trademarks/intake",
@@ -10440,6 +10779,17 @@
       "permission": "trademark:integrations_manage",
       "request_model": null,
       "response_model": "IntegrationTestResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/routes.py",
+      "id": "endpoint:trademarks:POST:/trademarks/reports/digest/regenerate",
+      "method": "POST",
+      "path": "/trademarks/reports/digest/regenerate",
+      "permission": "trademark:read",
+      "request_model": null,
+      "response_model": "PortfolioDigestResponse",
       "type": "endpoint"
     },
     {
@@ -11012,6 +11362,17 @@
       "path_normalized": "/approvals/requests/{param}/reassign",
       "path_template": "/approvals/requests/${id}/reassign",
       "response_type": "ApprovalRequest",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "approvalsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:approvalsApi.reassignCandidates",
+      "method_name": "reassignCandidates",
+      "path_normalized": "/approvals/requests/{param}/reassign-candidates?kind={param}",
+      "path_template": "/approvals/requests/${id}/reassign-candidates?kind=${kind}",
+      "response_type": "ApproverBrief[]",
       "type": "endpoint_client_fn"
     },
     {
@@ -11757,8 +12118,8 @@
       "http_method": "GET",
       "id": "endpoint_client_fn:contractsApi.versionDiff",
       "method_name": "versionDiff",
-      "path_normalized": "/contracts/{param}/versions/{param}/diff/{param}",
-      "path_template": "/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}",
+      "path_normalized": "/contracts/{param}/versions/{param}/diff/{param}{param})}",
+      "path_template": "/contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}${qs({ context })}",
       "response_type": "VersionDiffResponse",
       "type": "endpoint_client_fn"
     },
@@ -12001,7 +12362,7 @@
       "method_name": "create",
       "path_normalized": "/intake/requests",
       "path_template": "/intake/requests",
-      "response_type": "IntakeRequest",
+      "response_type": "IntakeRequestCreateResult",
       "type": "endpoint_client_fn"
     },
     {
@@ -12298,7 +12659,7 @@
       "method_name": "slaScan",
       "path_normalized": "/intake/sla-scan",
       "path_template": "/intake/sla-scan",
-      "response_type": "{ escalated: number; breached: number; downgraded: number }",
+      "response_type": "{ escalated: number; breached: number; downgraded: number; completed: number }",
       "type": "endpoint_client_fn"
     },
     {
@@ -12417,8 +12778,8 @@
       "http_method": "GET",
       "id": "endpoint_client_fn:jobsApi.list",
       "method_name": "list",
-      "path_normalized": "/jobs",
-      "path_template": "/jobs",
+      "path_normalized": "/jobs{param}",
+      "path_template": "/jobs${qs(params)}",
       "response_type": "JobRun[]",
       "type": "endpoint_client_fn"
     },
@@ -12431,6 +12792,17 @@
       "path_normalized": "/jobs/{param}/run",
       "path_template": "/jobs/${id}/run",
       "response_type": "JobRun",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "jobsApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:jobsApi.summary",
+      "method_name": "summary",
+      "path_normalized": "/jobs/summary",
+      "path_template": "/jobs/summary",
+      "response_type": "JobCounts",
       "type": "endpoint_client_fn"
     },
     {
@@ -13548,11 +13920,66 @@
       "download": false,
       "group": "trademarksApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.atRisk",
+      "method_name": "atRisk",
+      "path_normalized": "/trademarks/reports/at-risk",
+      "path_template": "/trademarks/reports/at-risk",
+      "response_type": "TrademarkSummary[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:trademarksApi.calendar",
       "method_name": "calendar",
-      "path_normalized": "/trademarks/calendar{param})}",
-      "path_template": "/trademarks/calendar${qs({ within_days })}",
-      "response_type": "RenewalCalendarEntry[]",
+      "path_normalized": "/trademarks/calendar",
+      "path_template": "/trademarks/calendar",
+      "response_type": "PortfolioRenewalsResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.classifyGoods",
+      "method_name": "classifyGoods",
+      "path_normalized": "/trademarks/classify-goods",
+      "path_template": "/trademarks/classify-goods",
+      "response_type": "ClassSuggestionResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.commentCounts",
+      "method_name": "commentCounts",
+      "path_normalized": "/trademarks/comments/counts",
+      "path_template": "/trademarks/comments/counts",
+      "response_type": "Record<string, number>",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.comments",
+      "method_name": "comments",
+      "path_normalized": "/trademarks/{param}/comments",
+      "path_template": "/trademarks/${trademarkId}/comments",
+      "response_type": "TrademarkComment[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.continueFromIntake",
+      "method_name": "continueFromIntake",
+      "path_normalized": "/trademarks/from-intake/{param}",
+      "path_template": "/trademarks/from-intake/${intakeRequestId}",
+      "response_type": "Trademark",
       "type": "endpoint_client_fn"
     },
     {
@@ -13575,6 +14002,28 @@
       "path_normalized": "/trademarks/dashboard",
       "path_template": "/trademarks/dashboard",
       "response_type": "TrademarkDashboardMetrics",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.digest",
+      "method_name": "digest",
+      "path_normalized": "/trademarks/reports/digest",
+      "path_template": "/trademarks/reports/digest",
+      "response_type": "PortfolioDigestResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.explainConflict",
+      "method_name": "explainConflict",
+      "path_normalized": "/trademarks/explain-conflict",
+      "path_template": "/trademarks/explain-conflict",
+      "response_type": "ExplainConflictResponse",
       "type": "endpoint_client_fn"
     },
     {
@@ -13641,6 +14090,39 @@
       "path_normalized": "/trademarks",
       "path_template": "/trademarks",
       "response_type": "Trademark[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:trademarksApi.portfolioStats",
+      "method_name": "portfolioStats",
+      "path_normalized": "/trademarks/reports/stats",
+      "path_template": "/trademarks/reports/stats",
+      "response_type": "PortfolioStatsResponse",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.postComment",
+      "method_name": "postComment",
+      "path_normalized": "/trademarks/{param}/comments",
+      "path_template": "/trademarks/${trademarkId}/comments",
+      "response_type": "TrademarkComment",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "trademarksApi",
+      "http_method": "POST",
+      "id": "endpoint_client_fn:trademarksApi.regenerateDigest",
+      "method_name": "regenerateDigest",
+      "path_normalized": "/trademarks/reports/digest/regenerate",
+      "path_template": "/trademarks/reports/digest/regenerate",
+      "response_type": "PortfolioDigestResponse",
       "type": "endpoint_client_fn"
     },
     {
@@ -13997,7 +14479,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:approvalsApi",
-      "method_count": 7,
+      "method_count": 8,
       "name": "approvalsApi",
       "type": "endpoint_client_group"
     },
@@ -14074,7 +14556,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:jobsApi",
-      "method_count": 3,
+      "method_count": 4,
       "name": "jobsApi",
       "type": "endpoint_client_group"
     },
@@ -14200,7 +14682,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:trademarksApi",
-      "method_count": 13,
+      "method_count": 23,
       "name": "trademarksApi",
       "type": "endpoint_client_group"
     },
@@ -14677,6 +15159,15 @@
     },
     {
       "down_revision": [
+        "0041_merge_heads"
+      ],
+      "file": "backend/alembic/versions/0042_trademark_intake_digest.py",
+      "id": "migration:0042_trademark_intake_digest",
+      "revision": "0042_trademark_intake_digest",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
         "0042_money_numeric"
       ],
       "file": "backend/alembic/versions/0043_db_invariants.py",
@@ -14691,6 +15182,15 @@
       "file": "backend/alembic/versions/0043_menu_screen_security.py",
       "id": "migration:0043_menu_screen_security",
       "revision": "0043_menu_screen_security",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0042_trademark_intake_digest"
+      ],
+      "file": "backend/alembic/versions/0043_trademark_comments.py",
+      "id": "migration:0043_trademark_comments",
+      "revision": "0043_trademark_comments",
       "type": "migration"
     },
     {
@@ -14758,6 +15258,16 @@
     },
     {
       "down_revision": [
+        "0043_trademark_comments",
+        "0046_contract_share_step_link"
+      ],
+      "file": "backend/alembic/versions/0047_merge_heads.py",
+      "id": "migration:0047_merge_heads",
+      "revision": "0047_merge_heads",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
         "0047_docstudio_original_file"
       ],
       "file": "backend/alembic/versions/0048_intake_agreement_form_types.py",
@@ -14767,11 +15277,29 @@
     },
     {
       "down_revision": [
+        "0047_merge_heads"
+      ],
+      "file": "backend/alembic/versions/0048_trademark_suite_menu.py",
+      "id": "migration:0048_trademark_suite_menu",
+      "revision": "0048_trademark_suite_menu",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
         "0048_intake_agreement_form_types"
       ],
       "file": "backend/alembic/versions/0049_intake_drafts.py",
       "id": "migration:0049_intake_drafts",
       "revision": "0049_intake_drafts",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0048_trademark_suite_menu"
+      ],
+      "file": "backend/alembic/versions/0049_trademark_menu_labels.py",
+      "id": "migration:0049_trademark_menu_labels",
+      "revision": "0049_trademark_menu_labels",
       "type": "migration"
     },
     {
@@ -14980,6 +15508,25 @@
       "file": "backend/alembic/versions/0072_notice_deadline_basis.py",
       "id": "migration:0072_notice_deadline_basis",
       "revision": "0072_notice_deadline_basis",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0072_notice_deadline_basis",
+        "0049_trademark_menu_labels"
+      ],
+      "file": "backend/alembic/versions/0073_merge_trademark_suite.py",
+      "id": "migration:0073_merge_trademark_suite",
+      "revision": "0073_merge_trademark_suite",
+      "type": "migration"
+    },
+    {
+      "down_revision": [
+        "0073_merge_trademark_suite"
+      ],
+      "file": "backend/alembic/versions/0074_intake_agent_filing.py",
+      "id": "migration:0074_intake_agent_filing",
+      "revision": "0074_intake_agent_filing",
       "type": "migration"
     },
     {
@@ -16543,6 +17090,10 @@
         {
           "column": "legal_entity_id",
           "ref": "legal_entity.id"
+        },
+        {
+          "column": "filed_via_api_key_id",
+          "ref": "api_key.id"
         }
       ],
       "id": "model:intake:IntakeRequest",
@@ -17476,10 +18027,32 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/models.py",
+      "fk_columns": [],
+      "id": "model:trademarks:PortfolioDigest",
+      "mixins": [
+        "ActorTrackedMixin",
+        "IdMixin",
+        "OrgScopedMixin",
+        "TableNameMixin",
+        "TimestampMixin"
+      ],
+      "name": "PortfolioDigest",
+      "org_scoped": true,
+      "soft_delete": false,
+      "table": "portfolio_digest",
+      "type": "model"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/models.py",
       "fk_columns": [
         {
           "column": "source_document_extract_id",
           "ref": "document_extract.id"
+        },
+        {
+          "column": "source_intake_request_id",
+          "ref": "intake_request.id"
         }
       ],
       "id": "model:trademarks:Trademark",
@@ -17622,6 +18195,7 @@
     },
     {
       "components": [
+        "_parties-register.test.tsx",
         "_parties-register.tsx"
       ],
       "domain": "admin",
@@ -17678,6 +18252,8 @@
         "_chat-tab.tsx",
         "_clm-workspace.test.tsx",
         "_clm-workspace.tsx",
+        "_comments-tab.test.tsx",
+        "_comments-tab.tsx",
         "_lifecycle-tab.test.tsx",
         "_lifecycle-tab.tsx",
         "_review-list.test.tsx",
@@ -17702,11 +18278,15 @@
     {
       "components": [
         "_agreement-forms.tsx",
+        "_agreement-wizard.test.tsx",
         "_governance-ladder.tsx",
+        "_legal-intake.test.tsx",
         "_legal-intake.tsx",
         "_legal-question-form.tsx",
+        "_my-work.test.tsx",
         "_my-work.tsx",
         "_negotiation-panel.tsx",
+        "_phase1.test.tsx",
         "_phase1.tsx",
         "_request-overview.test.tsx",
         "_request-overview.tsx"
@@ -17891,6 +18471,14 @@
       "file": "frontend/src/app/(app)/trademarks/calendar/page.tsx",
       "id": "page:/trademarks/calendar",
       "route": "/trademarks/calendar",
+      "type": "page"
+    },
+    {
+      "components": [],
+      "domain": "trademarks",
+      "file": "frontend/src/app/(app)/trademarks/dashboard/page.tsx",
+      "id": "page:/trademarks/dashboard",
+      "route": "/trademarks/dashboard",
       "type": "page"
     },
     {
@@ -18831,6 +19419,13 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestCreateResponse",
+      "name": "RequestCreateResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:RequestResponse",
       "name": "RequestResponse",
       "type": "schema"
@@ -19293,8 +19888,36 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ClassSuggestionRequest",
+      "name": "ClassSuggestionRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ClassSuggestionResponse",
+      "name": "ClassSuggestionResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:DashboardMetrics",
       "name": "DashboardMetrics",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ExplainConflictRequest",
+      "name": "ExplainConflictRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:ExplainConflictResponse",
+      "name": "ExplainConflictResponse",
       "type": "schema"
     },
     {
@@ -19377,6 +20000,27 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:PortfolioDigestResponse",
+      "name": "PortfolioDigestResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:PortfolioRenewalsResponse",
+      "name": "PortfolioRenewalsResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:PortfolioStatsResponse",
+      "name": "PortfolioStatsResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:RenewalCalendarEntry",
       "name": "RenewalCalendarEntry",
       "type": "schema"
@@ -19433,8 +20077,22 @@
     {
       "domain": "trademarks",
       "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkFromIntakeRequest",
+      "name": "TrademarkFromIntakeRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
       "id": "schema:trademarks:TrademarkResponse",
       "name": "TrademarkResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "trademarks",
+      "file": "backend/app/trademarks/schemas.py",
+      "id": "schema:trademarks:TrademarkSummary",
+      "name": "TrademarkSummary",
       "type": "schema"
     },
     {
@@ -19784,6 +20442,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ClassSuggestionRequest",
+      "name": "ClassSuggestionRequest",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ClassSuggestionResponse",
+      "name": "ClassSuggestionResponse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ClauseSearchResult",
       "name": "ClauseSearchResult",
       "type": "ts_interface"
@@ -20012,6 +20682,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ExplainConflictRequest",
+      "name": "ExplainConflictRequest",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ExplainConflictResponse",
+      "name": "ExplainConflictResponse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ExternalComment",
       "name": "ExternalComment",
       "type": "ts_interface"
@@ -20150,6 +20832,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:IntakeRequestCreateResult",
+      "name": "IntakeRequestCreateResult",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:IntakeSlaLeg",
       "name": "IntakeSlaLeg",
       "type": "ts_interface"
@@ -20236,6 +20924,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:IssueFixJob",
       "name": "IssueFixJob",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:JobCounts",
+      "name": "JobCounts",
       "type": "ts_interface"
     },
     {
@@ -20492,6 +21186,12 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioDigestResponse",
+      "name": "PortfolioDigestResponse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:PortfolioMatch",
       "name": "PortfolioMatch",
       "type": "ts_interface"
@@ -20500,6 +21200,18 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:PortfolioReading",
       "name": "PortfolioReading",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioRenewalsResponse",
+      "name": "PortfolioRenewalsResponse",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:PortfolioStatsResponse",
+      "name": "PortfolioStatsResponse",
       "type": "ts_interface"
     },
     {
@@ -20786,6 +21498,18 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkComment",
+      "name": "TrademarkComment",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkCommentCreate",
+      "name": "TrademarkCommentCreate",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkCreatePayload",
       "name": "TrademarkCreatePayload",
       "type": "ts_interface"
@@ -20794,6 +21518,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkDashboardMetrics",
       "name": "TrademarkDashboardMetrics",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkFromIntakeRequest",
+      "name": "TrademarkFromIntakeRequest",
       "type": "ts_interface"
     },
     {
@@ -20812,6 +21542,12 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:TrademarkStatus",
       "name": "TrademarkStatus",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:TrademarkSummary",
+      "name": "TrademarkSummary",
       "type": "ts_interface"
     },
     {
@@ -21004,6 +21740,11 @@
     {
       "id": "ui_primitive:Input",
       "name": "Input",
+      "type": "ui_primitive"
+    },
+    {
+      "id": "ui_primitive:LoadError",
+      "name": "LoadError",
       "type": "ui_primitive"
     },
     {

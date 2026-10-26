@@ -25,7 +25,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /contracts/{contract_id}/risk` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/signers` -- permission: `contract:read` -- request: ? -- response: list[SignerOption]
 - `GET /contracts/{contract_id}/stage-history` -- permission: `contract:read` -- request: ? -- response: list[ContractStageHistoryResponse]
-- `GET /contracts/{contract_id}/versions/{base_version_id}/diff/{target_version_id}` -- permission: `contract:read` -- request: ? -- response: VersionDiffResponse
+- `GET /contracts/{contract_id}/versions/{base_version_id}/diff/{target_version_id}` -- permission: `contract:read` -- request: int | None -- response: VersionDiffResponse
 - `PATCH /contracts/{contract_id}` -- permission: `contract:update` -- request: ContractUpdate -- response: ContractResponse
 - `POST /contracts/upload` -- permission: `contract:create` -- request: Response -- response: ContractUploadResponse
 - `POST /contracts/{contract_id}/lifecycle` -- permission: `contract:update` -- request: LifecycleTransitionRequest -- response: ContractResponse
@@ -93,6 +93,6 @@ Api group: `contractsApi` (confidence: exact)
 - `contractsApi.update()` -> `PATCH /contracts/${id}`
 - `contractsApi.updateText()` -> `PUT /contracts/${id}/text`
 - `contractsApi.upload()` -> `POST /contracts/upload`
-- `contractsApi.versionDiff()` -> `GET /contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}`
+- `contractsApi.versionDiff()` -> `GET /contracts/${id}/versions/${baseVersionId}/diff/${targetVersionId}${qs({ context })}`
 - `contractsApi.versionText()` -> `GET /contracts/${id}/versions/${versionId}/text`
 - `contractsApi.versions()` -> `GET /contracts/${id}/versions`
