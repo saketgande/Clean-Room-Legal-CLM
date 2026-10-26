@@ -19,9 +19,11 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
+    text,
 )
 from sqlalchemy.orm import relationship
 
@@ -137,6 +139,30 @@ class IntakeRequest(
     )
     legal_entity_id = Column(
         String(36), ForeignKey("legal_entity.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    # External-agent filing (MCP server): the caller's idempotency key, a SHA-256
+    # fingerprint of the payload (a repeat with different content is a conflict),
+    # and the API key that filed it (NULL = filed by a person in the web app).
+    idempotency_key = Column(String(128), nullable=True)
+    idempotency_hash = Column(String(64), nullable=True)
+    filed_via_api_key_id = Column(
+        String(36),
+        ForeignKey(
+            "api_key.id", ondelete="SET NULL", name="fk_intake_request_filed_via_api_key_id_api_key"
+        ),
+        nullable=True,
+        index=True,
+    )
+
+    __table_args__ = (
+        Index(
+            "uq_intake_request_org_idemkey",
+            "org_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
 

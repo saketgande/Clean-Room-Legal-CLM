@@ -81,6 +81,10 @@ class Settings(BaseSettings):
     # HMAC authenticated, but unauthenticated as far as the limiter is
     # concerned, so they key on the client IP.
     rate_limit_intake_webhook: str = "30/minute"
+    # Agent intake API (API-key callers, MCP server). Stacked windows use ";".
+    rate_limit_intake_create: str = "10/minute;100/hour"
+    rate_limit_intake_read: str = "120/minute;3000/hour"
+    rate_limit_intake_document: str = "30/minute;300/hour"
     rate_limit_enabled: bool = True
 
     # Default SLA for approval requests. Used to populate ApprovalRequest.due_at
@@ -432,6 +436,23 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append("set ALLOWED_HOSTS to a non-wildcard list")
     if "*" in settings.cors_origins.split(","):
         problems.append("set CORS_ORIGINS to an explicit list")
+    # The limiter runs with swallow_errors=True, so a typo in a limit string
+    # would silently disable that limit rather than fail loudly.
+    if not settings.rate_limit_enabled:
+        problems.append("enable RATE_LIMIT_ENABLED")
+    from limits import parse_many
+
+    for name, value in (
+        ("RATE_LIMIT_INTAKE_CREATE", settings.rate_limit_intake_create),
+        ("RATE_LIMIT_INTAKE_READ", settings.rate_limit_intake_read),
+        ("RATE_LIMIT_INTAKE_DOCUMENT", settings.rate_limit_intake_document),
+    ):
+        try:
+            parsed = parse_many(value)
+        except Exception:
+            parsed = []
+        if not parsed:
+            problems.append(f"set {name} to a valid limit string (e.g. 10/minute;100/hour)")
 
     # Files on one machine's disk 404 on every other instance and vanish with the
     # volume, so production needs shared object storage (or a single-host opt-in).

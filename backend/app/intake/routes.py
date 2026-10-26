@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.deps import get_db, require_permission, require_screen_level
+from app.core.deps import get_db, request_auth, require_permission, require_screen_level
 from app.core.rate_limit import limiter
 from app.intake import drafts as drafts_mod
 from app.intake.dependencies import (
@@ -27,6 +27,7 @@ from app.intake.schemas import (
     PartiesUpdate,
     PromoteRequest,
     RequestCreate,
+    RequestCreateResponse,
     RequestResponse,
     RequestUpdate,
     TaskCreateReq,
@@ -67,7 +68,8 @@ def _req_id(request: Request) -> str | None:
 # renders from these so the browser and filing validation can't disagree.
 
 @router.get("/forms")
-def list_forms(current_user=Depends(_CREATE)):
+@limiter.limit(settings.rate_limit_intake_read)
+def list_forms(request: Request, response: Response, current_user=Depends(_CREATE)):
     from app.intake.agreement_forms import form_defs
 
     return list(form_defs())
@@ -100,18 +102,24 @@ def delete_draft(draft_id: str, db: Session = Depends(get_db), current_user=Depe
 
 # ---- requests -------------------------------------------------------------
 
-@router.post("/requests", response_model=RequestResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/requests", response_model=RequestCreateResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit(settings.rate_limit_intake_create)
 def create_request(
     payload: RequestCreate,
     request: Request,
+    response: Response,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_CREATE),
     _screen=Depends(_INTAKE_ADD),
 ):
-    return intake_service.create_request(
+    out = intake_service.create_request(
         actor=current_user, payload=payload, request_id=_req_id(request),
         defer_triage=True,  # AI triage, screening and workflow autostart run in a background job
+        auth=request_auth(request),
     )
+    if out.get("idempotent_repeat"):
+        response.status_code = status.HTTP_200_OK  # a retry: the original, nothing new filed
+    return out
 
 
 @router.get("/requests", response_model=list[RequestResponse])
@@ -124,7 +132,10 @@ def list_requests(
 
 
 @router.get("/requests/mine", response_model=list[RequestResponse])
+@limiter.limit(settings.rate_limit_intake_read)
 def list_my_requests(
+    request: Request,
+    response: Response,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_CREATE),
 ):
@@ -140,8 +151,11 @@ def list_request_pool(
 
 
 @router.get("/requests/{request_id}", response_model=RequestResponse)
+@limiter.limit(settings.rate_limit_intake_read)
 def get_request(
     request_id: str,
+    request: Request,
+    response: Response,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_CREATE),
 ):
@@ -386,8 +400,11 @@ async def ingest_attachment(
 # ---- SLA ------------------------------------------------------------------
 
 @router.get("/requests/{request_id}/sla")
+@limiter.limit(settings.rate_limit_intake_read)
 def sla_legs(
     request_id: str,
+    request: Request,
+    response: Response,
     intake_service: IntakeService = Depends(get_intake_service),
     current_user=Depends(_CREATE),
 ):
@@ -525,7 +542,9 @@ def rescreen_request(request_id: str,
 
 
 @router.post("/requests/{request_id}/documents", status_code=status.HTTP_201_CREATED)
-def upload_document(request_id: str, payload: dict = Body(...),
+@limiter.limit(settings.rate_limit_intake_document)
+def upload_document(request_id: str, request: Request, response: Response,
+                    payload: dict = Body(...),
                     intake_service: IntakeService = Depends(get_intake_service),
                     current_user=Depends(_CREATE)):
     """Attach a document ({filename, mime_type, content_b64}); text is extracted
@@ -540,11 +559,14 @@ def upload_document(request_id: str, payload: dict = Body(...),
         filename=str(payload.get("filename") or "attachment"),
         mime_type=str(payload.get("mime_type") or "application/octet-stream"),
         content=content,
+        auth=request_auth(request),
     )
 
 
 @router.get("/requests/{request_id}/documents")
-def list_request_documents(request_id: str, intake_service: IntakeService = Depends(get_intake_service),
+@limiter.limit(settings.rate_limit_intake_read)
+def list_request_documents(request_id: str, request: Request, response: Response,
+                           intake_service: IntakeService = Depends(get_intake_service),
                            current_user=Depends(_CREATE)):
     return intake_service.list_documents(actor=current_user, request_id=request_id)
 

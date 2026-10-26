@@ -7,8 +7,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.auth.service import authenticate_api_key, is_access_token_revoked
+from app.auth.service import authenticate_api_key_with_id, is_access_token_revoked
 from app.core import org_access
+from app.core.auth_context import INTERNAL, AuthContext
 from app.core.database import SessionLocal
 from app.core.enums import UserStatus
 from app.core.rbac import has_permission
@@ -48,10 +49,13 @@ def get_current_user(
     try:
         payload = decode_access_token(credentials.credentials)
     except ValueError as exc:
-        api_key_user = authenticate_api_key(db, credentials.credentials)
-        if api_key_user is None:
+        api_key_result = authenticate_api_key_with_id(db, credentials.credentials)
+        if api_key_result is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token") from exc
+        api_key_user, api_key_id = api_key_result
         request.state.current_user = api_key_user
+        request.state.auth_method = "api_key"
+        request.state.api_key_id = api_key_id
         return api_key_user
 
     user_id = payload.get("sub")
@@ -77,11 +81,21 @@ def get_current_user(
     if role_id and user.active_role_id != role_id:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Token role is no longer active")
     request.state.current_user = user
+    request.state.auth_method = "access_token"
+    request.state.api_key_id = None
     # Stash these so endpoints (e.g. /auth/logout) can revoke this specific
     # access token without re-decoding.
     request.state.access_token_jti = jti
     request.state.access_token_exp = payload.get("exp")
     return user
+
+
+def request_auth(request: Request) -> AuthContext:
+    """How this request authenticated; INTERNAL when no HTTP auth ran."""
+    method = getattr(request.state, "auth_method", None)
+    if method not in ("api_key", "access_token"):
+        return INTERNAL
+    return AuthContext(method=method, api_key_id=getattr(request.state, "api_key_id", None))
 
 
 def require_permission(permission: str):
