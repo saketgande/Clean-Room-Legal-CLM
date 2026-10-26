@@ -16,5 +16,8 @@ ignore = ["B008"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The bare `pytest` command (CI) does not put the project root on sys.path the way
+# `python -m pytest` does, so the tests could not import aegis_intake_mcp.
+pythonpath = ["."]
 # No cache dir: the runtime image runs with a read-only root filesystem.
 addopts = "-p no:cacheprovider"
