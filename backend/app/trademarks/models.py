@@ -47,7 +47,16 @@ class Trademark(
     renewal_due_on = Column(DateTime(timezone=True), index=True, nullable=True)
     workflow_state = Column(String(80), nullable=False, default=TrademarkWorkflowState.INTAKE)
     source = Column(String(40), nullable=False, default=TrademarkSource.INTAKE)
-    source_document_extract_id = Column(String(36), ForeignKey("document_extract.id"), nullable=True)
+    # Clearance outcome and filing record - written by the clearance service
+    # (app/trademarks/clearance_service.py), never by the generic update route.
+    decision = Column(String(20), nullable=True)
+    decision_conditions = Column(Text, nullable=True)
+    decided_by_user_id = Column(String(36), nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    application_number = Column(String(120), nullable=True)
+    filing_form = Column(String(60), nullable=True)
+    portal_reference = Column(String(120), nullable=True)
+    docket_number = Column(String(120), nullable=True)
     # The Legal Intake request this trademark was continued from, if any —
     # same deliberate choice as Notice.escalated_intake_request_id. Nullable:
     # a trademark can also be created directly (the standalone wizard path,
@@ -83,4 +92,3 @@ class DocumentExtract(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin
     extracted_fields = Column(JSON, nullable=False, default=dict)
     embedding_text = Column(Text, nullable=True)
     embedding = Column(Vector(EMBEDDING_DIMENSIONS), nullable=True)
-    ingested_trademark_id = Column(String(36), ForeignKey("trademark.id"), nullable=True)

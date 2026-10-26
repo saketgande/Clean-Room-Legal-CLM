@@ -214,6 +214,47 @@ export default function TrademarkDashboardPage() {
         </Card>
       </div>
 
+      {metrics && (Object.keys(metrics.cases_by_step).length > 0 || metrics.awaiting_my_action.length > 0) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Awaiting my action</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-2">
+              {metrics.awaiting_my_action.length === 0 ? (
+                <p className="text-[13px] text-slate-500">Nothing is waiting on you.</p>
+              ) : (
+                metrics.awaiting_my_action.map((item) => (
+                  <div key={item.trademark_id} className="flex items-center justify-between text-[13px]">
+                    <Link
+                      href={`/trademarks/${item.trademark_id}`}
+                      className="font-medium text-slate-900 hover:text-brand-700 hover:underline"
+                    >
+                      {item.name}
+                    </Link>
+                    <span className="text-slate-500">{item.step_name}</span>
+                  </div>
+                ))
+              )}
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Clearance cases by step</CardTitle>
+            </CardHeader>
+            <CardBody className="space-y-2">
+              {Object.entries(metrics.cases_by_step).map(([step, count]) => (
+                <div key={step} className="flex items-center justify-between text-[13px]">
+                  <span className="text-slate-700">{step}</span>
+                  <span className="font-medium text-slate-900">{count}</span>
+                </div>
+              ))}
+            </CardBody>
+          </Card>
+        </div>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle>Recently added</CardTitle>

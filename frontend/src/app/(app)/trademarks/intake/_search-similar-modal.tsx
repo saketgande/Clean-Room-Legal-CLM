@@ -20,11 +20,12 @@ const SOURCE_LABELS: Record<string, string> = {
   tmsearch: "TM Search",
   web_search: "Web search (Serper)",
   internal_portfolio: "Internal portfolio",
+  document_extracts: "Document extractions",
 };
 
 // Deliberate order — mirrors the backend's insertion order and the exported
 // PDF report's section order.
-const SOURCE_ORDER = ["signa", "tmsearch", "web_search", "internal_portfolio"];
+const SOURCE_ORDER = ["signa", "tmsearch", "web_search", "internal_portfolio", "document_extracts"];
 
 // Fixed report accent colors — always the same regardless of app dark/light
 // mode, so the exported PDF reads consistently as a formal document.
@@ -33,6 +34,7 @@ const REPORT_COLORS: Record<string, string> = {
   tmsearch: "#0E7C86",
   web_search: "#44546B",
   internal_portfolio: "#2440B8",
+  document_extracts: "#9A5B13",
 };
 
 function riskTone(risk: TrademarkRiskLevel | string | undefined) {
@@ -75,6 +77,21 @@ function describeItem(source: string, item: Record<string, unknown>): ItemInfo {
           { label: "Status", value: item.status as string },
           { label: "Filed on", value: item.filed_on as string },
           { label: "Internal ID", value: item.trademark_id as string },
+        ],
+      };
+    case "document_extracts":
+      return {
+        title: String(item.name ?? item.source_filename ?? ""),
+        subtitle: `${item.jurisdiction ?? "—"} · ${item.source_filename ?? ""}`,
+        score: item.similarity_score as number | undefined,
+        risk: item.risk_level as TrademarkRiskLevel | undefined,
+        details: [
+          { label: "Trademark no.", value: item.tm_number as string },
+          { label: "Filed on", value: item.filed_on as string },
+          { label: "Goods & services", value: item.goods_services as string, full: true },
+          { label: "Source file", value: item.source_filename as string },
+          { label: "Pages", value: `${item.page_start}–${item.page_end}` },
+          { label: "Extract ID", value: item.extract_id as string },
         ],
       };
     case "web_search":

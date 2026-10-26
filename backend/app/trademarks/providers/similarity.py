@@ -1,5 +1,6 @@
-"""Trademark similarity search: fans out to 4 sources in parallel (internal
-portfolio via pgvector, Signa, TMSearch.ai, Serper web search), risk-bands
+"""Trademark similarity search: fans out to 5 sources (the org's own trademarks
+and its ingested document extractions via pgvector, Signa, TMSearch.ai, Serper
+web search), risk-bands
 each result, and degrades a single slow/broken source to an error/timeout/
 not_configured status rather than failing the whole request.
 
@@ -17,11 +18,13 @@ from sqlalchemy.orm import Session
 from app.ai.embeddings import embed_texts
 from app.core.config import Settings
 from app.core.enums import SourceStatus, TrademarkRiskLevel
-from app.trademarks.models import Trademark
+from app.trademarks.extracted_fields import find_field, find_jurisdiction, find_name
+from app.trademarks.models import DocumentExtract, Trademark
 from app.trademarks.providers import signa as signa_provider
 from app.trademarks.providers import tmsearch as tmsearch_provider
 from app.trademarks.providers import web_search as web_search_provider
 from app.trademarks.schemas import (
+    DocumentExtractResult,
     InternalPortfolioResult,
     SearchSimilarRequest,
     SearchSimilarResponse,
@@ -34,7 +37,7 @@ from app.trademarks.schemas import (
 
 # Order is deliberate - Signa, TM Search, Serper web, then internal Postgres -
 # the frontend's source cards and the PDF export mirror this insertion order.
-_SOURCE_ORDER = ("signa", "tmsearch", "web_search", "internal_portfolio")
+_SOURCE_ORDER = ("signa", "tmsearch", "web_search", "internal_portfolio", "document_extracts")
 
 
 def _risk_level(score: float, settings: Settings) -> TrademarkRiskLevel:
@@ -59,11 +62,16 @@ def search_similar(db: Session, *, org_id: str, request: SearchSimilarRequest, s
         lambda: _search_internal_portfolio(db, org_id=org_id, request=request, settings=settings)
     )
 
+    extracts_result = _safe_call(
+        lambda: _search_document_extracts(db, org_id=org_id, request=request, settings=settings)
+    )
+
     sources = {
         "signa": signa_result,
         "tmsearch": tmsearch_result,
         "web_search": web_result,
         "internal_portfolio": internal_result,
+        "document_extracts": extracts_result,
     }
     if request.min_match_score > 0:
         sources = {key: _apply_min_score(value, request.min_match_score) for key, value in sources.items()}
@@ -100,18 +108,22 @@ def _safe_call(fn) -> SourceResult:
         return SourceResult(status=SourceStatus.ERROR, error_message=str(exc), results=[])
 
 
+def _query_embedding(request: SearchSimilarRequest) -> list[float]:
+    return embed_texts([f"{request.trademark_name} {request.description}".strip()])[0]
+
+
 def _search_internal_portfolio(
     db: Session, *, org_id: str, request: SearchSimilarRequest, settings: Settings
 ) -> SourceResult:
-    text = f"{request.trademark_name} {request.description}".strip()
-    embedding = embed_texts([text])[0]
+    embedding = _query_embedding(request)
     distance = Trademark.embedding.cosine_distance(embedding)
-    rows = db.execute(
-        select(Trademark, distance.label("distance"))
-        .where(Trademark.org_id == org_id, Trademark.deleted_at.is_(None), Trademark.embedding.is_not(None))
-        .order_by(distance)
-        .limit(settings.trademark_internal_search_top_k)
-    ).all()
+    query = select(Trademark, distance.label("distance")).where(
+        Trademark.org_id == org_id, Trademark.deleted_at.is_(None), Trademark.embedding.is_not(None)
+    )
+    if request.trademark_id:
+        # Searching from inside a clearance case: the mark under review must not match itself.
+        query = query.where(Trademark.id != request.trademark_id)
+    rows = db.execute(query.order_by(distance).limit(settings.trademark_internal_search_top_k)).all()
 
     results = []
     for trademark, distance_value in rows:
@@ -129,6 +141,39 @@ def _search_internal_portfolio(
             )
         )
     return SourceResult(status=SourceStatus.COMPLETE, results=[r.model_dump() for r in results])
+
+
+def _search_document_extracts(
+    db: Session, *, org_id: str, request: SearchSimilarRequest, settings: Settings
+) -> SourceResult:
+    distance = DocumentExtract.embedding.cosine_distance(_query_embedding(request))
+    rows = db.execute(
+        select(DocumentExtract, distance.label("distance"))
+        .where(DocumentExtract.org_id == org_id, DocumentExtract.embedding.is_not(None))
+        .order_by(distance)
+        .limit(settings.trademark_internal_search_top_k)
+    ).all()
+
+    results = []
+    for extract, distance_value in rows:
+        fields = extract.extracted_fields or {}
+        score = round(max(0.0, 1 - float(distance_value)), 4)
+        results.append(
+            DocumentExtractResult(
+                extract_id=extract.id,
+                name=find_name(fields),
+                similarity_score=score,
+                jurisdiction=find_jurisdiction(fields),
+                tm_number=find_field(fields, ("tm_id", "number")),
+                filed_on=find_field(fields, ("tm_date", "date")),
+                goods_services=find_field(fields, ("goods",)),
+                source_filename=extract.source_filename,
+                page_start=extract.page_start,
+                page_end=extract.page_end,
+                risk_level=_risk_level(score, settings),
+            ).model_dump()
+        )
+    return SourceResult(status=SourceStatus.COMPLETE, results=results)
 
 
 def _search_web(request: SearchSimilarRequest, settings: Settings) -> SourceResult:

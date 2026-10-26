@@ -220,14 +220,23 @@ class TrademarkType(StrEnum):
 
 class TrademarkWorkflowState(StrEnum):
     INTAKE = "intake"
-    EXTRACTION = "extraction"
     REVIEW = "review"
     ACTIVE = "active"
 
 
 class TrademarkSource(StrEnum):
     INTAKE = "intake"
-    EXTRACTION = "extraction"
+
+
+class TrademarkDecision(StrEnum):
+    PROCEED = "proceed"
+    CONDITIONAL = "conditional"
+    REJECT = "reject"
+
+
+class TrademarkSearchPurpose(StrEnum):
+    PRELIMINARY = "preliminary"
+    DETAILED = "detailed"
 
 
 class DocumentExtractTemplate(StrEnum):

@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
-from app.core.audit import write_audit_log
+from app.core.audit import write_audit_log, write_timeline_event
 from app.trademarks.comments_models import TrademarkComment
 from app.trademarks.models import Trademark
 
@@ -107,6 +107,16 @@ class TrademarkCommentService:
             actor_user_id=user.id,
             request_id=request_id,
             after={"trademark_id": trademark.id},
+        )
+        write_timeline_event(
+            db,
+            org_id=trademark.org_id,
+            resource_type="trademark",
+            resource_id=trademark.id,
+            event_type="trademark.comment_added",
+            title="Comment added in Discussion",
+            actor_user_id=user.id,
+            details={"comment_id": comment.id},
         )
         db.commit()
         db.refresh(comment)

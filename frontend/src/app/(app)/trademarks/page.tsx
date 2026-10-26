@@ -26,6 +26,7 @@ import {
 } from "@/components/ui";
 import { fmtDate, statusTone, titleCase } from "@/lib/utils";
 import { useScreenAccess } from "@/lib/screen-access";
+import { useAuth } from "@/lib/auth";
 import type { Trademark } from "@/lib/types";
 import { TrademarkComments } from "@/components/TrademarkComments";
 
@@ -108,6 +109,8 @@ function RowMenu({
 export default function TrademarksPage() {
   const qc = useQueryClient();
   const [query, setQuery] = useState("");
+  const [mineOnly, setMineOnly] = useState(false);
+  const { user } = useAuth();
   const searchParams = useSearchParams();
   const justCreatedId = searchParams.get("created");
   const highlightId = searchParams.get("highlight");
@@ -134,8 +137,10 @@ export default function TrademarksPage() {
     queryFn: () => trademarksApi.commentCounts(),
   });
 
-  const filtered = (trademarks ?? []).filter((t) =>
-    t.name.toLowerCase().includes(query.trim().toLowerCase()),
+  const filtered = (trademarks ?? []).filter(
+    (t) =>
+      t.name.toLowerCase().includes(query.trim().toLowerCase()) &&
+      (!mineOnly || t.case?.assignee_user_id === user?.id),
   );
 
   return (
@@ -207,12 +212,23 @@ export default function TrademarksPage() {
           <h3 className="text-[13px] font-semibold text-slate-900">
             My trademarks
           </h3>
-          <Input
-            placeholder="Filter by name…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="max-w-xs"
-          />
+          <div className="flex items-center gap-4">
+            <label className="flex cursor-pointer items-center gap-2 text-[13px] text-slate-600">
+              <input
+                type="checkbox"
+                className="accent-brand-600"
+                checked={mineOnly}
+                onChange={(e) => setMineOnly(e.target.checked)}
+              />
+              Assigned to me
+            </label>
+            <Input
+              placeholder="Filter by name…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="max-w-xs"
+            />
+          </div>
         </div>
 
         {isLoading ? (
@@ -251,6 +267,7 @@ export default function TrademarksPage() {
               <tr>
                 <TH>Name</TH>
                 <TH>Status</TH>
+                <TH>Stage</TH>
                 <TH>Type</TH>
                 <TH>Jurisdiction</TH>
                 <TH>Nice class</TH>
@@ -280,6 +297,13 @@ export default function TrademarksPage() {
                     </TD>
                     <TD>
                       <Badge tone={statusTone(t.status)}>{titleCase(t.status)}</Badge>
+                    </TD>
+                    <TD>
+                      {t.case?.step_name ? (
+                        <span className="text-[13px] text-slate-700">{t.case.step_name}</span>
+                      ) : (
+                        "—"
+                      )}
                     </TD>
                     <TD>{titleCase(t.trademark_type)}</TD>
                     <TD>{t.jurisdiction}</TD>
@@ -328,7 +352,7 @@ export default function TrademarksPage() {
                   </TR>
                   {expandedId === t.id && (
                     <TR>
-                      <TD colSpan={9} className="bg-slate-50">
+                      <TD colSpan={10} className="bg-slate-50">
                         <div className="grid grid-cols-3 gap-4 py-1 text-[13px]">
                           <div>
                             <div className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">Internal ID</div>
