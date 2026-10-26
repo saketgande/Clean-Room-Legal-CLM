@@ -90,7 +90,7 @@ def dashboard(
     current_user=Depends(require_permission("trademark:read")),
     service: TrademarksService = Depends(get_trademarks_service),
 ):
-    return service.dashboard_metrics(org_id=current_user.org_id)
+    return service.dashboard_metrics(org_id=current_user.org_id, user=current_user)
 
 
 @router.get("/calendar", response_model=PortfolioRenewalsResponse)

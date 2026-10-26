@@ -26,7 +26,11 @@ from __future__ import annotations
 from fastapi.routing import APIRoute
 
 from app.main import app
-from app.trademarks.dependencies import get_trademark_comment_service, get_trademarks_service
+from app.trademarks.dependencies import (
+    get_trademark_clearance_service,
+    get_trademark_comment_service,
+    get_trademarks_service,
+)
 
 _PREFIX = "/api/v1/trademarks"
 
@@ -58,11 +62,11 @@ def test_trademarks_screen_guards_are_only_ever_injected_as__screen():
 
 
 def test_every_trademarks_route_gets_its_service_from_a_trademarks_provider():
-    # The comments routes legitimately use their own provider.
+    # The comments and clearance routes legitimately use their own providers.
     providers = set()
     for route in _trademarks_routes():
         for dep in route.dependant.dependencies:
             if dep.name == "service":
                 providers.add(dep.call)
     assert providers, "no trademarks routes with a 'service' dependency were found"
-    assert providers == {get_trademarks_service, get_trademark_comment_service}
+    assert providers == {get_trademarks_service, get_trademark_comment_service, get_trademark_clearance_service}
