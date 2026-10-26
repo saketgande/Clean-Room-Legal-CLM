@@ -23,6 +23,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /users` -- permission: `user:approve` -- request: str | None -- response: list[UserResponse]
 - `GET /users/api-keys` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[ApiKeyResponse]
 - `GET /users/invitations` -- permission: `user:approve` -- request: ? -- response: list[UserInvitationResponse]
+- `GET /users/{user_id}/api-keys` -- permission: `user:approve` -- request: ? -- response: list[ApiKeyResponse]
 - `POST /auth/active-role` -- permission: `*(none -- verify manual auth)*` -- request: RoleSwitchRequest -- response: UserResponse
 - `POST /auth/invitations/accept` -- permission: `*(none -- verify manual auth)*` -- request: AcceptInvitationRequest -- response: TokenResponse
 - `POST /auth/login` -- permission: `*(none -- verify manual auth)*` -- request: LoginRequest -- response: TokenResponse

@@ -9,7 +9,7 @@ Owner agents: backend-dev, db-engineer
 - `IntakeDocument` (table `intake_document`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id
 - `IntakeDraft` (table `intake_draft`, org_scoped=True, soft_delete=False) -- FKs: user_id->user.id
 - `IntakeHandoff` (table `intake_handoff`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id
-- `IntakeRequest` (table `intake_request`, org_scoped=True, soft_delete=False) -- FKs: requester_user_id->user.id, assigned_to_user_id->user.id, approval_gate_user_id->user.id, triaged_by_user_id->user.id, contract_id->contract.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id
+- `IntakeRequest` (table `intake_request`, org_scoped=True, soft_delete=False) -- FKs: requester_user_id->user.id, assigned_to_user_id->user.id, approval_gate_user_id->user.id, triaged_by_user_id->user.id, contract_id->contract.id, counterparty_id->counterparty.id, legal_entity_id->legal_entity.id, filed_via_api_key_id->api_key.id
 - `IntakeTask` (table `intake_task`, org_scoped=True, soft_delete=False) -- FKs: request_id->intake_request.id, assignee_user_id->user.id
 - `IntakeTeam` (table `intake_team`, org_scoped=True, soft_delete=False) -- FKs: overflow_team_id->intake_team.id
 - `IntakeTeamMember` (table `intake_team_member`, org_scoped=True, soft_delete=False) -- FKs: team_id->intake_team.id, user_id->user.id
@@ -21,16 +21,16 @@ Owner agents: backend-dev, db-engineer
 - `DELETE /intake/teams/{team_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/assignees` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[AssigneeResponse]
 - `GET /intake/drafts` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[DraftResponse]
-- `GET /intake/forms` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/forms` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `GET /intake/my-work` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: list[RequestResponse]
-- `GET /intake/requests/mine` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
+- `GET /intake/requests/mine` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: list[RequestResponse]
 - `GET /intake/requests/pool` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
-- `GET /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
+- `GET /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: RequestResponse
 - `GET /intake/requests/{request_id}/approval-chain` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `GET /intake/requests/{request_id}/handoffs` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[HandoffResponse]
-- `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `GET /intake/requests/{request_id}/tasks` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TaskResponse]
 - `GET /intake/sla-ops` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/teams` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TeamResponse]
@@ -42,9 +42,9 @@ Owner agents: backend-dev, db-engineer
 - `POST /intake/email-webhook` -- permission: `*(none -- verify manual auth)*` -- request: dict -- response: ?
 - `POST /intake/gmail-sync` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `POST /intake/mailbox/poll` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
-- `POST /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: RequestCreate -- response: RequestResponse
+- `POST /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: RequestCreate -- response: RequestCreateResponse
 - `POST /intake/requests/{request_id}/assign-to-me` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
-- `POST /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: dict -- response: ?
+- `POST /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/handoff` -- permission: `*(none -- verify manual auth)*` -- request: HandoffCreate -- response: RequestResponse
 - `POST /intake/requests/{request_id}/ingest-attachment` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
@@ -63,7 +63,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestCreateResponse, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -71,11 +71,13 @@ AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, Handoff
 - `0023_intake_gaps` (backend/alembic/versions/0023_intake_gaps.py)
 - `0024_intake_parties` (backend/alembic/versions/0024_intake_parties.py)
 - `0029_intake_subject` (backend/alembic/versions/0029_intake_subject.py)
+- `0042_trademark_intake_digest` (backend/alembic/versions/0042_trademark_intake_digest.py)
 - `0044_intake_type_sla_hours` (backend/alembic/versions/0044_intake_type_sla_hours.py)
 - `0048_intake_agreement_form_types` (backend/alembic/versions/0048_intake_agreement_form_types.py)
 - `0049_intake_drafts` (backend/alembic/versions/0049_intake_drafts.py)
 - `0053_drop_intake_kb_and_routing` (backend/alembic/versions/0053_drop_intake_kb_and_routing.py)
 - `0055_drop_intake_gates` (backend/alembic/versions/0055_drop_intake_gates.py)
+- `0074_intake_agent_filing` (backend/alembic/versions/0074_intake_agent_filing.py)
 
 ## Frontend counterpart
 
