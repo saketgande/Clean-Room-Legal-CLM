@@ -91,6 +91,7 @@ import type {
   PromptVersion,
   PromptUsage,
   IntakeRequest,
+  IntakeRequestCreateResult,
   IntakeApprovalRung,
   IntakeTask,
   IntakeHandoff,
@@ -1475,7 +1476,7 @@ export const intakeApi = {
   pool: () => apiFetch<IntakeRequest[]>("/intake/requests/pool"),
   get: (id: string) => apiFetch<IntakeRequest>(`/intake/requests/${id}`),
   create: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequest>("/intake/requests", { method: "POST", body: payload }),
+    apiFetch<IntakeRequestCreateResult>("/intake/requests", { method: "POST", body: payload }),
   update: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}`, { method: "PATCH", body: payload }),
   triage: (id: string, payload: Record<string, unknown>) =>

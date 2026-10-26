@@ -94,6 +94,7 @@ function rowFlags(r: IntakeRequest): { label: string; cls: string }[] {
   else if (r.sla_status === "at_risk") f.push({ label: "at risk", cls: "low" });
   if (isOpenReq(r) && !r.assigned_to_user_id) f.push({ label: "unassigned", cls: "dupe" });
   if (lowConfidence(r)) f.push({ label: "low confidence", cls: "low" });
+  if (r.filed_by_agent) f.push({ label: `agent · ${r.filed_by_agent_name ?? "unknown"}`, cls: "dupe" });
   return f;
 }
 

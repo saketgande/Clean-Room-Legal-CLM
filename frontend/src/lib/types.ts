@@ -84,6 +84,14 @@ export interface IntakeRequest {
   handoff_holder: string | null; handoff_user_id: ID | null;
   contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
+  /** True when the request was filed with an API key (an external agent). */
+  filed_by_agent?: boolean;
+  /** The agent identity's registered name (User.full_name, else email); null unless filed_by_agent. */
+  filed_by_agent_name?: string | null;
+}
+/** POST /intake/requests response: the request plus whether it was a repeat of an earlier filing. */
+export interface IntakeRequestCreateResult extends IntakeRequest {
+  idempotent_repeat: boolean;
 }
 // Workflow Router agent output — lives on ai_triage.flow_suggestion.
 export interface WorkflowSuggestion {
