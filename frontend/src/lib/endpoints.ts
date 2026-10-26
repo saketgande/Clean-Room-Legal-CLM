@@ -107,7 +107,13 @@ import type {
   LegalEntity,
   Counterparty,
   Trademark,
+  SearchRunUpdatePayload,
+  TrademarkActivityEntry,
   TrademarkCreatePayload,
+  TrademarkDecisionPayload,
+  TrademarkFilingPayload,
+  TrademarkSearchRun,
+  TrademarkSearchRunDetail,
   TrademarkUpdatePayload,
   IntakeSubmitPayload,
   TrademarkDashboardMetrics,
@@ -1250,6 +1256,17 @@ export const trademarksApi = {
       method: "POST",
       body: payload,
     }),
+  searchRuns: (id: string) => apiFetch<TrademarkSearchRun[]>(`/trademarks/${id}/search-runs`),
+  searchRun: (runId: string) => apiFetch<TrademarkSearchRunDetail>(`/trademarks/search-runs/${runId}`),
+  updateSearchRun: (runId: string, payload: SearchRunUpdatePayload) =>
+    apiFetch<TrademarkSearchRunDetail>(`/trademarks/search-runs/${runId}`, { method: "PATCH", body: payload }),
+  exportSearchRun: (runId: string) =>
+    apiDownload(`/trademarks/search-runs/${runId}/export`, "trademark-search.xlsx"),
+  recordDecision: (id: string, payload: TrademarkDecisionPayload) =>
+    apiFetch<Trademark>(`/trademarks/${id}/decision`, { method: "POST", body: payload }),
+  recordFiling: (id: string, payload: TrademarkFilingPayload) =>
+    apiFetch<Trademark>(`/trademarks/${id}/filing`, { method: "POST", body: payload }),
+  activity: (id: string) => apiFetch<TrademarkActivityEntry[]>(`/trademarks/${id}/activity`),
   integrationsStatus: () =>
     apiFetch<IntegrationStatusResponse>("/trademarks/integrations/status"),
   testIntegration: (service: string) =>
