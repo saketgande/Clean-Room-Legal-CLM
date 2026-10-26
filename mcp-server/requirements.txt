@@ -1,0 +1,10 @@
+# Exact pins (tested together on Python 3.10-3.12). Independent of backend/requirements.lock
+# on purpose: the tool server is a separate deployable (FR-52).
+mcp==1.30.0
+httpx==0.28.1
+uvicorn==0.54.0
+pydantic==2.14.1
+# Used directly by server.py (ASGI app, middleware) and the tool deadline; pinned although
+# they arrive through mcp so a transitive bump cannot change behaviour silently.
+starlette==1.7.0
+anyio==4.15.1

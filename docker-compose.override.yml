@@ -107,6 +107,27 @@ services:
       retries: 18
       start_period: 60s
 
+  # Intake MCP tool server, dev: the `dev` target (adds pytest/ruff) with the source
+  # bind-mounted and uvicorn --reload. The read-only root filesystem of the production
+  # service is turned off here because --reload needs a writable tree for its watcher.
+  # NOTE: this stack runs with DISABLE_RBAC=true (above), so an agent identity's
+  # least-privilege role is NOT enforced here; verify agent identities with RBAC on
+  # (see mcp-server/AGENT_IDENTITY.md).
+  mcp:
+    build:
+      context: ./mcp-server
+      target: dev
+    image: aegis/mcp:dev
+    command:
+      ["uvicorn", "aegis_intake_mcp.server:app", "--host", "0.0.0.0", "--port", "8001",
+       "--reload", "--reload-dir", "/app/aegis_intake_mcp"]
+    environment:
+      WATCHFILES_FORCE_POLLING: "true"
+      LOG_LEVEL: DEBUG
+    volumes:
+      - ./mcp-server/aegis_intake_mcp:/app/aegis_intake_mcp
+    read_only: false
+
   # The Word editor on the contract page (contract_files/editor.py):
   # ONLYOFFICE Docs Community, which opens a Word file with its own formatting
   # and edits it in place. Opt-in — it wants ~2 GB of memory:
