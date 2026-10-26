@@ -393,6 +393,15 @@ export function WorkflowDesigner({ flow, isNew }: { flow: Workflow | null; isNew
                             {assignOptions(cur.type).map((a) => <option key={a} value={a}>{a}</option>)}
                           </select>
                         </div>
+                        {cur.type === "approval" && (
+                          <div className="fld"><label className="lab">What the approver sees</label>
+                            <select className="inp" value={cfgStr(cur.config, "summary") || "general"} onChange={(e) => patchCfg(sel!, "summary", e.target.value)}>
+                              <option value="general">General: value, term, overall risk, top issues</option>
+                              <option value="finance">Finance: value, term, payment terms, liability, renewal</option>
+                              <option value="legal">Legal: playbook risk, indemnity, termination, governing law, non-standard clauses</option>
+                            </select>
+                          </div>
+                        )}
                         {cfgStr(cur.config, "assign_by") === "Specific person" && (
                           <div className="fld"><label className="lab">Person</label>
                             <select className="inp" value={cfgStr(cur.config, "assignee_user_id")} onChange={(e) => patchCfg(sel!, "assignee_user_id", e.target.value || undefined)}>

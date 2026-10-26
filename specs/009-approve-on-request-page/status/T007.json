@@ -1,0 +1,1 @@
+{"task":"T007","agent":"qa-engineer","status":"done","detail":"gates green bar 1 known pre-existing failure; 31/31 AC pass on evidence (23 live API, 5 tests-only, browser/dark mode NOT-RUN: no browser tools); 1 defect D1 (waiting rung can_decide true)","updated":"2026-10-22T22:30:00Z"}

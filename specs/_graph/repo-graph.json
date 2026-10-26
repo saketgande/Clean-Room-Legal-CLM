@@ -727,6 +727,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:intakeApi.activity",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:intakeApi.approvalChain",
       "matched": true,
       "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
@@ -739,6 +745,12 @@
       "type": "calls"
     },
     {
+      "from": "endpoint_client_fn:intakeApi.approvalSummary",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "type": "calls"
+    },
+    {
       "from": "endpoint_client_fn:intakeApi.assignToMe",
       "matched": true,
       "to": "endpoint:intake:POST:/intake/requests/{request_id}/assign-to-me",
@@ -748,6 +760,12 @@
       "from": "endpoint_client_fn:intakeApi.assignees",
       "matched": true,
       "to": "endpoint:intake:GET:/intake/assignees",
+      "type": "calls"
+    },
+    {
+      "from": "endpoint_client_fn:intakeApi.counterparty",
+      "matched": true,
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
       "type": "calls"
     },
     {
@@ -3008,7 +3026,22 @@
     },
     {
       "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
       "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "type": "contains"
+    },
+    {
+      "from": "domain:backend:intake",
+      "to": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
       "type": "contains"
     },
     {
@@ -6419,20 +6452,20 @@
       "celery_task": 5,
       "domain_backend": 39,
       "domain_frontend": 26,
-      "edges_total": 1138,
-      "endpoint": 361,
-      "endpoint_client_fn": 316,
+      "edges_total": 1144,
+      "endpoint": 364,
+      "endpoint_client_fn": 319,
       "endpoint_client_group": 36,
       "integration": 5,
       "migration": 86,
       "model": 104,
       "page": 39,
-      "schema": 260,
-      "ts_interface": 280,
+      "schema": 266,
+      "ts_interface": 291,
       "ui_primitive": 29
     },
-    "generated_at": "2026-10-15T16:57:53Z",
-    "git_head": "aa036ed20981e8873ee72739f3bdfaa2ade8b0c3",
+    "generated_at": "2026-10-26T09:34:54Z",
+    "git_head": "53b2c0e75ea04cf773eaa6a46809063c6f9dd77e",
     "warnings": [
       "49 frontend client call(s) did not match any backend endpoint by method+path",
       "frontend Api group 'aiUsageApi' did not match any backend domain (add an entry to specs/_graph/domain-aliases.json to resolve)",
@@ -9046,12 +9079,45 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/activity",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/activity",
+      "permission": null,
+      "request_model": null,
+      "response_model": "RequestActivityResponse",
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
       "id": "endpoint:intake:GET:/intake/requests/{request_id}/approval-chain",
       "method": "GET",
       "path": "/intake/requests/{request_id}/approval-chain",
       "permission": null,
       "request_model": null,
       "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/approval-summary",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/approval-summary",
+      "permission": null,
+      "request_model": "str | None",
+      "response_model": null,
+      "type": "endpoint"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/routes.py",
+      "id": "endpoint:intake:GET:/intake/requests/{request_id}/counterparty",
+      "method": "GET",
+      "path": "/intake/requests/{request_id}/counterparty",
+      "permission": null,
+      "request_model": null,
+      "response_model": "RequestCounterpartyResponse",
       "type": "endpoint"
     },
     {
@@ -12523,6 +12589,17 @@
       "download": false,
       "group": "intakeApi",
       "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.activity",
+      "method_name": "activity",
+      "path_normalized": "/intake/requests/{param}/activity",
+      "path_template": "/intake/requests/${id}/activity",
+      "response_type": "RequestActivity",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
       "id": "endpoint_client_fn:intakeApi.approvalChain",
       "method_name": "approvalChain",
       "path_normalized": "/intake/requests/{param}/approval-chain",
@@ -12539,6 +12616,17 @@
       "path_normalized": "/intake/approval-preview",
       "path_template": "/intake/approval-preview",
       "response_type": "IntakeApprovalPreview",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.approvalSummary",
+      "method_name": "approvalSummary",
+      "path_normalized": "/intake/requests/{param}/approval-summary",
+      "path_template": "/intake/requests/${id}/approval-summary",
+      "response_type": "ApprovalSummary",
       "type": "endpoint_client_fn"
     },
     {
@@ -12561,6 +12649,17 @@
       "path_normalized": "/intake/assignees",
       "path_template": "/intake/assignees",
       "response_type": "IntakeAssignee[]",
+      "type": "endpoint_client_fn"
+    },
+    {
+      "download": false,
+      "group": "intakeApi",
+      "http_method": "GET",
+      "id": "endpoint_client_fn:intakeApi.counterparty",
+      "method_name": "counterparty",
+      "path_normalized": "/intake/requests/{param}/counterparty",
+      "path_template": "/intake/requests/${id}/counterparty",
+      "response_type": "RequestCounterparty",
       "type": "endpoint_client_fn"
     },
     {
@@ -14758,7 +14857,7 @@
     {
       "file": "frontend/src/lib/endpoints.ts",
       "id": "endpoint_client_group:intakeApi",
-      "method_count": 41,
+      "method_count": 44,
       "name": "intakeApi",
       "type": "endpoint_client_group"
     },
@@ -18538,6 +18637,10 @@
       "components": [
         "_agreement-forms.tsx",
         "_agreement-wizard.test.tsx",
+        "_approval-card.test.tsx",
+        "_approval-card.tsx",
+        "_decision-area.test.tsx",
+        "_decision-area.tsx",
         "_deliverables.test.tsx",
         "_deliverables.tsx",
         "_governance-ladder.tsx",
@@ -18551,8 +18654,20 @@
         "_phase1.tsx",
         "_request-answers.test.tsx",
         "_request-answers.tsx",
+        "_request-asked.test.tsx",
+        "_request-asked.tsx",
+        "_request-cards.test.tsx",
+        "_request-cards.tsx",
+        "_request-header.test.tsx",
+        "_request-header.tsx",
         "_request-overview.test.tsx",
-        "_request-overview.tsx"
+        "_request-overview.tsx",
+        "_request-risk.test.tsx",
+        "_request-risk.tsx",
+        "_request-steps.test.tsx",
+        "_request-steps.tsx",
+        "_signature-card.test.tsx",
+        "_signature-card.tsx"
       ],
       "domain": "intake",
       "file": "frontend/src/app/(app)/intake/page.tsx",
@@ -19824,6 +19939,13 @@
     {
       "domain": "intake",
       "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:ActivityItem",
+      "name": "ActivityItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:AssigneeResponse",
       "name": "AssigneeResponse",
       "type": "schema"
@@ -19833,6 +19955,27 @@
       "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:AttachmentIn",
       "name": "AttachmentIn",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartyContractItem",
+      "name": "CounterpartyContractItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartyRequestItem",
+      "name": "CounterpartyRequestItem",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:CounterpartySummary",
+      "name": "CounterpartySummary",
       "type": "schema"
     },
     {
@@ -19889,6 +20032,20 @@
       "file": "backend/app/intake/schemas.py",
       "id": "schema:intake:PromoteRequest",
       "name": "PromoteRequest",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestActivityResponse",
+      "name": "RequestActivityResponse",
+      "type": "schema"
+    },
+    {
+      "domain": "intake",
+      "file": "backend/app/intake/schemas.py",
+      "id": "schema:intake:RequestCounterpartyResponse",
+      "name": "RequestCounterpartyResponse",
       "type": "schema"
     },
     {
@@ -20689,6 +20846,30 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalDecisionEntry",
+      "name": "ApprovalDecisionEntry",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFact",
+      "name": "ApprovalFact",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFactKey",
+      "name": "ApprovalFactKey",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalFactSource",
+      "name": "ApprovalFactSource",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ApprovalRequest",
       "name": "ApprovalRequest",
       "type": "ts_interface"
@@ -20697,6 +20878,18 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:ApprovalReviewContext",
       "name": "ApprovalReviewContext",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalSummary",
+      "name": "ApprovalSummary",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:ApprovalView",
+      "name": "ApprovalView",
       "type": "ts_interface"
     },
     {
@@ -21091,8 +21284,20 @@
     },
     {
       "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:CounterpartyContractItem",
+      "name": "CounterpartyContractItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:CounterpartyOption",
       "name": "CounterpartyOption",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:CounterpartyRequestItem",
+      "name": "CounterpartyRequestItem",
       "type": "ts_interface"
     },
     {
@@ -21777,6 +21982,24 @@
       "file": "frontend/src/lib/types.ts",
       "id": "ts_interface:RenewalRecommendation",
       "name": "RenewalRecommendation",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestActivity",
+      "name": "RequestActivity",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestActivityItem",
+      "name": "RequestActivityItem",
+      "type": "ts_interface"
+    },
+    {
+      "file": "frontend/src/lib/types.ts",
+      "id": "ts_interface:RequestCounterparty",
+      "name": "RequestCounterparty",
       "type": "ts_interface"
     },
     {

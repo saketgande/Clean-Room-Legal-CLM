@@ -15,6 +15,7 @@ from app.auth.models import User
 from app.contracts.access import user_can_access_contract
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
+from app.core.audit import write_audit_log
 from app.core.config import settings
 from app.core.deps import get_db, require_permission
 from app.core.enums import ApprovalStatus, ContractLifecycleStage, UserStatus
@@ -26,6 +27,7 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 class ApprovalDecisionPayload(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
     comment: str | None = None
+    acknowledged_open_risks: bool = False
 
 
 class ReassignPayload(BaseModel):
@@ -102,7 +104,9 @@ def list_approvals(
         _serialize_approval(
             row,
             approvals_service=approvals_service,
-            can_decide=_can_decide_approval(db, approval=row, user=current_user, contracts=contracts),
+            can_decide=_can_decide_approval(
+                db, approval=row, user=current_user, contracts=contracts, assigned_only=True
+            ),
             team_names=team_names,
             user_names=user_names,
             contracts=contracts,
@@ -335,8 +339,23 @@ async def decide_approval(
     )
     if approval is None or approval.org_id != current_user.org_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Approval request not found")
-    if not _can_decide_approval(db, approval=approval, user=current_user):
+    if approval.status != ApprovalStatus.PENDING:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Approval request is already decided")
+    if not _can_decide_approval(db, approval=approval, user=current_user, assigned_only=True):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "You are not assigned to decide this approval")
+    # ponytail: the acknowledgement gate lives here, not in decide_in_app, so the assistant's
+    # decide_approval tool (which shares decide_in_app) can still approve past open risks.
+    # Upgrade: give decide_in_app an `acknowledged` argument the tool must pass.
+    from app.intake.approval_summary import open_risk_counts, subject_contract
+
+    contract = subject_contract(db, approval) if payload.decision == "approve" else None
+    counts = open_risk_counts(db, contract)
+    must_acknowledge = counts["critical"] + counts["high"] > 0
+    if must_acknowledge and not payload.acknowledged_open_risks:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Open critical or high risks must be acknowledged before approving",
+        )
     # decide_in_app re-checks eligibility and applies the delegated-authority gate,
     # so every entry point (this route, the assistant tool) gets both.
     await approvals_service.decide_in_app(
@@ -346,6 +365,26 @@ async def decide_approval(
         comment=payload.comment,
         request_id=getattr(request.state, "request_id", None),
     )
+    if must_acknowledge:
+        # Same session and transaction as the decision, so a refused decision leaves no row.
+        intake_request_id = approval.intake_request_id or (
+            (contract.metadata_json or {}).get("intake_request_id") if contract else None
+        )
+        write_audit_log(
+            db,
+            action="approval.risk_acknowledged",
+            resource_type="approval_request",
+            resource_id=approval.id,
+            org_id=approval.org_id,
+            actor_user_id=current_user.id,
+            request_id=getattr(request.state, "request_id", None),
+            after={
+                "critical": counts["critical"],
+                "high": counts["high"],
+                "contract_id": contract.id if contract else None,
+                "intake_request_id": intake_request_id,
+            },
+        )
     db.commit()
     db.refresh(approval)
     return approval
@@ -451,12 +490,13 @@ def _can_decide_approval(
     approval: ApprovalRequest,
     user,
     contracts: dict[str, Contract] | None = None,
+    assigned_only: bool = False,
 ) -> bool:
     """Whether the Approve/Reject buttons should show — eligibility AND the
     contract-stage gate. Mirrors ApprovalSubject.guard_can_decide so can_decide
     never promises an action that would 409 (a pending approval on a contract
     that isn't in the approval stage is not actionable yet)."""
-    if not _user_eligible_to_decide(db, approval=approval, user=user):
+    if not _user_eligible_to_decide(db, approval=approval, user=user, assigned_only=assigned_only):
         return False
     if approval.contract_id:
         contract = (

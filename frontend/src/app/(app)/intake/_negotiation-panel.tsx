@@ -202,9 +202,6 @@ export function NegotiationPanel({ contractId, canAct, onConverged, busy }: {
           <input ref={fileRef} type="file" hidden onChange={onFile} />
         </div>
       )}
-      <div className="text-[11px] text-slate-400">
-        Send the current version to the {party === "counterparty" ? "counterparty" : "internal team"}, record their redline as the next round, review the diff, then accept or counter.
-      </div>
     </div>
   );
 }

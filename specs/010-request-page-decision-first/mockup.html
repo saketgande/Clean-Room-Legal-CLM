@@ -1,0 +1,168 @@
+<title>Request Page Layouts</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: three complete 1100px-wide app screens stacked vertically, each scaled down to fit the viewer. Same slate/indigo look as the app. */
+:root{
+  --bg:#eef0f5; --panel:#ffffff; --fg:#1b1f2e; --muted:#667085; --line:#e2e5ec; --side:#ffffff;
+  --brand:#4f46e5; --brand-fg:#ffffff; --brand-soft:#eceafd;
+  --ok:#15803d; --ok-soft:#e3f5e9; --warn:#b45309; --warn-soft:#fdf0d8; --bad:#b91c1c; --bad-soft:#fde8e8;
+  --font:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0b0e1a; --panel:#171b2e; --fg:#e8eaf3; --muted:#9aa1b8; --line:#2a2f47; --side:#12162a;
+  --brand:#8b85ff; --brand-fg:#10122a; --brand-soft:#25285a;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#fbbf24; --warn-soft:#352a10; --bad:#f87171; --bad-soft:#3a1a1c; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b0e1a; --panel:#171b2e; --fg:#e8eaf3; --muted:#9aa1b8; --line:#2a2f47; --side:#12162a;
+  --brand:#8b85ff; --brand-fg:#10122a; --brand-soft:#25285a;
+  --ok:#4ade80; --ok-soft:#14301f; --warn:#fbbf24; --warn-soft:#352a10; --bad:#f87171; --bad-soft:#3a1a1c; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 var(--font);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px}
+.page{max-width:1140px;margin:0 auto;display:flex;flex-direction:column;gap:28px}
+h1{font-size:20px;font-weight:600;margin:0}
+.intro p{margin:4px 0 0;color:var(--muted)}
+.label{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px}
+.label b{font-size:16px}.label span{color:var(--muted);font-size:13px}
+.fit{width:100%;overflow:hidden;border-radius:12px;border:1px solid var(--line)}
+.scr{width:1100px;transform-origin:0 0;background:var(--bg);display:flex}
+/* app shell */
+.side{width:190px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+.side .logo{font-weight:600;font-size:15px;padding:2px 8px 12px}
+.side .grp{font-size:10px;letter-spacing:.08em;color:var(--muted);padding:10px 8px 3px;text-transform:uppercase}
+.side a{padding:6px 8px;border-radius:7px;color:var(--fg);text-decoration:none}
+.side a.on{background:var(--brand-soft);color:var(--brand);font-weight:500}
+.side .me{margin-top:auto;padding:8px;border-top:1px solid var(--line);font-size:12px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{display:flex;justify-content:space-between;align-items:center;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top b{font-size:15px}.top span{color:var(--muted);font-size:12px;margin-left:8px}
+.btn{font:inherit;font-weight:500;font-size:13px;padding:7px 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+.btn.pri{background:var(--brand);color:var(--brand-fg);border-color:var(--brand)}
+.body{padding:18px 20px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.crumb{font-size:12px;color:var(--muted)}
+.title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.title h2{font-size:20px;margin:0;font-weight:600}
+.title p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.pill{display:inline-block;font-size:11px;padding:1px 9px;border-radius:999px;font-weight:500;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)}.p-wait{background:var(--warn-soft);color:var(--warn)}.p-bad{background:var(--bad-soft);color:var(--bad)}.p-idle{background:var(--line);color:var(--muted)}.p-brand{background:var(--brand-soft);color:var(--brand)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card.hi{border-color:var(--brand)}
+.card h3{margin:0;font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;justify-content:space-between}
+.card p{margin:0}
+.sub{color:var(--muted);font-size:12.5px}
+.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 16px;margin:0}
+.facts.c3{grid-template-columns:repeat(3,1fr)}.facts.c2{grid-template-columns:repeat(2,1fr)}
+.facts dt{font-size:11.5px;color:var(--muted)}
+.facts dd{margin:0;font-weight:500;font-size:13px}
+.tag{font-size:10px;font-family:var(--mono);padding:0 5px;border-radius:4px;background:var(--line);color:var(--muted);font-weight:400;margin-left:4px}
+.na{color:var(--warn)}
+.flag{border-radius:8px;padding:8px 12px;background:var(--warn-soft);border-left:3px solid var(--warn);font-size:12.5px}
+.issue{border-left:3px solid var(--bad);padding:1px 0 1px 10px;font-size:13px}
+.issue small{display:block;color:var(--muted);font-size:12px}
+textarea{width:100%;height:54px;font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:none}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:14px;align-items:start}
+.stk{display:flex;flex-direction:column;gap:14px;min-width:0}
+.bar{display:flex;gap:4px}.bar i{flex:1;height:6px;border-radius:3px;background:var(--line)}.bar i.d{background:var(--ok)}.bar i.c{background:var(--brand)}
+.stages{display:flex;gap:0}
+.stages div{flex:1;font-size:11.5px;color:var(--muted);padding-top:6px;border-top:3px solid var(--line)}
+.stages div.d{border-color:var(--ok)}.stages div.c{border-color:var(--brand);color:var(--fg);font-weight:500}
+.stages b{display:block;font-size:12px;color:var(--fg);font-weight:500}
+.kv{display:flex;justify-content:space-between;gap:10px;font-size:12.5px}.kv span:first-child{color:var(--muted)}
+.ppl{display:flex;gap:8px;align-items:center;font-size:12.5px}
+.av{width:24px;height:24px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:10px;font-weight:600;flex:none}
+.spine{display:flex;flex-direction:column;font-size:12.5px}
+.spine .st{padding:0 0 12px 16px;border-left:2px solid var(--line);position:relative}
+.spine .st:before{content:"";position:absolute;left:-6px;top:3px;width:10px;height:10px;border-radius:50%;background:var(--line)}
+.spine .st.d{border-color:var(--ok)}.spine .st.d:before{background:var(--ok)}
+.spine .st.c{border-color:var(--brand)}.spine .st.c:before{background:var(--brand);box-shadow:0 0 0 3px var(--brand-soft)}
+.spine .st b{display:block;font-weight:500}.spine .st small{color:var(--muted);font-size:11.5px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line)}
+.tabs span{padding:7px 12px;color:var(--muted);font-size:13px}
+.tabs span.on{color:var(--fg);border-bottom:2px solid var(--brand);font-weight:500}
+.tl{display:flex;flex-direction:column;gap:6px;font-size:12.5px}.tl small{color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}.chips span{font-size:11.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+</style>
+
+<div class="page">
+  <div class="intro">
+    <h1>Request page: three complete layouts</h1>
+    <p>Each screen is the whole page for REQ-7705 (Mutual NDA, Initech), with the sidebar and every section the current page has. Same content in all three, arranged differently. Scroll down to compare.</p>
+  </div>
+  <div id="slots"></div>
+</div>
+
+<script>
+const side = `
+<div class="side"><div class="logo">Aegis</div>
+<div class="grp">Workspace</div><a class="on">Legal Intake</a><a>My Work</a><a>Notifications</a><a>Contracts</a><a>Search</a>
+<div class="grp">Intelligence</div><a>Ask Aegis</a><a>Contract Brain</a><a>Tabular Review</a><a>Playbooks</a>
+<div class="grp">Lifecycle</div><a>Approvals</a><a>Signatures</a><a>SLA</a><a>Notices</a><a>Renewals</a>
+<div class="me"><b>Local Admin</b><br><span style="color:var(--muted)">admin</span></div></div>`;
+const topbar = `<div class="top"><div><b>Legal Intake</b><span>one front door, every request lands here</span></div><div class="row"><span style="margin:0">58 open · 57 overdue</span><button class="btn pri">New request</button></div></div>`;
+const head = (extra="") => `<div class="crumb">← Legal Intake / REQ-7705</div>
+<div class="title"><div><h2>Mutual NDA · Initech Software Ltd</h2><p>REQ-7705 · raised by Local Admin on 14 Oct · owner Dana Member · Commercial</p></div>
+<div class="row"><span class="pill p-bad">High risk</span><span class="pill p-bad">Overdue since 21 Oct</span>${extra}</div></div>`;
+const approval = (cls="hi") => `<div class="card ${cls}"><h3><span>Your approval · Legal Approval</span><span class="pill p-wait">waiting on you</span></h3>
+<dl class="facts c3"><div><dt>Value</dt><dd class="na">Not available</dd></div><div><dt>Term</dt><dd>23 Oct 2026 · 1 year<span class="tag">requester-stated</span></dd></div><div><dt>Overall risk</dt><dd>High<span class="tag">extracted</span></dd></div></dl>
+<div class="flag"><b>1 high risk open:</b> governing law has blank placeholders. <label><input type="checkbox"> I have seen this</label></div>
+<textarea placeholder="Comment (required to reject)"></textarea><div class="row"><button class="btn pri">Approve</button><button class="btn">Reject</button></div></div>`;
+const asked = `<div class="card"><h3><span>What was asked</span><span class="tag">from the form</span></h3>
+<dl class="facts"><div><dt>Counterparty</dt><dd>Initech Software Ltd</dd></div><div><dt>Type</dt><dd>NDA</dd></div><div><dt>Term</dt><dd>23 Oct 2026 · 1 year</dd></div><div><dt>Priority</dt><dd>Medium</dd></div></dl>
+<p>Standard mutual NDA on our own template, 1-year term from 23 Oct 2026, governed by Indian law, no personal data involved.</p></div>`;
+const risk = `<div class="card"><h3><span>AI risk review</span><span>1 high · 0 medium · 0 low</span></h3>
+<div class="issue"><b>High · Governing law and jurisdiction</b><small>The clause still has blank placeholders, so no governing law or forum has been chosen. Legal must fill in one of the five approved jurisdictions before signing.</small></div>
+<div class="row"><button class="btn">Apply suggested wording</button><button class="btn">Recompute</button><span class="sub">Suggested: governed by the laws of India, courts of India.</span></div></div>`;
+const steps = `<div class="card"><h3><span>Steps</span><span>3 of 6 done</span></h3>
+<div class="spine"><div class="st d"><b>Prepare draft</b><small>Drafted from the NDA template</small></div>
+<div class="st d"><b>AI review</b><small>1 high finding</small></div>
+<div class="st d"><b>Legal review</b><small>Dana Member · EY-Dev legal review team</small></div>
+<div class="st c"><b>Legal approval</b><small>EY-Dev legal approval team · overdue</small></div>
+<div class="st"><b>Signature</b><small>3 steps</small></div><div class="st"><b>Activate and track</b><small>3 steps</small></div></div>
+<div class="row"><button class="btn">Send back for rework…</button></div></div>`;
+const rel = `<div class="card"><h3><span>Counterparty</span></h3><p><b>Initech Software Ltd</b></p><p class="sub">Known: 5 prior contracts, 3 NDAs on file, 7 prior requests.</p></div>`;
+const owner = `<div class="card"><h3><span>Owner and people</span></h3>
+<div class="ppl"><div class="av">DM</div><div>Dana Member<br><span class="sub">owner</span></div><button class="btn" style="margin-left:auto;padding:3px 10px">Reassign</button></div>
+<div class="ppl"><div class="av">LA</div><div>Local Admin<br><span class="sub">requester</span></div></div></div>`;
+const docs = `<div class="card"><h3><span>Documents</span></h3><p class="sub">No documents attached.</p><button class="btn">Open in CLM editor →</button></div>`;
+const comments = `<div class="card"><h3><span>Comments and questions</span></h3><p class="sub">No comments yet.</p><textarea placeholder="Leave a note or ask a question about a stage"></textarea><div class="row"><button class="btn">Post</button></div></div>`;
+const activity = `<div class="card"><h3><span>Activity</span></h3><div class="tl"><div><small>14 Oct, 14:38</small> Local Admin raised this request</div><div><small>—</small> AI review: 1 high finding</div><div><small>—</small> Legal review completed by Dana Member</div></div></div>`;
+const ask = `<div class="card"><h3><span>Ask Aegis about this request</span></h3><div class="chips"><span>What are the key risks here?</span><span>What obligations does this create?</span><span>How does this compare to our standard terms?</span></div></div>`;
+const bar = (n) => `<div class="stages"><div class="d"><b>Intake</b>4 of 4</div><div class="d"><b>Drafting</b>1 of 1</div><div class="d"><b>Review</b>2 of 2</div><div class="c"><b>Approval</b>waiting</div><div><b>Signature</b>0 of 3</div><div><b>Active</b>0 of 3</div><div><b>Closed</b>0 of 2</div></div>`;
+
+const A = `${side}<div class="main">${topbar}<div class="body">${head()}${bar()}
+<div class="cols"><div class="stk">${approval()}${asked}${risk}${comments}${activity}</div><div class="stk">${rel}${owner}${docs}${steps}${ask}</div></div></div></div>`;
+
+const B = `${side}<div class="main">${topbar}<div class="body" style="padding:0"><div style="padding:18px 20px 0;display:flex;flex-direction:column;gap:14px">${head()}</div>
+<div style="display:grid;grid-template-columns:230px minmax(0,1fr);gap:0;margin-top:10px;border-top:1px solid var(--line)">
+<div style="padding:16px 14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:12px">${steps}${owner}</div>
+<div class="stk" style="padding:16px 20px">${approval()}${asked}${risk}${rel}${docs}${comments}${ask}${activity}</div></div></div></div>`;
+
+const C = `${side}<div class="main">${topbar}<div class="body">${head()}
+<div class="bar"><i class="d"></i><i class="d"></i><i class="d"></i><i class="c"></i><i></i><i></i></div>
+<div class="sub">Step 4 of 6 · Approval · waiting on EY-Dev legal approval team</div>
+<div class="tabs"><span class="on">Overview</span><span>Review (1)</span><span>Workflow (6)</span><span>Activity</span><span>Comments (0)</span></div>
+<div class="cols"><div class="stk">${approval()}${asked}<div class="card"><h3><span>Open issue</span><span>full detail in the Review tab</span></h3><div class="issue"><b>High · Governing law and jurisdiction</b><small>Blank placeholders, no governing law or forum chosen.</small></div></div></div>
+<div class="stk">${rel}${owner}${docs}${ask}</div></div></div></div>`;
+
+const defs = [
+ ["A · Decision first","One main column with a slim side column. Your approval sits at the very top; request details, issue, comments and activity follow. Steps, counterparty, people and documents live in the side column."],
+ ["B · Case file","The steps run down the left as a vertical timeline you can read at a glance. Everything else is one long column in order of importance: decision, request, issues, counterparty, documents, comments, activity."],
+ ["C · Tabs","A short Overview: the decision, the request, and one line for the issue. Review, Workflow, Activity and Comments move to their own tabs (shown with counts), so nothing is repeated."]
+];
+const htmls=[A,B,C], slots=document.getElementById("slots");
+const fits=[];
+defs.forEach((d,i)=>{
+  const w=document.createElement("div"); w.style.marginBottom="28px";
+  w.innerHTML=`<div class="label"><b>${d[0]}</b><span>${d[1]}</span></div><div class="fit"><div class="scr">${htmls[i]}</div></div>`;
+  slots.appendChild(w); fits.push(w.querySelector(".fit"));
+});
+function fit(){
+  fits.forEach(f=>{
+    const s=f.querySelector(".scr"); s.style.transform="none"; f.style.height="auto";
+    const k=Math.min(1,f.clientWidth/1100); s.style.transform=`scale(${k})`; f.style.height=(s.offsetHeight*k)+"px";
+  });
+}
+addEventListener("resize",fit); fit();
+if(document.fonts&&document.fonts.ready) document.fonts.ready.then(fit);
+</script>

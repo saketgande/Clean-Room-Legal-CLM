@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -247,3 +248,55 @@ class DraftContractResponse(RequestResponse):
     from (FR-47): None when the template passes, or when the contract was not drafted from a template."""
 
     template_notice: str | None = None
+
+
+# ---- request activity ------------------------------------------------------
+
+class ActivityItem(BaseModel):
+    id: str
+    at: datetime
+    sentence: str
+    who: str
+    source: Literal["request", "contract"]
+    tone: Literal["ai", "stage", "done", "plain"]
+    system: bool
+
+
+class RequestActivityResponse(BaseModel):
+    items: list[ActivityItem]
+    truncated: bool
+
+
+# ---- counterparty files (only what the viewer may see) ----------------------
+
+class CounterpartySummary(BaseModel):
+    contracts: int
+    active: int
+    requests: int
+
+
+class CounterpartyContractItem(BaseModel):
+    id: str
+    title: str
+    contract_type: str | None
+    stage: str
+    value: float | None
+    currency: str | None
+    created_at: datetime
+    ended: bool
+
+
+class CounterpartyRequestItem(BaseModel):
+    id: str
+    ref: str
+    type_label: str
+    status: str
+    date: datetime | None
+
+
+class RequestCounterpartyResponse(BaseModel):
+    name: str | None
+    summary: CounterpartySummary
+    note: str | None
+    contracts: list[CounterpartyContractItem]
+    requests: list[CounterpartyRequestItem]

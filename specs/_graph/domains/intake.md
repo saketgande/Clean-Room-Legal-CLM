@@ -27,7 +27,10 @@ Owner agents: backend-dev, db-engineer
 - `GET /intake/requests/mine` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
 - `GET /intake/requests/pool` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
 - `GET /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
+- `GET /intake/requests/{request_id}/activity` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestActivityResponse
 - `GET /intake/requests/{request_id}/approval-chain` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/requests/{request_id}/approval-summary` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: ?
+- `GET /intake/requests/{request_id}/counterparty` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestCounterpartyResponse
 - `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests/{request_id}/handoffs` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[HandoffResponse]
 - `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
@@ -63,7 +66,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AssigneeResponse, AttachmentIn, DraftContractResponse, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+ActivityItem, AssigneeResponse, AttachmentIn, CounterpartyContractItem, CounterpartyRequestItem, CounterpartySummary, DraftContractResponse, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestActivityResponse, RequestCounterpartyResponse, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -81,10 +84,13 @@ AssigneeResponse, AttachmentIn, DraftContractResponse, DraftResponse, DraftSave,
 ## Frontend counterpart
 
 Api group: `intakeApi` (confidence: exact)
+- `intakeApi.activity()` -> `GET /intake/requests/${id}/activity`
 - `intakeApi.approvalChain()` -> `GET /intake/requests/${id}/approval-chain`
 - `intakeApi.approvalPreview()` -> `POST /intake/approval-preview`
+- `intakeApi.approvalSummary()` -> `GET /intake/requests/${id}/approval-summary`
 - `intakeApi.assignToMe()` -> `POST /intake/requests/${id}/assign-to-me`
 - `intakeApi.assignees()` -> `GET /intake/assignees`
+- `intakeApi.counterparty()` -> `GET /intake/requests/${id}/counterparty`
 - `intakeApi.create()` -> `POST /intake/requests`
 - `intakeApi.createDraft()` -> `POST /intake/drafts`
 - `intakeApi.createTask()` -> `POST /intake/requests/${id}/tasks`

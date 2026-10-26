@@ -4,6 +4,8 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ApprovalsPage from "./page";
 import type { ApprovalRequest } from "@/lib/types";
+import { RISK_ACK_REQUIRED_MESSAGE } from "@/lib/types";
+import { HttpError } from "@/lib/api";
 
 // The Approvals page: what it counts as "yours to action", how it names a row, and the Delegate /
 // Escalate / Reject boxes (which say what they are for, and only offer people the server accepts).
@@ -167,5 +169,26 @@ describe("the boxes and messages say which contract", () => {
     expect(await within(box).findByText(/No senior approver is available/)).toBeInTheDocument();
     expect(h.approvalsApi.reassignCandidates).toHaveBeenCalledWith("a-1", "escalate");
     expect(within(box).getByRole("button", { name: "Escalate" })).toBeDisabled();
+  });
+});
+
+describe("the open-risk acknowledgement", () => {
+  it("asks once on the 422 and resends with the acknowledgement; declining sends nothing more", async () => {
+    // Failure mode: with no checkbox on this page, an approver could never approve a contract with open high risks.
+    h.approvalsApi.decide.mockRejectedValueOnce(new HttpError(422, RISK_ACK_REQUIRED_MESSAGE)).mockResolvedValueOnce({});
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(h.approvalsApi.decide).toHaveBeenCalledTimes(2));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(h.approvalsApi.decide).toHaveBeenLastCalledWith("a-1", "approve", undefined, true);
+
+    h.approvalsApi.decide.mockReset();
+    h.approvalsApi.decide.mockRejectedValueOnce(new HttpError(422, RISK_ACK_REQUIRED_MESSAGE));
+    confirm.mockReturnValue(false);
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(h.notify).toHaveBeenLastCalledWith(RISK_ACK_REQUIRED_MESSAGE, "error"));
+    expect(h.approvalsApi.decide).toHaveBeenCalledTimes(1);
+    confirm.mockRestore();
   });
 });

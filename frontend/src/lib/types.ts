@@ -174,6 +174,8 @@ export interface IntakeApprovalRung {
   chain_instance_id?: ID | null;    // NEW — the pair approvalChainsApi.decide needs
   explanation?: string | null;      // NEW — FR-7 text, null for a base requirement
   blocked?: boolean;                // NEW — mirrors requirement.is_unfulfillable (FR-19)
+  can_decide: boolean;
+  decisions: ApprovalDecisionEntry[];
 }
 export interface IntakeTask {
   id: ID; request_id: ID; title: string; description: string | null;
@@ -2726,3 +2728,76 @@ export interface TemplateTypeOptions { bindings: TemplateBindingOption[]; playbo
 
 // Intake — POST /intake/requests/{id}/draft-contract
 export interface DraftContractResult extends IntakeRequest { template_notice: string | null; }
+
+// 009 — approve on the request page. Mirrors plan.md's interface freeze exactly.
+export type ApprovalView = "general" | "finance" | "legal";
+export type ApprovalFactSource = "verified" | "extracted" | "requester-stated";
+export type ApprovalFactKey =
+  | "value" | "term" | "payment_terms" | "liability" | "renewal"
+  | "playbook_risk" | "indemnity" | "termination" | "governing_law" | "non_standard"
+  | "overall_risk" | "top_issues";
+export interface ApprovalFact {
+  key: ApprovalFactKey;
+  label: string;
+  value: string | null;              // null → render "Not available"
+  source: ApprovalFactSource | null; // null iff value is null
+  quote: boolean;                    // clause wording: render as quoted text
+}
+export interface ApprovalSummary {
+  request_id: ID;
+  contract_id: ID | null;
+  approval_request_id: ID | null;
+  profile: ApprovalView;
+  fields: ApprovalFact[];
+  open_risk: { critical: number; high: number };
+}
+export interface ApprovalDecisionEntry {
+  approver_user_id: ID;
+  approver_name: string | null;
+  decision: "approve" | "reject";
+  comment: string | null;
+  decided_at: string;
+}
+/** The decision route's 422 when open critical/high risks were not acknowledged (exact server text). */
+export const RISK_ACK_REQUIRED_MESSAGE = "Open critical or high risks must be acknowledged before approving";
+
+// GET /intake/requests/{id}/activity — the request's and its contract's history, already in plain words.
+export interface RequestActivityItem {
+  id: string; // opaque React key; never displayed
+  at: string; // ISO-8601 with offset
+  sentence: string;
+  who: string; // a person's name, "AI", "Aegis" or "Counterparty"
+  source: "request" | "contract";
+  tone: "ai" | "stage" | "done" | "plain";
+  system: boolean; // hidden until "Show system details"
+}
+export interface RequestActivity {
+  items: RequestActivityItem[]; // newest first, at most 500
+  truncated: boolean;
+}
+
+// GET /intake/requests/{id}/counterparty — only what this viewer may see.
+export interface CounterpartyContractItem {
+  id: ID;
+  title: string;
+  contract_type: string | null;
+  stage: string; // Contract.lifecycle_stage
+  value: number | null;
+  currency: string | null;
+  created_at: string;
+  ended: boolean; // closed, archived or past its expiry date
+}
+export interface CounterpartyRequestItem {
+  id: ID;
+  ref: string;
+  type_label: string;
+  status: string; // IntakeStatus value
+  date: string | null;
+}
+export interface RequestCounterparty {
+  name: string | null;
+  summary: { contracts: number; active: number; requests: number };
+  note: string | null;
+  contracts: CounterpartyContractItem[]; // live first, then ended; newest first; at most 100
+  requests: CounterpartyRequestItem[]; // newest first; at most 100
+}

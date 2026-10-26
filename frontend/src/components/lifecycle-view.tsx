@@ -254,6 +254,39 @@ export function LifecycleView({
   );
 }
 
+export interface StepFacts {
+  who: string | null;
+  members: string[];
+  authorityNote: string | null;
+  due: Date | null;
+  overdue: boolean;
+}
+
+function stepTeam(step: WorkflowRunStep, teams?: IntakeTeam[]) {
+  return (teams ?? []).find((t) => t.id === step.team_id) ?? (teams ?? []).find((t) => t.name === (step.team_label ?? step.planned_team_label));
+}
+
+/** Who an open step waits on and by when. NextStepCard and the request page's workflow tiles both
+ *  read this, so the "who / due / overdue / team" rules cannot drift between the two screens. */
+export function stepFacts(step: WorkflowRunStep, teams?: IntakeTeam[], now: number = Date.now()): StepFacts {
+  const team = stepTeam(step, teams);
+  // An approval step reports the live approval itself (who holds it now, and its own due date), which is
+  // what Delegate and Escalate change; the step's team and "started + SLA hours" are only the plan.
+  const live = step.approval ?? null;
+  const sla = Number(step.sla_hours);
+  const slaDue = sla > 0 && step.updated_at ? new Date(new Date(step.updated_at).getTime() + sla * 3_600_000) : null;
+  const due = live ? (live.due_at ? new Date(live.due_at) : null) : slaDue;
+  const overdue = live ? live.overdue : due != null && due.getTime() < now;
+  const noOwner = !live && !step.assignee_label;
+  const members = noOwner && team ? (team.members ?? []).filter((m) => m.active).map((m) => m.name ?? m.user_id) : [];
+  const text = live ? live.approver_label
+    : step.assignee_label ? `${step.assignee_label}${team ? ` (${team.name})` : ""}`
+    : team ? `${team.name} team`
+    : step.type === "signature" ? "the signers"
+    : who(step) !== NOBODY ? who(step) : null;
+  return { who: text, members, authorityNote: step.authority_note ?? null, due, overdue };
+}
+
 /** The step the work is waiting on, who can do it, by when, and what comes after. */
 export function NextStepCard({ run, teams }: { run: WorkflowRun; teams?: IntakeTeam[] }) {
   const steps = run.steps ?? [];
@@ -262,15 +295,9 @@ export function NextStepCard({ run, teams }: { run: WorkflowRun; teams?: IntakeT
   }
   const cur = steps.find((s) => OPEN.has(s.status)) ?? steps[run.current_index];
   if (!cur) return null;
-  const team = (teams ?? []).find((t) => t.id === cur.team_id) ?? (teams ?? []).find((t) => t.name === (cur.team_label ?? cur.planned_team_label));
-  const members = (team?.members ?? []).filter((m) => m.active).map((m) => m.name ?? m.user_id);
-  // An approval step reports the live approval itself (who holds it now, and its own due date), which is
-  // what Delegate and Escalate change; the step's team and "started + SLA hours" are only the plan.
+  const team = stepTeam(cur, teams);
   const live = cur.approval ?? null;
-  const sla = Number(cur.sla_hours);
-  const slaDue = sla > 0 && cur.updated_at ? new Date(new Date(cur.updated_at).getTime() + sla * 3_600_000) : null;
-  const due = live ? (live.due_at ? new Date(live.due_at) : null) : slaDue;
-  const overdue = live ? live.overdue : due != null && due.getTime() < Date.now();
+  const { members, due, overdue } = stepFacts(cur, teams);
   let end = run.current_index + 1;
   while (end < steps.length && steps[end].parallel) end++;
   const then = steps[end];

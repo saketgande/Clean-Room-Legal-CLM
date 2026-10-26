@@ -17,6 +17,7 @@ import type {
   AiUsageTraffic,
   ApprovalChainStep,
   ApprovalRequest,
+  ApprovalSummary,
   ApprovalReviewContext,
   ApproverBrief,
   AssistantMessage,
@@ -102,6 +103,8 @@ import type {
   IntakeApprovalRung,
   IntakeTask,
   IntakeHandoff,
+  RequestActivity,
+  RequestCounterparty,
   IntakeAssignee,
   IntakeMyWork,
   IntakeSlaLegs,
@@ -1101,10 +1104,11 @@ export const approvalsApi = {
     id: string,
     decision: "approve" | "reject",
     comment?: string,
+    acknowledgedOpenRisks?: boolean,
   ) =>
     apiFetch<ApprovalRequest>(`/approvals/requests/${id}/decision`, {
       method: "POST",
-      body: { decision, comment },
+      body: { decision, comment, acknowledged_open_risks: acknowledgedOpenRisks ?? false },
     }),
   reassign: (id: string, to_user_id: string, kind: "delegate" | "escalate") =>
     apiFetch<ApprovalRequest>(`/approvals/requests/${id}/reassign`, {
@@ -1510,6 +1514,9 @@ export const intakeApi = {
   handoff: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}/handoff`, { method: "POST", body: payload }),
   handoffs: (id: string) => apiFetch<IntakeHandoff[]>(`/intake/requests/${id}/handoffs`),
+  activity: (id: string) => apiFetch<RequestActivity>(`/intake/requests/${id}/activity`),
+  counterparty: (id: string) =>
+    apiFetch<RequestCounterparty>(`/intake/requests/${id}/counterparty`),
 
   // tasks
   tasks: (id: string) => apiFetch<IntakeTask[]>(`/intake/requests/${id}/tasks`),
@@ -1530,6 +1537,11 @@ export const intakeApi = {
     apiFetch<IntakeApprovalPreview>("/intake/approval-preview", { method: "POST", body }),
   approvalChain: (id: string) =>
     apiFetch<IntakeApprovalRung[]>(`/intake/requests/${id}/approval-chain`),
+  approvalSummary: (id: string, approvalRequestId?: string) =>
+    apiFetch<ApprovalSummary>(
+      `/intake/requests/${id}/approval-summary` +
+        (approvalRequestId ? `?approval_request_id=${encodeURIComponent(approvalRequestId)}` : ""),
+    ),
 
   // channel sync — Gmail intake polling (email → request)
   gmailSync: () =>

@@ -1,4 +1,5 @@
 import { fmtDate } from "./utils";
+import type { RequestActivityItem, RequestCounterparty } from "./types";
 
 /** Small, testable rules behind the request page's "At a glance" facts and its set-up window. */
 
@@ -64,38 +65,28 @@ export function approvalsText(p: {
   return p.noWorkflow ? "Decided when a person picks the workflow after filing" : "None on this workflow";
 }
 
-export interface TrailItem {
-  key: string;
-  who: string;
-  what: string;
-  at: string | null;
-  /** "you" = the requester, "cp" = a person on the other side or a person's hand-over, "note" = a workflow comment. */
-  tone: "you" | "agent" | "cp" | "note";
+/** The Activity list grouped under day headings. Keeps the given (newest-first) order; the label is the local
+ *  date ("14 Oct"), with the year when it is not the current one. */
+export function groupActivityByDay(items: RequestActivityItem[], now: number = Date.now()): { day: string; items: RequestActivityItem[] }[] {
+  const year = new Date(now).getFullYear();
+  const out: { key: string; day: string; items: RequestActivityItem[] }[] = [];
+  for (const it of items) {
+    const d = new Date(it.at);
+    const key = Number.isNaN(d.getTime()) ? "" : `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const last = out[out.length - 1];
+    if (last && last.key === key) { last.items.push(it); continue; }
+    const day = key ? d.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(d.getFullYear() === year ? {} : { year: "numeric" }) }) : "Earlier";
+    out.push({ key, day, items: [it] });
+  }
+  return out.map(({ day, items }) => ({ day, items }));
 }
 
-/** The request's Activity list: raised, hand-overs and the notes written on the workflow, oldest first.
- *  Notes used to be left out, so a comment made on the request left no trace in its Activity. */
-export function activityTrail(p: {
-  requester: string | null;
-  raisedAt: string | null;
-  handoffs: { id: string; to_label?: string | null; to_holder?: string | null; reason?: string | null; created_at?: string | null; actor_type?: string | null }[];
-  comments: { actor_name: string; text: string; at: string; kind: string }[];
-}): TrailItem[] {
-  const items: TrailItem[] = [
-    { key: "raised", who: p.requester ?? "Requester", what: "raised this request", at: p.raisedAt, tone: "you" },
-    ...p.handoffs.map((h): TrailItem => ({
-      key: `h-${h.id}`, who: h.to_label ?? h.to_holder ?? "Someone", what: h.reason ?? "took custody",
-      at: h.created_at ?? null, tone: h.actor_type === "agent" ? "agent" : "cp",
-    })),
-    ...p.comments.map((c, i): TrailItem => ({
-      key: `c-${i}-${c.at}`, who: c.actor_name,
-      what: c.kind === "return" ? `sent it back: ${c.text}` : c.kind === "reply" ? `replied to the rejection: ${c.text}` : `wrote: ${c.text}`,
-      at: c.at, tone: "note",
-    })),
-  ];
-  const time = (t: string | null) => (t ? Date.parse(t) : Number.NaN);
-  return items
-    .map((item, order) => ({ item, order, t: time(item.at) }))
-    .sort((a, b) => (Number.isNaN(a.t) || Number.isNaN(b.t) ? a.order - b.order : a.t - b.t || a.order - b.order))
-    .map((x) => x.item);
+/** "5 other contracts · 2 active · 7 earlier requests": parts only when above zero; nothing at all → null. */
+export function counterpartySummary(s: RequestCounterparty["summary"]): string | null {
+  const parts = [
+    s.contracts > 0 ? `${s.contracts} other contract${s.contracts === 1 ? "" : "s"}` : null,
+    s.active > 0 ? `${s.active} active` : null,
+    s.requests > 0 ? `${s.requests} earlier request${s.requests === 1 ? "" : "s"}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : null;
 }

@@ -137,7 +137,7 @@ export default function IntakePage() {
       ) : null}
 
       {detailId ? (
-        <RequestOverview id={detailId} canManage={isStaff} onBack={() => setDetailId(null)} />
+        <RequestOverview key={detailId} id={detailId} canManage={isStaff} onBack={() => setDetailId(null)} onOpenRequest={setDetailId} />
       ) : (
         <>
           {section === "queue" && <LegalIntakeBoard onOpen={setDetailId} mode="pool" />}

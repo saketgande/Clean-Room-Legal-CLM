@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { LifecycleView } from "./lifecycle-view";
+import { LifecycleView, stepFacts } from "./lifecycle-view";
 
 // Two screens put this view in a page header: the request overview (the grid of stages, in the
 // app's own colours) and the contract page (one slim row, in that page's colours). The slim row is
@@ -70,5 +70,21 @@ describe("the stage captions count what happened", () => {
 
   it("keeps the plain wording when nothing was skipped", () => {
     expect(captionOf([stepOf(0, "done", "review"), stepOf(1, "done", "review")], "Review")).toBe("2 of 2 done");
+  });
+});
+
+describe("stepFacts", () => {
+  const team = { id: "t1", name: "Finance", members: [{ user_id: "u1", name: "Asha", active: true }, { user_id: "u2", name: "Gone", active: false }] } as never;
+  const open = (over: object) => ({
+    idx: 0, type: "approval", name: "Sign-off", status: "waiting_human", assignee_user_id: null, assignee_label: null,
+    team_id: "t1", team_label: "Finance", note: null, result: null, updated_at: null, ...over,
+  }) as never;
+
+  it("lets the live approval win over the team, and lists active members only when it waits on a team", () => {
+    /* Guards the tiles and the next-step card telling different stories about who holds a step. */
+    const live = stepFacts(open({ approval: { approver_label: "Casey", step_order: 1, due_at: "2026-10-01T00:00:00Z", overdue: true } }), [team]);
+    expect(live).toMatchObject({ who: "Casey", members: [], overdue: true });
+    const waiting = stepFacts(open({}), [team]);
+    expect(waiting).toMatchObject({ who: "Finance team", members: ["Asha"], due: null, overdue: false });
   });
 });

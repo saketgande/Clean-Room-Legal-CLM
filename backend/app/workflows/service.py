@@ -2155,6 +2155,30 @@ def _refuse_clash(db: Session, flow: Workflow) -> None:
                             f"“{other}” is already used for that request — each can pick only one workflow.")
 
 
+# What an Approval step shows its approver on the request page (spec 009). Only this setting
+# picks the view; team names and roles are never read.
+APPROVAL_VIEWS = ("general", "finance", "legal")
+
+
+def approval_view_for(db: Session, *, run: WorkflowRun | None, approval_request_id: str | None) -> str:
+    """The approver view of the run's step that owns this approval, from the run's own copy of
+    the steps (a view changed later applies to runs started afterwards). Unset or unknown is
+    "general"."""
+    if run is None:
+        return "general"
+    sruns = [sr for sr in _step_runs(db, run) if sr.step_type == "approval"]
+    owner = next(
+        (sr for sr in sruns
+         if approval_request_id and isinstance(sr.result, dict)
+         and approval_request_id in (sr.result.get("approval_ids") or [])),
+        None,
+    ) or next((sr for sr in sruns if (sr.status or "").startswith("waiting")), None)
+    if owner is None or not 0 <= owner.idx < len(run.steps or []):
+        return "general"
+    view = ((run.steps[owner.idx] or {}).get("config") or {}).get("summary")
+    return view if view in APPROVAL_VIEWS else "general"
+
+
 def _clean_steps(steps: list) -> list:
     out = []
     for i, s in enumerate(steps):
@@ -2183,6 +2207,10 @@ def _clean_steps(steps: list) -> list:
                 "value": cond.get("value"),
             }
             _validate_condition(step["cond"], step["name"])
+        view = step["config"].get("summary") if t == "approval" else None
+        if view is not None and view not in APPROVAL_VIEWS:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                "Approver view must be general, finance or legal")
         for key in ("skip_when", "skip_if"):
             rule = step["config"].get(key)
             if isinstance(rule, dict) and rule.get("field"):

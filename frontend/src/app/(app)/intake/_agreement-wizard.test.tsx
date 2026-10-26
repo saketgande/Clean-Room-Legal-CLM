@@ -567,6 +567,17 @@ describe("a saved form that holds the old free-text answer (FR-34, AC-37)", () =
   });
 });
 
+describe("saving a draft before leaving the first page", () => {
+  it("sends visited of at least 1, which the server requires (a 0 was refused with a 422)", async () => {
+    h.intakeApi.createDraft.mockResolvedValue({ id: "d-9", updated_at: "2026-10-26T00:00:00Z" });
+    mount("sow");
+    await screen.findByLabelText("Which master agreement is this under?");
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+    await waitFor(() => expect(h.intakeApi.createDraft).toHaveBeenCalled());
+    expect((h.intakeApi.createDraft.mock.calls[0][0] as { visited: number }).visited).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe("while the form's questions load, and when they cannot (FR-17, AC-20)", () => {
   it("shows no table and no questions until the form has loaded", async () => {
     let resolveForms: (v: unknown) => void = () => undefined;

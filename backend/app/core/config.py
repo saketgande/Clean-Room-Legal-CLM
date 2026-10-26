@@ -268,7 +268,7 @@ class Settings(BaseSettings):
     # hard ceiling on max_tokens for any single request so a runaway prompt
     # can't blow the budget in one call.
     claude_daily_token_cap_per_org: int = 5_000_000
-    claude_max_tokens_ceiling: int = 8000
+    claude_max_tokens_ceiling: int = 16000
 
     # Upload pipeline safety nets.
     upload_stream_chunk_bytes: int = 1024 * 1024  # 1 MB chunks

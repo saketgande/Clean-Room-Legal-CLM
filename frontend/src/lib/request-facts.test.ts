@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activityTrail, approvalsText, beforeWorkflow, isBeingSetUp, SETUP_WINDOW_MS, termFact } from "./request-facts";
+import { approvalsText, beforeWorkflow, counterpartySummary, groupActivityByDay, isBeingSetUp, SETUP_WINDOW_MS, termFact } from "./request-facts";
 import { fmtDate } from "./utils";
 
 // The dates are shown the way the rest of the app shows a date, not as the stored YYYY-MM-DD (round 2, bug 48).
@@ -90,28 +90,29 @@ describe("approvalsText", () => {
   });
 });
 
-describe("activityTrail", () => {
-  it("puts the notes written on the workflow into the Activity, in time order", () => {
-    const trail = activityTrail({
-      requester: "Asha",
-      raisedAt: "2026-10-08T09:00:00Z",
-      handoffs: [{ id: "h1", to_label: "Legal", reason: "took custody", created_at: "2026-10-08T09:05:00Z", actor_type: "agent" }],
-      comments: [
-        { actor_name: "Erin", text: "Please check clause 9", at: "2026-10-08T09:10:00Z", kind: "comment" },
-        { actor_name: "Erin", text: "redo the draft", at: "2026-10-08T09:02:00Z", kind: "return" },
-      ],
-    });
-    expect(trail.map((t) => [t.who, t.what])).toEqual([
-      ["Asha", "raised this request"],
-      ["Erin", "sent it back: redo the draft"],
-      ["Legal", "took custody"],
-      ["Erin", "wrote: Please check clause 9"],
-    ]);
+describe("groupActivityByDay", () => {
+  const item = (id: string, at: string) => ({ id, at, sentence: id, who: "Sam", source: "request" as const, tone: "plain" as const, system: false });
+  const now = Date.parse("2026-10-23T12:00:00");
+  it("keeps the given order, one heading per local day, and adds the year only for another year", () => {
+    /* Guards the days being re-sorted (newest first is the user's decision) or an old date losing its year. */
+    const g = groupActivityByDay([item("a", "2026-10-14T15:00:00"), item("b", "2026-10-14T09:00:00"), item("c", "2025-03-02T09:00:00")], now);
+    expect(g.map((x) => [x.day, x.items.map((i) => i.id)])).toEqual([["14 Oct", ["a", "b"]], ["2 Mar 2025", ["c"]]]);
   });
+  it("returns nothing for nothing", () => {
+    /* Guards a stray empty heading. */
+    expect(groupActivityByDay([], now)).toEqual([]);
+  });
+});
 
-  it("keeps its order when a time is missing, and names a missing requester", () => {
-    const trail = activityTrail({ requester: null, raisedAt: null, handoffs: [{ id: "h1", to_holder: "Finance" }], comments: [] });
-    expect(trail.map((t) => t.who)).toEqual(["Requester", "Finance"]);
+describe("counterpartySummary", () => {
+  it("builds the line and leaves out zero parts", () => {
+    /* Guards "0 active" noise and wrong plurals. */
+    expect(counterpartySummary({ contracts: 5, active: 2, requests: 7 })).toBe("5 other contracts · 2 active · 7 earlier requests");
+    expect(counterpartySummary({ contracts: 1, active: 0, requests: 1 })).toBe("1 other contract · 1 earlier request");
+  });
+  it("is null when everything is zero", () => {
+    /* Guards an empty summary line being drawn. */
+    expect(counterpartySummary({ contracts: 0, active: 0, requests: 0 })).toBeNull();
   });
 });
 

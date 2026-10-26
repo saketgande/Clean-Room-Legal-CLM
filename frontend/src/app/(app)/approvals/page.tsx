@@ -14,7 +14,8 @@ import { contractDisplayName, statusTone, titleCase } from "@/lib/utils";
 import { dueText } from "@/lib/approval-due";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
-import type { ApprovalRequest } from "@/lib/types";
+import { HttpError } from "@/lib/api";
+import { RISK_ACK_REQUIRED_MESSAGE, type ApprovalRequest } from "@/lib/types";
 
 // tone -> local pill class
 function toneCls(tone: string): string {
@@ -129,7 +130,14 @@ function RequestsTab() {
   ) {
     setBusyId(req.id);
     try {
-      await approvalsApi.decide(req.id, decision, comment);
+      try {
+        await approvalsApi.decide(req.id, decision, comment);
+      } catch (e) {
+        // The server refuses an approve with open high risks until acknowledged (D4): ask once, resend once.
+        if (!(e instanceof HttpError && e.status === 422 && e.message === RISK_ACK_REQUIRED_MESSAGE)) throw e;
+        if (!window.confirm(`${e.message}.\n\nApprove anyway?`)) throw e;
+        await approvalsApi.decide(req.id, "approve", comment, true);
+      }
       qc.invalidateQueries({ queryKey: ["approvals"] });
       notify(`${decision === "approve" ? "Approved" : "Rejected"}: ${subjectName(req)}`, "success");
       setRejectFor(null);

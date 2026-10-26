@@ -249,8 +249,8 @@ for registered_spec in [
         allows_mutation=True,
         feature_flag="feature.ai.obligation_extraction",
         enabled_by_default=True,
-        # Each obligation now carries a typed timing block; 4096 cut off long contracts.
-        max_tokens=8192,
+        # Each obligation carries a typed timing block and a quote; 8000 cut off a 25k-character SaaS contract.
+        max_tokens=16000,
     ),
     SkillSpec(
         name="renewal_extraction",

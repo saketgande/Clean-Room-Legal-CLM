@@ -167,13 +167,17 @@ function StageCell({ r }: { r: IntakeRequest }) {
 }
 
 // ---------- the board ----------
-export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string) => void; mode?: "all" | "pool" }) {
+export function LegalIntakeBoard({ onOpen, mode: baseMode = "all" }: { onOpen: (id: string) => void; mode?: "all" | "pool" }) {
+  // The queue lists open requests; the "Show" filter swaps it for the finished ones.
+  const [showDone, setShowDone] = useState(false);
+  const mode = baseMode === "pool" && showDone ? "completed" : baseMode;
   const now = useNow(30_000);
   const qc = useQueryClient();
   const { notify } = useToast();
   const { data, isLoading, error, refetch } = useQuery({
-    queryKey: mode === "pool" ? ["intake-pool"] : ["intake-list"],
-    queryFn: () => (mode === "pool" ? intakeApi.pool() : intakeApi.list()),
+    queryKey: mode === "pool" ? ["intake-pool"] : mode === "completed" ? ["intake-completed"] : ["intake-list"],
+    // The pool holds open requests only; a finished one (approved, or closed once its contract is signed) is found in the full list.
+    queryFn: async () => (mode === "pool" ? intakeApi.pool() : mode === "completed" ? (await intakeApi.list()).filter((r) => !isOpenReq(r)) : intakeApi.list()),
     ...POLL,
   });
   const rows = useMemo(() => data ?? [], [data]);
@@ -268,6 +272,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
         </div>
         <FilterMenu label="Channel" options={channelOpts} selected={channelSel} onToggle={(v) => toggle(channelSel, setChannelSel, v)} />
         <FilterMenu label="Type" options={typeOpts} selected={typeSel} onToggle={(v) => toggle(typeSel, setTypeSel, v)} />
+        {baseMode === "pool" && <FilterMenu label="Show" options={[{ value: "done", label: "Completed requests", dot: "var(--good)" }]} selected={new Set(showDone ? ["done"] : [])} onToggle={() => setShowDone((d) => !d)} />}
         <FilterMenu label="Status" options={STATUS_FILTERS} selected={statusSel} onToggle={(v) => toggle(statusSel, setStatusSel, v)} />
         <select className="sortsel" value={sort} onChange={(e) => setSort(e.target.value)}>
           <option value="new">Newest first</option>
@@ -279,8 +284,8 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
         <span className="dim num" style={{ fontSize: 12 }}>{shown.length} of {rows.length}</span>
       </div>
 
-      {/* AI briefing */}
-      <div className={`brief${briefOpen ? "" : " collapsed"}`}>
+      {/* AI briefing — about open work, so not for the completed list */}
+      {mode !== "completed" && <div className={`brief${briefOpen ? "" : " collapsed"}`}>
         <div className="briefhd">
           <div className="aiglyph">✦</div>
           <div><b>Intake briefing</b> <span className="when">· reads your full queue</span></div>
@@ -324,7 +329,7 @@ export function LegalIntakeBoard({ onOpen, mode = "all" }: { onOpen: (id: string
             )) : <span className="dim" style={{ fontSize: 12 }}>Nothing overdue — queue is healthy.</span>}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* table */}
       <div className="tablewrap">

@@ -561,7 +561,8 @@ export function AgreementWizard({ def, draft, onFiled, onBack }: {
     setSaving(true);
     try {
       const payload = { form_key: def.key, title: subject(), values, parent_contract_id: parent?.id ?? null,
-        page_index: step, visited };
+        // The server counts pages from 1; a draft saved before moving off the first page has visited 0.
+        page_index: step, visited: Math.max(1, visited) };
       const saved = draftId ? await intakeApi.updateDraft(draftId, payload) : await intakeApi.createDraft(payload);
       setDraftId(saved.id); setSavedAt(saved.updated_at); setDirty(false);
       qc.invalidateQueries({ queryKey: ["intake-drafts"] });

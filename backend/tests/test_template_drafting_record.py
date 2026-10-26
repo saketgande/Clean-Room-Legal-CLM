@@ -525,12 +525,15 @@ def test_the_draft_contract_response_is_the_request_plus_the_template_notice():
 
 
 @pytest.fixture
-def as_user(client, db):
+def as_user(client, db, monkeypatch):
     """Calls the draft-contract route as ``user`` on the test session, with an in-memory store. The permission
     and screen gates are swapped for the user (their own tests are the permission suites'): what is under test
-    is the response the route builds."""
+    is the response the route builds. The user holds ``contract:read`` (the response only names the contract
+    to someone who may open it)."""
     from app.core.deps import get_db
     from app.main import app
+
+    monkeypatch.setattr(User, "permission_values", property(lambda u: {"contract:read"}))
 
     def act(user: User):
         app.dependency_overrides[get_db] = lambda: db

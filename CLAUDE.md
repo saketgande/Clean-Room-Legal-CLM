@@ -32,8 +32,14 @@ Run backend tests **inside the container** — they need Postgres, and the host
 Python is usually a different version than the image. The dev tools are
 installed as modules but their scripts aren't on the container's PATH, so use
 `python -m`. `conftest.py` forces every `MOCK_*` on, so the dev container's
-real API keys are never spent by a test run — but tests do write rows into
-the dev database.
+real API keys are never spent by a test run. Tests commit rows (many open their
+own sessions or drive the API), so they run against a **separate database**,
+`legal_clm_test`, never the dev one: `conftest.py` picks it via
+`tests/_testdb.py` and refuses to start on any database whose name doesn't end in
+`_test`. One-time setup: `make test-db` (creates it, runs the migrations, seeds
+the dev admin); re-run it after adding a migration, and `make test-db-reset`
+rebuilds it from scratch. `TEST_DATABASE_URL` overrides the target; on CI
+(`CI=true`) the workflow's own service database is used unchanged.
 
 ```bash
 docker compose exec backend python -m pytest -q                       # whole suite

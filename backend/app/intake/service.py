@@ -468,6 +468,14 @@ def _decode_b64(content_b64: str, filename: str) -> bytes:
 _PARTY_ROLES = {"counterparty", "adverse", "related", "our_side"}
 
 
+def _public_screening(screening: dict | None) -> dict | None:
+    """Old rows still hold an org-wide `relationship` dossier (counts, total value) that every
+    viewer would receive; it is never sent. The per-viewer read is GET .../counterparty."""
+    if not isinstance(screening, dict):
+        return screening
+    return {k: v for k, v in screening.items() if k != "relationship"}
+
+
 def _accessible(user: User):
     """Staff (intake:read) see the whole org queue; everyone else only their own."""
     from app.core.rbac import has_permission
@@ -648,15 +656,73 @@ class IntakeService:
                           .order_by(WorkflowRun.created_at.desc())).first()
 
     def _contract_title(self, contract_id: str | None) -> str | None:
-        db = self.db
-        if not contract_id:
-            return None
         from app.contracts.models import Contract
-        c = db.get(Contract, contract_id)
+        c = self.db.get(Contract, contract_id) if contract_id else None
         return c.title if c else None
 
-    def serialize_request(self, r: IntakeRequest) -> dict:
+    def _visible_contracts(self, viewer: User, contract_ids: set[str]) -> dict[str, str]:
+        """{contract id: title} for the contracts this viewer may open, in ONE query for the
+        owner / creator / admin / granted ones (the contract list's own filter); none at all
+        without ``contract:read`` (as the counterparty read does). The rest get the contract
+        page's other two doors, silently (no access.denied row): not sealed off by a wall or
+        clearance, and a pending approver or a workflow-step assignee of it. A contract missing
+        from the result reads as absent.
+        ponytail: one or two small queries per contract that is not owner/admin/granted (normally
+        zero to a few); batch the approver / assignee lookup if a queue shows many of them."""
+        from app.contracts.access import (
+            ContractAccessService,
+            accessible_contract_filter,
+            is_sealed_off,
+        )
+        from app.contracts.models import Contract
+        from app.core.rbac import has_permission
+
+        if not contract_ids or not has_permission(viewer.permission_values, "contract:read"):
+            return {}
+        rows = self.db.execute(select(Contract.id, Contract.title).where(
+            Contract.id.in_(contract_ids), Contract.deleted_at.is_(None),
+            accessible_contract_filter(viewer))).all()
+        out = {cid: title for cid, title in rows}
+        rest = contract_ids - out.keys()
+        if rest:
+            access = ContractAccessService(self.db)
+            for c in self.db.scalars(select(Contract).where(
+                    Contract.id.in_(rest), Contract.deleted_at.is_(None),
+                    Contract.org_id == viewer.org_id)):
+                # deny-overrides first: a walled / under-cleared approver still sees nothing
+                if is_sealed_off(self.db, user=viewer, contract=c):
+                    continue
+                if (access._is_pending_approver(contract=c, user=viewer)
+                        or access._is_workflow_assignee(contract=c, user=viewer)):
+                    out[c.id] = c.title
+        return out
+
+    def contract_hidden_from(self, viewer: User, r: IntakeRequest) -> bool:
+        """True when the request has a contract this viewer may not open."""
+        return bool(r.contract_id) and r.contract_id not in self._visible_contracts(
+            viewer, {r.contract_id})
+
+    def serialize_requests(self, rows: list[IntakeRequest], viewer: User) -> list[dict]:
+        """List form of serialize_request: one visibility query for the whole page."""
+        visible = self._visible_contracts(viewer, {r.contract_id for r in rows if r.contract_id})
+        return [self.serialize_request(r, viewer, visible=visible) for r in rows]
+
+    def serialize_request(self, r: IntakeRequest, viewer: User | None = None, *,
+                          visible: dict[str, str] | None = None) -> dict:
+        """``viewer`` (else the user ``get_request`` loaded the row for) decides whether the
+        contract id/title show: a contract the viewer may not open reads as no contract at all.
+        Only gmail_sync's system re-serialize and the module-level wrapper have no viewer and
+        keep showing the contract; neither returns it to a user."""
         from app.intake.screening import gather_parties
+
+        viewer = viewer or getattr(r, "_viewer", None)
+        if viewer is None:
+            contract_id, contract_title = r.contract_id, self._contract_title(r.contract_id)
+        else:
+            if visible is None:
+                visible = self._visible_contracts(viewer, {r.contract_id} if r.contract_id else set())
+            contract_id = r.contract_id if r.contract_id in visible else None
+            contract_title = visible.get(contract_id) if contract_id else None
         return {
             "id": r.id,
             "ref": r.ref,
@@ -685,14 +751,14 @@ class IntakeService:
             "triaged_by_user_id": r.triaged_by_user_id,
             "triage_action": r.triage_action,
             "ai_triage": r.ai_triage,
-            "screening": r.screening,
+            "screening": _public_screening(r.screening),
             # The EFFECTIVE parties (structured list, else the legacy
             # field_values.counterparty), the same set the relationship note uses.
             "parties": gather_parties(r),
             "handoff_holder": r.handoff_holder,
             "handoff_user_id": r.handoff_user_id,
-            "contract_id": r.contract_id,
-            "contract_title": self._contract_title(r.contract_id),
+            "contract_id": contract_id,
+            "contract_title": contract_title,
             "workflow": _workflow(r, self._latest_run(r)),
             "created_at": _iso(r.created_at),
             # Which document "Approve & draft" would produce — decided here, by the
@@ -794,7 +860,7 @@ class IntakeService:
         self._compute_intake_analysis(r)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _pick_owner_team_candidates(self, *, org_id: str, category: str | None,
                                     department: str | None) -> list:
@@ -968,7 +1034,7 @@ class IntakeService:
             duplicate = self._recent_duplicate_request(actor=actor, payload=payload,
                                                   field_values=field_values)
             if duplicate is not None:
-                return self.serialize_request(duplicate)
+                return self.serialize_request(duplicate, actor)
         now = utcnow()
         r = IntakeRequest(
             org_id=actor.org_id, ref=self._next_ref(), source=payload.source,
@@ -1044,13 +1110,13 @@ class IntakeService:
                 # The request is saved; the reclaim sweep re-dispatches the queued job.
                 logger.warning("could not dispatch intake triage for request %s", r.id, exc_info=True)
             self.dispatch_screening(screening_job)
-            return self.serialize_request(r)
+            return self.serialize_request(r, actor)
         self._assign_and_notify(r, actor)
         db.commit()
         db.refresh(r)
         self.dispatch_screening(screening_job)
         self._enrich_after_commit(r, actor)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _apply_ai_triage(self, r: IntakeRequest) -> None:
         """Context-aware triage: the AI reads the WHOLE request for category,
@@ -1182,7 +1248,7 @@ class IntakeService:
         db.refresh(r)
         self.dispatch_screening(rescreen_job)
         self._attach_flow_suggestion(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def queue_screening(self, r: IntakeRequest, actor_id: str | None,
                         *, idempotent: bool = True):
@@ -1272,7 +1338,7 @@ class IntakeService:
             q = q.where(IntakeRequest.status == status_filter)
         rows = db.scalars(q.order_by(IntakeRequest.submitted_at.desc())).all()
         self._prefetch_serialize_dependencies(rows)
-        return [self.serialize_request(r) for r in rows]
+        return self.serialize_requests(rows, user)
 
     def _prefetch_serialize_dependencies(self, rows: list[IntakeRequest]) -> None:
         """Warm the session identity map so serialize_request's per-row db.get()
@@ -1312,6 +1378,7 @@ class IntakeService:
         can_read = is_org_admin(user) or has_permission(user.permission_values, "intake:read")
         if not can_read and r.requester_user_id != user.id:
             raise HTTPException(404, "Request not found")
+        r._viewer = user  # serialize_request's default viewer, so route code can't forget it
         return r
 
     def record_handoff(self, *, actor: User | None, request: IntakeRequest, to_holder: str,
@@ -1364,7 +1431,7 @@ class IntakeService:
                        sync_assignee=payload.sync_assignee)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
 
     def record_triage_action(self, *, actor: User, request_id: str, payload,
@@ -1422,7 +1489,7 @@ class IntakeService:
 
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _rung_label(self, *, user_id: str | None, team_id: str | None, role: str | None) -> str:
         db = self.db
@@ -1476,11 +1543,31 @@ class IntakeService:
             "counterparty_contact": party.contact_email if theirs_ok else None,
         }
 
-    def _serialize_chain(self, rows: list) -> list[dict]:
-        """One rung per ApprovalRequest, in order — the intake ladder strip."""
+    def _serialize_chain(self, rows: list, *, actor: User) -> list[dict]:
+        """One rung per ApprovalRequest, in order — the intake ladder strip. `can_decide` is
+        assigned-only (no admin shortcut) and false once the actor has decided the rung;
+        `decisions` are batch-loaded, oldest first."""
+        from app.approvals.models import ApprovalDecision
+        from app.approvals.routes import _can_decide_approval
         from app.approvals.service import _quorum_needed
+        from app.core.enums import ApprovalStatus
 
         db = self.db
+        by_rung: dict[str, list] = {}
+        names: dict[str, str | None] = {}
+        if rows:
+            decided = db.scalars(
+                select(ApprovalDecision)
+                .where(ApprovalDecision.org_id == actor.org_id,
+                       ApprovalDecision.approval_request_id.in_([a.id for a in rows]))
+                .order_by(ApprovalDecision.decided_at, ApprovalDecision.created_at)
+            ).all()
+            for d in decided:
+                by_rung.setdefault(d.approval_request_id, []).append(d)
+            uids = {d.approver_user_id for d in decided if d.approver_user_id}
+            if uids:
+                names = {u.id: (u.full_name or u.email or None) for u in db.scalars(
+                    select(User).where(User.org_id == actor.org_id, User.id.in_(uids)))}
         return [{
             "approval_request_id": a.id,
             "step_order": a.step_order,
@@ -1491,6 +1578,18 @@ class IntakeService:
             "approver_label": self._rung_label(user_id=a.approver_user_id,
                                           team_id=a.approver_team_id, role=a.approver_role),
             "due_at": a.due_at.isoformat() if a.due_at else None,
+            "can_decide": (
+                a.status == ApprovalStatus.PENDING  # a waiting/decided/cancelled rung is not open
+                and not any(d.approver_user_id == actor.id for d in by_rung.get(a.id, []))
+                and _can_decide_approval(db, approval=a, user=actor, assigned_only=True)
+            ),
+            "decisions": [{
+                "approver_user_id": d.approver_user_id,
+                "approver_name": names.get(d.approver_user_id),
+                "decision": d.decision,
+                "comment": d.comment,
+                "decided_at": d.decided_at.isoformat(),
+            } for d in by_rung.get(a.id, [])],
         } for a in rows]
 
     def get_approval_chain(self, *, actor: User, request_id: str) -> list[dict]:
@@ -1526,7 +1625,7 @@ class IntakeService:
                 .order_by(ApprovalRequest.created_at, ApprovalRequest.step_order)
             ).all()
         if rows:
-            return self._serialize_chain(rows)
+            return self._serialize_chain(rows, actor=actor)
         if r.status in ("closed", "approved"):
             return []
         flow = None if run else select_flow(db, request=r)
@@ -1540,6 +1639,8 @@ class IntakeService:
             "approver_label": self._rung_label(user_id=t.get("approver_user_id"),
                                           team_id=t.get("approver_team_id"), role=t.get("approver_role")),
             "due_at": None,
+            "can_decide": False,
+            "decisions": [],
         } for t in targets]
         for i, rung in enumerate(rungs):
             rung["step_order"] = i + 1
@@ -1673,7 +1774,7 @@ class IntakeService:
         scope = self._pool_scope_for_user(user)
         rows = [r for r in rows if _in_pool_scope(r, scope)]
         self._prefetch_serialize_dependencies(rows)
-        return [self.serialize_request(r) for r in rows]
+        return self.serialize_requests(rows, user)
 
     def claim_request(self, *, actor: User, request_id: str,
                       http_request_id: str | None = None) -> dict:
@@ -1702,7 +1803,7 @@ class IntakeService:
                         request_id=http_request_id, after={"assignee": actor.id})
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def my_work(self, *, user: User) -> dict:
         db = self.db
@@ -1726,7 +1827,7 @@ class IntakeService:
         ).all()
         return {
             "awaiting_review": [],  # triage removed — no AI recommendations to review
-            "my_tickets": [self.serialize_request(r) for r in tickets],
+            "my_tickets": self.serialize_requests(tickets, user),
             "my_tasks": [self.serialize_task(t) for t in tasks],
         }
 
@@ -1749,7 +1850,7 @@ class IntakeService:
                              actor_user_id=actor.id)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def build_sla_legs(self, *, request: IntakeRequest, now=None) -> dict:
         db = self.db
@@ -1836,7 +1937,7 @@ class IntakeService:
         r.updated_by_user_id = actor.id
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def sla_ops_summary(self, *, org_id: str) -> dict:
         db = self.db
@@ -1991,7 +2092,7 @@ class IntakeService:
         self._record_answer_changes(actor=actor, r=r, stored=stored, request_id=http_request_id)
         db.commit()
         db.refresh(r)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor)
 
     def _record_deliverables_change(self, *, actor: User, r: IntakeRequest, stored: dict,
                                     request_id: str | None) -> None:

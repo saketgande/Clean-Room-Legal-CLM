@@ -213,6 +213,21 @@ class ObligationTiming(BaseModel):
     # number and year are in the citation quote (core/deadlines.date_in_quote).
     explicit_date: date | None = None
 
+    # One off-list word from the model ("recurring", "hours") must not discard a whole
+    # contract's obligations. A recurring duty has no single deadline, so it reads as
+    # ongoing; a unit we cannot count leaves the deadline for a person ("enter the date").
+    @field_validator("kind", mode="before")
+    @classmethod
+    def _known_kind(cls, v):
+        if v in ("deadline", "ongoing", "condition"):
+            return v
+        return "ongoing" if v in ("recurring", "continuous", "continuing") else "condition"
+
+    @field_validator("period_unit", mode="before")
+    @classmethod
+    def _known_unit(cls, v):
+        return v if v in ("days", "business_days", "weeks", "months", "years") else None
+
 
 class ObligationOutput(BaseModel):
     obligation_type: str | None = None
