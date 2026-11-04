@@ -208,6 +208,12 @@ class TrademarkStatus(StrEnum):
     ABANDONED = "abandoned"
     LAPSED = "lapsed"
     RENEWED = "renewed"
+    # After filing: where the application stands with the office.
+    EXAMINATION = "examination"
+    PUBLISHED = "published"
+    OPPOSITION_PERIOD = "opposition_period"
+    REFUSED = "refused"
+    WITHDRAWN = "withdrawn"
 
 
 class TrademarkType(StrEnum):

@@ -63,32 +63,24 @@ export function DecisionPanel({ trademark }: { trademark: Trademark }) {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Current decision</CardTitle>
-        </CardHeader>
-        <CardBody className="space-y-2 text-[13px]">
-          {trademark.decision ? (
-            <>
-              <Badge tone={TONE[trademark.decision]}>{titleCase(trademark.decision)}</Badge>
-              {trademark.decision_conditions && (
-                <p className="whitespace-pre-wrap text-slate-700">{trademark.decision_conditions}</p>
-              )}
-              <p className="text-xs text-slate-500">Recorded {fmtDateTime(trademark.decided_at)}</p>
-            </>
-          ) : (
-            <p className="text-slate-500">No decision recorded yet.</p>
-          )}
-        </CardBody>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Record a decision</CardTitle>
+          <p className="flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs text-slate-500">
+            {trademark.decision ? (
+              <>
+                Current decision
+                <Badge tone={TONE[trademark.decision]}>{titleCase(trademark.decision)}</Badge>
+                recorded {fmtDateTime(trademark.decided_at)}
+              </>
+            ) : (
+              "No decision recorded yet"
+            )}
+          </p>
         </CardHeader>
         <CardBody className="space-y-4 text-[13px]">
           <MessageBar intent="info">
             Workflow step: {trademarkCase.step_name ?? "—"}
             {trademarkCase.assignee_name && ` · with ${trademarkCase.assignee_name}`}. Only the person this step is
-            assigned to (or an administrator) can record the decision; then complete the step in Progress.
+            assigned to (or an administrator) can record the decision; then complete the step in the Progress card on Overview.
           </MessageBar>
           <fieldset className="space-y-2">
             <legend className="text-[13px] font-medium text-slate-700">Decision</legend>

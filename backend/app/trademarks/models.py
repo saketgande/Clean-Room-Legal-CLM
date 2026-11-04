@@ -57,6 +57,10 @@ class Trademark(
     filing_form = Column(String(60), nullable=True)
     portal_reference = Column(String(120), nullable=True)
     docket_number = Column(String(120), nullable=True)
+    # Post-filing: the next date something is due with the office (a reply, a hearing, the end of
+    # the opposition period) and what it is. Set by the LTE's updates and examination/opposition logs.
+    next_action_on = Column(DateTime(timezone=True), index=True, nullable=True)
+    next_action_note = Column(Text, nullable=True)
     # The Legal Intake request this trademark was continued from, if any —
     # same deliberate choice as Notice.escalated_intake_request_id. Nullable:
     # a trademark can also be created directly (the standalone wizard path,

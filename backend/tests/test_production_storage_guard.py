@@ -16,7 +16,7 @@ from app.core.config import settings, validate_runtime_settings
 def _production(**overrides):
     safe = dict(
         environment="production", secret_key="s" * 40, setup_token="t" * 30,
-        mock_claude=False, mock_docusign=False, mock_reducto=False, mock_resend=False, mock_sendgrid=False,
+        mock_claude=False, mock_guardrails=False, mock_docusign=False, mock_reducto=False, mock_resend=False, mock_sendgrid=False,
         mock_signa=False,
         mock_tmsearch=False, mock_serper=False, expose_password_reset_token_in_response=False,
         expose_refresh_token_in_body=False, refresh_cookie_secure=True, refresh_cookie_samesite="lax",

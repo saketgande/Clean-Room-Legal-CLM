@@ -129,6 +129,8 @@ def test_runtime_settings_reject_password_reset_token_exposure_in_prod():
         secret_key="x" * 40,
         setup_token="y" * 32,
         mock_claude=False,
+        mock_guardrails=False,
+        guardrails_fail_closed=True,
         mock_docusign=False,
         mock_reducto=False,
         mock_resend=False,
@@ -149,6 +151,8 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
         secret_key="x" * 40,
         setup_token="y" * 32,
         mock_claude=False,
+        mock_guardrails=False,
+        guardrails_fail_closed=True,
         mock_docusign=False,
         mock_reducto=False,
         mock_resend=False,
@@ -170,6 +174,10 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
         expose_password_reset_token_in_response=False,
         storage_backend="s3",
         s3_bucket="clm-contracts",
+        rate_limit_enabled=True,
+        rate_limit_intake_create="10/minute;100/hour",
+        rate_limit_intake_read="120/minute;3000/hour",
+        rate_limit_intake_document="30/minute;300/hour",
     )
     # Must not raise.
     validate_runtime_settings(settings)
@@ -191,3 +199,47 @@ def test_a_token_ceiling_below_a_skills_budget_refuses_to_boot(environment):
         validate_runtime_settings(Settings(environment=environment, claude_max_tokens_ceiling=biggest - 1))
     validate_runtime_settings(Settings(environment="local", claude_max_tokens_ceiling=biggest))
     validate_runtime_settings(Settings(environment="local", claude_max_tokens_ceiling=0))
+
+
+def _prod_settings(**overrides) -> Settings:
+    base = dict(
+        environment="production",
+        secret_key="x" * 40,
+        setup_token="y" * 32,
+        mock_claude=False,
+        mock_guardrails=False,
+        guardrails_fail_closed=True,
+        mock_docusign=False,
+        mock_reducto=False,
+        mock_resend=False,
+        mock_sendgrid=False,
+        mock_signa=False,
+        mock_tmsearch=False,
+        mock_serper=False,
+        docusign_connect_hmac_key="z" * 40,
+        app_base_url="https://app.example.com",
+        cors_origins="https://app.example.com",
+        allowed_hosts="app.example.com",
+        refresh_cookie_secure=True,
+        refresh_cookie_samesite="strict",
+        expose_refresh_token_in_body=False,
+        expose_password_reset_token_in_response=False,
+        storage_backend="s3",
+        s3_bucket="clm-contracts",
+    )
+    base.update(overrides)
+    return Settings(**base)
+
+
+def test_runtime_settings_reject_rate_limiting_disabled_in_prod():
+    """With RATE_LIMIT_ENABLED off the agent intake limits are silently void."""
+    with pytest.raises(RuntimeError) as exc:
+        validate_runtime_settings(_prod_settings(rate_limit_enabled=False))
+    assert "RATE_LIMIT_ENABLED" in str(exc.value)
+
+
+def test_runtime_settings_reject_unparseable_intake_limit_in_prod():
+    """The limiter swallows errors, so a typo'd limit string would fail open."""
+    with pytest.raises(RuntimeError) as exc:
+        validate_runtime_settings(_prod_settings(rate_limit_intake_create="ten per minute"))
+    assert "RATE_LIMIT_INTAKE_CREATE" in str(exc.value)

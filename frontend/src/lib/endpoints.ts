@@ -106,6 +106,7 @@ import type {
   PromptVersion,
   PromptUsage,
   IntakeRequest,
+  IntakeRequestCreateResult,
   IntakeApprovalRung,
   IntakeTask,
   IntakeHandoff,
@@ -125,6 +126,9 @@ import type {
   Trademark,
   SearchRunUpdatePayload,
   TrademarkActivityEntry,
+  TrademarkByRequest,
+  TrademarkPostFilingPayload,
+  TrademarkResponsePayload,
   TrademarkCreatePayload,
   TrademarkDecisionPayload,
   TrademarkFilingPayload,
@@ -1311,7 +1315,12 @@ export const trademarksApi = {
     apiFetch<Trademark>(`/trademarks/${id}/decision`, { method: "POST", body: payload }),
   recordFiling: (id: string, payload: TrademarkFilingPayload) =>
     apiFetch<Trademark>(`/trademarks/${id}/filing`, { method: "POST", body: payload }),
+  postFilingUpdate: (id: string, payload: TrademarkPostFilingPayload) =>
+    apiFetch<Trademark>(`/trademarks/${id}/post-filing-update`, { method: "POST", body: payload }),
+  openResponse: (id: string, payload: TrademarkResponsePayload) =>
+    apiFetch<Trademark>(`/trademarks/${id}/responses`, { method: "POST", body: payload }),
   activity: (id: string) => apiFetch<TrademarkActivityEntry[]>(`/trademarks/${id}/activity`),
+  byRequest: (requestId: string) => apiFetch<TrademarkByRequest>(`/trademarks/by-request/${requestId}`),
   integrationsStatus: () =>
     apiFetch<IntegrationStatusResponse>("/trademarks/integrations/status"),
   testIntegration: (service: string) =>
@@ -1538,7 +1547,7 @@ export const intakeApi = {
   pool: () => apiFetch<IntakeRequest[]>("/intake/requests/pool"),
   get: (id: string) => apiFetch<IntakeRequest>(`/intake/requests/${id}`),
   create: (payload: Record<string, unknown>) =>
-    apiFetch<IntakeRequest>("/intake/requests", { method: "POST", body: payload }),
+    apiFetch<IntakeRequestCreateResult>("/intake/requests", { method: "POST", body: payload }),
   update: (id: string, payload: Record<string, unknown>) =>
     apiFetch<IntakeRequest>(`/intake/requests/${id}`, { method: "PATCH", body: payload }),
   triage: (id: string, payload: Record<string, unknown>) =>

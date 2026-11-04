@@ -19,6 +19,7 @@ Run states written here:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import timedelta
@@ -28,6 +29,8 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.ai.context import build_contract_context
+from app.ai.guardrail_service import apply_output_guardrails, audit_guardrail_block
 from app.assistant import run_events
 from app.assistant.models import AssistantMessage, AssistantRun, AssistantSession
 from app.assistant.service import AssistantService
@@ -223,6 +226,27 @@ def _close_skill_runs(db: Session, run_id: str) -> None:
         skill_run.finished_at = utcnow()
 
 
+_CONTRACT_EVIDENCE_CHARS = 20000
+_CONTRACT_EVIDENCE_MAX = 3
+
+
+def _contract_evidence(db: Session, run: AssistantRun, session: AssistantSession, user) -> list[str]:
+    """Text of the contracts this chat is scoped to, as the user may read it (their
+    walls apply), for the output rail's ``self check facts``."""
+    ids = list((run.context_manifest or {}).get("contract_ids") or [])
+    if session.contract_id and session.contract_id not in ids:
+        ids.insert(0, session.contract_id)
+    evidence: list[str] = []
+    for contract_id in ids[:_CONTRACT_EVIDENCE_MAX]:
+        try:
+            ctx = build_contract_context(db, user=user, org_id=run.org_id, contract_id=contract_id)
+        except HTTPException:
+            continue
+        if ctx.text:
+            evidence.append(ctx.text[:_CONTRACT_EVIDENCE_CHARS])
+    return evidence
+
+
 async def drive_run(
     db: Session,
     *,
@@ -261,8 +285,9 @@ async def drive_run(
         return run.status
 
     service = AssistantService(db)
+    user_message = db.get(AssistantMessage, run.user_message_id) if run.user_message_id else None
+    question = user_message.content if user_message else ""
     if mode == "start":
-        user_message = db.get(AssistantMessage, run.user_message_id) if run.user_message_id else None
         contract_ids = list((run.context_manifest or {}).get("contract_ids") or [])
         events = controller.stream_assistant_run(
             db,
@@ -294,6 +319,39 @@ async def drive_run(
     cancelled = False
     finalized = False
     last_cancel_check = 0.0  # so the first event already checks for a Stop
+    pending_text: list[str] = []
+    # The evidence the answer was built from (self check facts): the text of the
+    # contracts this chat is about, then tool results as they arrive.
+    tool_evidence: list[str] = _contract_evidence(db, run, session, user)
+
+    async def release_pending() -> str:
+        """Run the NeMo output rail on the buffered answer segment; returns the text
+        to show (the rail's refusal if it blocked the segment)."""
+        segment = "".join(pending_text)
+        pending_text.clear()
+        if not segment:
+            return ""
+        verdict = await apply_output_guardrails(
+            question, segment, evidence="\n\n".join(tool_evidence) or None
+        )
+        if not verdict.allowed:
+            audit_guardrail_block(
+                db,
+                result=verdict,
+                text_chars=len(segment),
+                org_id=run.org_id,
+                actor_user_id=user.id,
+                request_id=request_id,
+                resource_type="assistant_run",
+                resource_id=run.id,
+            )
+            db.commit()
+        return verdict.message
+
+    def publish_released(text: str) -> None:
+        answer_parts.append(text)
+        accumulate_block(blocks, {"event": "message_delta", "payload": {"text": text}})
+        run_events.publish(run_id, "message_delta", {"text": text})
 
     def persist(**more) -> None:
         service.persist_assistant_answer(
@@ -325,16 +383,27 @@ async def drive_run(
             name = event["event"]
             payload = event["payload"]
             if name == "message_delta":
-                answer_parts.append(payload.get("text", ""))
-            elif name == "confirmation_required":
+                # Held back until the output rail has judged the whole segment.
+                pending_text.append(payload.get("text", ""))
+                continue
+            released = await release_pending()
+            if released:
+                publish_released(released)
+            if name == "confirmation_required":
                 waiting_for_confirmation = True
             elif name == "tool_finished":
-                citations.extend(citations_from_tool_result(payload.get("result")))
+                result = payload.get("result")
+                citations.extend(citations_from_tool_result(result))
+                if result:
+                    tool_evidence.append(json.dumps(result, default=str)[:8000])
             accumulate_block(blocks, event)
             run_events.publish(run_id, name, payload)
             if name == "tool_finished":
                 for extra_event in events_from_tool_result(payload.get("result")):
                     run_events.publish(run_id, extra_event["event"], extra_event["payload"])
+        released = await release_pending()
+        if released:
+            publish_released(released)
         if cancelled:
             await events.aclose()
             db.rollback()

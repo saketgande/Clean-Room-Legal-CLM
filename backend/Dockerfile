@@ -90,5 +90,12 @@ FROM runtime AS dev
 USER root
 # -c requirements.lock so pulling in the dev extras can't quietly upgrade a
 # runtime dep past the version the production image ships.
-RUN pip install --no-cache-dir -c requirements.lock ".[dev]"
+# Only the dev extras are installed (not the project's runtime deps again): re-resolving those
+# against the lock fails, because presidio-anonymizer declares cryptography<49 while the lock
+# pins 50.0.0 (the runtime stage installs with --no-deps, so only a re-resolve notices). The
+# pinned spaCy model wheel is a direct-URL line, which pip rejects in a constraints file.
+RUN python -c "import tomllib; print(chr(10).join(tomllib.load(open('pyproject.toml','rb'))['project']['optional-dependencies']['dev']))" > /tmp/dev-requirements.txt \
+ && grep -v " @ " requirements.lock > /tmp/constraints.txt \
+ && pip install --no-cache-dir -c /tmp/constraints.txt -r /tmp/dev-requirements.txt \
+ && rm /tmp/dev-requirements.txt /tmp/constraints.txt
 USER aegis

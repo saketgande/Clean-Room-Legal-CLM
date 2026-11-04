@@ -1,0 +1,23 @@
+# Tooling config only: the tool server is run from source (PYTHONPATH=/app), not built
+# or installed as a package.
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["tests/__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "BLE", "DTZ", "ASYNC"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use assert and hard-coded fake keys by design.
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+# The bare `pytest` command (CI) does not put the project root on sys.path the way
+# `python -m pytest` does, so the tests could not import aegis_intake_mcp.
+pythonpath = ["."]
+# No cache dir: the runtime image runs with a read-only root filesystem.
+addopts = "-p no:cacheprovider"

@@ -20,6 +20,7 @@ import type { IntakeDraft } from "@/lib/types";
 
 import { LegalIntakeBoard, MockupShell, counterpartyOf } from "./_legal-intake";
 import { RequestOverview } from "./_request-overview";
+import { OpenRequest } from "./_open-request";
 
 import { AGREEMENT_FORMS, AgreementWizard, type AgreementFormDef } from "./_agreement-forms";
 import { LegalQuestionForm } from "./_legal-question-form";

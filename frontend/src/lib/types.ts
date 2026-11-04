@@ -198,6 +198,14 @@ export interface IntakeRequest {
   handoff_holder: string | null; handoff_user_id: ID | null;
   contract_id: ID | null; contract_title?: string | null;
   workflow: IntakeWorkflowStep[]; created_at: string | null;
+  /** True when the request was filed with an API key (an external agent). */
+  filed_by_agent?: boolean;
+  /** The agent identity's registered name (User.full_name, else email); null unless filed_by_agent. */
+  filed_by_agent_name?: string | null;
+}
+/** POST /intake/requests response: the request plus whether it was a repeat of an earlier filing. */
+export interface IntakeRequestCreateResult extends IntakeRequest {
+  idempotent_repeat: boolean;
 }
 // Workflow Router agent output — lives on ai_triage.flow_suggestion.
 export interface WorkflowSuggestion {
@@ -1711,7 +1719,13 @@ export type TrademarkStatus =
   | "renewal_pending"
   | "abandoned"
   | "lapsed"
-  | "renewed";
+  | "renewed"
+  // After filing: where the application stands with the office.
+  | "examination"
+  | "published"
+  | "opposition_period"
+  | "refused"
+  | "withdrawn";
 export type TrademarkType = "word_mark" | "device_mark" | "combination" | "sound" | "collective";
 export type TrademarkWorkflowState = "intake" | "review" | "active";
 export type TrademarkSource = "intake";
@@ -1724,6 +1738,8 @@ export interface TrademarkCase {
   request_id: ID;
   request_ref: string | null;
   request_status: string;
+  /** The request's subject, e.g. "Examination report response: ZQ"; tells a response from the clearance. */
+  title: string | null;
   flow_name: string | null;
   run_status: string | null;
   step_index: number | null;
@@ -1759,7 +1775,12 @@ export interface Trademark {
   filing_form: string | null;
   portal_reference: string | null;
   docket_number: string | null;
+  /** The next date something is due with the office, and what it is. */
+  next_action_on: ISODateTime | null;
+  next_action_note: string | null;
   case: TrademarkCase | null;
+  /** Examination / opposition responses opened on this mark; each is its own workflow run. */
+  responses: TrademarkCase[];
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -2113,6 +2134,27 @@ export interface TrademarkFilingPayload {
   portal_reference?: string | null;
   docket_number?: string | null;
   filed_on?: ISODateTime | null;
+}
+
+/** An LTE's update on a filed mark. A date given as null clears the next date. */
+export interface TrademarkPostFilingPayload {
+  note: string;
+  stage?: TrademarkStatus | null;
+  next_action_on?: ISODateTime | null;
+  next_action_note?: string | null;
+}
+
+/** An examination report or opposition that needs a response. */
+export interface TrademarkResponsePayload {
+  kind: "examination" | "opposition";
+  summary: string;
+  reference?: string | null;
+  due_on?: ISODateTime | null;
+}
+
+/** The trademark a Legal Intake request carries. */
+export interface TrademarkByRequest {
+  trademark_id: string;
 }
 
 export interface TrademarkActivityEntry {

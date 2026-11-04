@@ -1,7 +1,7 @@
 import logging
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from app.auth.dependencies import get_auth_service
 from app.auth.schemas import (
@@ -25,8 +25,9 @@ from app.auth.schemas import (
     UserResponse,
 )
 from app.auth.service import AuthService, as_user_response
+from app.core.authz import record_decision
 from app.core.config import settings
-from app.core.deps import get_current_user, require_permission
+from app.core.deps import get_current_user, request_auth, require_permission
 from app.core.rate_limit import limiter
 from app.integrations.dependencies import get_resend_client
 from app.integrations.resend import EmailSender
@@ -380,11 +381,34 @@ def create_key(
     auth_service: AuthService = Depends(get_auth_service),
     current_user=Depends(get_current_user),
 ):
+    auth = request_auth(request)
+    if auth.method == "api_key":
+        # A leaked key must not mint a replacement that outlives its own revocation.
+        record_decision(
+            user=current_user,
+            action="api_key:create",
+            outcome="denied",
+            reason="api_key_auth",
+        )
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "API keys can't create API keys — sign in to Aegis to create one",
+        )
     return auth_service.create_api_key(
         payload=payload,
         actor=current_user,
         request_id=getattr(request.state, "request_id", None),
+        auth_method=auth.method,
     )
+
+
+@users_router.get("/{user_id}/api-keys", response_model=list[ApiKeyResponse])
+def api_keys_for_user(
+    user_id: str,
+    auth_service: AuthService = Depends(get_auth_service),
+    current_user=Depends(require_permission("user:approve")),
+):
+    return auth_service.list_api_keys_for_user(actor=current_user, user_id=user_id)
 
 
 @users_router.post("/api-keys/{api_key_id}/revoke", response_model=ApiKeyResponse)

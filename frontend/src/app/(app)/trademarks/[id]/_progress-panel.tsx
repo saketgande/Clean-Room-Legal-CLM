@@ -17,7 +17,7 @@ function stepTone(step: WorkflowRunStep): "green" | "amber" | "slate" | "red" {
 }
 
 /** The clearance workflow's steps for the case, with the one action the current step needs. */
-export function ProgressPanel({ requestId, trademarkId }: { requestId: string; trademarkId: string }) {
+export function ProgressPanel({ requestId, trademarkId, title }: { requestId: string; trademarkId: string; title?: string | null }) {
   const qc = useQueryClient();
   const { notify } = useToast();
   const [busy, setBusy] = useState(false);
@@ -65,9 +65,9 @@ export function ProgressPanel({ requestId, trademarkId }: { requestId: string; t
 
   return (
     <Card>
-      <CardBody className="space-y-4">
+      <CardBody className="space-y-3 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[13px] font-semibold text-slate-900">{run.flow_name}</p>
+          <p className="text-[13px] font-semibold text-slate-900">{title ?? run.flow_name}</p>
           <Badge tone={run.status === "complete" ? "green" : run.status === "failed" ? "red" : "amber"}>
             {titleCase(run.status)}
           </Badge>

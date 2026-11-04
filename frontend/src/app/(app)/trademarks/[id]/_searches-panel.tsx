@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, Search } from "lucide-react";
+import { Download, RotateCw } from "lucide-react";
 import {
   Badge,
   Button,
@@ -46,12 +46,16 @@ export function SearchesPanel({ trademark }: { trademark: Trademark }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <p className="text-[13px] text-slate-500">
-          Every search run for this mark is saved here. Rate the overall risk on a detailed run, then export it to Excel
+          Every search run for this mark is saved here. Review the overall risk on a detailed run, then export it to Excel
           for the report.
         </p>
-        <Button onClick={() => setSearching(true)}>
-          <Search className="h-4 w-4" />
-          Run detailed search
+        <Button
+          className="group shrink-0 gap-2 px-4 shadow-sm"
+          title="Search again with the latest sources and save it as a new run"
+          onClick={() => setSearching(true)}
+        >
+          <RotateCw className="h-4 w-4 transition-transform duration-300 group-hover:rotate-180" />
+          Re-run
         </Button>
       </div>
 
@@ -60,7 +64,7 @@ export function SearchesPanel({ trademark }: { trademark: Trademark }) {
       ) : error ? (
         <ErrorState error={error} />
       ) : !data || data.length === 0 ? (
-        <EmptyState title="No searches saved" description="Run a detailed search to start the risk mapping." />
+        <EmptyState title="No searches saved" description="Use Re-run to start the risk mapping." />
       ) : (
         <Table>
           <THead>
@@ -88,7 +92,7 @@ export function SearchesPanel({ trademark }: { trademark: Trademark }) {
                   </TD>
                   <TD className="text-right">
                     <Button variant="ghost" size="sm" onClick={() => setOpenRun(openRun === run.id ? null : run.id)}>
-                      {openRun === run.id ? "Close" : "Rate"}
+                      {openRun === run.id ? "Close" : "Review"}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => trademarksApi.exportSearchRun(run.id)}>
                       <Download className="h-3.5 w-3.5" />

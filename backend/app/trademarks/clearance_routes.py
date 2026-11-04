@@ -8,7 +8,10 @@ from app.trademarks.schemas import (
     ActivityEntry,
     DecisionRequest,
     FilingRequest,
+    PostFilingUpdateRequest,
+    ResponseRequest,
     SearchRunUpdate,
+    TrademarkByRequest,
     TrademarkResponse,
     TrademarkSearchRunDetail,
     TrademarkSearchRunSummary,
@@ -20,6 +23,18 @@ _TRADEMARKS_VIEW = require_screen_level("trademarks", "VIEW")
 _TRADEMARKS_EDIT = require_screen_level("trademarks", "EDIT")
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+@router.get("/by-request/{request_id}", response_model=TrademarkByRequest)
+def trademark_for_request(
+    request_id: str,
+    current_user=Depends(require_permission("trademark:read")),
+    _screen=Depends(_TRADEMARKS_VIEW),
+    service: TrademarkClearanceService = Depends(get_trademark_clearance_service),
+):
+    """Which trademark a Legal Intake request carries; Legal Intake uses it to open the case."""
+    trademark = service.trademark_for_request(org_id=current_user.org_id, request_id=request_id)
+    return TrademarkByRequest(trademark_id=trademark.id)
 
 
 @router.get("/{trademark_id}/search-runs", response_model=list[TrademarkSearchRunSummary])
@@ -88,6 +103,28 @@ def record_filing(
     service: TrademarkClearanceService = Depends(get_trademark_clearance_service),
 ):
     return service.record_filing(user=current_user, trademark_id=trademark_id, payload=payload)
+
+
+@router.post("/{trademark_id}/post-filing-update", response_model=TrademarkResponse)
+def post_filing_update(
+    trademark_id: str,
+    payload: PostFilingUpdateRequest,
+    current_user=Depends(require_permission("trademark:update")),
+    _screen=Depends(_TRADEMARKS_EDIT),
+    service: TrademarkClearanceService = Depends(get_trademark_clearance_service),
+):
+    return service.log_post_filing_update(user=current_user, trademark_id=trademark_id, payload=payload)
+
+
+@router.post("/{trademark_id}/responses", response_model=TrademarkResponse, status_code=201)
+def open_response(
+    trademark_id: str,
+    payload: ResponseRequest,
+    current_user=Depends(require_permission("trademark:update")),
+    _screen=Depends(_TRADEMARKS_EDIT),
+    service: TrademarkClearanceService = Depends(get_trademark_clearance_service),
+):
+    return service.open_response(user=current_user, trademark_id=trademark_id, payload=payload)
 
 
 @router.get("/{trademark_id}/activity", response_model=list[ActivityEntry])

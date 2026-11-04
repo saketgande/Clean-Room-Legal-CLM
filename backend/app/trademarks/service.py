@@ -161,8 +161,10 @@ class TrademarksService:
             return
         request_ids = [t.source_intake_request_id for t in trademarks if t.source_intake_request_id]
         cases = self.clearance.case_summaries(org_id=trademarks[0].org_id, request_ids=request_ids)
+        responses = self.clearance.responses_for(org_id=trademarks[0].org_id, trademark_ids=[t.id for t in trademarks])
         for trademark in trademarks:
             trademark.case = cases.get(trademark.source_intake_request_id)
+            trademark.responses = responses.get(trademark.id, [])
 
     def _create_trademark(
         self,
@@ -277,14 +279,6 @@ class TrademarksService:
         rather than re-implementing routing, SLA or steps, the same way
         notices/service.py::escalate does. If no clearance flow has been seeded
         for the org the request still exists and can be started from Legal Intake."""
-        from app.intake.schemas import RequestCreate
-        from app.intake.service import IntakeService
-        from app.integrations.claude import run_coro_blocking
-        from app.workflows.models import Workflow
-        from app.workflows.service import start_flow
-
-        db = self.db
-
         answers: dict = {"mark": trademark.name, CLEARANCE_MARKER_FIELD: True}
         if payload.business_unit_spoc:
             answers["business_unit_spoc"] = payload.business_unit_spoc
@@ -299,16 +293,13 @@ class TrademarksService:
         if payload.business_unit_spoc:
             details.append(f"Business Unit SPOC: {payload.business_unit_spoc}")
 
-        ticket = IntakeService(db).create_request(
-            actor=user,
-            payload=RequestCreate(
-                type_label="Trademark",
-                subject=f"Trademark clearance: {trademark.name}"[:200],
-                department=payload.business_unit,
-                description="\n".join(details),
-                field_values=answers,
-                source="api",
-            ),
+        ticket = self.clearance.open_flow_request(
+            user=user,
+            marker=CLEARANCE_MARKER_FIELD,
+            subject=f"Trademark clearance: {trademark.name}",
+            description="\n".join(details),
+            answers=answers,
+            department=payload.business_unit,
         )
         trademark.source_intake_request_id = ticket["id"]
         self.clearance.log_event(
@@ -318,21 +309,6 @@ class TrademarksService:
             title=f"Clearance case opened ({ticket.get('ref') or ticket['id']})",
             details={"request_id": ticket["id"], "business_unit": payload.business_unit},
         )
-        flow = next(
-            (
-                f
-                for f in db.scalars(
-                    select(Workflow)
-                    .where(Workflow.org_id == user.org_id, Workflow.enabled.is_(True))
-                    .order_by(Workflow.eval_order.asc())
-                ).all()
-                if (f.criteria or {}).get("field") == CLEARANCE_MARKER_FIELD
-            ),
-            None,
-        )
-        if flow is not None:
-            request = db.get(IntakeRequest, ticket["id"])
-            run_coro_blocking(lambda: start_flow(db, actor=user, request=request, flow=flow))
 
     def update_trademark(self, *, trademark: Trademark, user: User, payload: TrademarkUpdate) -> Trademark:
         db = self.db

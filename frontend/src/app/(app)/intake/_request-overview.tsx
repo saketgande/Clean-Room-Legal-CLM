@@ -429,6 +429,7 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
     { label: "Priority", value: r.priority },
     ...(r.department ? [{ label: "Requesting department", value: r.department }] : []),
     { label: "Requested by", value: r.requester_name ?? "—" },
+    ...(r.filed_by_agent ? [{ label: "Filed by", value: `Agent · ${r.filed_by_agent_name ?? "unknown"}` }] : []),
     { label: "Owner", value: r.assigned_to_label ?? "Unassigned" },
     ...(r.description?.trim() ? [{ label: "Description", value: r.description.trim() }] : []),
   ];

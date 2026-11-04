@@ -6,6 +6,7 @@ import { Button, Card, CardBody, CardHeader, CardTitle, Field, Input, MessageBar
 import { trademarksApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
 import type { Trademark } from "@/lib/types";
+import { PostFilingCard } from "./_post-filing-card";
 
 const dateInput = (iso: string | null) => (iso ? iso.slice(0, 10) : "");
 
@@ -45,37 +46,40 @@ export function FilingPanel({ trademark }: { trademark: Trademark }) {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Filing &amp; docketing</CardTitle>
-      </CardHeader>
-      <CardBody className="space-y-4 text-[13px]">
-        <MessageBar intent="info">
-          Recording an application number or filing date marks the trademark as Filed and sets its renewal date. Only
-          the person the workflow step is assigned to (or an administrator) can record it. Attach filing documents on
-          the Documents tab.
-        </MessageBar>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Application number">
-            <Input value={applicationNumber} onChange={(e) => setApplicationNumber(e.target.value)} />
-          </Field>
-          <Field label="Filing form" hint="e.g. TM-A">
-            <Input value={filingForm} onChange={(e) => setFilingForm(e.target.value)} />
-          </Field>
-          <Field label="Portal reference">
-            <Input value={portalReference} onChange={(e) => setPortalReference(e.target.value)} />
-          </Field>
-          <Field label="Docket number">
-            <Input value={docketNumber} onChange={(e) => setDocketNumber(e.target.value)} />
-          </Field>
-          <Field label="Filing date">
-            <Input type="date" value={filedOn} onChange={(e) => setFiledOn(e.target.value)} />
-          </Field>
-        </div>
-        <Button loading={busy} onClick={save}>
-          Save filing
-        </Button>
-      </CardBody>
-    </Card>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Filing &amp; docketing</CardTitle>
+        </CardHeader>
+        <CardBody className="space-y-4 text-[13px]">
+          <MessageBar intent="info">
+            Recording an application number or filing date marks the trademark as Filed and sets its renewal date. Only
+            the person the workflow step is assigned to (or an administrator) can record it. Attach filing documents on
+            the Documents tab.
+          </MessageBar>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Application number">
+              <Input value={applicationNumber} onChange={(e) => setApplicationNumber(e.target.value)} />
+            </Field>
+            <Field label="Filing form" hint="e.g. TM-A">
+              <Input value={filingForm} onChange={(e) => setFilingForm(e.target.value)} />
+            </Field>
+            <Field label="Portal reference">
+              <Input value={portalReference} onChange={(e) => setPortalReference(e.target.value)} />
+            </Field>
+            <Field label="Docket number">
+              <Input value={docketNumber} onChange={(e) => setDocketNumber(e.target.value)} />
+            </Field>
+            <Field label="Filing date">
+              <Input type="date" value={filedOn} onChange={(e) => setFiledOn(e.target.value)} />
+            </Field>
+          </div>
+          <Button loading={busy} onClick={save}>
+            Save filing
+          </Button>
+        </CardBody>
+      </Card>
+      {trademark.filed_on && <PostFilingCard trademark={trademark} />}
+    </div>
   );
 }

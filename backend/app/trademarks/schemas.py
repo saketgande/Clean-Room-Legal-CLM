@@ -52,6 +52,8 @@ class TrademarkCase(BaseModel):
     request_id: str
     request_ref: str | None = None
     request_status: str
+    # The request's subject, e.g. "Examination response: ZQ"; tells a response run from the clearance.
+    title: str | None = None
     flow_name: str | None = None
     run_status: str | None = None
     step_index: int | None = None
@@ -89,7 +91,11 @@ class TrademarkResponse(BaseModel):
     filing_form: str | None = None
     portal_reference: str | None = None
     docket_number: str | None = None
+    next_action_on: datetime | None = None
+    next_action_note: str | None = None
     case: TrademarkCase | None = None
+    # Examination / opposition responses opened on this mark (each is its own workflow run).
+    responses: list[TrademarkCase] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -456,6 +462,40 @@ class FilingRequest(BaseModel):
     portal_reference: str | None = Field(default=None, max_length=120)
     docket_number: str | None = Field(default=None, max_length=120)
     filed_on: datetime | None = None
+
+
+# The stages an LTE can move a filed mark to; "opposed" is set by logging an opposition.
+POST_FILING_STAGES = (
+    TrademarkStatus.FILED,
+    TrademarkStatus.EXAMINATION,
+    TrademarkStatus.PUBLISHED,
+    TrademarkStatus.OPPOSITION_PERIOD,
+    TrademarkStatus.REGISTERED,
+    TrademarkStatus.REFUSED,
+    TrademarkStatus.WITHDRAWN,
+)
+
+
+class PostFilingUpdateRequest(BaseModel):
+    """An LTE's update on a filed mark: what happened, where it stands now, what is due next."""
+
+    note: str = Field(min_length=1, max_length=2000)
+    stage: TrademarkStatus | None = None
+    next_action_on: datetime | None = None
+    next_action_note: str | None = Field(default=None, max_length=500)
+
+
+class ResponseRequest(BaseModel):
+    """An examination report or an opposition that needs a response."""
+
+    kind: Literal["examination", "opposition"]
+    summary: str = Field(min_length=1, max_length=2000)
+    reference: str | None = Field(default=None, max_length=120)
+    due_on: datetime | None = None
+
+
+class TrademarkByRequest(BaseModel):
+    trademark_id: str
 
 
 class ActivityEntry(BaseModel):

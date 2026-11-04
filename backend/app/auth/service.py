@@ -24,11 +24,17 @@ from app.auth.schemas import (
     SetupAdminRequest,
     UserInvitationCreate,
 )
+from app.core import org_access
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.config import settings
 from app.core.database import utcnow
 from app.core.enums import UserStatus
-from app.core.rbac import ADMIN_ROLE_NAME, ALL_PERMISSIONS, DEFAULT_ROLE_PERMISSIONS
+from app.core.rbac import (
+    ADMIN_ROLE_NAME,
+    ALL_PERMISSIONS,
+    DEFAULT_ROLE_PERMISSIONS,
+    has_permission,
+)
 from app.core.security import (
     create_access_token,
     create_token_secret,
@@ -825,7 +831,14 @@ class AuthService:
         )
         db.commit()
 
-    def create_api_key(self, *, payload: ApiKeyCreate, actor: User, request_id: str | None = None) -> dict:
+    def create_api_key(
+        self,
+        *,
+        payload: ApiKeyCreate,
+        actor: User,
+        request_id: str | None = None,
+        auth_method: str = "access_token",
+    ) -> dict:
         db = self.db
         raw_key = create_token_secret(prefix="clm_")
         row = ApiKey(
@@ -846,6 +859,8 @@ class AuthService:
             org_id=actor.org_id,
             actor_user_id=actor.id,
             request_id=request_id,
+            # Never the key value or its hash.
+            metadata={"key_user_id": actor.id, "key_name": row.name, "auth_method": auth_method},
         )
         db.commit()
         db.refresh(row)
@@ -860,6 +875,18 @@ class AuthService:
         ).all()
         return [_public_api_key(row) for row in rows]
 
+    def list_api_keys_for_user(self, *, actor: User, user_id: str) -> list[dict]:
+        target = self.db.get(User, user_id)
+        if target is None or target.org_id != actor.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
+        rows = self.db.scalars(
+            select(ApiKey)
+            .where(ApiKey.org_id == actor.org_id, ApiKey.user_id == target.id)
+            .order_by(ApiKey.created_at.desc())
+            .limit(100)
+        ).all()
+        return [_public_api_key(row) for row in rows]
+
     def revoke_api_key(
         self,
         *,
@@ -869,7 +896,13 @@ class AuthService:
     ) -> dict:
         db = self.db
         row = db.get(ApiKey, api_key_id)
-        if row is None or row.org_id != actor.org_id or row.user_id != actor.id:
+        if row is None or row.org_id != actor.org_id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "API key not found")
+        is_owner = row.user_id == actor.id
+        if not is_owner and not has_permission(
+            org_access.effective_permission_values(db, user=actor), "user:approve"
+        ):
+            # Same answer as a missing key: don't confirm other users' key ids.
             raise HTTPException(status.HTTP_404_NOT_FOUND, "API key not found")
         row.revoked_at = utcnow()
         row.updated_by_user_id = actor.id
@@ -881,12 +914,21 @@ class AuthService:
             org_id=actor.org_id,
             actor_user_id=actor.id,
             request_id=request_id,
+            metadata={
+                "key_user_id": row.user_id,
+                "key_name": row.name,
+                "revoked_by_admin": not is_owner,
+            },
         )
         db.commit()
         db.refresh(row)
         return _public_api_key(row)
 
     def authenticate_api_key(self, raw_key: str) -> User | None:
+        result = self.authenticate_api_key_record(raw_key)
+        return result[0] if result else None
+
+    def authenticate_api_key_record(self, raw_key: str) -> tuple[User, ApiKey] | None:
         db = self.db
         if not raw_key.startswith("clm_"):
             return None
@@ -898,7 +940,7 @@ class AuthService:
             return None
         row.last_used_at = utcnow()
         db.commit()
-        return user
+        return user, row
 
     def switch_active_role(
         self,
@@ -1079,8 +1121,17 @@ def confirm_password_reset(
     return AuthService(db).confirm_password_reset(payload=payload, request_id=request_id)
 
 
-def create_api_key(db: Session, *, payload: ApiKeyCreate, actor: User, request_id: str | None = None) -> dict:
-    return AuthService(db).create_api_key(payload=payload, actor=actor, request_id=request_id)
+def create_api_key(
+    db: Session,
+    *,
+    payload: ApiKeyCreate,
+    actor: User,
+    request_id: str | None = None,
+    auth_method: str = "access_token",
+) -> dict:
+    return AuthService(db).create_api_key(
+        payload=payload, actor=actor, request_id=request_id, auth_method=auth_method
+    )
 
 
 def list_api_keys(db: Session, *, actor: User) -> list[dict]:
@@ -1099,6 +1150,14 @@ def revoke_api_key(
 
 def authenticate_api_key(db: Session, raw_key: str) -> User | None:
     return AuthService(db).authenticate_api_key(raw_key)
+
+
+def authenticate_api_key_with_id(db: Session, raw_key: str) -> tuple[User, str] | None:
+    result = AuthService(db).authenticate_api_key_record(raw_key)
+    if result is None:
+        return None
+    user, row = result
+    return user, row.id
 
 
 def switch_active_role(

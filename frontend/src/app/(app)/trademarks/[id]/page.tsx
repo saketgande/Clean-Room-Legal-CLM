@@ -6,10 +6,6 @@ import { trademarksApi } from "@/lib/endpoints";
 import {
   Badge,
   Breadcrumbs,
-  Card,
-  CardBody,
-  CardHeader,
-  CardTitle,
   CenterSpinner,
   ErrorState,
   Field,
@@ -17,17 +13,17 @@ import {
   Tabs,
 } from "@/components/ui";
 import { TrademarkComments } from "@/components/TrademarkComments";
-import { fmtDate, fmtDateTime, statusTone, titleCase } from "@/lib/utils";
+import { statusTone, titleCase } from "@/lib/utils";
 import { useToast } from "@/components/toast";
 import type { TrademarkDecision, TrademarkStatus } from "@/lib/types";
-import { ActivityPanel } from "./_activity-panel";
-import { AssignmentsCard } from "./_assignments-card";
+import { AuditLogCard } from "./_audit-log-card";
+import { OverviewCard } from "./_overview-card";
 import { DecisionPanel } from "./_decision-panel";
 import { DocumentsPanel } from "./_documents-panel";
 import { FilingPanel } from "./_filing-panel";
 import { ProgressPanel } from "./_progress-panel";
 import { SearchesPanel } from "./_searches-panel";
-import { StageTracker } from "./_stage-tracker";
+import { ProgressHeader } from "./_progress-header";
 
 const STATUSES: TrademarkStatus[] = [
   "draft",
@@ -39,6 +35,11 @@ const STATUSES: TrademarkStatus[] = [
   "abandoned",
   "lapsed",
   "renewed",
+  "examination",
+  "published",
+  "opposition_period",
+  "refused",
+  "withdrawn",
 ];
 
 const DECISION_TONE: Record<TrademarkDecision, "green" | "amber" | "red"> = {
@@ -92,7 +93,6 @@ export default function TrademarkDetailPage({
   const trademarkCase = trademark.case;
   const tabs = [
     { id: "overview", label: "Overview" },
-    ...(trademarkCase ? [{ id: "progress", label: "Progress" }] : []),
     { id: "searches", label: "Searches" },
     ...(trademarkCase
       ? [
@@ -101,7 +101,6 @@ export default function TrademarkDetailPage({
           { id: "documents", label: "Documents" },
         ]
       : []),
-    { id: "audit", label: "Audit log" },
     { id: "discussion", label: "Discussion" },
   ];
 
@@ -147,85 +146,33 @@ export default function TrademarkDetailPage({
         </Field>
       </div>
 
-      {trademarkCase && <StageTracker trademarkCase={trademarkCase} />}
+      {trademarkCase && <ProgressHeader trademarkCase={trademarkCase} />}
 
       <Tabs tabs={tabs} active={tab} onChange={openTab} label="Trademark sections" />
 
-      {tab === "overview" && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Details</CardTitle>
-            </CardHeader>
-            <CardBody className="space-y-4 text-[13px]">
-              {trademark.description && (
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
-                    Description
-                  </p>
-                  <p className="whitespace-pre-wrap text-slate-700">
-                    {trademark.description}
-                  </p>
-                </div>
-              )}
-              {trademark.goods_services && (
-                <div>
-                  <p className="mb-1 text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
-                    Goods &amp; services
-                  </p>
-                  <p className="whitespace-pre-wrap text-slate-700">
-                    {trademark.goods_services}
-                  </p>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                <DetailRow label="Nice class" value={trademark.nice_class ?? "—"} />
-                <DetailRow
-                  label="Jurisdictions"
-                  value={(trademark.jurisdictions ?? [trademark.jurisdiction]).join(", ")}
-                />
-                <DetailRow label="Workflow state" value={titleCase(trademark.workflow_state)} />
-                <DetailRow label="Filed on" value={fmtDate(trademark.filed_on)} />
-                <DetailRow label="Renewal due" value={fmtDate(trademark.renewal_due_on)} />
-              </div>
-            </CardBody>
-          </Card>
-
-          <div className="space-y-4">
-            <AssignmentsCard trademark={trademark} />
-            <Card>
-              <CardHeader>
-                <CardTitle>Record info</CardTitle>
-              </CardHeader>
-              <CardBody className="space-y-3 text-[13px]">
-                <DetailRow label="Created" value={fmtDateTime(trademark.created_at)} />
-                <DetailRow label="Updated" value={fmtDateTime(trademark.updated_at)} />
-              </CardBody>
-            </Card>
-          </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+        <div className="min-w-0 space-y-4">
+          {tab === "overview" && <OverviewCard trademark={trademark} />}
+          {tab === "searches" && <SearchesPanel trademark={trademark} />}
+          {tab === "decision" && <DecisionPanel trademark={trademark} />}
+          {tab === "filing" && <FilingPanel trademark={trademark} />}
+          {tab === "documents" && trademarkCase && <DocumentsPanel requestId={trademarkCase.request_id} />}
+          {tab === "discussion" && <TrademarkComments trademarkId={trademark.id} />}
         </div>
-      )}
 
-      {tab === "progress" && trademarkCase && (
-        <ProgressPanel requestId={trademarkCase.request_id} trademarkId={trademark.id} />
-      )}
-      {tab === "searches" && <SearchesPanel trademark={trademark} />}
-      {tab === "decision" && <DecisionPanel trademark={trademark} />}
-      {tab === "filing" && <FilingPanel trademark={trademark} />}
-      {tab === "documents" && trademarkCase && <DocumentsPanel requestId={trademarkCase.request_id} />}
-      {tab === "audit" && <ActivityPanel trademarkId={trademark.id} />}
-      {tab === "discussion" && <TrademarkComments trademarkId={trademark.id} />}
-    </div>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-[0.04em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-0.5 text-slate-800">{value}</p>
+        {/* The case's own column, the same on every tab: where the work stands (and the action for the current
+            step), then the record of what was done. */}
+        <aside className="space-y-4" aria-label="Case progress and audit log">
+          {trademarkCase && <ProgressPanel requestId={trademarkCase.request_id} trademarkId={trademark.id} />}
+          {/* Each open examination / opposition response is its own workflow run, with its own step card. */}
+          {trademark.responses
+            .filter((response) => response.run_status !== "complete")
+            .map((response) => (
+              <ProgressPanel key={response.request_id} requestId={response.request_id} trademarkId={trademark.id} title={response.title} />
+            ))}
+          <AuditLogCard trademarkId={trademark.id} />
+        </aside>
+      </div>
     </div>
   );
 }

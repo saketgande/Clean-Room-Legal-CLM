@@ -144,6 +144,9 @@ export function statusTone(status?: string | null): Tone {
     case "queued":
     case "running":
     case "draft":
+    // A filed mark being looked at by the office.
+    case "examination":
+    case "opposition_period":
     case "due_soon":
     case "waiting_confirmation":
     case "needs_review":
@@ -157,6 +160,7 @@ export function statusTone(status?: string | null): Tone {
     case "overdue":
     case "cancelled":
     case "invalid":
+    case "refused":
       return "red";
     default:
       return "slate";

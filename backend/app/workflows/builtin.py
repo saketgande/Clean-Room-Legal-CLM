@@ -307,6 +307,34 @@ BUILTIN_FLOWS.append({
 })
 
 
+# Response to an examination report or an opposition, opened each time the LTE logs one on a filed mark
+# (see TrademarkClearanceService.open_response). LTE Lead accountable, TM Legal SPOC coordinating; the
+# TM Head and the Business are told by notification, so they have no step. Chosen by its own marker,
+# like the clearance flow, so it can run any number of times for one mark. "Team head" is the engine's
+# stand-in for a lead / single point of contact: the team's earliest active member.
+_TM_RESPONSE_STEPS = [
+    _msa("human_task", "Decide response approach", "lte", _HEAD, 48, ["complete"],
+         "As LTE Lead, decide whether the response goes through external counsel or in-house, and confirm the "
+         "date it is due."),
+    _msa("human_task", "Coordinate the response", "tm_legal", _HEAD, 120, ["complete"],
+         "As TM Legal SPOC, coordinate the response with external counsel or in-house and attach what is needed."),
+    _msa("human_task", "Record and file the response", "lte", _HEAD, 72, ["complete"],
+         "Attach the filed response and the office's acknowledgement, add the filing reference on the case's "
+         "Filing tab, then complete this step."),
+]
+for _step, _stage in zip(_TM_RESPONSE_STEPS, ("review", "review", "active")):
+    _step["stage"] = _stage
+
+BUILTIN_FLOWS.append({
+    "name": "Trademark Examination / Opposition Response",
+    "description": "Response to an examination report or an opposition on a filed trademark: the LTE Lead decides "
+                   "the approach, the TM Legal SPOC coordinates it, and the response is recorded and filed.",
+    "eval_order": 6,
+    "criteria": {"field": "tm_response", "op": "eq", "value": True},
+    "steps": stages.infer(_TM_RESPONSE_STEPS),
+})
+
+
 def seed_builtin_flows(db: Session, *, org_id: str, actor_id: str | None = None) -> int:
     """Idempotent: create any builtin flow (by name) that this org is missing."""
     from app.intake.models import IntakeTeam
