@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.guardrail_service import enforce_input_guardrails
 from app.contracts.access import accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
@@ -189,6 +190,15 @@ async def chat_over_table(
     service: TabularReviewService = Depends(get_tabular_review_service),
 ):
     review = _get_review_for_user(db, review_id=review_id, current_user=current_user)
+    await enforce_input_guardrails(
+        db,
+        text=payload.message,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        request_id=getattr(request.state, "request_id", None),
+        resource_type="tabular_review",
+        resource_id=review.id,
+    )
     return await service.chat_over_table(
         review=review,
         message=payload.message,

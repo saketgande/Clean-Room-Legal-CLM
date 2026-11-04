@@ -7,6 +7,11 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
+from app.ai.guardrail_service import (
+    enforce_input_guardrails,
+    enforce_output_guardrails,
+    enforce_retrieval_guardrails,
+)
 from app.ai.schemas import BrainAnswerOutput, PortfolioFilter, PortfolioFilterOutput
 from app.contract_brain.grounding import ground_answer
 from app.contract_brain.models import BrainQuery
@@ -97,6 +102,15 @@ async def ask_contract_brain(
         get_contract_for_user(db, contract_id=payload.contract_id, user=current_user)
 
     request_id = getattr(request.state, "request_id", None)
+    await enforce_input_guardrails(
+        db,
+        text=payload.question,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        request_id=request_id,
+        resource_type="contract_brain",
+        resource_id=payload.contract_id,
+    )
 
     # "Which / how many contracts ..." is answered by running a filter over EVERY
     # contract the user can open, not from the best-matching passages (which named 8 of 20
@@ -131,6 +145,16 @@ async def ask_contract_brain(
         user=current_user,
     )
     source_text = sources_to_context(sources)
+    await enforce_retrieval_guardrails(
+        db,
+        question=payload.question,
+        retrieved_text=source_text,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        request_id=request_id,
+        resource_type="contract_brain",
+        resource_id=payload.contract_id,
+    )
 
     answer = await ai_controller.run_structured_skill(
         db,
@@ -152,6 +176,18 @@ async def ask_contract_brain(
     # shared grounding function the assistant tool now uses too, so both paths
     # can never diverge on how trustworthy an answer is.
     grounded = ground_answer(answer, source_text)
+    await enforce_output_guardrails(
+        db,
+        user_text=payload.question,
+        answer=grounded["display_answer"],
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        request_id=request_id,
+        resource_type="contract_brain",
+        resource_id=payload.contract_id,
+        # self check facts: the answer must be supported by the text it was built from.
+        evidence=source_text,
+    )
     if payload.query_scope == "portfolio":
         # Search looked at the best passages, not every contract: say so, and cap confidence.
         grounded = mark_search_partial(grounded, contract_count=len(contract_ids))

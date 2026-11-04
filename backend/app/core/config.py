@@ -131,6 +131,13 @@ class Settings(BaseSettings):
     # Mock integrations default OFF — production-safe. Local dev opts back in
     # explicitly via MOCK_* env (see .env.example / tests/conftest.py).
     mock_claude: bool = False
+    # Clean-room compliance guardrails (app/ai/guardrail_service.py). The heuristic
+    # screen always runs; the NeMo LLM self-check rail runs unless MOCK_GUARDRAILS is
+    # on (CI/dev without a key). fail_closed: a rail error BLOCKS the request.
+    mock_guardrails: bool = False
+    guardrails_fail_closed: bool = True
+    # Claude model the NeMo guardrails run on; no default: set GUARDRAILS_MODEL in .env.
+    guardrails_model: str
     ai_store_raw_outputs: bool = False
     ai_max_tool_iterations: int = 8
     ai_default_temperature: float = 0.0
@@ -385,6 +392,7 @@ def validate_runtime_settings(settings: Settings) -> None:
         name
         for name, on in (
             ("MOCK_CLAUDE", settings.mock_claude),
+            ("MOCK_GUARDRAILS", settings.mock_guardrails),
             ("MOCK_DOCUSIGN", settings.mock_docusign),
             ("MOCK_REDUCTO", settings.mock_reducto),
             ("MOCK_RESEND", settings.mock_resend),
@@ -400,6 +408,8 @@ def validate_runtime_settings(settings: Settings) -> None:
         problems.append(f"replace {', '.join(insecure_values)}")
     if enabled_mocks:
         problems.append(f"disable mock integrations {', '.join(enabled_mocks)}")
+    if not settings.guardrails_fail_closed:
+        problems.append("enable GUARDRAILS_FAIL_CLOSED")
 
     # Security flags that must be tightened before going live.
     # DISABLE_RBAC makes every authenticated user an org admin, which also

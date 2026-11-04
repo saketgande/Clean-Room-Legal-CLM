@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import ai_controller
+from app.ai.guardrail_service import enforce_input_guardrails
 from app.ai.schemas import PlaybookReviewOutput
 from app.contract_files import issue_fixes
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
@@ -306,6 +307,14 @@ async def build_chat(
     service: PlaybooksService = Depends(get_playbooks_service),
 ):
     """One turn of the conversational builder — returns a reply + the full draft."""
+    await enforce_input_guardrails(
+        db,
+        text=payload.message,
+        org_id=current_user.org_id,
+        actor_user_id=current_user.id,
+        request_id=getattr(request.state, "request_id", None),
+        resource_type="playbook_builder",
+    )
     return await service.chat_build_playbook(
         user=current_user,
         message=payload.message,

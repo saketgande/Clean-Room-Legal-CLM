@@ -121,7 +121,8 @@ def test_the_answer_is_saved_with_nobody_watching(db, user, published):
     assert ctrl.calls[0]["message"] == "What is the notice period?"
     assert ctrl.calls[0]["session_type"] == sess.session_type
     names = [e for _, e, _ in published]
-    assert names == ["message_delta", "message_delta", "done"]
+    # The output rail judges the buffered segment as one piece, so the two deltas are published once.
+    assert names == ["message_delta", "done"]
     assert published[-1][2]["run_status"] == AssistantRunStatus.SUCCEEDED
 
 
@@ -145,15 +146,45 @@ def test_stop_keeps_what_was_written_and_ends_cancelled(db, user, published, mon
     assert published[-1][1] == "done" and published[-1][2]["run_status"] == AssistantRunStatus.CANCELLED
 
 
+def test_a_segment_the_output_rail_blocks_is_replaced_by_its_refusal_and_audited(db, user, published, monkeypatch):
+    from app.ai.guardrail_service import GuardrailResult
+    from app.core.models import AuditLog
+
+    seen = {}
+
+    async def blocked(user_text, answer, *, evidence=None):
+        seen.update(user_text=user_text, answer=answer, evidence=evidence)
+        return GuardrailResult(False, "Response withheld by NeMo Guardrails (test).", "nemo_output", "self check output")
+
+    monkeypatch.setattr(runner, "apply_output_guardrails", blocked)
+    _, run = _turn(db, user)
+    ctrl = FakeController(
+        [
+            {"event": "tool_finished", "payload": {"tool_name": "x", "result": {"fact": "Notice is 30 days."}}},
+            _delta("Secret "),
+            _delta("leak."),
+        ]
+    )
+    assert _drive(db, run, ctrl) == AssistantRunStatus.SUCCEEDED
+    db.refresh(run)
+    answer = db.get(AssistantMessage, run.assistant_message_id)
+    assert answer.content == "Response withheld by NeMo Guardrails (test)."
+    assert seen["answer"] == "Secret leak." and "Notice is 30 days." in seen["evidence"]
+    assert all("leak" not in str(payload) for _, _, payload in published)
+    audit = db.scalar(
+        select(AuditLog).where(AuditLog.action == "assistant.guardrail_blocked", AuditLog.resource_id == run.id)
+    )
+    assert audit is not None and audit.resource_type == "assistant_run"
+
+
 def test_a_provider_error_fails_the_run_with_a_safe_message(db, user, published):
     _, run = _turn(db, user)
     ctrl = FakeController([_delta("Partial")], raise_after=RuntimeError("401 invalid x-api-key sk-ant-123"))
     assert _drive(db, run, ctrl) == AssistantRunStatus.FAILED
     db.refresh(run)
     assert "sk-ant" not in run.error_message
-    # The partial answer is kept, marked as interrupted.
-    answer = db.get(AssistantMessage, run.assistant_message_id)
-    assert answer.content == "Partial" and answer.metadata_json.get("interrupted") is True
+    # Text still waiting for the output rail when the error hit was never screened: it is dropped.
+    assert run.assistant_message_id is None
     names = [e for _, e, _ in published]
     assert names[-2:] == ["error", "done"]
     assert "sk-ant" not in published[-2][2]["message"]

@@ -1,0 +1,3 @@
+# The input rail is NeMo's built-in "self check input" flow (prompt in config.yml).
+# It is not redefined here: its action result type changed across NeMo versions, so a
+# local override that tests the raw return value can silently stop blocking.

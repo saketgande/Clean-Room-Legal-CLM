@@ -14,6 +14,7 @@ from app.ai.confirmations import (
     confirm_confirmation,
     reject_confirmation,
 )
+from app.ai.guardrail_service import apply_input_guardrails, audit_guardrail_block
 from app.ai.tool_registry import tool_registry
 from app.assistant import run_events, runner
 from app.assistant.dependencies import get_assistant_service
@@ -255,6 +256,29 @@ async def stream_session(
     session = service.get_session_for_user(session_id=session_id, current_user=current_user)
     for contract_id in payload.contract_ids:
         get_contract_for_user(db, contract_id=contract_id, user=current_user)
+
+    # Compliance guardrail. Runs before anything is persisted: a blocked prompt is never
+    # stored (no message, no run) and never reaches the model; only a text-free audit row
+    # is kept. Fails closed (rail errors come back as a refusal, not an exception).
+    guardrail = await apply_input_guardrails(payload.message)
+    if not guardrail.allowed:
+        audit_guardrail_block(
+            db,
+            result=guardrail,
+            text_chars=len(payload.message),
+            org_id=current_user.org_id,
+            actor_user_id=current_user.id,
+            request_id=getattr(request.state, "request_id", None),
+            resource_type="assistant_session",
+            resource_id=session.id,
+        )
+        db.commit()
+
+        async def blocked_stream() -> AsyncIterator[str]:
+            yield _sse("message_delta", {"text": guardrail.message})
+            yield _sse("done", {"assistant_run_id": None, "run_status": AssistantRunStatus.CANCELLED})
+
+        return StreamingResponse(blocked_stream(), media_type="text/event-stream")
 
     # One answer at a time per chat: a second one would interleave with the
     # first in the conversation history. The row lock makes two simultaneous

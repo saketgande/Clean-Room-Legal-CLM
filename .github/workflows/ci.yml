@@ -56,6 +56,8 @@ jobs:
       MOCK_REDUCTO: "true"
       MOCK_RESEND: "true"
       MOCK_DOCUSIGN: "true"
+      # The NeMo guardrails model has no code default; it comes from the environment.
+      GUARDRAILS_MODEL: claude-haiku-4-5-20251001
 
     steps:
       - uses: actions/checkout@v4

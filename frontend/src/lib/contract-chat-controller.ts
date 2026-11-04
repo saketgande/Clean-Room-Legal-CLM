@@ -277,6 +277,9 @@ export class ContractChatController {
       this.stopWatchdog();
       this.setChat(next, { streaming: false, stopping: false });
       if (next.toolRan) this.deps.onSettled();
+      // A guardrail refusal ends the stream before any run exists, so the server saved
+      // neither the question nor the refusal: reloading would wipe them from the screen.
+      if (data.assistant_run_id === null && !this.chat.runId) return;
       void this.syncFromServer().then((messages) => {
         // The saved conversation has the finished answer and its steps; then show a
         // confirmation it is waiting on, or explain an answer that did not finish.
@@ -319,6 +322,9 @@ export class ContractChatController {
       try {
         const res = await this.deps.api.session(sessionId);
         if (!this.alive || this.sessionId !== sessionId || !this.view.streaming) return;
+        // Until the server reports this turn's run (it checks the question against the
+        // guardrails before creating one), the latest run is the previous answer, not this one.
+        if (!this.chat.runId || res.latest_run?.id !== this.chat.runId) return tick();
         const status = res.latest_run?.status;
         if (status === "running") return tick();
         if (!this.ended && (status === "waiting_confirmation" || status === "succeeded" || status === "failed" || status === "cancelled" || status === "interrupted")) {

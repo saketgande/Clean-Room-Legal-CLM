@@ -1,5 +1,9 @@
+import asyncio
+import logging
+
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 
 from app.core.config import settings, validate_runtime_settings
 
@@ -122,3 +126,17 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(hour=3, minute=30),  # daily; retention > 365d
     },
 }
+
+
+@worker_process_init.connect
+def _warm_up_guardrails(**_kwargs) -> None:
+    """Load the NeMo rails (torch / spaCy models) when a worker process starts, so the
+    first answer is not the one that waits minutes for them."""
+    if settings.mock_guardrails:
+        return
+    try:
+        from app.ai.guardrail_service import apply_output_guardrails
+
+        asyncio.run(apply_output_guardrails("Hello", "Hello, how can I help?"))
+    except Exception:
+        logging.getLogger(__name__).warning("Guardrail warm-up failed", exc_info=True)
