@@ -5679,7 +5679,7 @@
     "rule": "insurance",
     "status": "deviation",
     "evidence_quote": "The Provider is not required to maintain any insurance in connection with this Agreement or the Services.",
-    "severity": "low",
+    "severity": "medium",
     "planted": {
      "rule": "insurance",
      "status": "deviation",
@@ -5687,7 +5687,7 @@
      "changed_text": "The Provider is not required to maintain any insurance in connection with this Agreement or the Services.",
      "anchor_text": "nder Clause 5 do not count towards the cap in Clause 13.1.\n\n14. INSURANCE\n\n14.1 ",
      "char_start": 19694,
-     "severity": "low",
+     "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / insurance"
     }
    },
@@ -6598,7 +6598,7 @@
      "original_text": "in any event within seventy-two (72) hours after becoming aware of it",
      "changed_text": "in any event within thirty (30) days after becoming aware of it",
      "anchor_text": "der shall notify the Customer of any Security Incident without undue delay, and ",
-     "char_start": 10763,
+     "char_start": 10771,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_security"
     }
@@ -6614,7 +6614,7 @@
      "original_text": "The Provider shall host, store and process Customer Data only in data centres located in India, or, where the Order Form expressly so provides, in the European Union.",
      "changed_text": "The Provider may host, store and process Customer Data in data centres located in any country of its choice, without notice to the Customer.",
      "anchor_text": "ate data protection and security training.\n\n9. DATA LOCATION AND TRANSFERS\n\n9.1 ",
-     "char_start": 12046,
+     "char_start": 12054,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_location"
     }

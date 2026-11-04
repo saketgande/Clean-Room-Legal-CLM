@@ -38,6 +38,7 @@ LITERALS = {
         "manual",
         "check_all",
         "retry",
+        "sample",  # spec 014: the check run on the sample wording
     ],
     "TemplateCheckState": ["queued", "running", "completed", "failed", "superseded"],
     "TemplateCheckError": [
@@ -78,6 +79,7 @@ CHECK_ONLY = {
 TEMPLATE_SUMMARY = {
     "key", "name", "label", "contract_type", "binding", "playbook", "shipped", "active",
     "source", "version", "original_filename", "updated_at", "updated_by", "editable", "status",
+    "standard",  # spec 014: whether wording / rules predate the standard
 }
 
 FIELDS = {
@@ -262,6 +264,10 @@ TEMPLATE_SUMMARY_PAYLOAD = {
     "shipped": True, "active": True, "source": "default", "version": 0,
     "original_filename": None, "updated_at": None, "updated_by": None, "editable": True,
     "status": STATUS,
+    "standard": {
+        "revision": "014", "updated_on": "2026-10-27", "wording_behind": False,
+        "playbook_behind": True,
+    },
 }
 TEMPLATE = TEMPLATE_SUMMARY_PAYLOAD | {
     "body": "Between {company} and {counterparty}.", "default_body": None,

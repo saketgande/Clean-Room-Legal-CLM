@@ -218,15 +218,26 @@ def test_own_contract_and_other_counterparties_are_excluded_and_nda_counted(w):
     'earlier files'; the NDA count in the note comes from visible titles only."""
     own = w.contract(title="Own contract")
     r = w.request(contract=own)
-    w.contract(title="Mutual NDA - Initech")
+    w.contract(title="Mutual NDA - Initech", contract_type="NDA")
     w.contract(title="MSA")
     w.contract("Globex Corp", title="Elsewhere")
 
     out = read(w, w.staff, r)
 
     assert sorted(c["title"] for c in out["contracts"]) == ["MSA", "Mutual NDA - Initech"]
-    assert out["note"] == "Known counterparty: 2 prior contract(s), 1 NDA on file."
+    assert out["note"] == "Known counterparty: 2 prior contract(s), 1 NDA in force."
     assert out["requests"] == []
+
+
+def test_ended_nda_is_not_counted_as_in_force_in_the_note(w):
+    """The note said 'NDA on file' for an NDA that had lapsed; only a live one may be counted,
+    and a title containing 'NDA' on a differently typed contract counts for nothing."""
+    r = w.request()
+    w.contract(title="Old NDA", contract_type="NDA", expiration_date=utcnow().date() - timedelta(days=1))
+    w.contract(title="Closed NDA", contract_type="NDA", stage="closed")
+    w.contract(title="NDA-ish services", contract_type="Services Agreement")
+
+    assert read(w, w.staff, r)["note"] == "Known counterparty: 3 prior contract(s)."
 
 
 def test_requester_sees_only_their_own_earlier_requests_and_staff_sees_all(w):

@@ -21,6 +21,7 @@ which reaches the database), and every other exam module is imported inside a co
 import argparse
 import asyncio
 import json
+import math
 import re
 import sys
 from datetime import UTC, datetime
@@ -51,6 +52,7 @@ _COMMANDS = {
     "draft-routing": (True, True),
     "load-routing": (True, False),
     "run": (True, True),
+    "obligations": (True, True),
     "baseline": (True, False),
 }
 
@@ -116,6 +118,22 @@ def _parser() -> argparse.ArgumentParser:
         "--target",
         choices=[t.value for t in Task],
         help="the area the change is meant to improve (with --change)",
+    )
+    sub = add("obligations", "[paid] Rehearse the obligation extraction against the answer keys, or name a baseline.")
+    sub.add_argument("--runs", type=int, default=1, help="how many times to run each key (1 to 3; default 1)")
+    sub.add_argument(
+        "--baseline",
+        metavar="NAME",
+        help="name this run a BASELINE (results/baseline-NAME/, never overwritten): needs every key lawyer-confirmed "
+        "and unchanged, --runs 2 and a ceiling of at most $5",
+    )
+    sub.add_argument("--label", metavar="NAME", help="what this run is for, shown on the scorecard")
+    sub.add_argument(
+        "--ceiling",
+        type=float,
+        metavar="USD",
+        help="the most this run may spend, given here instead of at the prompt: the estimate is "
+        "still printed first, and a terminal is still required",
     )
     sub = commands.add_parser("baseline", help="Designate two full runs as the baseline (free).")
     actions = sub.add_subparsers(dest="action", required=True)
@@ -383,6 +401,29 @@ def _run(args: argparse.Namespace, live: LiveDB, owner: Owner) -> None:
         print("This was a sample run: a cheap rehearsal that can never be part of a baseline.")
 
 
+def _obligations(args: argparse.Namespace, live: LiveDB, owner: Owner) -> None:
+    from eval.obligations import runner as obligations_runner
+
+    if args.ceiling is None:
+        ask, ceiling_from = input, "prompt"
+    else:
+        # The amount typed on the command line is the go-ahead, as the amount typed at the prompt is. The estimate has
+        # already been printed when this is asked, and the run record says how the go-ahead was given.
+        def ask(prompt: str) -> str:
+            print(f"{prompt}{args.ceiling:g}  (from --ceiling)")
+            return f"{args.ceiling:g}"
+
+        ceiling_from = "command_line"
+    # One exam command at a time, like `run`: a second command starting meanwhile would close this run as crashed.
+    with env.exam_lock(live):
+        asyncio.run(
+            obligations_runner.run_obligations(
+                live=live, owner=owner, ask=ask, runs=args.runs, label=args.label, ceiling_from=ceiling_from,
+                baseline=args.baseline,
+            )
+        )
+
+
 def _baseline_set(args: argparse.Namespace, live: LiveDB, owner: Owner) -> None:
     from eval.exam import report
     from eval.exam.content import load_content
@@ -484,6 +525,7 @@ _HANDLERS = {
     "draft-routing": _draft_routing,
     "load-routing": _load_routing,
     "run": _run,
+    "obligations": _obligations,
     "baseline": _baseline_set,
     "compare": _compare,
 }
@@ -527,9 +569,12 @@ def main(argv: list[str] | None = None) -> int:
     change, target = getattr(args, "change", None), getattr(args, "target", None)
     if (change or target) and not (getattr(args, "mode", None) and change and target):
         parser.error("--change and --target go together, on a new run (--mode)")
-    for name in (change, getattr(args, "name", None)):
+    for name in (change, getattr(args, "name", None), getattr(args, "label", None)):
         if name and not _NAME.fullmatch(name):
             parser.error("a change or baseline name is letters, digits, '.', '_' or '-' (to 64)")
+    ceiling = getattr(args, "ceiling", None)
+    if ceiling is not None and not (math.isfinite(ceiling) and ceiling > 0):
+        parser.error("--ceiling is a positive number of dollars")
     try:
         _dispatch(args)
     except ExamRefused as exc:

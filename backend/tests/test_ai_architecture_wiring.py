@@ -553,3 +553,12 @@ def test_assistant_errors_shown_to_users_never_carry_internal_detail():
     assert _user_facing_error(budget, request_id=None, run_id="run-1") == budget.detail
     for fn in (stream_session,):
         assert 'yield _sse("error", {"message": str(exc)' not in inspect.getsource(fn)
+
+
+def test_resume_answers_every_tool_use_of_the_paused_turn():
+    """Claude 400s ("tool_use ids were found without tool_result") if a turn that called
+    several tools resumes with a result for only the confirmed one."""
+    source = inspect.getsource(ai_controller.resume_assistant_run)
+
+    assert "done_results" in source
+    assert 'block.get("type") == "tool_use"' in source

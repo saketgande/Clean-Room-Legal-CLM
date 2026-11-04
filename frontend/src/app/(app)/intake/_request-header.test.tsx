@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ProgressStrip, RequestHeader } from "./_request-header";
+import { ProgressStrip, RequestHeader, StageTimeline } from "./_request-header";
 
 const base = {
   title: "Acme MSA", refCode: "REQ-7705", requesterName: "Priya", raisedAt: "2026-10-01T10:00:00Z",
@@ -46,10 +46,22 @@ describe("ProgressStrip", () => {
     expect(screen.getByText(/Agent working…/)).toBeTruthy();
   });
 
-  it("shows the warn tone class and the seven stages", () => {
-    /** Guards FR-20: the strip reuses the 7-stage lifecycle bar; warn tone must reach the line. */
+  it("shows the warn tone class on the line", () => {
+    /** Guards FR-20: the warn tone must reach the line. */
     const { container } = render(<ProgressStrip {...strip} tone="warn" working={false} />);
     expect(container.querySelector(".stline.warn")).toBeTruthy();
-    expect(screen.getAllByText("Intake").length).toBeGreaterThan(0);
+  });
+
+  it("lists the seven stages in the timeline, the current one open, and opens another on a click", () => {
+    /** Guards the side timeline: all seven stages reachable, and a stage can be opened and closed by a person. */
+    render(<StageTimeline steps={[]} current="review" comments={[]} extras={{}} />);
+    expect(screen.getByText("2 of 7 stages complete")).toBeTruthy();
+    const stages = screen.getAllByRole("button", { name: /^(Intake|Drafting|Review|Approval|Signature|Active|Closed):/ });
+    expect(stages).toHaveLength(7);
+    expect(stages.map((b) => b.getAttribute("aria-expanded"))).toEqual(["false", "false", "true", "false", "false", "false", "false"]);
+    fireEvent.click(stages[0]);
+    expect(screen.getAllByRole("button", { name: /^Intake:/ })[0].getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(stages[0]);
+    expect(screen.getAllByRole("button", { name: /^Intake:/ })[0].getAttribute("aria-expanded")).toBe("false");
   });
 });

@@ -193,6 +193,19 @@ class ContractAccessService:
         # Phase 2: a direct, time-bound resource grant on this contract.
         return user_has_grant(db, user=user, resource_type="contract", resource_id=contract.id)
 
+    def user_can_edit_contract(self, *, contract: Contract, user: User) -> bool:
+        """Row check for changing what hangs off a contract (its obligations): access, walls and clearance
+        included, AND being an admin, its owner or creator, or holding an `update`-or-higher grant. A
+        read or comment grant, a pending approval and a workflow step can open the contract, not edit it
+        (the grant ladder is read < comment < update < share < owner, and nothing enforced it)."""
+        if not self.user_can_access_contract(contract=contract, user=user):
+            return False
+        if is_org_admin(user) or contract.owner_user_id == user.id or contract.created_by_user_id == user.id:
+            return True
+        return user_has_grant(
+            self.db, user=user, resource_type="contract", resource_id=contract.id, min_level="update"
+        )
+
 
 # DI-MIGRATION: temporary wrapper — remove once all callers use
 # get_contract_access_service(). Tracked in backend/DI_MIGRATION.md

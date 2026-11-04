@@ -1,0 +1,1 @@
+{"task": "T005", "agent": "frontend-dev", "status": "done", "detail": "summary-edits.ts + test (65); typecheck (only 2 known docstudio errors) / full suite 2040 green", "updated": "2026-10-27T09:40:22Z"}

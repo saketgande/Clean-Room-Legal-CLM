@@ -77,6 +77,8 @@ export interface RequestFormField {
   key: string; label: string;
   kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number" | "rows";
   required: boolean; options?: string[]; show?: RequestFormRule[];
+  /** Options that replace `options` when every rule matches; first match wins. */
+  options_when?: { when: RequestFormRule[]; options: string[] }[];
   /** A date that must not come before the date answered under this key (an end date against its start date). */
   not_before?: string;
   /** Text answers: refused when they hold a blank bracket such as "[TBD]". */
@@ -115,7 +117,64 @@ export type FormValue = string | string[] | FormRow[];
 export interface IntakeDraft {
   id: ID; form_key: string; title: string | null; values: Record<string, FormValue>;
   parent_contract_id: ID | null; page_index: number; visited: number;
+  summary_box?: SummaryBoxState | null;
   created_at: string; updated_at: string;
+}
+/** One answer an extra instruction disagrees with (FR-18/27). Rendered "This differs from your answer: {answer}". */
+export interface SummaryDiffers {
+  key: string;
+  label: string;
+  answer: string;                 // the current answer as text, or "no answer"
+}
+/** An extra instruction for Legal, in the requester's own words (FR-25..27). */
+export interface ExtraInstruction {
+  text: string;
+  differs: SummaryDiffers[];      // [] → no note
+}
+/** An "Update the answer?" offer the requester accepted (FR-17/20) — for the filing record only. */
+export interface AcceptedChange {
+  key: string;
+  label: string;
+  old: string | string[] | null;
+  new: string | string[] | null;
+}
+/** An open offer under a line of the editable box. */
+export interface SummaryOffer {
+  id: string;                     // `${line}:${keys.join("+")}`
+  line: string;                   // SummaryLine.id it came from
+  kind: "update" | "clear";
+  keys: string[];                 // the questions it changes (money: ["value","currency"])
+  label: string;                  // "Governing law"
+  oldText: string;                // "India"
+  newText: string;                // "England and Wales"
+  patch: Record<string, FormValue>;   // applied with the wizard's own `set` on accept
+}
+/** What the requester typed over one generated line, and what checking it found. */
+export interface SummaryEdit {
+  text: string;                   // their line as typed ("" = deleted)
+  base: string;                   // the generated line when they started editing
+  check: { templateMatched: boolean; differs: SummaryDiffers[]; declined: string[] } | null;  // null = not checked yet
+}
+/** The box's whole state: kept in the wizard, saved in drafts (summary_box), finalised on filing. */
+export interface SummaryBoxState {
+  edits: Record<string, SummaryEdit>;   // by SummaryLine.id
+  offers: SummaryOffer[];
+  instructions: ExtraInstruction[];
+  accepted: AcceptedChange[];
+  pending: string;                      // the "Anything else for Legal?" box, not yet added
+}
+/** Sent inside POST /intake/requests as `summary`. */
+export interface RequestSummaryFiling {
+  text: string | null;
+  instructions: ExtraInstruction[];
+  accepted: AcceptedChange[];
+}
+/** GET /intake/requests/{id}/summary */
+export interface RequestSummary {
+  text: string | null;
+  at: string | null;
+  by_name: string | null;
+  instructions: ExtraInstruction[];
 }
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
@@ -360,6 +419,17 @@ export interface ContractDeviation {
   suggested_fix: string | null;
   citation: Record<string, unknown> | null;
   status: string;
+}
+
+/** One version of a contract with what was reviewed and decided on it (GET /contracts/{id}/review-history). */
+export interface ReviewHistoryVersion {
+  version_id: ID; version_number: number; source: string; created_at: ISODateTime; is_current: boolean;
+  reviews: {
+    id: ID; status: string; created_at: ISODateTime;
+    findings: { id: ID; severity: string; clause_type: string | null; issue: string; status: string;
+      decision: string | null; rationale: string | null; decided_by: string | null; decided_at: ISODateTime | null }[];
+  }[];
+  edits: { id: ID; edit_type: string; status: string; original_text: string | null; replacement_text: string | null; rationale: string | null }[];
 }
 
 /** A requested AI review that has not finished (the server's contracts.auto_review.review_state). */
@@ -613,6 +683,8 @@ export interface ContractResponse {
   current_contract_file_id: ID | null;
   current_authoritative_version_id: ID | null;
   metadata_json: Record<string, unknown>;
+  type_needed: boolean;
+  suggested_type: string | null;
 }
 
 export interface ContractUploadResponse {
@@ -939,8 +1011,13 @@ export type LifecycleStage = "intake" | "drafting" | "review" | "approval" | "si
  * obligations, renewal, expiry (backend app/workflows/lifecycle_rows.py). */
 export interface LifecycleRow {
   name: string; kind: string; detail: string; who: string;
-  status: "done" | "waiting" | "planned" | "skipped"; when: string | null;
+  status: "done" | "waiting" | "planned" | "skipped" | "failed"; when: string | null;
+  /** Something to offer on this row (the server enforces who may do it; the page hints from the role). */
+  action?: LifecycleAction | null;
 }
+
+/** "Retry" on a failed obligation extraction, "Re-read" on one that comes from an earlier version. */
+export interface LifecycleAction { kind: "extract_obligations"; label: string; contract_id: ID }
 
 export interface Workflow {
   id: ID;
@@ -1229,6 +1306,21 @@ export type ObligationStatus =
   | "completed"
   | "cancelled";
 
+/** dated: has a due date · waiting_event: counts from an event nobody has logged · needs_person: code could not count
+ *  a date · no_fixed_date: ongoing or conditional by nature (or a person cleared it) · not_read: extracted before
+ *  dates were counted. "Needs a date" = needs_person + not_read. */
+export type DateState = "dated" | "waiting_event" | "needs_person" | "no_fixed_date" | "not_read";
+
+/** GET /obligations/summary: the tiles, over exactly the obligations the list shows. `dates` and `needs_date` count
+ *  OPEN obligations only. */
+export interface ObligationSummary {
+  total: number;
+  by_status: Record<ObligationStatus, number>;
+  dates: Record<DateState, number>;
+  needs_date: number;
+  line: string;
+}
+
 export interface Obligation {
   id: ID;
   org_id: ID;
@@ -1248,6 +1340,8 @@ export interface Obligation {
   metadata_json: Record<string, unknown>;
   /** How the date was counted (null for rows extracted before Step 3d). */
   deadline: ObligationDeadline | null;
+  /** Worked out by the server on read (backend app/obligations/dates.py): the page never guesses it from text. */
+  date_state: DateState;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -2675,7 +2769,7 @@ export type TemplateStatusState =
   | "partly_checked" | "couldnt_check" | "never_checked" | "no_playbook";
 export type TemplateCheckTrigger =
   | "saved" | "uploaded" | "restored" | "reset" | "type_created" | "type_reactivated"
-  | "playbook_published" | "playbook_changed" | "manual" | "check_all" | "retry";
+  | "playbook_published" | "playbook_changed" | "manual" | "check_all" | "retry" | "sample";
 export type TemplateCheckState = "queued" | "running" | "completed" | "failed" | "superseded";
 export type TemplateCheckError =
   | "ai_unavailable" | "cost_cap" | "no_rules" | "no_playbook" | "unfillable" | "wording_changed" | "interrupted";
@@ -2754,6 +2848,16 @@ export interface TemplateStatus {
   active_check: TemplateCheckSummary | null;
 }
 
+// Mirrors DraftingTemplateSummaryOut.standard exactly
+export interface TemplateStandard {
+  revision: string;          // "014"
+  updated_on: string;        // "2026-10-27"
+  wording_behind: boolean;
+  playbook_behind: boolean;
+}
+
+export interface TemplateStandardAdopt { note?: string | null; }
+
 export interface DraftingTemplateSummary {
   key: string;
   name: string;
@@ -2770,6 +2874,7 @@ export interface DraftingTemplateSummary {
   updated_by: string | null;
   editable: boolean;                      // false for a Word-based template (FR-40)
   status: TemplateStatus;
+  standard: TemplateStandard | null;
 }
 
 export interface DraftingTemplatePlaceholder { name: string; label: string; about: string; sample: string; }
@@ -2901,4 +3006,22 @@ export interface RequestCounterparty {
   note: string | null;
   contracts: CounterpartyContractItem[]; // live first, then ended; newest first; at most 100
   requests: CounterpartyRequestItem[]; // newest first; at most 100
+}
+
+// ---- Contract type (012) ----------------------------
+export interface ContractTypeOption {
+  value: string;
+  label: string;
+}
+export interface TypeNeededItem {
+  id: ID;
+  title: string;
+  counterparty_name: string | null;
+  stage: ContractLifecycleStage;
+  contract_type: string | null;
+  suggested_type: string | null;
+}
+export interface TypeNeededList {
+  items: TypeNeededItem[];
+  truncated: boolean;
 }

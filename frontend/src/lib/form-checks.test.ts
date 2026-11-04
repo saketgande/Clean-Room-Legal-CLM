@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  answerProblem, dateWindow, EMAIL_PROBLEM, findBlanks, lacksAnswer, longDate, looksLikeEmail, needsDraftAnswers, pastDueRows,
+  answerProblem, optionsFor, dateWindow, EMAIL_PROBLEM, findBlanks, lacksAnswer, longDate, looksLikeEmail, needsDraftAnswers, pastDueRows,
   PROCESSOR_ROLE, rowsProblems, rulesFor, shareTotal, shown, tidiedRows, tidyCell, withOwnPaper,
 } from "./form-checks";
 import type { FormRow, RequestFormDef, RequestFormField } from "./types";
@@ -499,5 +499,33 @@ describe("needsDraftAnswers", () => {
     expect(PROCESSOR_ROLE).toBe(dpa.fields.find((f) => f.key === "our_role")!.options![1]);
     expect(needsDraftAnswers(dpa, { ...controller, our_role: PROCESSOR_ROLE, data_subjects: "Several", transfer: "Yes" })).toEqual([]);
     expect(needsDraftAnswers(dpa, { ...controller, paper: "Their paper", data_subjects: "Several" })).toEqual([]);
+  });
+});
+
+describe("optionsFor (the same options_when resolution as the server, FR-3)", () => {
+  const field = {
+    key: "payment_terms", label: "Payment terms", kind: "select", required: true,
+    options: ["30 days", "45 days", "60 days", "90 days"],
+    options_when: [
+      { when: [{ field: "agreement_type", in: ["Services (MSA)", "Consultancy"] }], options: ["45 days", "60 days"] },
+      { when: [{ field: "agreement_type", in: ["Software or SaaS"] }], options: ["45 days", "60 days", "90 days"] },
+    ],
+  } as RequestFormField;
+
+  // Failure mode: the wizard keeps offering "30 days" for an MSA, which the playbook rejects after filing.
+  it("takes the first entry whose rules all match, else the default list", () => {
+    expect(optionsFor(field, { agreement_type: "Services (MSA)" })).toEqual(["45 days", "60 days"]);
+    expect(optionsFor(field, { agreement_type: "Software or SaaS" })).toEqual(["45 days", "60 days", "90 days"]);
+    expect(optionsFor(field, { agreement_type: "Selling to a customer" })).toEqual(field.options);
+    expect(optionsFor({ ...field, options_when: undefined }, { agreement_type: "Services (MSA)" })).toEqual(field.options);
+  });
+
+  // Failure mode: a saved draft holding a removed option sails through Next and is refused only at filing.
+  it("answerProblem refuses a select value the form no longer offers, and only when offered is given", () => {
+    const offered = optionsFor(field, { agreement_type: "Services (MSA)" });
+    expect(answerProblem("select", "30 days", undefined, undefined, offered))
+      .toBe('"30 days" is no longer offered for this agreement. Pick again.');
+    expect(answerProblem("select", "45 days", undefined, undefined, offered)).toBeNull();
+    expect(answerProblem("select", "30 days")).toBeNull();
   });
 });

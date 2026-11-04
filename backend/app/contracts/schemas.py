@@ -1,8 +1,9 @@
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
+from app.contracts import contract_types as ct
 from app.core.enums import ContractLifecycleStage
 
 
@@ -34,6 +35,20 @@ class ContractResponse(BaseModel):
     current_authoritative_version_id: str | None
     metadata_json: dict
 
+    @computed_field
+    @property
+    def type_needed(self) -> bool:
+        return ct.type_needed(
+            self.contract_type, self.title, self.metadata_json, self.lifecycle_stage, self.archived
+        )
+
+    @computed_field
+    @property
+    def suggested_type(self) -> str | None:
+        return ct.suggested_type(
+            self.contract_type, self.title, self.metadata_json, self.lifecycle_stage, self.archived
+        )
+
 
 class ContractUploadResponse(BaseModel):
     contract: ContractResponse
@@ -62,6 +77,38 @@ class ContractUpdate(BaseModel):
     effective_date: date | None = None
     expiration_date: date | None = None
     metadata_json: dict | None = None
+
+    @field_validator("contract_type")
+    @classmethod
+    def _no_type_here(cls, v):
+        # One way to set the type, so the list check, the audit row and "a person chose this"
+        # can't be skipped by a PATCH.
+        if v is not None:
+            raise ValueError("Set the contract type with PUT /contracts/{id}/type")
+        return v
+
+
+class ContractTypeOption(BaseModel):
+    value: str
+    label: str
+
+
+class ContractTypeSet(BaseModel):
+    contract_type: str = Field(min_length=1, max_length=160)  # membership checked in the service (422)
+
+
+class TypeNeededItem(BaseModel):
+    id: str
+    title: str
+    counterparty_name: str | None
+    stage: str
+    contract_type: str | None
+    suggested_type: str | None
+
+
+class TypeNeededResponse(BaseModel):
+    items: list[TypeNeededItem]
+    truncated: bool
 
 
 class LifecycleTransitionRequest(BaseModel):

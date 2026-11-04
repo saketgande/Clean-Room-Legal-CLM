@@ -1141,8 +1141,18 @@ async def _execute_step(db: Session, *, run: WorkflowRun, step: dict, sr: Workfl
         thr = _step_threshold(cfg.get("escalate_below_confidence"))
         conf = confidence_score(conf)
         if not agent_val and thr is None:
-            # No agent and no bar: a system step ("Activate & track") -- the AI was
-            # asked nothing, so there is no verdict to trust or distrust.
+            # No agent and no bar: a system step ("Activate") -- the AI was
+            # asked nothing, so there is no verdict to trust or distrust. In the Active stage it says on the step what is
+            # true of the contract (the step row reads "Done"; the obligation row is where the reading shows up).
+            if sr is not None and step.get("stage") == "active":
+                from app.contracts.models import Contract
+                from app.workflows import stages
+
+                contract = db.get(Contract, run.contract_id) if run.contract_id else None
+                sr.note = (
+                    stages.ACTIVATE_STEP_NOTE_NO_CONTRACT if contract is None
+                    else stages.ACTIVATE_STEP_NOTE if (contract.lifecycle_stage or "").lower() in ("active", "closed")
+                    else stages.ACTIVATE_STEP_NOTE_NOT_ACTIVE)
             return "advance"
         # The AI suggests, the workflow decides: the step clears itself only when a
         # real analysis gave a number AND the step sets a bar AND the number meets

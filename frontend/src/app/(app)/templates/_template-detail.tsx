@@ -37,7 +37,9 @@ import {
   useConfirm,
 } from "@/components/ui";
 import { useToast } from "@/components/toast";
+import { useAuth } from "@/lib/auth";
 import { draftingTemplatesApi } from "@/lib/endpoints";
+import { longDate } from "@/lib/form-checks";
 import { toBodyText, toEditorText, type templatePermissions } from "@/lib/templates";
 import type { DraftingTemplate, DraftingTemplateSummary, TemplateMutationResult } from "@/lib/types";
 import { fmtDateTime } from "@/lib/utils";
@@ -110,11 +112,15 @@ function Loaded({
   const [tab, setTab] = useState<TabId>("wording");
   const [choosing, setChoosing] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [adopting, setAdopting] = useState(false);
+  // Strict like templatePermissions: only a held permission (or "*") offers the button the server would refuse.
+  const { user } = useAuth();
+  const canPublish = (user?.permissions ?? []).some((p) => p === "playbook:publish" || p === "*");
 
   // The saved template with the list's fresher status and playbook (a playbook can publish while the page is open).
   const live = useMemo<DraftingTemplate>(
-    () => ({ ...saved, playbook: summary.playbook, status: summary.status }),
-    [saved, summary.playbook, summary.status],
+    () => ({ ...saved, playbook: summary.playbook, status: summary.status, standard: summary.standard }),
+    [saved, summary.playbook, summary.status, summary.standard],
   );
   const dirty = editorText !== toEditorText(saved.body, saved.placeholders);
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange]);
@@ -172,6 +178,27 @@ function Loaded({
     }
   }
 
+  async function useStandardRules() {
+    const ok = await confirm({
+      title: "Use the standard rules?",
+      message: `This publishes the standard rules as the newest version of ${live.playbook?.name ?? "the playbook"}. Your own rules stay in its history.`,
+      confirmLabel: "Use the standard rules",
+    });
+    if (!ok) return;
+    setAdopting(true);
+    try {
+      const result = await draftingTemplatesApi.adoptStandardPlaybook(key, {});
+      adopt(result.template);
+      refreshAfterChange();
+      const v = result.template.playbook?.version_number;
+      notify(v ? `Standard rules published as version ${v}.` : "Standard rules published.", "success");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "Couldn't publish the standard rules.", "error");
+    } finally {
+      setAdopting(false);
+    }
+  }
+
   function showInTemplate(range: Range) {
     setTab("wording");
     setJumpTo({ start: range.start, end: range.end }); // a new object every time, so jumping twice to one place works
@@ -224,6 +251,28 @@ function Loaded({
           )}
         </div>
         {reason && <p className="text-xs text-slate-500">{reason}</p>}
+        {live.standard?.wording_behind && (
+          <MessageBar intent="warning">
+            Your saved wording is older than the standard wording of {longDate(live.standard.updated_on)}. The check
+            below is the result on your wording.
+            {perms.canChange && live.shipped && live.source !== "default" && (
+              <Button type="button" size="sm" variant="outline" className="ml-2" loading={resetting} onClick={reset}>
+                Reset to shipped wording
+              </Button>
+            )}
+          </MessageBar>
+        )}
+        {live.standard?.playbook_behind && (
+          <MessageBar intent="warning">
+            {live.playbook?.name ?? "The playbook"} has rules older than the standard rules of{" "}
+            {longDate(live.standard.updated_on)}.
+            {canPublish && (
+              <Button type="button" size="sm" variant="outline" className="ml-2" loading={adopting} onClick={useStandardRules}>
+                Use the standard rules
+              </Button>
+            )}
+          </MessageBar>
+        )}
       </header>
 
       <div className="px-4">

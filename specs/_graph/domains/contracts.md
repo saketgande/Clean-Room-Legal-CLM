@@ -15,12 +15,15 @@ Owner agents: backend-dev, db-engineer
 - `DELETE /contracts/{contract_id}/parties/{party_id}` -- permission: `contract:update` -- request: ? -- response: ?
 - `GET /contracts` -- permission: `contract:read` -- request: ? -- response: list[ContractResponse]
 - `GET /contracts/counterparties` -- permission: `contract:read` -- request: str | None -- response: list[CounterpartyOption]
+- `GET /contracts/type-needed` -- permission: `contract:read` -- request: ? -- response: TypeNeededResponse
+- `GET /contracts/types` -- permission: `contract:read` -- request: ? -- response: list[ContractTypeOption]
 - `GET /contracts/{contract_id}` -- permission: `contract:read` -- request: ? -- response: ContractResponse
 - `GET /contracts/{contract_id}/activity` -- permission: `contract:read` -- request: ? -- response: list[ContractActivityResponse]
 - `GET /contracts/{contract_id}/deviations` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/lifecycle` -- permission: `contract:read` -- request: ? -- response: LifecycleOptionsResponse
 - `GET /contracts/{contract_id}/parties` -- permission: `contract:read` -- request: ? -- response: list[ContractPartyResponse]
 - `GET /contracts/{contract_id}/plain-summary` -- permission: `contract:read` -- request: ? -- response: ?
+- `GET /contracts/{contract_id}/review-history` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/review-status` -- permission: `contract:read` -- request: ? -- response: ReviewStatusResponse
 - `GET /contracts/{contract_id}/risk` -- permission: `contract:read` -- request: ? -- response: ?
 - `GET /contracts/{contract_id}/signers` -- permission: `contract:read` -- request: ? -- response: list[SignerOption]
@@ -32,10 +35,11 @@ Owner agents: backend-dev, db-engineer
 - `POST /contracts/{contract_id}/parties` -- permission: `contract:update` -- request: ContractPartyCreate -- response: ContractPartyResponse
 - `POST /contracts/{contract_id}/review/retry` -- permission: `contract:redline` -- request: ? -- response: ReviewRetryResponse
 - `POST /contracts/{contract_id}/risk` -- permission: `contract:read` -- request: ? -- response: ?
+- `PUT /contracts/{contract_id}/type` -- permission: `contract:update` -- request: ContractTypeSet -- response: ContractResponse
 
 ## Schemas
 
-AutoReviewState, ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractUpdate, ContractUploadResponse, CounterpartyOption, DiffLine, LastReview, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewRetryResponse, ReviewStatusResponse, SignerOption, VersionDiffResponse
+AutoReviewState, ContractActivityResponse, ContractPartyCreate, ContractPartyResponse, ContractResponse, ContractStageHistoryResponse, ContractTypeOption, ContractTypeSet, ContractUpdate, ContractUploadResponse, CounterpartyOption, DiffLine, LastReview, LifecycleOptionsResponse, LifecycleTransitionRequest, ReviewChecklistItem, ReviewRetryResponse, ReviewStatusResponse, SignerOption, TypeNeededItem, TypeNeededResponse, VersionDiffResponse
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -83,13 +87,17 @@ Api group: `contractsApi` (confidence: exact)
 - `contractsApi.resolveComment()` -> `POST /contracts/${id}/comments/${commentId}/resolve`
 - `contractsApi.restoreVersion()` -> `POST /contracts/${id}/versions/${versionId}/restore`
 - `contractsApi.retryReview()` -> `POST /contracts/${id}/review/retry`
+- `contractsApi.reviewHistory()` -> `GET /contracts/${id}/review-history`
 - `contractsApi.reviewStatus()` -> `GET /contracts/${id}/review-status`
 - `contractsApi.revisionRound()` -> `GET /contracts/${id}/revisions/current`
 - `contractsApi.risk()` -> `GET /contracts/${id}/risk`
+- `contractsApi.setType()` -> `PUT /contracts/${id}/type`
 - `contractsApi.shares()` -> `GET /contracts/${id}/shares`
 - `contractsApi.signers()` -> `GET /contracts/${id}/signers`
 - `contractsApi.stageHistory()` -> `GET /contracts/${id}/stage-history`
 - `contractsApi.transition()` -> `POST /contracts/${id}/lifecycle`
+- `contractsApi.typeNeeded()` -> `GET /contracts/type-needed`
+- `contractsApi.types()` -> `GET /contracts/types`
 - `contractsApi.update()` -> `PATCH /contracts/${id}`
 - `contractsApi.updateText()` -> `PUT /contracts/${id}/text`
 - `contractsApi.upload()` -> `POST /contracts/upload`

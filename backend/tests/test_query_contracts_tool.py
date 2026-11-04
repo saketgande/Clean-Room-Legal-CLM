@@ -133,9 +133,9 @@ class World:
         self.db.flush()
         return event_row
 
-    def obligation(self, contract: Contract, due, text: str = "Send the report") -> Obligation:
+    def obligation(self, contract: Contract, due, text: str = "Send the report", status: str = "open") -> Obligation:
         row = Obligation(org_id=self.org_id, contract_id=contract.id, description=text, due_date=due,
-                         status="open")
+                         status=status)
         self.db.add(row)
         self.db.flush()
         return row
@@ -402,6 +402,32 @@ def test_deleted_contracts_are_left_out_of_every_chat_list_and_count(world, db):
     assert {i["title"] for i in attention["items"]} == {"Atlas live"} and attention["total"] == 2
     assert obligations["count"] == 1
     assert [c["title"] for c in inventory] == ["Atlas live"] and total == 1
+
+
+def test_attention_keeps_due_soon_and_overdue_obligations_and_drops_closed_ones(world, db):
+    """The list only took status open/in_progress/pending, and the daily sweep turns a row due_soon
+    (7 days out) then overdue, so an obligation fell off "what needs my attention" exactly when it
+    became urgent. Closed rows and rows beyond the window stay off."""
+    today = utcnow().date()
+    contract = world.contract("Atlas live")
+    for text, due, status in (
+        ("open soon", today + timedelta(days=3), "open"),
+        ("due soon", today + timedelta(days=3), "due_soon"),
+        ("overdue", today - timedelta(days=5), "overdue"),
+        ("done", today + timedelta(days=3), "completed"),
+        ("dropped", today - timedelta(days=5), "cancelled"),
+        ("later", today + timedelta(days=30), "open"),
+    ):
+        world.obligation(contract, due, text, status)
+    # A closed contract is no longer tracked: its frozen "overdue" row must not show as work to do.
+    world.obligation(world.contract("Atlas closed", lifecycle_stage="closed"), today - timedelta(days=9),
+                     "on a closed contract", "overdue")
+    attention = tr.tool_runtime._my_attention_items(db, payload=AttentionItemsInput(window_days=7),
+                                                    user=world.owner)
+    got = {i["reason"].removeprefix("Obligation ").split(": ")[1]: i for i in attention["items"]}
+    assert set(got) == {"open soon", "due soon", "overdue"}
+    assert got["overdue"]["urgency"] == "overdue" and got["overdue"]["reason"].startswith("Obligation overdue")
+    assert got["due soon"]["reason"].startswith("Obligation due")
 
 
 def test_capped_tools_say_how_many_there_are_beyond_what_they_show(world, db, monkeypatch):

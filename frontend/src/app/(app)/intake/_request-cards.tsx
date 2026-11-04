@@ -3,35 +3,44 @@
 // Side cards and the discussion cards of the request page. Presentational only: every query, mutation and
 // typed string lives in RequestOverview and arrives as props, so a refetch can never drop a draft.
 
-import { useState, type MouseEvent, type RefObject } from "react";
+import { useState, type MouseEvent, type RefObject, useRef } from "react";
 import Link from "next/link";
-import { FileText, MessageSquare, PenLine, Send } from "lucide-react";
+import { Activity, Building2, Check, FileText, Flag, MessageSquare, MessagesSquare, Send, Sparkles, Users } from "lucide-react";
 import type { IntakeDocument, RequestActivity, RequestCounterparty } from "@/lib/types";
 import { counterpartySummary, groupActivityByDay } from "@/lib/request-facts";
 import { LIFECYCLE } from "@/components/lifecycle-view";
-import { fmtDate, fmtDateTime, fmtMoney, titleCase } from "@/lib/utils";
+import { fmtDate, fmtDateTime, fmtMoney, fmtRelative, titleCase } from "@/lib/utils";
 
+const docKb = (n: number) => (n >= 1_048_576 ? `${(n / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 const ini = (n: string) => n.split(/[ /]/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 
 export function PeopleCard(p: {
   owner: string | null; requester: string | null; department: string | null;
+  /** Whoever the current workflow step waits on, when that is a different person from the owner and requester. */
+  stepPerson?: { name: string; role: string } | null;
   reassign: { options: { id: string; name: string }[]; value: string; onChange: (v: string) => void; onReassign: () => void; busy: boolean } | null;
 }) {
   const r = p.reassign;
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const step = p.stepPerson && ![p.owner, p.requester].includes(p.stepPerson.name) ? p.stepPerson : null;
   return (
-    <div className="card"><div className="ch"><h2>Owner and people</h2></div><div className="cb">
-      <div className="person"><div className="av">{ini(p.owner ?? "?")}</div><div><div className="n">{p.owner ?? "Unassigned"}</div><div className="r">owner</div></div></div>
+    <div className="card tint-ind"><div className="ch"><div className="glyph g-ind"><Users className="ic" aria-hidden /></div><h2>People involved</h2>
+      {r ? <button type="button" className="lnk" onClick={() => { selectRef.current?.scrollIntoView({ block: "center" }); selectRef.current?.focus(); }}>Manage</button> : null}</div>
+    <div className="cb"><p className="hint">Who is handling this request, and who asked for it.</p>
+      <div className="person own"><div className="av">{ini(p.owner ?? "?")}</div><div><div className="n">{p.owner ?? "Unassigned"}</div><div className="r">owner</div></div></div>
+      <div className="person req"><div className="av">{ini(p.requester ?? "R")}</div><div><div className="n">{p.requester ?? "Requester"}</div><div className="r">requester</div></div></div>
+      {step ? <div className="person stp"><div className="av">{ini(step.name)}</div><div><div className="n">{step.name}</div><div className="r">{step.role}</div></div></div> : null}
+      {p.department ? <div className="person dep"><div className="av">{ini(p.department)}</div><div><div className="n">{p.department}</div><div className="r">department</div></div></div> : null}
       {r ? (
         <div className="reassign">
-          <select className="sel" aria-label="New owner" value={r.value} onChange={(e) => r.onChange(e.target.value)}>
+          <div className="rlabel">Change owner</div>
+          <select ref={selectRef} className="sel" aria-label="New owner" value={r.value} onChange={(e) => r.onChange(e.target.value)}>
             <option value="">Pick a new owner…</option>
             {r.options.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
           <button className="btn wide" disabled={r.busy || !r.value} onClick={r.onReassign}>Reassign owner</button>
         </div>
       ) : null}
-      <div className="person"><div className="av">{ini(p.requester ?? "R")}</div><div><div className="n">{p.requester ?? "Requester"}</div><div className="r">requester</div></div></div>
-      {p.department ? <div className="person"><div className="av">{ini(p.department)}</div><div><div className="n">{p.department}</div><div className="r">department</div></div></div> : null}
     </div></div>
   );
 }
@@ -43,12 +52,29 @@ export function DocumentsCard(p: {
 }) {
   const a = p.contractActions;
   return (
-    <div className="card"><div className="ch"><h2>Documents</h2></div><div className="cb">
-      {p.docs.length === 0 ? <div className="dim" style={{ fontSize: 12 }}>No documents attached.</div> :
-        p.docs.map((d) => (
-          <div key={d.id} className="docrow"><div className={`x ${/pdf/i.test(d.mime_type) ? "pdf" : "doc"}`}>{/pdf/i.test(d.mime_type) ? "PDF" : "DOC"}</div>
-            <div style={{ flex: 1, minWidth: 0 }}><div className="n" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.filename}</div><div className="m">{d.extracted_chars > 0 ? "parsed" : "attached"}</div></div></div>
-        ))}
+    <div className="card tint-sky"><div className="ch"><div className="glyph g-sky"><FileText className="ic" aria-hidden /></div><h2>Documents</h2></div><div className="cb"><p className="hint">Files attached to the request, and the contract made from it.</p>
+      {p.docs.length === 0 ? (
+        <div className="dempty"><FileText aria-hidden /><span className="dim">No documents attached.</span></div>
+      ) : (
+        <div className="dgrid">
+          {p.docs.map((d) => {
+            const pdf = /pdf/i.test(d.mime_type);
+            return (
+              <article key={d.id} className="dcard" data-kind={pdf ? "pdf" : "doc"}>
+                <div className="dtop">
+                  <span className="dicon" aria-hidden><FileText /><b>{pdf ? "PDF" : "DOC"}</b></span>
+                  <span className={`dst ${d.extracted_chars > 0 ? "ok" : ""}`}>{d.extracted_chars > 0 ? <Check aria-hidden /> : null}{d.extracted_chars > 0 ? "parsed" : "attached"}</span>
+                </div>
+                <div className="dname" title={d.filename}>{d.filename}</div>
+                <div className="dmeta">
+                  <span>{docKb(d.size_bytes)}</span>
+                  {d.created_at ? <span>{fmtRelative(d.created_at)}</span> : null}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
       {a || p.trademark || p.contractHref ? (
         <div className="docacts">
           {a ? (a.hasAttachment ? (
@@ -58,7 +84,7 @@ export function DocumentsCard(p: {
             </>
           ) : <button className="btn pri wide" disabled={a.busy} onClick={a.onDraft}>Approve &amp; draft the {a.docType} →</button>) : null}
           {p.trademark ? <button className="btn pri wide" disabled={p.trademark.busy} onClick={p.trademark.onContinue}>Continue as Trademark →</button> : null}
-          {p.contractHref ? <Link href={p.contractHref} className="btn wide"><PenLine className="ic" aria-hidden />Open in CLM editor →</Link> : null}
+          {p.contractHref ? <Link href={p.contractHref} className="btn wide">Open in CLM editor →</Link> : null}
         </div>
       ) : null}
     </div></div>
@@ -72,8 +98,8 @@ export function AskAegisCard(p: {
   pending: boolean; q: string; onQ: (v: string) => void; onSend: () => void; onAsk: (question: string) => void;
 }) {
   return (
-    <div className="card"><div className="ch"><MessageSquare className="ic" aria-hidden /><h2>Ask Aegis</h2><span className="cnt">{p.scope}</span></div>
-      <div className="cb chat">
+    <div className="card tint-vio"><div className="ch"><div className="glyph g-vio"><MessageSquare className="ic" aria-hidden /></div><h2>Ask Aegis</h2><span className="cnt">{p.scope}</span></div>
+      <div className="cb chat"><p className="hint">Ask the AI a question about this request.</p>
         <div className="log">
           {p.chat.length === 0 ? (
             <div className="chips">{CHIPS.map((s) => <button key={s} className="chip" disabled={p.pending} onClick={() => p.onAsk(s)}>{s}</button>)}</div>
@@ -95,21 +121,24 @@ export function AskAegisCard(p: {
 export function CommentsCard(p: {
   comments: { actor: string; at: string; text: string; kind: string; stepLabel: string | null }[];
   composer: { value: string; onChange: (v: string) => void; onPost: () => void; posting: boolean; inputRef: RefObject<HTMLInputElement | null> } | null;
+  /** The signed-in person's name: their own comments sit on the right, like a chat. */
+  me?: string | null;
 }) {
   const c = p.composer;
   return (
-    <div className="card wfcomments"><div className="ch"><h2>Comments and questions</h2></div><div className="cb">
-      {p.comments.length === 0 ? <div className="dim" style={{ fontSize: 12.5 }}>No comments yet.</div> :
+    <div className="card wfcomments tint-amb"><div className="ch"><div className="glyph g-amb"><MessagesSquare className="ic" aria-hidden /></div><h2>Comments and questions</h2></div><div className="cb"><p className="hint">Notes between the people working on this request.</p>
+      {p.comments.length === 0 ? <div className="emptynote"><MessagesSquare className="ic" aria-hidden /><span>No comments yet.</span><small>Ask a question or leave a note for the owner.</small></div> :
         <ul className="clist">{p.comments.map((m, i) => (
-          <li key={i} className={m.kind === "return" ? "ret" : ""}>
-            <div className="cmeta"><b>{m.actor}</b><span className="dim"> · {fmtDateTime(m.at)}</span>{m.stepLabel ? <span className="dim"> · on {m.stepLabel}</span> : null}{m.kind === "return" ? <span className="cret"> sent back</span> : null}{m.kind === "reply" ? <span className="cret"> replied to the rejection</span> : null}</div>
-            <div className="ctext">{m.text}</div>
+          <li key={i} className={m.kind === "return" ? "ret" : ""} data-mine={p.me && m.actor === p.me ? "1" : undefined}>
+            <span className="cav" aria-hidden>{ini(m.actor || "?")}</span>
+            <div className="cbody"><div className="cmeta"><b>{m.actor}</b><span className="dim"> · {fmtDateTime(m.at)}</span>{m.stepLabel ? <span className="dim"> · on {m.stepLabel}</span> : null}{m.kind === "return" ? <span className="cret"> sent back</span> : null}{m.kind === "reply" ? <span className="cret"> replied to the rejection</span> : null}</div>
+            <div className="ctext">{m.text}</div></div>
           </li>
         ))}</ul>}
       {c ? (
         <div className="composer">
           <input className="cin" ref={c.inputRef} value={c.value} aria-label="Add a comment or question" placeholder="Add a comment or question…" onChange={(e) => c.onChange(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && c.value.trim()) c.onPost(); }} />
-          <button className="btn" disabled={!c.value.trim() || c.posting} onClick={c.onPost}>Post</button>
+          <button className="btn pri" disabled={!c.value.trim() || c.posting} onClick={c.onPost}><Send className="ic" aria-hidden />Post</button>
         </div>
       ) : null}
     </div></div>
@@ -128,7 +157,7 @@ export function ActivityCard(p: { status: "loading" | "error" | "ready"; data: R
   const groups = groupActivityByDay(visible.slice(0, limit));
   const toggle = hidden > 0 ? <button type="button" className="lnk" onClick={() => setShowSystem((v) => !v)}>{showSystem ? "Hide system details" : `Show system details (${hidden})`}</button> : null;
   return (
-    <div className="card"><div className="ch"><h2>Activity</h2>{items.some((i) => i.source === "contract") ? <span className="chsub">from this request and its contract</span> : null}</div><div className="cb">
+    <div className="card tint-emr"><div className="ch"><div className="glyph g-emr"><Activity className="ic" aria-hidden /></div><h2>Activity</h2>{items.some((i) => i.source === "contract") ? <span className="chsub">from this request and its contract</span> : null}</div><div className="cb"><p className="hint">Everything that has happened on this request, newest first.</p>
       {p.status === "loading" ? <div className="dim" style={{ fontSize: 12.5 }}>Loading activity…</div>
         : p.status === "error" ? <div className="dim" style={{ fontSize: 12.5 }}>Activity could not be loaded. <button type="button" className="lnk" onClick={p.onRetry}>Retry</button></div>
         : (
@@ -139,7 +168,7 @@ export function ActivityCard(p: { status: "loading" | "error" | "ready"; data: R
                   <div key={g.day + g.items[0].id}>
                     <div className="day">{g.day}</div>
                     {g.items.map((i) => (
-                      <div key={i.id} className="ev"><i className={i.tone} aria-hidden /><span><span className="sent">{i.sentence}</span> <span className="who">· {i.who}</span></span><small>{time(i.at)}</small></div>
+                      <div key={i.id} className="ev"><i className={i.tone} aria-hidden>{i.tone === "ai" ? <Sparkles /> : i.tone === "done" ? <Check /> : i.tone === "stage" ? <Flag /> : <span className="dot" />}</i><span><span className="sent">{i.sentence}</span> <span className="who">· {i.who}</span></span><small>{time(i.at)}</small></div>
                     ))}
                   </div>
                 ))}
@@ -181,9 +210,8 @@ export function CounterpartyCard(p: {
   };
   const any = d.contracts.length + d.requests.length > 0;
   return (
-    <div className="card"><div className="ch"><h2>Counterparty</h2></div><div className="cb cpbody">
-      <div className="cpname">{d.name}</div>
-      {summary ? <div className="cpstat">{summary}</div> : null}
+    <div className="card tint-red"><div className="ch"><div className="glyph g-red"><Building2 className="ic" aria-hidden /></div><h2>Counterparty</h2></div><div className="cb cpbody"><p className="hint">The other company, and what we already have with them.</p>
+      <div className="cphead"><div className="cpav" aria-hidden>{d.name.trim().charAt(0).toUpperCase()}</div><div className="cpid"><div className="cpname">{d.name}</div>{summary ? <div className="cpstat">{summary}</div> : null}</div></div>
       {p.parties.length > 1 ? <div className="dim cpall">All parties: {p.parties.map((x) => x.name).join(", ")}</div> : null}
       {any ? (
         <>
@@ -214,7 +242,16 @@ export const CARDS_CSS = `
 .ro .person{display:flex;align-items:center;gap:9px;padding:8px 0;min-width:0}
 .ro .person .av{width:28px;height:28px;border-radius:50%;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700;font-size:11px;flex:none}
 .ro .person .n{font-weight:600;font-size:12.5px;overflow-wrap:anywhere} .ro .person .r{font-size:11px;color:var(--ink-3)}
-.ro .reassign{display:flex;flex-direction:column;gap:8px;margin:2px 0 8px}
+.ro .reassign{display:flex;flex-direction:column;gap:8px;margin:10px 0 2px;padding-top:12px;border-top:1px solid var(--border)}
+.ro .reassign .rlabel{font:650 12px var(--sans);color:var(--ink-3)}
+.ro .person .r::first-letter{text-transform:uppercase}
+.ro .person{padding:9px 0;gap:12px}
+.ro .person .av{width:38px;height:38px;font-size:13px}
+.ro .person .n{font-size:14px}
+.ro .person.own .av{background:color-mix(in srgb,var(--c-ind) 16%,transparent);color:var(--c-ind)}
+.ro .person.req .av{background:color-mix(in srgb,var(--c-vio) 16%,transparent);color:var(--c-vio)}
+.ro .person.stp .av{background:color-mix(in srgb,var(--c-amb) 18%,transparent);color:var(--c-amb)}
+.ro .person.dep .av{background:color-mix(in srgb,var(--c-emr) 16%,transparent);color:var(--c-emr)}
 .ro .docrow{display:flex;align-items:center;gap:9px;padding:9px 0;border-bottom:1px solid var(--border)} .ro .docrow:last-of-type{border-bottom:0}
 .ro .docrow .x{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;font:700 8.5px var(--sans);flex:none}
 .ro .docrow .x.pdf{background:var(--crit-soft);color:var(--crit)} .ro .docrow .x.doc{background:var(--accent-soft);color:var(--accent)}

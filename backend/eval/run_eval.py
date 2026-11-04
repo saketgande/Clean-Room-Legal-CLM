@@ -7,6 +7,10 @@ turns "I feel it's weak" into numbers you can track across changes.
 Usage (inside the backend container):
     python eval/run_eval.py                # retrieval + taxonomy (free, no LLM)
     python eval/run_eval.py --faithfulness # also generate answers + verify cites (costs tokens)
+    python eval/run_eval.py --obligations --check    # obligation answer keys: valid, no holes, oracle 100% (free)
+    python eval/run_eval.py --obligations --stored   # score the obligations stored in dev today (free, read-only)
+    python eval/run_eval.py --obligations --review-sheet [KEY]   # the sheet a lawyer ticks and signs (free)
+    python eval/run_eval.py --obligations --confirm KEY          # record a lawyer's confirmation (a terminal is required)
 
 Metrics
     retrieval.hit_rate       — % of queries that returned >= min_sources sources
@@ -170,7 +174,19 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--faithfulness", action="store_true", help="also generate answers + verify citations (costs tokens)")
     ap.add_argument("--email", default="admin@example.com")
+    ap.add_argument("--obligations", action="store_true", help="obligation extraction baseline (see eval/obligations/README.md)")
+    ap.add_argument("--check", action="store_true", help="with --obligations: validate the answer keys (default)")
+    ap.add_argument("--stored", action="store_true", help="with --obligations: score today's stored rows (read-only)")
+    ap.add_argument("--review-sheet", nargs="?", const="", metavar="KEY",
+                    help="with --obligations: write the lawyer's review sheet for KEY (every key when omitted)")
+    ap.add_argument("--confirm", metavar="KEY",
+                    help="with --obligations: record a lawyer's confirmation of KEY (needs a terminal)")
     args = ap.parse_args()
+
+    if args.obligations:
+        from eval.obligations.cli import main as obligations_main
+
+        sys.exit(obligations_main(stored_rows=args.stored, review_sheet=args.review_sheet, confirm_key=args.confirm))
 
     db = SessionLocal()
     try:

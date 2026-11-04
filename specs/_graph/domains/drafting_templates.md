@@ -20,6 +20,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /drafting-templates/{key}/versions` -- permission: `playbook:read` -- request: ? -- response: list[DraftingTemplateVersionOut]
 - `POST /drafting-templates/check-all` -- permission: `playbook:run` -- request: ? -- response: CheckAllResultOut
 - `POST /drafting-templates/{key}/checks` -- permission: `playbook:run` -- request: TemplateCheckRequest | None -- response: TemplateCheckOut
+- `POST /drafting-templates/{key}/playbook/standard` -- permission: `playbook:publish` -- request: TemplateStandardAdopt -- response: TemplateMutationResultOut
 - `POST /drafting-templates/{key}/preview` -- permission: `playbook:read` -- request: TemplatePreviewRequest -- response: TemplatePreviewOut
 - `POST /drafting-templates/{key}/reset` -- permission: `playbook:update` -- request: TemplateVersionAction -- response: TemplateMutationResultOut
 - `POST /drafting-templates/{key}/versions/{version}/restore` -- permission: `playbook:update` -- request: TemplateVersionAction -- response: TemplateMutationResultOut
@@ -28,7 +29,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AppliedFindingIn, AppliedFindingOut, CheckAllResultOut, CheckAllSkippedOut, CheckAllStartedOut, DraftingTemplateOut, DraftingTemplatePlaceholderOut, DraftingTemplateSummaryOut, DraftingTemplateVersionOut, TemplateBindingOptionHolderOut, TemplateBindingOptionOut, TemplateBindingOut, TemplateCheckFindingOut, TemplateCheckOut, TemplateCheckRequest, TemplateCheckSummaryOut, TemplateFieldUseOut, TemplateFileRefOut, TemplateMutationResultOut, TemplatePlaybookChange, TemplatePlaybookOptionOut, TemplatePlaybookRefOut, TemplatePreviewOut, TemplatePreviewRequest, TemplateSaveRequest, TemplateStatusOut, TemplateSuggestedPlaybookOut, TemplateTypeOptionsOut, TemplateVersionAction
+AppliedFindingIn, AppliedFindingOut, CheckAllResultOut, CheckAllSkippedOut, CheckAllStartedOut, DraftingTemplateOut, DraftingTemplatePlaceholderOut, DraftingTemplateSummaryOut, DraftingTemplateVersionOut, TemplateBindingOptionHolderOut, TemplateBindingOptionOut, TemplateBindingOut, TemplateCheckFindingOut, TemplateCheckOut, TemplateCheckRequest, TemplateCheckSummaryOut, TemplateFieldUseOut, TemplateFileRefOut, TemplateMutationResultOut, TemplatePlaybookChange, TemplatePlaybookOptionOut, TemplatePlaybookRefOut, TemplatePreviewOut, TemplatePreviewRequest, TemplateSaveRequest, TemplateStandardAdopt, TemplateStandardOut, TemplateStatusOut, TemplateSuggestedPlaybookOut, TemplateTypeOptionsOut, TemplateVersionAction
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -37,6 +38,7 @@ AppliedFindingIn, AppliedFindingOut, CheckAllResultOut, CheckAllSkippedOut, Chec
 ## Frontend counterpart
 
 Api group: `draftingTemplatesApi` (confidence: exact)
+- `draftingTemplatesApi.adoptStandardPlaybook()` -> `POST /drafting-templates/${key}/playbook/standard`
 - `draftingTemplatesApi.check()` -> `POST /drafting-templates/${key}/checks`
 - `draftingTemplatesApi.checkAll()` -> `POST /drafting-templates/check-all`
 - `draftingTemplatesApi.checkDetail()` -> `GET /drafting-templates/${key}/checks/${checkId}`

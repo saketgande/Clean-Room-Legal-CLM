@@ -573,13 +573,13 @@ def test_every_command_is_in_the_gate_table_and_the_table_names_no_other():
 
 
 def test_only_the_commands_that_make_claude_calls_need_the_exam_key_and_all_that_spend_need_the_owner():
-    """FR-31/FR-34: prefill, draft-routing and run call Claude (the dedicated key, no mocks, no
-    third-party providers); ocr pays Reducto, not Anthropic; everything that spends, sends a
+    """FR-31/FR-34: prefill, draft-routing, run and obligations call Claude (the dedicated key, no
+    mocks, no third-party providers); ocr pays Reducto, not Anthropic; everything that spends, sends a
     client contract anywhere, or changes the answer keys or the baseline is owner-only. Only
     build, status and compare (numbers and public content) ask for no one."""
     paid = {c for c, (_, p) in cli._COMMANDS.items() if p}
     owner_only = {c for c, (o, _) in cli._COMMANDS.items() if o}
-    assert paid == {"prefill", "draft-routing", "run"}
+    assert paid == {"prefill", "draft-routing", "run", "obligations"}
     assert owner_only == set(cli._COMMANDS) - {"build", "status", "compare"}
     for name, sub in commands().items():
         if name == "baseline":  # its --owner belongs to the `set` action

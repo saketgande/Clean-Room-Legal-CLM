@@ -69,7 +69,7 @@ const template = (over: Partial<DraftingTemplate> = {}): DraftingTemplate => ({
   binding: { form_key: "saas", form_name: "SaaS", agreement_kind: null, label: "SaaS agreements" },
   playbook: { id: "p1", name: "SaaS Playbook", version_id: "pv3", version_number: 3, pinned: true, available: true },
   shipped: true, active: true, source: "text", version: 3, original_filename: null, updated_at: null, updated_by: null,
-  editable: true, status: status(), body: BODY, default_body: BODY, placeholders: FIELDS, fields: [], original_file: null, ...over,
+  editable: true, status: status(), standard: null, body: BODY, default_body: BODY, placeholders: FIELDS, fields: [], original_file: null, ...over,
 });
 
 const onApply = vi.fn();
@@ -386,6 +386,17 @@ describe("check history (FR-18)", () => {
     expect(within(rows[3]).getByText("System")).toBeInTheDocument();
     expect(within(rows[3]).getByText("Couldn't check")).toBeInTheDocument();
     expect(within(rows[3]).getByText(/spending limit was reached/)).toBeInTheDocument();
+  });
+
+  // Failure mode: a sample-run check shows no reason (TRIGGER_LABEL missing) or hides which answer combination it used.
+  it("labels a sample run and shows the answer combination it used", async () => {
+    h.checks.mockResolvedValue([
+      check({ id: "c1", trigger: "sample", trigger_detail: { combination: "Services (MSA) · Indian entity" } }),
+    ]);
+    mount();
+    const table = await screen.findByRole("table", { name: "Recorded checks" });
+    expect(within(table).getByText("Sample answers")).toBeInTheDocument();
+    expect(within(table).getByText("Services (MSA) · Indian entity")).toBeInTheDocument();
   });
 
   it("opens a row's findings, labelled with the older wording it covered", async () => {

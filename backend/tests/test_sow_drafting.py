@@ -76,6 +76,9 @@ OLD_SOW = (Path(__file__).resolve().parents[1] / "eval" / "exam" / "sow_2026-10-
     encoding="utf-8")
 COMPANY, COUNTERPARTY = "Aegis Pharma Ltd", "Globex Corporation"
 OLDER_TEXT = "Plan by Nov, report by Mar, Ravi signs off"
+# 15 words or more: a shorter scope reads as placeholder text and holds the draft (spec 014 FR-25).
+SCOPE = ("Migrate the data warehouse to the new analytics platform, including design, data migration, "
+         "testing and handover to the support team.")
 
 
 @pytest.fixture
@@ -120,7 +123,7 @@ def _answers(pricing: str = "Fixed fee", **over) -> dict:
     fv = {
         "request_form": "sow", "counterparty": COUNTERPARTY, "sow_title": "Data platform migration, phase 2",
         "services_start": "2026-11-01", "services_end": "2027-03-31", "value": 4500000, "currency": "INR",
-        "pricing": pricing, "scope": "Migrate the data warehouse to the new platform.",
+        "pricing": pricing, "scope": SCOPE,
         "cp_signer_name": "Maya Chen", "cp_signer_email": "maya.chen@example.com",
         "deliverable_rows": _rows(("40.00", "35.00", "25.00") if pricing == "Milestones" else None),
     }
@@ -168,7 +171,8 @@ def test_the_shipped_wording_uses_all_nine_new_fields_and_each_is_in_the_page_li
     shipped wording passes the save rules as written."""
     check_body(default_body("sow"))
     used = {f["name"] for f in field_uses(default_body("sow"))}
-    assert set(sow.FIELDS) <= used
+    assert set(sow.FIELDS) - {"pricing_model", "fee_amount", "milestone_payments_list"} <= used
+    assert {"pricing_terms", "sow_payment"} <= used  # spec 014: clauses 8 and 9 are built, one model only
     listed = {p["name"]: p for p in PLACEHOLDERS}
     assert [n for n in sow.FIELDS if n not in listed] == []
     assert all(listed[n]["label"] and listed[n]["about"] and listed[n]["sample"] for n in sow.FIELDS)
@@ -232,8 +236,12 @@ def test_money_and_dates_are_written_as_a_contract_writes_them():
 def test_a_request_without_answers_fills_the_nine_fields_with_nothing():
     """FR-24: an answer that is missing fills with an empty string. A non-SOW request, an email request or a
     SOW with no rows must never get a field's example in its place."""
-    assert sow.sow_values({}) == dict.fromkeys(sow.FIELDS, "")
-    assert sow.sow_values(None) == dict.fromkeys(sow.FIELDS, "")
+    # Spec 014 FR-39: the one field that never reads empty is the Provider's representative, which falls back
+    # to a sentence that names no one, so the clause is never left as a bare full stop.
+    fallback = {**dict.fromkeys(sow.FIELDS, ""),
+                "provider_representative": "the individual the Provider notifies to the Customer in writing"}
+    assert sow.sow_values({}) == fallback
+    assert sow.sow_values(None) == fallback
     assert set(sow.sow_values({})) == set(sow.FIELDS)
 
 
@@ -266,7 +274,7 @@ def test_the_draft_holds_the_requests_title_scope_and_deliverables_exactly():
     name, the date as "30 November 2026" and both owners, in the order entered."""
     text = _sow(_answers())
     assert 'for the work titled "Data platform migration, phase 2".' in text
-    assert "perform the following Services:\n\nMigrate the data warehouse to the new platform.\n\n4.3" in text
+    assert f"perform the following Services:\n\n{SCOPE}\n\n4.3" in text
     assert ("D1. Migration plan. Due date: 30 November 2026. Provider owner: Priya Nair. Customer owner: Ravi Shah.\n\n"
             "D2. Migrated warehouse. Due date: 15 February 2027. Provider owner: Priya Nair. Customer owner: Ravi Shah."
             "\n\nD3. Handover pack. Due date: 31 March 2027. Provider owner: Tom Reyes. Customer owner: Ravi Shah."
@@ -321,7 +329,8 @@ def test_both_sides_have_a_representative():
     assert "Provider: Maya Chen (maya.chen@example.com), authorised signatory." in text
     assert "the Customer owner named for each Deliverable in Clause 4.3 is the Customer's representative" in text
     assert sow.sow_values(_answers(cp_signer_email=""))["provider_representative"] == "Maya Chen, authorised signatory"
-    assert sow.sow_values(_answers(cp_signer_name=""))["provider_representative"] == ""
+    assert sow.sow_values(_answers(cp_signer_name=""))["provider_representative"] == (
+        "the individual the Provider notifies to the Customer in writing")
 
 
 def test_the_fee_and_the_dates_read_as_the_contract_writes_them():
@@ -336,31 +345,30 @@ def test_the_fee_and_the_dates_read_as_the_contract_writes_them():
 
 
 @pytest.mark.parametrize(("pricing", "statement"), [
-    ("Fixed fee", "8.1 Pricing model: Fixed fee. The Fees for this SOW are the fixed fee stated in Clause 8.2."),
-    ("Time and materials", ("8.1 Pricing model: Time and materials. The Fees for this SOW are charged on a "
-                            "time-and-materials basis under Clause 8.3 and may not exceed the not-to-exceed amount "
-                            "stated there.")),
-    ("Milestones", ("8.1 Pricing model: Fixed fee payable in instalments. The Fees for this SOW are the fixed fee "
-                    "stated in Clause 8.2, payable in the instalments set out in Clause 9.1, each only after the "
-                    "Customer has accepted in writing the Deliverable it is linked to.")),
+    ("Fixed fee", "8.1 Fixed fee. The total fee for the Services and Deliverables is INR 4,500,000.00,"),
+    ("Time and materials", "8.1 Time and materials. The Provider shall charge for time actually and properly worked"),
+    ("Milestones", ("8.1 Fixed fee payable in instalments. The total fee for the Services and Deliverables is "
+                    "INR 4,500,000.00,")),
 ])
 def test_the_pricing_is_stated_once_never_as_a_choice(pricing, statement):
-    """AC-22: one model is stated, and the two models never appear as alternatives to choose from."""
+    """AC-22/AC-27: one model is stated, and the models never appear as alternatives to choose from."""
     text = _sow(_answers(pricing))
     assert statement in text
-    assert sum(text.count(s) for s in ("8.1 Pricing model: Fixed fee", "8.1 Pricing model: Time and")) == 1
+    assert sum(text.count(s) for s in ("8.1 Fixed fee", "8.1 Time and materials")) == 1
+    assert "Pricing model:" not in text and "Where this SOW is priced" not in text
     assert "/" not in next(line for line in text.splitlines() if line.startswith("8.1"))
 
 
 @pytest.mark.parametrize("pricing", ["Fixed fee", "Time and materials", "Milestones"])
-def test_the_total_is_the_fixed_fee_and_the_not_to_exceed_amount_with_the_other_clause_conditional(pricing):
-    """AC-23: the clause for the model that was not chosen stays, opens by saying it applies only where the SOW
-    is priced that way, and states the same total, so no clause contradicts another."""
+def test_the_total_is_the_fixed_fee_or_the_not_to_exceed_amount_and_only_the_chosen_clause_prints(pricing):
+    """AC-23: the chosen model states the total once, and the clause for the other model is not printed, so no
+    clause can contradict another."""
     text = _sow(_answers(pricing))
-    assert ("Where this SOW is priced as a fixed fee (including a fixed fee payable in instalments), the total fee "
-            "for the Services and Deliverables is INR 4,500,000.00,") in text
-    assert "Where this SOW is priced on a time-and-materials basis" in text
-    assert "not-to-exceed amount of INR 4,500,000.00." in text
+    assert text.count("INR 4,500,000.00") >= 1
+    if pricing == "Time and materials":
+        assert "not-to-exceed amount of INR 4,500,000.00." in text and "Fixed fee" not in text.split("9. PAYMENT")[0].split("8. FEES")[1]
+    else:
+        assert "not-to-exceed" not in text
 
 
 def test_a_fixed_fee_is_paid_in_equal_instalments_that_add_up():
@@ -377,10 +385,10 @@ def test_an_equal_split_of_the_example_total_is_exact():
 
 
 def test_time_and_materials_lists_no_payment_amount_and_keeps_the_holdback():
-    """AC-24: no per-Deliverable amount; the section says why, and clause 9.2's hold-back until written
-    acceptance is still there."""
+    """AC-24: no per-Deliverable amount; clause 9.1 says no milestone payments apply, and its hold-back until
+    written acceptance is there."""
     text = _sow(_answers("Time and materials"))
-    assert sow.TM_NO_MILESTONES in text and _payments(text) == []
+    assert "No milestone payments apply." in text and _payments(text) == []
     assert "M1:" not in text
     assert "may hold back ten percent (10%) of each invoice until it has accepted all Deliverables in writing" in text
 
@@ -758,6 +766,9 @@ async def test_a_sow_draft_records_its_rows_and_pricing_and_another_template_doe
 async def test_the_record_keeps_a_missing_pricing_as_null(db, dispatched):
     """FR-37: a SOW request that never answered pricing records null, not the word "None"."""
     user, _, _ = _ready(db, "sow", SOW_PB)
+    # The shipped wording prints the pricing, so a request without it is held (spec 014 FR-35); the record's
+    # null is still what an organisation's own wording, which does not use it, keeps.
+    _save_version(db, user, "sow", "Statement of Work between {company} and {counterparty}.")
     contract = await _service(db).draft_contract_for_request(
         actor=user, request=_filed(db, user, _answers(pricing=None)))
     assert contract.metadata_json["drafted_from_template"]["pricing"] is None
@@ -775,5 +786,5 @@ async def test_example_content_never_reaches_a_draft_made_for_a_real_request(db,
 
     (stored,) = disk.files.values()
     text = stored.decode("utf-8")
-    assert text.startswith("Agreement between ") and text.strip().endswith("Globex Corporation.")
+    assert text.startswith("Agreement between ") and "Globex Corporation." in text
     assert [m for m in sow.EXAMPLE_MARKERS if m in text] == []

@@ -9,7 +9,10 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    event,
+    select,
 )
+from sqlalchemy.orm import attributes
 
 from app.core.database import (
     ActorTrackedMixin,
@@ -85,6 +88,46 @@ class Contract(
     # NULL (uploads, custom drafts, drafts that predate pinning) keeps the by-name
     # match. Set once at drafting, never changed afterwards.
     review_playbook_id = Column(String(36), ForeignKey("playbook.id"), index=True, nullable=True)
+
+
+_GONE = object()
+
+
+def merge_json(base, mine, theirs):
+    """Three-way merge of JSON objects: what this session changed since it read `base`, laid onto `theirs`,
+    the row as it is now. Objects merge key by key, all the way down; any other value this session changed wins."""
+    if not (isinstance(base, dict) and isinstance(mine, dict) and isinstance(theirs, dict)):
+        return mine if mine != base else theirs
+    merged = dict(theirs)
+    for key in base.keys() | mine.keys():
+        before, after = base.get(key, _GONE), mine.get(key, _GONE)
+        if before == after:
+            continue
+        if after is _GONE:
+            merged.pop(key, None)
+        elif key in theirs and before is not _GONE:
+            merged[key] = merge_json(before, after, theirs[key])
+        else:
+            merged[key] = after
+    return merged
+
+
+@event.listens_for(Contract, "before_update")
+def _save_only_the_metadata_keys_this_session_changed(mapper, connection, contract):
+    """Every writer reads metadata_json, edits it and assigns the whole thing back, and sessions keep their
+    instances after a commit. So a job that read it before a 4-minute review and then dropped one flag wrote
+    back its old copy of everything else: the provenance in field_sources and the AI's suggestions were
+    wiped, and an AI guess at the expiry became a trusted anchor. Here, under a row lock, the stored value
+    is re-read and only this session's own changes are applied to it."""
+    history = attributes.get_history(contract, "metadata_json", passive=attributes.PASSIVE_NO_INITIALIZE)
+    if not history.deleted or not history.added:
+        return
+    column = Contract.__table__.c.metadata_json
+    stored = connection.execute(
+        select(column).where(Contract.__table__.c.id == contract.id).with_for_update()
+    ).scalar_one_or_none()
+    if stored is not None and stored != history.deleted[0]:
+        contract.metadata_json = merge_json(history.deleted[0], history.added[0], stored)
 
 
 class ContractParty(TableNameMixin, IdMixin, OrgScopedMixin, ActorTrackedMixin, TimestampMixin, Base):

@@ -46,7 +46,7 @@ from app.drafting_templates.models import (
     DraftingTemplateVersion,
 )
 from app.drafting_templates.schemas import AppliedFindingIn
-from app.intake import consultancy, dpa, sow
+from app.intake import consultancy, dpa, paper, sow
 from app.intake.agreement_forms import form_def
 from app.playbooks.library import CONTRACT_TYPE_OF_FORM, CONTRACT_TYPE_OF_KIND
 from app.playbooks.models import Playbook, PlaybookVersion
@@ -96,7 +96,7 @@ PLACEHOLDERS: list[dict] = [
     {"name": "effective_date", "label": "Effective date",
      "about": "Start date from the request (else the drafting date)", "sample": "2026-10-01"},
     {"name": "governing_law", "label": "Governing law", "about": "Governing law from the request",
-     "sample": "the State of Delaware"},
+     "sample": "India"},
     {"name": "agreement_term", "label": "Term", "about": "Completes “commences on the Effective Date and …”",
      "sample": "continues until 2027-09-30"},
     {"name": "payment_days", "label": "Payment days", "about": "Payment terms in days", "sample": "45"},
@@ -179,6 +179,51 @@ PLACEHOLDERS: list[dict] = [
      "about": "DPA: one entry per sub-processor with its name, country and processing, or None",
      "sample": dpa.EXAMPLE_VALUES["authorised_subprocessors"]},
 ]
+
+
+def _paper_placeholders() -> list[dict]:
+    """The 23 fields of ``intake.paper`` (spec 014), each shown with what the document type that uses it
+    fills it with in the example reading, so the preview and the editor list show real wording."""
+    # (name, plain name, what it is, the document type whose example reading is the sample)
+    rows = [
+        ("dispute_seat", "Dispute seat", "The city whose courts or arbitration seat settle disputes", "msa"),
+        ("dispute_resolution", "Dispute resolution", "The dispute clause for this type of agreement", "msa"),
+        ("our_signatory_name", "Our signatory", "Who signs for us (register), else a line to fill", "msa"),
+        ("our_signatory_title", "Our signatory's title", "Their title, else a line to fill", "msa"),
+        ("their_signatory_name", "Their signatory", "Who signs for them (from the request)", "msa"),
+        ("their_signatory_title", "Their signatory's title", "Their title, else a line to fill", "msa"),
+        ("company_address", "Our registered office", "Our entity's registered address (notices)", "msa"),
+        ("counterparty_address", "Their address", "The other party's address (notices)", "msa"),
+        ("fee_currency", "Fee currency", "The currency of the request", "msa"),
+        ("insurance_minimum", "Insurance minimum", "The cyber / indemnity insurance floor in that currency", "msa"),
+        ("public_liability_minimum", "Public liability minimum", "The public liability floor per claim in that currency", "msa"),
+        ("data_breach_floor", "Data breach floor", "The data-breach liability floor in that currency", "saas"),
+        ("dpa_status", "Personal data status", "Whether personal data is expected and the DPA that follows", "msa"),
+        ("nda_personal_data", "NDA personal data", "NDA: how personal data is handled", "nda"),
+        ("gxp_clause", "Quality agreement (GxP)", "A quality-agreement clause, only for GxP services", "msa"),
+        ("parent_agreement", "Master or principal agreement", "The parent agreement a SOW or DPA sits under", "sow"),
+        ("pricing_terms", "Pricing terms", "SOW: the one pricing clause for the model chosen", "sow"),
+        ("sow_payment", "SoW payment", "SOW: how and when it is paid", "sow"),
+        ("supply_description", "What is supplied", "Vendor: goods, services, or goods and services", "vendor"),
+        ("vendor_supply_terms", "Delivery and acceptance terms", "Vendor: delivery, recall and acceptance terms",
+         "vendor"),
+        ("vendor_insurance", "Vendor insurance", "Vendor: the insurance it must hold", "vendor"),
+        ("hosting_clause", "Hosting location", "SaaS: where customer data is hosted", "saas"),
+        ("renewal_notice_days", "Renewal notice", "SaaS: the renewal notice period, never under sixty days", "saas"),
+        ("consultancy_invoicing", "Consultancy invoicing", "Consultancy: how the Consultant invoices", "consultancy"),
+    ]
+    assert [r[0] for r in rows] == list(paper.FIELDS)
+    out = []
+    for name, label, about, doc in rows:
+        # GxP wording is empty unless the answer is Yes, so its sample is the Yes reading.
+        answers = {"gxp": "Yes"} if name == "gxp_clause" else {}
+        sample = paper.paper_values(doc, answers, company="Aegis Pharma Ltd", counterparty="Globex Corporation",
+                                    context=None, example=True)[name]
+        out.append({"name": name, "label": label, "about": about, "sample": sample})
+    return out
+
+
+PLACEHOLDERS += _paper_placeholders()
 SAMPLE_VALUES = {p["name"]: p["sample"] for p in PLACEHOLDERS}
 _LABELS = {p["name"]: p["label"] for p in PLACEHOLDERS}
 
@@ -524,6 +569,8 @@ class DraftingTemplateService:
         return (u.full_name or u.email) if u is not None else None
 
     def _summary(self, org_id: str, ttype: TemplateType, wording: Wording) -> dict:
+        from app.drafting_templates import standard  # late: standard imports this module
+
         row = wording.row
         return {
             "key": ttype.key, "name": ttype.name, "label": ttype.label,
@@ -537,6 +584,7 @@ class DraftingTemplateService:
             "updated_by": self._user_name(row.created_by_user_id) if row is not None else None,
             "editable": True,
             "status": _checks_module().template_status(self.db, org_id=org_id, ttype=ttype),
+            "standard": standard.status_for(self.db, org_id, ttype, wording),
         }
 
     def list(self, *, org_id: str, include_retired: bool = False) -> list[dict]:

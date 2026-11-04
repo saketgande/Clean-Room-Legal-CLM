@@ -26,7 +26,8 @@ FIELDS = (
 )
 # The fields that are built from the request's deliverable rows. A wording that uses none of them
 # does not need the rows, so an older request (free-text deliverables only) drafts from it as before.
-ROW_FIELDS = ("deliverables_list", "key_personnel_list", "acceptance_list", "milestone_payments_list")
+ROW_FIELDS = ("deliverables_list", "key_personnel_list", "acceptance_list", "milestone_payments_list",
+              "sow_payment")
 
 DRAFT_HELD = (
     "Enter the deliverables as rows first. This Statement of Work request has its deliverables only as "
@@ -57,6 +58,22 @@ _PRICING_MODEL = {
     ),
 }
 _CENT = Decimal("0.01")
+_NO_RATES = (
+    "8.2 Rates and expenses. No rates apply to this SOW, and the fixed fee includes all expenses. Any change "
+    "is priced in the Change Order that makes it."
+)
+_TM_RATES = (
+    "8.2 Rates and expenses. The Provider's rates are those set out in the Master Agreement and are fixed for "
+    "the term of this SOW. Where the Master Agreement sets no rates, no time may be charged until rates are "
+    "agreed in a signed Change Order. Expenses are payable only where approved by the Customer in writing in "
+    "advance, at cost and in accordance with the Customer's expenses policy, and count towards the "
+    "not-to-exceed amount."
+)
+_FIXED_FEE = (
+    "The total fee for the Services and Deliverables is {fee}, inclusive of all Provider costs and exclusive "
+    "only of goods and services tax (GST) or equivalent indirect tax, which is shown separately and paid as "
+    "the Master Agreement provides, "
+)
 
 
 # --- small formats ------------------------------------------------------------------------------
@@ -128,6 +145,70 @@ def split_payments(total: Decimal, n: int, shares: list[Decimal] | None = None) 
     return [*paid, total - sum(paid, Decimal(0))]
 
 
+def _entries(fv: dict) -> str:
+    """The payment lines of a Fixed fee / Milestones SOW, one per deliverable row; "" without rows or total."""
+    rows, total, pricing = rows_of(fv), total_value(fv), str(fv.get("pricing") or "")
+    if pricing not in ("Fixed fee", "Milestones") or not rows or total is None:
+        return ""
+    currency = fv.get("currency") or settings.default_currency
+    shares = [Decimal(str(r.get("share"))) for r in rows] if pricing == "Milestones" else None
+    entries = []
+    for i, paid in enumerate(split_payments(total, len(rows), shares)):
+        amount = money(paid, currency)
+        if shares is not None:
+            amount = f"{_percent(shares[i])}% of the fixed fee: {amount}"
+        name = _cell(rows[i].get("name"))
+        entries.append(
+            f"M{i + 1}: Acceptance of D{i + 1} ({name}). Payment: {amount}, payable only after "
+            f"the Customer has accepted D{i + 1} in writing."
+        )
+    return "\n\n".join(entries)
+
+
+def pricing_terms(fv: dict | None) -> str:
+    """Clause 8: the one pricing model the request chose, with its rates sentences; "" when no model or no
+    total (the draft is held), so a draft never prints a model it was not asked for."""
+    fv = fv or {}
+    pricing, total = str(fv.get("pricing") or ""), total_value(fv)
+    if total is None or pricing not in _PRICING_MODEL:
+        return ""
+    fee = money(total, fv.get("currency") or settings.default_currency)
+    if pricing == "Time and materials":
+        return (
+            "8.1 Time and materials. The Provider shall charge for time actually and properly worked, supported "
+            "by timesheets approved by the Customer. Total charges under this SOW shall not exceed the "
+            f"not-to-exceed amount of {fee}. The Provider shall notify the Customer in writing when "
+            "seventy-five percent (75%) of that amount has been reached, and the Customer is not liable for any "
+            "charges above it unless it is increased by a signed Change Order.\n\n" + _TM_RATES
+        )
+    if pricing == "Fixed fee":
+        return ("8.1 Fixed fee. " + _FIXED_FEE.format(fee=fee) + "payable in accordance with Clause 9.1 after "
+                "the Customer's written acceptance of the Deliverables.\n\n" + _NO_RATES)
+    return ("8.1 Fixed fee payable in instalments. " + _FIXED_FEE.format(fee=fee) + "payable in the instalments "
+            "set out in Clause 9.1, each only after the Customer has accepted in writing the Deliverable it is "
+            "linked to.\n\n" + _NO_RATES)
+
+
+def sow_payment(fv: dict | None) -> str:
+    """Clause 9.1: payment tied to accepted deliverables (Fixed fee / Milestones), or monthly in arrears with
+    a hold-back (Time and materials); "" when the rows or total are missing (the draft is held)."""
+    fv = fv or {}
+    if str(fv.get("pricing") or "") == "Time and materials":
+        return (
+            "9.1 The Provider shall invoice monthly in arrears for time properly worked under Clause 8.1, and "
+            "the Customer may hold back ten percent (10%) of each invoice until it has accepted all "
+            "Deliverables in writing. No milestone payments apply."
+        )
+    entries = _entries(fv)
+    if not entries:
+        return ""
+    return (
+        "9.1 Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to "
+        "calendar dates. The Provider may invoice each payment below only after the Customer has accepted in "
+        "writing the Deliverable it is linked to under Clause 6:\n\n" + entries
+    )
+
+
 # --- the nine fields ----------------------------------------------------------------------------
 
 
@@ -153,24 +234,10 @@ def sow_values(fv: dict | None, *, example: bool = False) -> dict[str, str]:
         for owner, ids in owners.values() if owner
     ]
 
-    payments = ""
-    if pricing == "Time and materials":
-        payments = TM_NO_MILESTONES
-    elif pricing in ("Fixed fee", "Milestones") and rows and total is not None:
-        shares = [Decimal(str(r.get("share"))) for r in rows] if pricing == "Milestones" else None
-        entries = []
-        for i, paid in enumerate(split_payments(total, len(rows), shares)):
-            amount = money(paid, currency)
-            if shares is not None:
-                amount = f"{_percent(shares[i])}% of the fixed fee: {amount}"
-            entries.append(
-                f"M{i + 1}: Acceptance of D{i + 1} ({names[i]}). Payment: {amount}, payable only after "
-                f"the Customer has accepted D{i + 1} in writing."
-            )
-        payments = "\n\n".join(entries)
+    payments = TM_NO_MILESTONES if pricing == "Time and materials" else _entries(fv)
 
     signer, email = _cell(fv.get("cp_signer_name")), _cell(fv.get("cp_signer_email"))
-    representative = ""
+    representative = "the individual the Provider notifies to the Customer in writing"
     if signer:
         representative = f"{signer} ({email}), authorised signatory" if email else f"{signer}, authorised signatory"
 
@@ -201,8 +268,13 @@ def sow_values(fv: dict | None, *, example: bool = False) -> dict[str, str]:
 EXAMPLE_ANSWERS: dict = {
     "request_form": "sow",
     "sow_title": "Customer portal redesign",
-    "scope": ("Redesign and rebuild the customer self-service portal, including user research, visual "
-              "design, build, testing and launch support."),
+    "scope": ("The Provider shall redesign and rebuild the Customer's self-service portal. Activities: (a) "
+              "interview 12 portal users and review current usage data, producing the Current-state assessment; "
+              "(b) design the new screens and navigation and build them in the Customer's test environment, "
+              "producing the Pilot release for 200 pilot users; (c) fix the defects found in the pilot, move the "
+              "portal to production and support the launch for 30 days, producing the Launch and handover pack. "
+              "Out of scope: changes to the Customer's back-end systems, content writing, hosting, and any mobile "
+              "application."),
     "services_start": "2026-10-01", "services_end": "2027-09-30",
     "value": "1200000", "currency": "INR", "pricing": "Milestones",
     "cp_signer_name": "Jordan Lee", "cp_signer_email": "jordan.lee@globex.example",

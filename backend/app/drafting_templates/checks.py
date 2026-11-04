@@ -31,6 +31,7 @@ from fastapi import status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.ai.outcomes import Outcome, failure_payload
 from app.auth.models import User
 from app.core.audit import write_audit_log
 from app.core.database import new_uuid, utcnow
@@ -50,7 +51,7 @@ from app.drafting_templates.service import (
     list_types,
     reviewing_playbook,
 )
-from app.intake import consultancy, dpa, sow
+from app.intake import consultancy, dpa, paper, sow
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
 
@@ -62,7 +63,7 @@ RESOURCE_TYPE = "drafting_template_check"
 # Triggers that are a person's own action. Every other trigger is the system acting on behalf of
 # the person whose change caused it (a save, a publish, a pin change): it is attributed that way
 # in the audit trail and skips a retired type.
-_MANUAL = frozenset({"manual", "retry", "check_all"})
+_MANUAL = frozenset({"manual", "retry", "check_all", "sample"})
 
 LABELS = {
     "passes": "Passes",
@@ -389,8 +390,9 @@ def check_values(key: str) -> dict[str, str]:
 
 
 _CODED = ("company", "counterparty", "effective_date", "governing_law", "agreement_term", "purpose_phrase",
-          "direction_recital", "term_clause", "survival_clause", *sow.FIELDS, *consultancy.FIELDS, *dpa.FIELDS)
-_EXAMPLE_MARKERS = (*sow.EXAMPLE_MARKERS, *consultancy.EXAMPLE_MARKERS, *dpa.EXAMPLE_MARKERS)
+          "direction_recital", "term_clause", "survival_clause", *sow.FIELDS, *consultancy.FIELDS, *dpa.FIELDS, *paper.FIELDS)
+_EXAMPLE_MARKERS = (*sow.EXAMPLE_MARKERS, *consultancy.EXAMPLE_MARKERS, *dpa.EXAMPLE_MARKERS,
+                    *paper.EXAMPLE_MARKERS)
 _MIN_CODED_LENGTH = 12  # a shorter value ("Mutual", "45") is as likely to be ordinary wording as a field
 
 
@@ -554,6 +556,9 @@ def _end_job(job: JobRun, *, ok: bool, error: str | None = None) -> None:
     job.finished_at = utcnow()
     job.error_message = error
     job.error_stack = None
+    # The check records its own error code; the job just says it failed, and a success clears an old failure.
+    meta = {k: v for k, v in (job.metadata_json or {}).items() if k != "failure"}
+    job.metadata_json = {**meta, "failure": failure_payload(Outcome.INTERNAL, error)} if not ok else meta
 
 
 def _fail(db: Session, check: DraftingTemplateCheck, job: JobRun, code: str, message: str) -> None:
@@ -687,6 +692,7 @@ def _results_vary(db: Session, org_id: str, key: str, wording: Wording, playbook
         select(DraftingTemplateCheck.findings)
         .where(DraftingTemplateCheck.org_id == org_id, DraftingTemplateCheck.template_key == key,
                DraftingTemplateCheck.unsaved.is_(False), DraftingTemplateCheck.status == "completed",
+               DraftingTemplateCheck.trigger != "sample",
                DraftingTemplateCheck.template_version == wording.version,
                DraftingTemplateCheck.wording_sha256 == wording.sha256,
                DraftingTemplateCheck.playbook_version_id == playbook_version_id)

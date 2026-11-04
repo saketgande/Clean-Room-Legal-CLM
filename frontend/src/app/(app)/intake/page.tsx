@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Stamp, Trash2, Users, Mail, MessageSquare, X } from "lucide-react";
+import { ArrowLeftRight, Ban, ChevronRight, ClipboardList, FileCheck, FilePen, Lock, RefreshCw, XCircle, Inbox, Bell, Bot, Check, ChevronDown, ChevronUp, DoorOpen, FileText, Paperclip, PenLine, Plus, RotateCw, Search, ShieldCheck, Stamp, Trash2, Users, Mail, MessageSquare, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -18,7 +18,7 @@ import { useToast } from "@/components/toast";
 import { can } from "@/lib/intake";
 import type { IntakeDraft } from "@/lib/types";
 
-import { LegalIntakeBoard, MockupShell } from "./_legal-intake";
+import { LegalIntakeBoard, MockupShell, counterpartyOf } from "./_legal-intake";
 import { RequestOverview } from "./_request-overview";
 
 import { AGREEMENT_FORMS, AgreementWizard, type AgreementFormDef } from "./_agreement-forms";
@@ -38,44 +38,17 @@ const LIVE_POLL = { refetchOnWindowFocus: true } as const;
 export default function IntakePage() {
   const { user } = useAuth();
   const isStaff = can(user, "intake:read");
-  const { notify } = useToast();
-  const qc = useQueryClient();
   // FR-9: UI-layer control gating only — the API independently re-verifies
   // every ADD request (FR-10/FR-13); this is a usability aid, not the
   // security boundary.
   const { canAdd } = useScreenAccess("intake");
-  const [gmailSyncing, setGmailSyncing] = useState(false);
-
-  async function syncGmail() {
-    setGmailSyncing(true);
-    try {
-      const res = await intakeApi.gmailSync();
-      if (res.status === "disabled") {
-        notify(res.note || "Gmail sync isn't configured yet", "error");
-      } else if (res.status === "error") {
-        notify(res.note || "Gmail sync failed", "error");
-      } else {
-        type Filed = { deduped?: boolean; thread_followup?: boolean; documents_added?: string[] };
-        const filed = (res.filed ?? []) as Filed[];
-        const newRequests = filed.filter((f) => !f.deduped).length;
-        const docsAddedToThreads = filed
-          .filter((f) => f.thread_followup)
-          .reduce((n, f) => n + (f.documents_added?.length ?? 0), 0);
-        const parts = [];
-        if (newRequests > 0) parts.push(`${newRequests} new request(s)`);
-        if (docsAddedToThreads > 0) parts.push(`${docsAddedToThreads} document(s) added to existing threads`);
-        notify(parts.length > 0 ? `Synced: ${parts.join(", ")}` : "No new emails to sync", "success");
-        qc.invalidateQueries({ queryKey: ["intake-list"] });
-      }
-    } catch (e) {
-      notify(e instanceof Error ? e.message : "Gmail sync failed", "error");
-    } finally {
-      setGmailSyncing(false);
-    }
-  }
-
   const [section, setSection] = useState(isStaff ? "queue" : "new");
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detailId, setDetailIdRaw] = useState<string | null>(null);
+  // Opening (or leaving) a request swaps the whole view; start it at the top, not wherever the queue was scrolled.
+  const setDetailId = (id: string | null) => {
+    setDetailIdRaw(id);
+    requestAnimationFrame(() => document.querySelector(".li-shell .scrollarea")?.scrollTo({ top: 0 }));
+  };
   // Deep-link: /intake?open=<id> opens that request's detail (used by My Work);
   // /intake?new=… reopens New request (so browser Back from Ask Aegis returns
   // to the form the user came from, not the queue).
@@ -99,28 +72,14 @@ export default function IntakePage() {
     queryKey: ["intake-list"], queryFn: () => intakeApi.list(), enabled: isStaff, ...LIVE_POLL,
   });
   // Count-pills on the tabs — the reference's at-a-glance queue signal.
-  const openCount = (listData ?? []).filter(isOpenRequest).length;
-  const atRiskCount = (listData ?? []).filter((r) => r.sla_status === "at_risk").length;
-  const overdueCount = (listData ?? []).filter((r) => r.sla_status === "overdue").length;
 
   return (
     <MockupShell
       title="Legal Intake"
-      subtitle="one front door — every request lands here"
-      stats={isStaff && listData ? (
-        <span className="stat">
-          <span><b>{openCount}</b> open</span>
-          {atRiskCount > 0 ? <span className="warn"><b>{atRiskCount}</b> at risk</span> : null}
-          {overdueCount > 0 ? <span className="crit"><b>{overdueCount}</b> overdue</span> : null}
-        </span>
-      ) : null}
+      icon={<Inbox />}
+      hideHeading={!!detailId}
       actions={
         <>
-          {isStaff ? (
-            <button className="iconbtn" title={gmailSyncing ? "Syncing…" : "Sync email"} disabled={gmailSyncing} onClick={syncGmail}>
-              <Mail className="h-4 w-4" />
-            </button>
-          ) : null}
           <button
             className="primary"
             disabled={!canAdd}
@@ -172,6 +131,9 @@ function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
   const router = useRouter();
   const [agreementDef, setAgreementDef] = useState<AgreementFormDef | null>(null);
   const [draft, setDraft] = useState<IntakeDraft | null>(null);
+  const [typeSearch, setTypeSearch] = useState("");
+  const [ask, setAsk] = useState("");
+  const { data: recentReqs } = useQuery({ queryKey: ["intake-list"], queryFn: () => intakeApi.list(), retry: false });
   const qc = useQueryClient();
   const { notify } = useToast();
   const { data: drafts } = useQuery({ queryKey: ["intake-drafts"], queryFn: () => intakeApi.listDrafts() });
@@ -206,107 +168,166 @@ function NewRequestTab({ onFiled }: { onFiled: (id: string) => void }) {
     );
   }
 
+  const q = typeSearch.trim().toLowerCase();
+  const shown = AGREEMENT_FORMS.filter((f) => !q || `${f.name} ${f.desc}`.toLowerCase().includes(q));
+  const showTm = !q || "trademark file a new trademark".includes(q);
+  const recent = (recentReqs ?? []).slice(0, 3);
+
   return (
-    <div className="mx-auto max-w-[1120px] pb-10">
-      {/* One question, one set of answers. Everything that is not a request
-          type is demoted to a single line beneath them. */}
-      <header className="pb-6 pt-1">
-        <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-slate-900">What do you need from Legal?</h1>
-        <p className="mt-1.5 max-w-[70ch] text-[13.5px] text-slate-500">
-          Pick the closest match. Each one is a short form that only asks what that request needs.
-        </p>
+    <div className="nrq">
+      <style dangerouslySetInnerHTML={{ __html: NRQ_CSS }} />
+      <header className="nrq-hd">
+        <h1>Create a new legal request</h1>
+        <p>Choose the type of request and provide the key details. Aegis will route it through the right workflow.</p>
       </header>
+      <ol className="nrq-steps" aria-label="Steps">
+        {[["Request type", "Choose the request"], ["Details", "Answer a few questions"], ["Files", "Add supporting documents"], ["Review", "Check and submit"]].map(([t, d], i) => (
+          <li key={t} data-on={i === 0 ? "1" : undefined}><b>{i + 1}</b><span><em>{t}</em><small>{d}</small></span></li>
+        ))}
+      </ol>
 
-      {(drafts ?? []).length > 0 && (
-        <section className="mb-7">
-          <div className="mb-3 flex items-center gap-3">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Your drafts</h2>
-            <span className="h-px flex-1 bg-slate-200" />
-            <span className="text-[11px] text-slate-400">{drafts!.length} saved</span>
-          </div>
-          <ul className="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-slate-50">
-            {drafts!.map((d) => {
-              const form = AGREEMENT_FORMS.find((f) => f.key === d.form_key);
-              return (
-                <li key={d.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
-                  <PenLine className="h-4 w-4 shrink-0 text-slate-400" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13.5px] font-semibold text-slate-900">{d.title || form?.name || d.form_key}</span>
-                    <span className="block text-[12px] text-slate-500">
-                      {form?.name ?? d.form_key} · step {d.page_index + 1} of {form ? form.steps.length + 1 : "?"} · saved {new Date(d.updated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
-                    </span>
-                  </span>
-                  <Button size="sm" disabled={!form} onClick={() => { if (form) { setDraft(d); setAgreementDef(form); setMode("agreement"); } }}>Continue</Button>
-                  <Button size="sm" variant="ghost" onClick={() => discardDraft(d)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      )}
+      <div className="nrq-grid">
+        <div className="nrq-main">
+          {(drafts ?? []).length > 0 && (
+            <section className="nrq-card">
+              <div className="nrq-ch"><h2>Your drafts</h2><span>{drafts!.length} saved</span></div>
+              <ul className="nrq-drafts">
+                {drafts!.map((d) => {
+                  const form = AGREEMENT_FORMS.find((f) => f.key === d.form_key);
+                  return (
+                    <li key={d.id}>
+                      <PenLine className="h-4 w-4" aria-hidden />
+                      <span className="nrq-dt"><b>{d.title || form?.name || d.form_key}</b>
+                        <small>{form?.name ?? d.form_key} · step {d.page_index + 1} of {form ? form.steps.length + 1 : "?"} · saved {new Date(d.updated_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</small>
+                      </span>
+                      <Button size="sm" disabled={!form} onClick={() => { if (form) { setDraft(d); setAgreementDef(form); setMode("agreement"); } }}>Continue</Button>
+                      <Button size="sm" variant="ghost" onClick={() => discardDraft(d)}><Trash2 className="h-3.5 w-3.5" />Delete</Button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
-      <div className="flex flex-col gap-7">
-        {(["New paper", "Change an agreement", "Records"] as const).map((group) => (
-          <section key={group}>
-            <div className="mb-3 flex items-center gap-3">
-              <h2 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{group}</h2>
-              <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-[11px] text-slate-400">
-                {AGREEMENT_FORMS.filter((f) => f.group === group).length + (group === "New paper" ? 1 : 0)} types
-              </span>
+          <section className="nrq-card">
+            <div className="nrq-ch">
+              <div><h2>What do you need from Legal?</h2><p>Pick the closest match. Each option is a short form that only asks what that request needs.</p></div>
+              <label className="nrq-search"><Search className="h-4 w-4" aria-hidden /><input aria-label="Search request types" placeholder="Search request types…" value={typeSearch} onChange={(e) => setTypeSearch(e.target.value)} /></label>
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {AGREEMENT_FORMS.filter((f) => f.group === group).map((f) => (
-                <button
-                  key={f.key}
-                  onClick={() => { setDraft(null); setAgreementDef(f); setMode("agreement"); }}
-                  className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-100 p-4 text-left shadow-card transition-all hover:-translate-y-px hover:border-brand-300 hover:shadow-pop focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35"
-                >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-100 bg-brand-50 text-brand-700">
-                    <FileText className="h-[18px] w-[18px]" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13.5px] font-semibold text-slate-900">{f.name}</span>
-                    <span className="mt-1 block text-[12.2px] leading-snug text-slate-500">{f.desc}</span>
-                  </span>
-                </button>
-              ))}
-              {group === "New paper" && (
-                <Link
-                  href="/trademarks/intake"
-                  className="group flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-100 p-4 text-left shadow-card transition-all hover:-translate-y-px hover:border-brand-300 hover:shadow-pop focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/35"
-                >
-                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-brand-100 bg-brand-50 text-brand-700">
-                    <Stamp className="h-[18px] w-[18px]" />
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-[13.5px] font-semibold text-slate-900">Trademark</span>
-                    <span className="mt-1 block text-[12.2px] leading-snug text-slate-500">
-                      File a new trademark — opens the Trademark Suite&apos;s own intake wizard, with similarity search.
-                    </span>
-                  </span>
+            <div className="nrq-types">
+              {shown.map((f) => {
+                const [I, tone] = FORM_LOOK[f.key] ?? [FileText, "ind"];
+                return (
+                  <button key={f.key} type="button" data-tone={tone} onClick={() => { setDraft(null); setAgreementDef(f); setMode("agreement"); }}>
+                    <span className="ti"><I aria-hidden /></span>
+                    <span className="tx"><b>{f.name}</b><small>{f.desc}</small></span>
+                    <ChevronRight className="go" aria-hidden />
+                  </button>
+                );
+              })}
+              {showTm && (
+                <Link href="/trademarks/intake" data-tone="sky">
+                  <span className="ti"><Stamp aria-hidden /></span>
+                  <span className="tx"><b>Trademark</b><small>File a new trademark — opens the Trademark Suite&apos;s own intake wizard, with similarity search.</small></span>
+                  <ChevronRight className="go" aria-hidden />
                 </Link>
               )}
+              {shown.length === 0 && !showTm ? <p className="nrq-none">No request type matches “{typeSearch}”.</p> : null}
             </div>
           </section>
-        ))}
-      </div>
 
-      {/* The other ways in, as one quiet strip rather than three more panels. */}
-      <div className="mt-9 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[12.5px] text-slate-600">
-          <span className="inline-flex items-center gap-2">
-            <Mail className="h-4 w-4 text-slate-400" />
-            Email requests arrive on their own — your inbox is connected.
-          </span>
-          <span className="h-4 w-px bg-slate-200" />
-          <button onClick={() => router.push("/")} className="font-medium text-brand-700 underline-offset-2 hover:underline">
-            Not sure what you need? Ask Aegis
-          </button>
-
+          {recent.length > 0 && (
+            <section className="nrq-card">
+              <div className="nrq-ch"><h2>Recent requests</h2></div>
+              <div className="nrq-recent">
+                {recent.map((r) => (
+                  <button key={r.id} type="button" onClick={() => onFiled(r.id)}>
+                    <span className="ti"><FileText aria-hidden /></span>
+                    <span className="tx"><small>{r.ref}</small><b>{r.subject || r.type_label}</b><small>{counterpartyOf(r) ?? r.requester_name ?? "—"}</small></span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
 
+        <aside className="nrq-side">
+          <section className="nrq-card nrq-ask">
+            <span className="ai"><Bot aria-hidden /></span>
+            <h3>Not sure which type to choose?</h3>
+            <p>Describe what you need and ask Aegis.</p>
+            <textarea aria-label="Describe what you need" rows={3} value={ask} onChange={(e) => setAsk(e.target.value)} placeholder="e.g. I need a contract to engage a vendor for cloud services…" />
+            <button type="button" className="nrq-cta" onClick={() => router.push("/")}>Ask Aegis</button>
+          </section>
+          <section className="nrq-card">
+            <div className="nrq-ch"><h2>Other ways in</h2></div>
+            <ul className="nrq-ways">
+              <li><Mail aria-hidden /><span>Email requests arrive on their own — your inbox is connected.</span></li>
+              <li><MessageSquare aria-hidden /><button type="button" onClick={() => setMode("legal_question")}>Ask Legal a general question</button></li>
+            </ul>
+          </section>
+        </aside>
       </div>
     </div>
   );
 }
+
+// Each form's icon and tint, so the catalog scans by colour as well as by name.
+const FORM_LOOK: Record<string, [LucideIcon, string]> = {
+  new_agreement: [FileText, "ind"], sow: [ClipboardList, "ind"], dpa: [Lock, "vio"],
+  amendment: [FilePen, "amb"], renewal: [RefreshCw, "emr"], termination: [XCircle, "red"],
+  novation: [ArrowLeftRight, "vio"], regularize: [FileCheck, "sky"], cancellation: [Ban, "red"],
+};
+
+const NRQ_CSS = `
+.nrq{--r:14px;max-width:1240px;margin:0 auto;padding-bottom:40px}
+.nrq-hd h1{margin:6px 0 4px;font:700 24px/1.2 var(--sans);letter-spacing:-.02em;color:var(--ink)}
+.nrq-hd p{margin:0;font-size:13.5px;color:var(--ink-3)}
+.nrq-steps{list-style:none;margin:16px 0;padding:12px 16px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;border-radius:var(--r);background:var(--surface);box-shadow:0 0 0 1px var(--border)}
+.nrq-steps li{display:flex;align-items:center;gap:10px;position:relative}
+.nrq-steps li+li::before{content:"";position:absolute;left:-8px;top:50%;width:6px;border-top:2px solid var(--border)}
+.nrq-steps b{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:50%;font:700 12px var(--sans);background:var(--surface-2);color:var(--ink-3);box-shadow:inset 0 0 0 1.5px var(--border-strong)}
+.nrq-steps li[data-on] b{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.nrq-steps em{display:block;font:650 13px var(--sans);font-style:normal;color:var(--ink)}
+.nrq-steps small{display:block;font-size:11.5px;color:var(--ink-3)}
+.nrq-steps li:not([data-on]) em{color:var(--ink-2);font-weight:600}
+.nrq-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+.nrq-main,.nrq-side{display:flex;flex-direction:column;gap:16px;min-width:0}
+.nrq-card{padding:16px;border-radius:var(--r);background:var(--surface);box-shadow:0 0 0 1px var(--border)}
+.nrq-ch{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.nrq-ch h2{margin:0;font:700 15px var(--sans);color:var(--ink)}
+.nrq-ch p{margin:3px 0 0;font-size:12.5px;color:var(--ink-3)}
+.nrq-ch>span{font-size:12px;color:var(--ink-3)}
+.nrq-search{display:flex;align-items:center;gap:8px;min-width:210px;padding:0 10px;height:34px;border-radius:10px;box-shadow:0 0 0 1px var(--border-strong);color:var(--ink-3)}
+.nrq-search input{flex:1;min-width:0;border:0;outline:0;background:none;font:13px var(--sans);color:var(--ink)}
+.nrq-search:focus-within{box-shadow:0 0 0 2px var(--accent)}
+.nrq-types{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+.nrq-types>button,.nrq-types>a{--t:var(--c-ind);display:flex;align-items:center;gap:12px;padding:14px;border-radius:12px;text-align:left;background:var(--surface);box-shadow:0 0 0 1px var(--border);transition:transform .18s,box-shadow .18s}
+.nrq-types>button:hover,.nrq-types>a:hover{transform:translateY(-2px);box-shadow:0 0 0 1px var(--border-strong),0 10px 20px -12px rgba(20,26,40,.25)}
+.nrq-types [data-tone=vio]{--t:var(--c-vio)}.nrq-types [data-tone=amb]{--t:var(--c-amb)}.nrq-types [data-tone=emr]{--t:var(--c-emr)}.nrq-types [data-tone=red]{--t:var(--c-red)}.nrq-types [data-tone=sky]{--t:var(--c-sky)}
+.nrq .ti{flex:none;display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:color-mix(in srgb,var(--t,var(--c-ind)) 14%,transparent);color:var(--t,var(--c-ind))}
+.nrq .ti svg{width:20px;height:20px}
+.nrq .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.nrq .tx b{font:650 13.5px var(--sans);color:var(--ink)}
+.nrq .tx small{font-size:12px;line-height:1.4;color:var(--ink-3);overflow-wrap:anywhere}
+.nrq .go{flex:none;width:16px;height:16px;color:var(--ink-3);transition:transform .18s,color .18s}
+.nrq-types>button:hover .go,.nrq-types>a:hover .go{transform:translateX(3px);color:var(--t)}
+.nrq-none{grid-column:1/-1;margin:6px 0;font-size:13px;color:var(--ink-3)}
+.nrq-recent{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.nrq-recent button{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;text-align:left;box-shadow:0 0 0 1px var(--border);transition:background .15s}
+.nrq-recent button:hover{background:var(--surface-2)}
+.nrq-recent .ti{width:34px;height:34px;border-radius:10px}.nrq-recent .tx b{font-size:13px}
+.nrq-drafts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.nrq-drafts li{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:var(--inset)}
+.nrq-dt{flex:1;min-width:0;display:flex;flex-direction:column}.nrq-dt b{font:650 13px var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nrq-dt small{font-size:12px;color:var(--ink-3)}
+.nrq-ask{display:flex;flex-direction:column;gap:6px;background:color-mix(in srgb,var(--accent) 5%,var(--surface))}
+.nrq-ask .ai{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--accent);color:var(--accent-ink)}.nrq-ask .ai svg{width:22px;height:22px}
+.nrq-ask h3{margin:6px 0 0;font:700 15px var(--sans)}.nrq-ask p{margin:0;font-size:12.5px;color:var(--ink-3)}
+.nrq-ask textarea{margin-top:6px;padding:10px 12px;border-radius:10px;border:0;outline:0;resize:vertical;font:13px var(--sans);background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--border-strong)}
+.nrq-ask textarea:focus{box-shadow:0 0 0 2px var(--accent)}
+.nrq-cta{margin-top:6px;height:38px;border-radius:10px;background:var(--accent);color:var(--accent-ink);font:650 13px var(--sans);transition:filter .15s}.nrq-cta:hover{filter:brightness(1.1)}
+.nrq-ways{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:12.5px;color:var(--ink-2)}
+.nrq-ways li{display:flex;align-items:flex-start;gap:9px}.nrq-ways svg{flex:none;width:16px;height:16px;margin-top:1px;color:var(--ink-3)}
+.nrq-ways button{font-weight:600;color:var(--accent);text-align:left}.nrq-ways button:hover{text-decoration:underline}
+@media (max-width:1000px){.nrq-grid{grid-template-columns:1fr}.nrq-steps{grid-template-columns:repeat(2,minmax(0,1fr))}}
+`;

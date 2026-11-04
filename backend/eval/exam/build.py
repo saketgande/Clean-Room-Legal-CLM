@@ -2260,11 +2260,14 @@ def make_deals() -> dict[str, Deal]:
     return deals
 
 
-# The SOW, Consultancy and DPA wording the exam was built from (2026-10-15): the app's shipped versions have
+# The wording of all seven templates the exam was built from (2026-10-15): the app's shipped versions have
 # since been rewritten to be filled from the request (specs 007 and 008), and the exam's committed documents,
 # planted-change offsets, hashes and baseline all depend on this text, so each is rendered from a byte-for-byte
 # copy instead of the live template.
-_FROZEN = {key: Path(__file__).with_name(f"{key}_2026-10-15.txt") for key in ("sow", "consultancy", "dpa")}
+_FROZEN = {
+    key: Path(__file__).with_name(f"{key}_2026-10-15.txt")
+    for key in ("nda", "msa", "vendor", "saas", "sow", "consultancy", "dpa")
+}
 
 
 def _template_body(kind: str) -> str | None:
@@ -2278,13 +2281,22 @@ def _render(deal: Deal) -> str:
     document."""
     # Imported here: drafting pulls the database layer in, and the exam process repoints its
     # settings before `build` gets this far (env.isolate).
-    from app.intake.drafting import render_document
+    from app.drafting_templates.service import default_body
+    from app.intake.drafting import template_values
 
     def draft(kind: str) -> str:
-        return render_document(
-            kind, company=deal.company, counterparty=deal.counterparty, effective=deal.written,
-            fields=deal.fields(), body=_template_body(kind),
-        )
+        # The exam's documents are pinned to the 2026-10-15 wording AND the values the app filled it with
+        # then: the deal's own law, and 30 days' payment for a consultancy. Spec 014 made every draft's law
+        # India and the default 45 days, so those two are set back here (the committed hashes depend on it).
+        values = template_values(kind, company=deal.company, counterparty=deal.counterparty,
+                                 effective=deal.written, fields=deal.fields())
+        values["governing_law"] = deal.law
+        # Spec 014 (PF-30) added a sentence after the value ("That figure is a commercial limit on spending
+        # only ..."); the committed hashes were taken without it.
+        values["value_sentence"] = values["value_sentence"].split(" That figure is a commercial limit")[0]
+        if kind == "consultancy":
+            values["payment_days"] = "30"
+        return (_template_body(kind) or default_body(kind)).format(**values)
 
     recital = (
         f"{deal.company} has its registered office at {deal.company_office}. "

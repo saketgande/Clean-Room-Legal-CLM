@@ -46,7 +46,7 @@ from app.drafting_templates.service import (
     field_uses,
     render_sample,
 )
-from app.intake import consultancy, dpa, drafting, sow
+from app.intake import consultancy, dpa, drafting, paper, sow
 from app.intake.agreement_forms import form_def
 from eval.exam import build as exam
 from tests.test_template_check_jobs import _ai, _deviation, _FakeReview, _ready, _request, _run
@@ -93,7 +93,8 @@ def _consultancy(basis: str = "Fixed fee", **over) -> dict:
         "request_form": "new_agreement", "agreement_type": "Consultancy", "paper": "Our template",
         "counterparty": COUNTERPARTY, "start_date": "2026-11-01", "term": "Fixed end date",
         "end_date": "2027-04-30", "payment_terms": "30 days", "value": 1800000, "currency": "INR",
-        "scope": "Advise on the design of the new quality-management process.",
+        "scope": ("Advise on the design of the new quality-management process, including a review of current "
+                  "practice, a gap analysis, and recommendations for the quality team."),
         "consultancy_deliverables": [{"name": "Current-state review", "due": "2026-12-15"},
                                      {"name": "Process design report", "due": "2027-03-15"}],
         "fee_basis": basis, "key_individuals": [{"name": "Anita Rao"}, {"name": "Dev Menon"}],
@@ -195,7 +196,7 @@ def test_the_schedule_holds_the_requests_answers_in_the_five_places():
     """AC-3 / AC-4: the scope as written, D1 and D2 in the order entered with long-form dates, the fee, the
     key individuals once each and the contact with the role."""
     schedule = _schedule(_draft("consultancy", _consultancy("Day rate")))
-    assert "Services: Advise on the design of the new quality-management process.\n" in schedule
+    assert "Services: Advise on the design of the new quality-management process, including" in schedule
     assert ("Deliverables and timetable:\n\n"
             "D1. Current-state review. Due date: 15 December 2026.\n\n"
             "D2. Process design report. Due date: 15 March 2027.\n\n") in schedule
@@ -206,9 +207,11 @@ def test_the_schedule_holds_the_requests_answers_in_the_five_places():
 @pytest.mark.parametrize(("basis", "statement", "cap"), [
     ("Fixed fee", "The Fees are a fixed fee of INR 1,800,000.00 for the Services.", "INR 1,800,000.00"),
     ("Day rate", ("The Fees are charged at a day rate of INR 25,000.00 per day for time properly spent on the "
-                  "Services."), "INR 1,800,000.00"),
+                  "Services. A day is eight (8) hours; part days are charged pro rata. Travel time is not "
+                  "chargeable unless agreed in writing."), "INR 1,800,000.00"),
     ("Hourly rate", ("The Fees are charged at an hourly rate of INR 3,500.00 per hour for time properly spent "
-                     "on the Services."), "INR 1,800,000.00"),
+                     "on the Services. Part hours are charged pro rata. Travel time is not chargeable unless "
+                     "agreed in writing."), "INR 1,800,000.00"),
 ])
 def test_the_fee_is_one_statement_with_the_total_as_its_ceiling(basis, statement, cap):
     """AC-5: the requester's basis, never the bases as alternatives; the total value is the fixed fee or the
@@ -527,8 +530,8 @@ def test_the_dpa_example_is_a_consistent_processing():
     assert "Running the occupational-health clinic booking system for staff and study volunteers." in text
     assert "Employees; Patients or trial subjects." in text
     assert "employment and HR records; health data and other special category data." in text
-    assert dpa.SPECIAL_YES in text and "India and Ireland." in text
-    assert "Northwind Hosting Ltd (Ireland): Hosting of the clinic booking database." in text
+    assert dpa.SPECIAL_YES in text and "India and Netherlands." in text
+    assert "Northwind Hosting Ltd (Netherlands): Hosting of the clinic booking database." in text
     assert "conditions of Section 9" in text
 
 
@@ -610,7 +613,7 @@ _QUOTING = {
                     "Kavita Joshi, Head of Digital Products shall be the contact."],
     "dpa": ["Add Northwind Hosting Ltd as a sub-processor.",
             "Hosting of the clinic booking database is authorised.",
-            "Processing in Ireland is permitted."],
+            "Processing in the Netherlands is permitted."],
 }
 
 
@@ -738,7 +741,8 @@ def test_the_exam_renders_consultancy_and_the_dpa_from_frozen_copies_that_match_
         body = exam._template_body(key)
         assert hashlib.sha256(body.encode("utf-8")).hexdigest() == manifest[key]
         assert blanks is None or len(find_blanks(body)) == blanks  # the SOW's copy is 007's, tested there
-    assert all(exam._template_body(k) is None for k in ("nda", "msa", "saas", "vendor"))
+    # Spec 014 rewrote the other four templates too, so the exam holds a copy of each of them as well.
+    assert all(exam._template_body(k) for k in ("nda", "msa", "saas", "vendor"))
     # The live templates are no longer those texts, which is why the copies exist.
     assert default_body("consultancy") != exam._template_body("consultancy")
     assert default_body("dpa") != exam._template_body("dpa")
@@ -763,5 +767,5 @@ def test_the_exam_documents_drafted_from_the_frozen_wording_are_byte_for_byte_wh
             assert drafting.render_document(
                 deal.kind, company=deal.company, counterparty=deal.counterparty, effective=deal.written,
                 fields=deal.fields(), body=body) == body.format(
-                    **{k: v for k, v in values.items() if k not in NEW_FIELDS})
+                    **{k: v for k, v in values.items() if k not in (*NEW_FIELDS, *paper.FIELDS)})
     assert all(n >= 1 for n in unplanted.values()), unplanted

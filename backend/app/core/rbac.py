@@ -165,6 +165,9 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "assistant:use",
         "workflow:read",
         "obligation:read",
+        # Owners get the reminder emails, so they can act on them. Only on contracts they own, created or
+        # hold an update-level share on: ContractService.get_contract_for_user(edit=True) decides which.
+        "obligation:update",
         "intake:create",  # any employee can file + track their own requests
         "trademark:read",
         "trademark:create",
@@ -185,6 +188,7 @@ DEFAULT_ROLE_PERMISSIONS: dict[str, set[str]] = {
         "playbook:read",
         "playbook:run",
         "obligation:read",
+        "obligation:update",  # on their own contracts only, as for member (get_contract_for_user edit=True)
         "intake:create",
         "intake:read",
         "intake:update",

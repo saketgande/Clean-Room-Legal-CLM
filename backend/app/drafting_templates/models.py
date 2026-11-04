@@ -56,7 +56,7 @@ class DraftingTemplateCheck(TableNameMixin, IdMixin, OrgScopedMixin, ActorTracke
     wording_sha256 = Column(String(64), nullable=False)  # hash of the wording that was checked
     unsaved = Column(Boolean, nullable=False, default=False, server_default=text("false"))
     unsaved_body = Column(Text, nullable=True)  # only when `unsaved`
-    # saved | uploaded | restored | reset | type_created | type_reactivated |
+    # saved | uploaded | restored | reset | type_created | type_reactivated | sample |
     # playbook_published | playbook_changed | manual | check_all | retry
     trigger = Column(String(30), nullable=False)
     trigger_detail = Column(JSON, nullable=True)

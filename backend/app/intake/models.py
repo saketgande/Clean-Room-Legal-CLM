@@ -126,6 +126,7 @@ class IntakeRequest(
     handoff_user_id = Column(String(36), nullable=True)
     external_message_id = Column(String(200), nullable=True)
     screening = Column(JSON, nullable=True)  # {counterparty, parties, relationship} — see intake/screening.py
+    filed_summary = Column(JSON, nullable=True)  # the request in words + extra instructions as filed — see intake/request_summary.py
     parties = Column(JSON, nullable=True)  # [{name, role, is_person}] — counterparty + adverse/related
     contract_id = Column(
         String(36), ForeignKey("contract.id", ondelete="SET NULL"), nullable=True
@@ -196,3 +197,4 @@ class IntakeDraft(TableNameMixin, IdMixin, OrgScopedMixin, TimestampMixin, Base)
     parent_contract_id = Column(String(36), nullable=True)  # picker selection, resolved on resume
     page_index = Column(Integer, nullable=False, default=0)  # step to reopen on
     visited = Column(Integer, nullable=False, default=1)  # furthest step reached
+    summary_box = Column(JSON, nullable=True)  # the wizard's summary-box state (edits, offers, instructions) — spec 013

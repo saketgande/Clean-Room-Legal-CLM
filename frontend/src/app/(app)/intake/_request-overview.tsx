@@ -7,11 +7,13 @@
 // Scoped under `.ro` (reuses the `.li-board` palette from the shell's CSS).
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { MessageSquarePlus, Sparkles, UserCog, FileText as FileIcon, Building2, LayoutDashboard, ListChecks, FileText, ShieldAlert, Activity, MessagesSquare, Link2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { intakeApi, workflowsApi, brainApi, contractsApi, trademarksApi } from "@/lib/endpoints";
+import { intakeApi, workflowsApi, contractsApi, trademarksApi, obligationsApi } from "@/lib/endpoints";
 import { useToast } from "@/components/toast";
-import { LoadError, MessageBar } from "@/components/ui";
+import { LoadError, MessageBar, useConfirm } from "@/components/ui";
 import { REVIEW_NOTICE_CSS, StepReviewNotice } from "@/components/review-notice";
 import { interruptedReviewStep, reviewPollInterval } from "@/lib/review-retry";
 import { currentStage, LIFECYCLE, stepFacts, stepStage } from "@/components/lifecycle-view";
@@ -22,12 +24,19 @@ import { NegotiationPanel } from "./_negotiation-panel";
 import { RequestAnswers } from "./_request-answers";
 import { ApprovalCard } from "./_approval-card";
 import { SignatureCard } from "./_signature-card";
-import { RequestHeader, ProgressStrip, HEADER_CSS } from "./_request-header";
+import { RequestHeader, ProgressStrip, StageTimeline, HEADER_CSS } from "./_request-header";
+import { aiIsWorking } from "@/components/lifecycle-view";
+import { canEditObligations } from "@/lib/obligation-access";
 import { DecisionArea, DECISION_CSS, type HumanDecision } from "./_decision-area";
 import { WhatWasAsked, ASKED_CSS } from "./_request-asked";
-import { RiskReview, riskFacts, RISK_CSS } from "./_request-risk";
-import { ApprovalChain, WorkflowCard, STEPS_CSS, type ExtraDetail, type FlowState, type StepRow } from "./_request-steps";
-import { ActivityCard, AskAegisCard, CommentsCard, CounterpartyCard, DocumentsCard, PeopleCard, CARDS_CSS } from "./_request-cards";
+import { RiskReview, ReviewHistory, riskFacts, RISK_CSS } from "./_request-risk";
+import { WorkflowCard, STEPS_CSS, type ExtraDetail, type FlowState, type StepRow } from "./_request-steps";
+import { RequestSummarySection, SUMMARY_CSS } from "./_request-summary";
+import { POLISH_CSS, TIMELINE_CSS } from "./_request-polish";
+import { KpiStrip, buildKpis } from "./_request-kpis";
+import { OverviewPane, OVERVIEW_PANE_CSS, type KeyDate } from "./_request-overview-pane";
+import { kindOf } from "./_legal-intake";
+import { ActivityCard, CommentsCard, CounterpartyCard, DocumentsCard, PeopleCard, CARDS_CSS } from "./_request-cards";
 import type { IntakeRequest, WorkflowSuggestion, WorkflowRun, WorkflowRunStep } from "@/lib/types";
 import { useAuth } from "@/lib/auth";
 import { fmtDateTime, riskBand, RISK_UNKNOWN_LABEL } from "@/lib/utils";
@@ -70,6 +79,7 @@ function counterpartyOf(r: IntakeRequest): string | null {
 
 export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: string; onBack: () => void; canManage: boolean; onOpenRequest?: (id: string) => void }) {
   const qc = useQueryClient();
+  const { confirm, dialog: confirmDialog } = useConfirm();
   const router = useRouter();
   const { notify } = useToast();
   const { user } = useAuth();
@@ -80,6 +90,8 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const { data: docs } = useQuery({ queryKey: ["intake-docs", id], queryFn: () => intakeApi.documents(id) });
   const { data: assignees } = useQuery({ queryKey: ["intake-assignees"], queryFn: intakeApi.assignees, enabled: canManage });
   const [reassignTo, setReassignTo] = useState("");
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [tab, setTab] = useState<"overview" | "workflow" | "documents" | "risk" | "ai" | "activity" | "comments" | "related">("overview");
 
   const cid = r?.contract_id ?? null;
   // The risk band from the playbook review. Poll while it's unknown (drafting starts
@@ -118,7 +130,20 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const { data: lifeRows } = useQuery({
     queryKey: ["lifecycle-rows", id, cid, flowRun?.id, flowRun?.status, flowRun?.current_index],
     queryFn: () => workflowsApi.lifecycle({ request_id: id }),
+    // While the AI is reading the signed copy (after Retry) keep looking until it settles.
+    refetchInterval: (q) => (aiIsWorking(q.state.data) ? 4000 : false),
   });
+  // Retry / Re-read on the Active stage's obligation row. The server decides who may; this only hides the button.
+  const readObligations = canEditObligations(user?.permissions)
+    ? async (action: { contract_id: string }) => {
+        try {
+          await obligationsApi.extract(action.contract_id);
+        } finally {
+          // Also when the server refuses (it answers 409 when the reading already succeeded): see the contract page.
+          await qc.invalidateQueries({ queryKey: ["lifecycle-rows", id] });
+        }
+      }
+    : undefined;
   // Activity and counterparty files each have their own load state, so one failing never blanks the page.
   // The activity key follows the run so a step finishing shows up; keepPreviousData keeps the card from blanking meanwhile.
   const activityQ = useQuery({
@@ -126,6 +151,8 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
     queryFn: () => intakeApi.activity(id), placeholderData: keepPreviousData,
   });
   const counterpartyQ = useQuery({ queryKey: ["intake-counterparty", id], queryFn: () => intakeApi.counterparty(id) });
+  // Own query too: a failing summary shows its Retry inside "What was asked" and never blanks the page.
+  const summaryQ = useQuery({ queryKey: ["intake-summary", id], queryFn: () => intakeApi.requestSummary(id) });
   // Pump a mid-beat "running" step once: hold ~1s so the beat shows, then resume
   // the executor so the agent runs for real and the flow advances (back-and-forth).
   const pumpedRef = useRef<string | null>(null);
@@ -152,10 +179,9 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
     return () => clearTimeout(t);
   }, [flowRun, id, qc]);
 
-  // Ask-Aegis chat, scoped to this request's contract when it has one.
-  const [chat, setChat] = useState<{ role: "you" | "ai"; text: string; cites?: number }[]>([]);
-  const [q, setQ] = useState("");
   const commentRef = useRef<HTMLInputElement>(null);
+  // The box lives in the Comments tab, which is inert while hidden: open it first, focus once it has rendered.
+  const jumpToComment = () => { setTab("comments"); setTimeout(() => { commentRef.current?.scrollIntoView?.({ block: "center" }); commentRef.current?.focus(); }, 0); };
   const sendBackRef = useRef<HTMLSelectElement>(null);
   // Owned here so the decision area's "Send back for rework…" can open the workflow card's form and focus it.
   const [sendBackOpen, setSendBackOpen] = useState(false);
@@ -203,13 +229,18 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const [reply, setReply] = useState("");
   const owed = flowRun?.rework ?? null;
   const replyMissing = !!owed && !reply.trim();
+  // A note for the decision itself: saved on the step with Approve, never posted to the comment thread.
+  const [decisionNote, setDecisionNote] = useState("");
+  const [stepBlock, setStepBlock] = useState<string | null>(null);
   const completeStep = useMutation({
     // Always say which step: of two steps running side by side, the server must not guess.
     mutationFn: () => (owed
       ? workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx, undefined, reply.trim())
-      : workflowsApi.completeStep(flowRun?.id ?? "", undefined, current?.idx)),
-    onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setReply(""); notify("Step completed", "success"); },
-    onError: fail,
+      : workflowsApi.completeStep(flowRun?.id ?? "", decisionNote.trim() || undefined, current?.idx)),
+    onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); setReply(""); setDecisionNote(""); setStepBlock(null); notify("Step completed", "success"); },
+    // A refusal says what to do next, so it stays on the page next to the decision instead of vanishing like a toast.
+    onError: (e) => setStepBlock(e instanceof Error ? e.message : "The step could not be completed."),
+    onMutate: () => setStepBlock(null),
   });
   // The review step stopped because its AI review was interrupted: run the review again and set the step going.
   const retryReview = useMutation({
@@ -229,20 +260,7 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const returnStep = useMutation({ mutationFn: (p: { to_idx?: number; note?: string }) => workflowsApi.returnStep(flowRun?.id ?? "", p.to_idx, p.note), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); qc.invalidateQueries({ queryKey: ["intake-activity", id] }); setBackTo(""); setBackNote(""); notify("Sent back for rework", "success"); }, onError: fail });
   const postComment = useMutation({ mutationFn: (text: string) => workflowsApi.comment(flowRun?.id ?? "", text), onSuccess: (run) => { qc.setQueryData(["flow-run", id], run); qc.invalidateQueries({ queryKey: ["intake-activity", id] }); setComment(""); }, onError: fail });
   const rerunRisk = useMutation({ mutationFn: () => contractsApi.computeRisk(cid ?? ""), onSuccess: (rs) => { qc.setQueryData(["contract-risk", cid], rs); qc.invalidateQueries({ queryKey: ["contract-devs", cid] }); notify("Risk recomputed from the playbook review", "success"); }, onError: fail });
-  const ask = useMutation({
-    mutationFn: (question: string) => brainApi.ask({ question, query_scope: r?.contract_id ? "contract" : "portfolio", contract_id: r?.contract_id ?? undefined }),
-    onSuccess: (res) => setChat((c) => [...c, { role: "ai", text: res.answer, cites: res.citations?.length ?? 0 }]),
-    onError: (e) => setChat((c) => [...c, { role: "ai", text: e instanceof Error ? e.message : "Couldn't answer that." }]),
-  });
   const busy = reassign.isPending || draft.isPending || ingest.isPending || continueAsTrademark.isPending || startFlow.isPending || completeStep.isPending || checkStep.isPending || returnStep.isPending || retryReview.isPending;
-  function sendChat() {
-    const text = q.trim();
-    if (!text || ask.isPending) return;
-    setChat((c) => [...c, { role: "you", text }]);
-    setQ("");
-    ask.mutate(text);
-  }
-
   const steps = r?.workflow ?? [];
   // A request that could not be opened (removed, wrong link, no access) says so; it used to sit on "Loading request…" for ever.
   if (!r && requestError) return <div className="ro"><div style={{ padding: 24 }}><LoadError error={requestError} what="this request" onRetry={() => void refetchRequest()} onBack={onBack} backLabel="← Back to Legal Intake" /></div></div>;
@@ -278,6 +296,7 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   // The step to show and act on. Steps flagged "parallel" run side by side and `current_index` stays on the
   // first of them, so once that one is done the step still waiting is another one.
   const current: WorkflowRunStep | undefined = hasRun ? stepInFocus(flowRun, user?.id) : undefined;
+  const stepTeam = current?.team_id ? (teams ?? []).find((t) => t.id === current.team_id) : undefined;
   const openIdx = new Set(hasRun ? openSteps(flowRun).map((s) => s.idx) : []);
   // The shared stage bar and the Next-step card read step names as saved ("Clm Draft"); hand them plain ones.
   const plainRun: WorkflowRun | null = flowRun ? { ...flowRun, steps: (flowRun.steps ?? []).map((s) => ({ ...s, name: plainStepName(s.name, s.type) })) } : null;
@@ -296,12 +315,21 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
       overdue: f.overdue,
     };
   };
+  // How the draft came about, said once for the drafting row and for the stage tracker.
+  const paperChoice = (r.field_values as Record<string, unknown> | null)?.paper;
+  const draftHow = paperChoice === "Our template" ? "Drafted from our template"
+    : (docs ?? []).length > 0 || paperChoice === "Their paper" ? `Uploaded document provided${(docs ?? [])[0] ? `: ${(docs ?? [])[0].filename}` : ""}` : null;
   const baseRows: StepRow[] = hasRun
     ? runSteps.map((s, i) => {
         // A step the engine skipped (its condition was not met) was never done: it shows as skipped and is
         // not counted as work that happened, but it does not hold the workflow up either.
-        const isSkipped = s.status === "skipped";
-        const isDone = isSkipped || ["done", "complete"].includes(s.status);
+        // The drafting step is skipped when the contract already exists. For the requester that is not a skip: either
+        // we drafted it from our own template, or the document they uploaded is the draft. Say which.
+        // A skip with a reason of its own (a Processor DPA: no draft will be made) is a real skip and stays one.
+        const draftProvided = s.type === "clm_draft" && s.status === "skipped" && !(s.result as { skipped?: string } | null)?.skipped;
+        const draftNote = s.type !== "clm_draft" ? null : draftHow ?? (draftProvided ? "The contract was already in place" : null);
+        const isSkipped = s.status === "skipped" && !draftProvided;
+        const isDone = isSkipped || draftProvided || ["done", "complete"].includes(s.status);
         const isCur = (openIdx.has(s.idx) || i === curIdx) && !isDone && !runComplete;
         const failedHere = runFailed && i === curIdx;
         const meta = stepMeta(s.type);
@@ -316,6 +344,9 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
           skipped: isSkipped,
           sidx: i,
           stage: stepStage(s),
+          kind: meta.label, team: s.team_label ?? s.planned_team_label ?? undefined,
+          sla: s.sla_hours ? `${s.sla_hours}h to complete` : undefined, updated: isDone || isCur ? s.updated_at : null,
+          note: draftNote ?? s.note, parallel: !!s.parallel, conditional: !!s.cond,
           assign: assignOf(s),
           wait: isCur && !failedHere ? waitOf(s) : undefined,
           focus: s.idx === current?.idx,
@@ -341,7 +372,9 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const lastOpen = baseRows.reduce((m, w, i) => (w.tone === "cur" || w.tone === "warn" ? i : m), -1);
   const nextIdx = hasRun && lastOpen >= 0 ? baseRows.findIndex((w, i) => i > lastOpen && w.tone === "todo") : -1;
   const wf: StepRow[] = baseRows.map((w, i) => (i === nextIdx ? { ...w, next: true } : w));
-  const wfSkipped = wf.filter((w) => w.skipped).length;
+  // A skipped step whose condition was not met does not apply to this request: it is out of the count (and out of sight).
+  const wfSkipped = wf.filter((w) => w.skipped && !w.conditional).length;
+  const wfNotApplicable = wf.filter((w) => w.skipped && w.conditional).length;
   const wfDone = wf.filter((w) => w.tone === "done" && !w.skipped).length;
   const wfActiveIdx = wf.findIndex((w) => w.tone === "cur" || w.tone === "warn");
   const stageNow = currentStage({ run: hasRun ? flowRun : null, contractStage: contractStatus?.lifecycle_stage, requestClosed: !open });
@@ -351,11 +384,12 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const rf = riskFacts(risk, deviations, !!cid);
 
   // Approve the current human step, warning when critical risks are open or nobody reviewed the text.
-  function approveStep() {
+  async function approveStep() {
     if (replyMissing) return;
     const warning = rf.unknown ? "The risk on this contract's text has not been reviewed."
       : rf.critCount > 0 ? `${rf.critCount} critical-severity risk${rf.critCount === 1 ? "" : "s"} still open on this contract.` : null;
-    if (warning && !window.confirm(`${warning}\n\nApprove and advance anyway?`)) return;
+    // The app's own dialog, not the browser's: a native alert reads as an error and can be switched off.
+    if (warning && !(await confirm({ title: "Approve without a full review?", message: `${warning} Approve and advance anyway?`, confirmLabel: "Approve anyway" }))) return;
     completeStep.mutate();
   }
   // A draft that can't be made yet: a Statement of Work without its deliverable rows, a Consultancy or DPA without
@@ -380,6 +414,29 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
     { label: "Type", value: (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label },
     ...(value ? [{ label: "Value", value }] : []),
     ...(termText ? [{ label: "Term", value: termText }] : []),
+  ];
+
+  // --- the Overview tab: a labelled sheet, the dates that matter ---
+  const filedAt = r.created_at ?? r.submitted_at ?? null;
+  const slaDue = filedAt && r.sla_hours > 0 ? new Date(new Date(filedAt).getTime() + r.sla_hours * 3_600_000) : null;
+  const slaLeftH = slaDue ? Math.round((slaDue.getTime() - Date.now()) / 3_600_000) : null;
+  const slaLeft = slaLeftH == null ? null : `${Math.abs(slaLeftH) < 48 ? `${Math.abs(slaLeftH)} hours` : `${Math.round(Math.abs(slaLeftH) / 24)} days`} ${slaLeftH < 0 ? "overdue" : "left"}`;
+  const fmtD = (d: Date | string | null) => (d ? new Date(d).toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" }) : "—");
+  const detailRows: { label: string; value: string }[] = [
+    { label: "Request title", value: r.subject || r.type_label },
+    { label: "Request ID", value: r.ref },
+    ...facts.map((f) => (f.label === "Type" ? { label: "Request type", value: f.value } : f)),
+    { label: "Priority", value: r.priority },
+    ...(r.department ? [{ label: "Requesting department", value: r.department }] : []),
+    { label: "Requested by", value: r.requester_name ?? "—" },
+    { label: "Owner", value: r.assigned_to_label ?? "Unassigned" },
+    ...(r.description?.trim() ? [{ label: "Description", value: r.description.trim() }] : []),
+  ];
+  const nextStep = wf.find((w) => w.tone === "cur" || w.tone === "warn");
+  const keyDates: KeyDate[] = [
+    { label: "Request created", value: fmtD(filedAt), tone: "done" },
+    ...(nextStep?.wait?.due ? [{ label: `${nextStep.label} due`, value: String(nextStep.wait.due), tone: (nextStep.wait.overdue ? "late" : "warn") as KeyDate["tone"] }] : []),
+    ...(slaDue ? [{ label: "Response due", value: `${fmtD(slaDue)} · ${slaLeft}`, tone: (slaLeftH! < 0 ? "late" : "todo") as KeyDate["tone"] }] : []),
   ];
 
   // --- the status line under the stage bar ---
@@ -416,19 +473,29 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
       : { tone: "ok", text: "No blocking risks — clear to advance" },
     rework: owed ? { reason: owed.reason } : null,
     reply, onReply: setReply, replyMissing, busy, onApprove: approveStep,
-    canSendBack: curIdx > 0,
-    onJumpToSendBack: () => {
-      if (sendBackOpen) { sendBackRef.current?.scrollIntoView({ block: "center" }); sendBackRef.current?.focus(); return; }
-      focusSendBack.current = true; setSendBackOpen(true);
-    },
-    onJumpToComment: () => { commentRef.current?.focus(); commentRef.current?.scrollIntoView({ block: "center" }); },
+    sendBack: curIdx > 0 ? {
+      options: wf.slice(0, curIdx).map((w) => ({ value: String(w.sidx), label: `${(w.sidx ?? 0) + 1}. ${w.label}` })),
+      to: backTo, onTo: setBackTo, note: backNote, onNote: setBackNote,
+      open: sendBackOpen,
+      // The form lives in the Workflow tab: go there, open it, and put the cursor in the step picker once it is on screen.
+      onToggle: () => { setTab("workflow"); focusSendBack.current = true; setSendBackOpen(true); setTimeout(() => { sendBackRef.current?.scrollIntoView?.({ block: "center" }); sendBackRef.current?.focus(); }, 0); },
+      onSend: () => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined }),
+    } : null,
+    reassign: canAct ? {
+      teamName: stepTeam?.name ?? current.team_label ?? "this team",
+      // The step's own team (Legal Counsel for a legal review); the wider owner list only when the team is unknown.
+      options: (stepTeam ? stepTeam.members.filter((m) => m.active && m.user_id !== r.assigned_to_user_id).map((m) => ({ id: m.user_id, name: m.name ?? "Team member", detail: m.open_count != null ? `${m.open_count} open` : undefined }))
+        : (assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => ({ id: a.id, name: a.name }))),
+      open: reassignOpen, onToggle: () => setReassignOpen((o) => !o), picked: reassignTo, onPick: setReassignTo,
+      onConfirm: () => { reassign.mutate(reassignTo); setReassignOpen(false); },
+    } : undefined,
+    note: decisionNote, onNote: setDecisionNote,
+    risks: [...rf.bySev.critical, ...rf.bySev.high].map((d) => ({ id: d.id, severity: d.severity.toLowerCase() === "critical" ? "critical" : "high", clause: d.clause_type.replace(/_/g, " "), issue: d.issue })),
+    onSeeRisks: () => { setTab("risk"); setTimeout(() => document.getElementById("rt-risk")?.scrollIntoView?.({ block: "start", behavior: "smooth" }), 0); },
   } : null;
 
   // --- steps card extras: the approval chain sits on the approval step; negotiation rounds on the negotiate step for those who cannot act ---
   const extras: ExtraDetail[] = [];
-  if ((approvals ?? []).length > 0) {
-    extras.push({ id: "approval-chain", label: "Approval chain", node: <ApprovalChain rungs={approvals ?? []} /> });
-  }
   if (negotiation && !canAct && current) extras.push({ id: "negotiation", label: "Negotiation rounds", node: negotiation });
 
   const flow: FlowState = hasRun ? { kind: "running", name: flowRun!.flow_name, status: flowRun!.status }
@@ -446,29 +513,57 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
   const activityStatus = activityQ.data ? "ready" : activityQ.isError ? "error" : "loading";
   const counterpartyStatus = counterpartyQ.data ? "ready" : counterpartyQ.isError ? "error" : "loading";
   const openRequest = (rid: string) => { onOpenRequest?.(rid); window.scrollTo({ top: 0 }); };
-  const askAegis = (question: string) => { setChat((c) => [...c, { role: "you", text: question }]); ask.mutate(question); };
 
   return (
     <div className="ro">
-      <style dangerouslySetInnerHTML={{ __html: RO_CSS + HEADER_CSS + DECISION_CSS + ASKED_CSS + RISK_CSS + STEPS_CSS + CARDS_CSS + REVIEW_NOTICE_CSS }} />
+      {confirmDialog}
+      <style dangerouslySetInnerHTML={{ __html: RO_CSS + HEADER_CSS + DECISION_CSS + ASKED_CSS + RISK_CSS + STEPS_CSS + CARDS_CSS + REVIEW_NOTICE_CSS + SUMMARY_CSS + OVERVIEW_PANE_CSS + POLISH_CSS + TIMELINE_CSS }} />
 
       {templateNotice?.id === id ? <MessageBar intent="warning" className="mb-3">{templateNotice.text}</MessageBar> : null}
 
       <RequestHeader title={r.subject || `${r.type_label}${cp ? ` — ${cp}` : ""}`} refCode={r.ref} requesterName={r.requester_name ?? null}
         raisedAt={r.created_at ?? r.submitted_at ?? null} ownerLabel={r.assigned_to_label ?? null}
-        highRisk={!!cid && !!risk && rf.band === "high"} sla={r.sla_status ?? null} onBack={onBack} />
-      <ProgressStrip steps={plainRun?.steps ?? []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} line={line} tone={overdueNow ? "warn" : "info"} working={working} />
+        highRisk={!!cid && !!risk && rf.band === "high"} sla={r.sla_status ?? null} onBack={onBack} statusLabel={runComplete ? "Complete" : hasRun ? "In progress" : r.status === "open" ? "Open" : String(r.status)} chips={[cp, typeof fv.agreement_type === "string" ? fv.agreement_type : "", r.type_label.split(" · ")[0], current ? plainStepName(current.name, current.type) : stageLabel].filter((x): x is string => !!x)} icon={(() => { const K = kindOf(r).Icon; return <K />; })()}
+        actions={(
+          <>
+            {hasRun && canAct ? <button type="button" className="btn act-ind" onClick={jumpToComment}><MessageSquarePlus className="ic" aria-hidden />Add comment</button> : null}
+            {canAct ? <button type="button" className="btn act-vio" onClick={() => { const el = document.querySelector<HTMLSelectElement>('.ro select[aria-label="New owner"]'); el?.scrollIntoView({ block: "center" }); el?.focus(); }}><UserCog className="ic" aria-hidden />Reassign</button> : null}
+            <button type="button" className="btn act-sky" onClick={() => window.dispatchEvent(new CustomEvent("aegis:ask", { detail: { contractId: r?.contract_id } }))}><Sparkles className="ic" aria-hidden />Ask Aegis</button>
+            {cid ? <Link href={`/contracts/${cid}`} className="btn act-emr"><FileIcon className="ic" aria-hidden />Open contract</Link> : null}
+          </>
+        )} />
+      <KpiStrip items={buildKpis({
+        priority: r.priority, sla: r.sla_status ?? null, slaPct: typeof r.sla_pct === "number" ? r.sla_pct : null,
+        risk: cid && risk ? { band: rf.band, unknown: rf.unknown, critical: rf.critCount, findings: rf.findingCount } : null,
+        typeLabel: (typeof fv.agreement_type === "string" && fv.agreement_type) || r.type_label, value: value ?? null,
+        dueDate: slaDue ? fmtD(slaDue) : null, dueNote: slaLeft, dueLate: slaLeftH != null && slaLeftH < 0,
+      })} />
+
+      <ProgressStrip line={line} tone={overdueNow ? "warn" : "info"} working={working} />
+
+      <div className="rtabswrap">
+        <div className="rtabs" role="tablist" aria-label="Request sections">
+          <button type="button" role="tab" id="rt-overview" aria-selected={tab === "overview"} aria-controls="rp-overview" onClick={() => setTab("overview")}><LayoutDashboard className="ic" aria-hidden />Overview</button>
+          <button type="button" role="tab" id="rt-workflow" aria-selected={tab === "workflow"} aria-controls="rp-workflow" onClick={() => setTab("workflow")}><ListChecks className="ic" aria-hidden />Workflow</button>
+          <button type="button" role="tab" id="rt-documents" aria-selected={tab === "documents"} aria-controls="rp-documents" onClick={() => setTab("documents")}><FileText className="ic" aria-hidden />Documents {(docs ?? []).length ? <i>{(docs ?? []).length}</i> : null}</button>
+          <button type="button" role="tab" id="rt-risk" aria-selected={tab === "risk"} aria-controls="rp-risk" onClick={() => setTab("risk")}><ShieldAlert className="ic" aria-hidden />Risk & compliance</button>
+          <button type="button" role="tab" id="rt-ai" aria-selected={tab === "ai"} aria-controls="rp-ai" onClick={() => setTab("ai")}><Sparkles className="ic" aria-hidden />AI analysis</button>
+          <button type="button" role="tab" id="rt-activity" aria-selected={tab === "activity"} aria-controls="rp-activity" onClick={() => setTab("activity")}><Activity className="ic" aria-hidden />Activity</button>
+          <button type="button" role="tab" id="rt-comments" aria-selected={tab === "comments"} aria-controls="rp-comments" onClick={() => setTab("comments")}><MessagesSquare className="ic" aria-hidden />Comments {(flowRun?.comments ?? []).length ? <i>{(flowRun?.comments ?? []).length}</i> : null}</button>
+          <button type="button" role="tab" id="rt-related" aria-selected={tab === "related"} aria-controls="rp-related" onClick={() => setTab("related")}><Link2 className="ic" aria-hidden />Related</button>
+        </div>
+      </div>
 
       <div className="body">
+        <StageTimeline draftNote={draftHow} steps={plainRun?.steps ?? []} current={stageNow} comments={flowRun?.comments ?? []} extras={lifeRows ?? {}} onAction={readObligations} />
         <div className="col">
-          <DecisionArea
-            approval={pendingApproval ? <ApprovalCard requestId={id} rungs={approvals ?? []} runId={flowRun?.id ?? null} stepName={approvalStepName} subject={approvalSubject} /> : null}
-            human={human}
-            negotiation={canAct ? negotiation : null}
-            signature={signature} />
-          <WhatWasAsked sourceTag={ai.source === "form" ? "from the form" : "as the AI understood it"} facts={facts}
+          <div role="tabpanel" id="rp-overview" aria-labelledby="rt-overview" className="rpane" data-on={tab === "overview" ? "1" : undefined} {...(tab === "overview" ? {} : { inert: true } as object)}>
+          {canAct && negotiation ? <div className="negwrap">{negotiation}</div> : null}
+          <OverviewPane rows={detailRows} docs={docs ?? []} activity={activityQ.data?.items ?? []} keyDates={keyDates} onTab={setTab} />
+                    <WhatWasAsked part="main" sourceTag={ai.source === "form" ? "from the form" : "as the AI understood it"} facts={facts}
             priority={{ value: r.priority, aiSuggests: aiUrgency ?? null, canApply: canAct, applying: applyPriority.isPending, onApply: () => { if (aiUrgency && !applyPriority.isPending) applyPriority.mutate(aiUrgency); } }}
             description={r.description?.trim() || null}
+            summary={<RequestSummarySection status={summaryQ.data ? "ready" : summaryQ.isError ? "error" : "loading"} data={summaryQ.data} onRetry={() => void summaryQ.refetch()} />}
             // The answers a Statement of Work, Consultancy or DPA draft is made from; nothing for any other request. They
             // are saved on the request, the held draft step (if any) is asked to look again, then the page fetches both afresh.
             answers={(
@@ -480,32 +575,89 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
             degraded={triageDegraded.degraded ? { reason: triageDegraded.degraded_reason ?? null } : null}
             read={read ?? null}
             confidence={ai.confidence != null && ai.source !== "form" ? { value: Number(ai.confidence), complexity: ai.complexity ?? null } : null} />
-          {cid ? <RiskReview risk={risk} facts={rf} canRecompute={canManage} recomputing={rerunRisk.isPending} onRecompute={() => rerunRisk.mutate()} /> : null}
+          </div>
+          <div role="tabpanel" id="rp-workflow" aria-labelledby="rt-workflow" className="rpane" data-on={tab === "workflow" ? "1" : undefined} {...(tab === "workflow" ? {} : { inert: true } as object)}>
           <WorkflowCard rows={wf}
-            countText={wf.length ? `${wfDone} of ${wf.length - wfSkipped} steps done${wfSkipped ? `, ${wfSkipped} skipped` : ""}` : null}
+            countText={wf.length ? `${wfDone} of ${wf.length - wfSkipped - wfNotApplicable} steps done${wfSkipped ? `, ${wfSkipped} skipped` : ""}` : null}
             flow={flow} error={flowRun?.error ?? null}
             check={checkLabel ? { label: checkLabel, onClick: () => checkStep.mutate(), busy } : null}
-            extras={extras} trace={flowRun?.brief ?? []}
+            extras={extras} trace={[]}
             sendBack={hasRun && !runComplete && canAct && curIdx > 0 ? {
               options: wf.slice(0, curIdx).map((w) => ({ value: String(w.sidx), label: `${(w.sidx ?? 0) + 1}. ${w.label}` })),
               to: backTo, note: backNote, onTo: setBackTo, onNote: setBackNote, busy, selectRef: sendBackRef,
               onSend: () => returnStep.mutate({ to_idx: Number(backTo), note: backNote || undefined }),
               open: sendBackOpen, onToggle: () => setSendBackOpen((o) => !o),
             } : null} />
-          <ActivityCard status={activityStatus} data={activityQ.data} onRetry={() => void activityQ.refetch()} />
-          <CommentsCard
-            comments={(flowRun?.comments ?? []).map((c) => ({ actor: c.actor_name, at: c.at, text: c.text, kind: c.kind, stepLabel: c.idx != null && wf[c.idx] ? wf[c.idx].label : null }))}
-            composer={hasRun && canAct ? { value: comment, onChange: setComment, onPost: () => postComment.mutate(comment.trim()), posting: postComment.isPending, inputRef: commentRef } : null} />
-        </div>
-
-        <div className="col">
-          <CounterpartyCard status={counterpartyStatus} data={counterpartyQ.data} parties={(r.parties ?? []) as { name: string }[]} onRetry={() => void counterpartyQ.refetch()} onOpenRequest={openRequest} />
-          <PeopleCard owner={r.assigned_to_label ?? null} requester={r.requester_name ?? null} department={r.department ?? null}
-            reassign={canAct ? { options: (assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => ({ id: a.id, name: a.name })), value: reassignTo, onChange: setReassignTo, onReassign: () => reassign.mutate(reassignTo), busy } : null} />
+          </div>
+          <div role="tabpanel" id="rp-documents" aria-labelledby="rt-documents" className="rpane" data-on={tab === "documents" ? "1" : undefined} {...(tab === "documents" ? {} : { inert: true } as object)}>
           <DocumentsCard docs={docs ?? []} contractHref={r.contract_id ? `/contracts/${r.contract_id}` : null}
             contractActions={canAct && !r.contract_id && docType ? { docType, hasAttachment, busy, onIngest: () => ingest.mutate(), onDraft: () => draft.mutate() } : null}
             trademark={canAct && isTrademarkRequest(r) ? { busy, onContinue: () => continueAsTrademark.mutate() } : null} />
-          <AskAegisCard scope={r.contract_id ? "this contract" : "portfolio"} chat={chat} pending={ask.isPending} q={q} onQ={setQ} onSend={sendChat} onAsk={askAegis} />
+          </div>
+          <div role="tabpanel" id="rp-risk" aria-labelledby="rt-risk" className="rpane" data-on={tab === "risk" ? "1" : undefined} {...(tab === "risk" ? {} : { inert: true } as object)}>
+          {cid ? <RiskReview risk={risk} facts={rf} canRecompute={canManage} recomputing={rerunRisk.isPending} onRecompute={() => rerunRisk.mutate()} /> : null}
+          {cid ? <ReviewHistory contractId={cid} /> : null}
+          </div>
+          <div role="tabpanel" id="rp-ai" aria-labelledby="rt-ai" className="rpane" data-on={tab === "ai" ? "1" : undefined} {...(tab === "ai" ? {} : { inert: true } as object)}>
+          <WhatWasAsked part="ai" sourceTag={ai.source === "form" ? "from the form" : "as the AI understood it"} facts={facts}
+            priority={{ value: r.priority, aiSuggests: aiUrgency ?? null, canApply: canAct, applying: applyPriority.isPending, onApply: () => { if (aiUrgency && !applyPriority.isPending) applyPriority.mutate(aiUrgency); } }}
+            description={r.description?.trim() || null}
+            summary={<RequestSummarySection status={summaryQ.data ? "ready" : summaryQ.isError ? "error" : "loading"} data={summaryQ.data} onRetry={() => void summaryQ.refetch()} />}
+            // The answers a Statement of Work, Consultancy or DPA draft is made from; nothing for any other request. They
+            // are saved on the request, the held draft step (if any) is asked to look again, then the page fetches both afresh.
+            answers={(
+              <RequestAnswers request={r} canEdit={canAct && !r.contract_id}
+                heldNote={held ? current?.note : null} heldRunId={held ? flowRun?.id : null}
+                onSaved={(u) => { done(fv.request_form === "sow" ? "Deliverables saved" : "Answers saved")(u); qc.invalidateQueries({ queryKey: ["intake-request", id] }); }} />
+            )}
+            missingInfo={missingInfo}
+            degraded={triageDegraded.degraded ? { reason: triageDegraded.degraded_reason ?? null } : null}
+            read={read ?? null}
+            confidence={ai.confidence != null && ai.source !== "form" ? { value: Number(ai.confidence), complexity: ai.complexity ?? null } : null} />
+          </div>
+          <div role="tabpanel" id="rp-activity" aria-labelledby="rt-activity" className="rpane" data-on={tab === "activity" ? "1" : undefined} {...(tab === "activity" ? {} : { inert: true } as object)}>
+          <ActivityCard status={activityStatus} data={activityQ.data} onRetry={() => void activityQ.refetch()} />
+          </div>
+          <div role="tabpanel" id="rp-comments" aria-labelledby="rt-comments" className="rpane" data-on={tab === "comments" ? "1" : undefined} {...(tab === "comments" ? {} : { inert: true } as object)}>
+          <CommentsCard me={user?.full_name ?? null}
+            comments={(flowRun?.comments ?? []).map((c) => ({ actor: c.actor_name, at: c.at, text: c.text, kind: c.kind, stepLabel: c.idx != null && wf[c.idx] ? wf[c.idx].label : null }))}
+            composer={hasRun && canAct ? { value: comment, onChange: setComment, onPost: () => postComment.mutate(comment.trim()), posting: postComment.isPending, inputRef: commentRef } : null} />
+          </div>
+          <div role="tabpanel" id="rp-related" aria-labelledby="rt-related" className="rpane" data-on={tab === "related" ? "1" : undefined} {...(tab === "related" ? {} : { inert: true } as object)}>
+          <CounterpartyCard status={counterpartyStatus} data={counterpartyQ.data} parties={(r.parties ?? []) as { name: string }[]} onRetry={() => void counterpartyQ.refetch()} onOpenRequest={openRequest} />
+          </div>
+        </div>
+
+        <div className="col side">
+          {stepBlock ? (
+            <div className="stepblock" role="alert">
+              <span className="sb-ic" aria-hidden>!</span>
+              <div className="sb-tx">
+                <b>This step can't be completed yet</b>
+                <p>{stepBlock}</p>
+                {cid ? <a className="sb-go" href={`/contracts/${cid}`}>Open the contract to decide it</a> : null}
+              </div>
+              <button type="button" className="sb-x" aria-label="Dismiss" onClick={() => setStepBlock(null)}>×</button>
+            </div>
+          ) : null}
+          <DecisionArea
+            approval={pendingApproval ? <ApprovalCard requestId={id} rungs={approvals ?? []} runId={flowRun?.id ?? null} stepName={approvalStepName} subject={approvalSubject} /> : null}
+            human={human}
+            negotiation={null}
+            signature={signature} />
+          <PeopleCard stepPerson={(() => { const n = current?.approval?.approver_label ?? current?.assignee_label; return n ? { name: n, role: current?.approval ? "approver" : "current step" } : null; })()} owner={r.assigned_to_label ?? null} requester={r.requester_name ?? null} department={r.department ?? null}
+            reassign={canAct ? { options: (assignees ?? []).filter((a) => a.id !== r.assigned_to_user_id).map((a) => ({ id: a.id, name: a.name })), value: reassignTo, onChange: setReassignTo, onReassign: () => reassign.mutate(reassignTo), busy } : null} />
+          {counterpartyQ.data?.name ? (
+            <div className="card tint-vio">
+              <div className="ch"><div className="glyph g-vio"><Building2 className="ic" aria-hidden /></div><h2>About the counterparty</h2></div>
+              <div className="cb cpmini">
+                <div className="cpn"><i aria-hidden>{counterpartyQ.data.name.slice(0, 1).toUpperCase()}</i><b>{counterpartyQ.data.name}</b></div>
+                <div className="cpc"><span><b>{counterpartyQ.data.summary.contracts}</b> contracts</span><span><b>{counterpartyQ.data.summary.active}</b> active</span><span><b>{counterpartyQ.data.summary.requests}</b> requests</span></div>
+                <button type="button" className="lnk" onClick={() => setTab("related")}>See contracts and earlier requests</button>
+              </div>
+            </div>
+          ) : null}
+
         </div>
       </div>
     </div>
@@ -515,29 +667,42 @@ export function RequestOverview({ id, onBack, canManage, onOpenRequest }: { id: 
 // Base rules for the page and the shared bits the cards use (.card .ch .cb .btn .sel .cin .composer .facts …).
 // Each card's own rules live in its component file and are appended after these.
 const RO_CSS = `
-.ro{min-width:0}
+.ro .stepblock{display:flex;gap:12px;align-items:flex-start;padding:14px 14px 14px 16px;margin-bottom:14px;border-radius:16px;background:var(--warn-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--warn) 40%,var(--border));animation:sbin .35s cubic-bezier(.2,.8,.2,1) both}
+@keyframes sbin{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.ro .sb-ic{flex:none;width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--warn);color:var(--accent-ink);font:800 14px var(--sans)}
+.ro .sb-tx{min-width:0;flex:1;font-size:12.5px;line-height:1.5;color:var(--ink-2)} .ro .sb-tx b{display:block;color:var(--ink);font-size:13px;margin-bottom:2px} .ro .sb-tx p{margin:0 0 6px;overflow-wrap:anywhere}
+.ro .sb-go{font-weight:650;color:var(--accent);text-decoration:none} .ro .sb-go:hover{text-decoration:underline}
+.ro .sb-x{flex:none;width:26px;height:26px;border-radius:50%;font-size:18px;line-height:1;color:var(--ink-3)} .ro .sb-x:hover{background:var(--surface);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){.ro .stepblock{animation:none}}
+.ro{min-width:0;max-width:1280px;margin:0 auto}
 .ro .lbl{font:600 10px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
 .ro .ic{width:15px;height:15px;flex:none;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.ro .btn{gap:7px;padding:8px 13px}
+.ro .btn{gap:7px;padding:0 14px;min-height:34px;border-radius:9px;font-weight:600;transition:background .12s,filter .12s,border-color .12s}
+.ro .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .ro .btn.wide{width:100%}
-.ro .body{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start;padding:16px 0 20px}
-.ro .col{min-width:0;display:flex;flex-direction:column;gap:14px}
-.ro .card{border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow)}
-.ro .card>.ch{display:flex;align-items:center;gap:9px;padding:12px 16px;border-bottom:1px solid var(--border)}
-.ro .card>.ch h2{font-size:13px;font-weight:660;margin:0} .ro .card>.ch .cnt{font:700 10px var(--mono);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:1px 7px}
-.ro .card>.cb{padding:15px 16px}
-.ro .glyph{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--ink-2)}
+.ro .body{display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:18px;align-items:start;padding:16px 0 24px}
+.ro .col{min-width:0;display:flex;flex-direction:column;gap:16px}
+.ro .card{border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:0 1px 2px rgba(20,26,40,.04);transition:box-shadow .15s,border-color .15s}
+.ro .card:hover{box-shadow:0 4px 18px -8px rgba(20,26,40,.14)}
+.ro .card>.ch{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid var(--border)}
+.ro .card>.ch h2{font-size:14px;font-weight:650;margin:0;letter-spacing:-.01em} .ro .card>.ch .cnt{font:700 10px var(--mono);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:1px 7px}
+.ro .card>.cb{padding:16px 18px}
+.ro .glyph{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--ink-2)}
 .ro .glyph.warn{background:var(--warn-soft);color:var(--warn)} .ro .glyph.flow{background:var(--accent-soft);color:var(--accent)}
 .ro .facts{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 16px;margin-top:0}
-.ro .facts .f .k{font:600 10px var(--sans);text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)} .ro .facts .f .v{font-weight:600;margin-top:2px;overflow-wrap:anywhere;min-width:0}
+.ro .facts .f .k{font:600 10.5px var(--sans);text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3)} .ro .facts .f .v{font-weight:600;font-size:13.5px;margin-top:3px;overflow-wrap:anywhere;min-width:0}
 .ro .pill{display:inline-flex;padding:1px 9px;border-radius:99px;font:600 11px var(--sans);white-space:nowrap}
 .ro .pill.bad{background:var(--crit-soft);color:var(--crit)} .ro .pill.warn{background:var(--warn-soft);color:var(--warn)}
-.ro .cin{padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
-.ro .sel{width:100%;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:600 12.5px var(--sans)}
+.ro .cin{min-height:36px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
+.ro .sel{width:100%;min-height:36px;padding:8px 12px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:600 12.5px var(--sans)}
 .ro .composer{display:flex;gap:8px} .ro .composer .cin{flex:1;min-width:0;padding:8px 11px;border:1px solid var(--border-strong);border-radius:9px;background:var(--surface);color:var(--ink);font:500 12.5px var(--sans)}
 .ro .spin{gap:7px;opacity:.75;pointer-events:none} .ro .spin .ic{animation:ro-spin 1s linear infinite}
 @keyframes ro-spin{to{transform:rotate(360deg)}}
 .ro .dim{color:var(--ink-3)}
 .ro .analyzing{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-2)} .ro .analyzing .ic{width:15px;height:15px;color:var(--accent);animation:ro-spin 1s linear infinite}
-@media (max-width:1080px){.ro .body{grid-template-columns:minmax(0,1fr)}}
+.ro .lower{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start;padding:0 0 28px}
+/* Von Restorff: whatever needs a decision is the one raised, accent-edged thing on the page. */
+.ro .decision>*{border-radius:14px;box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 35%,var(--border)),0 10px 28px -14px color-mix(in srgb,var(--accent) 45%,transparent)}
+.ro .decide{border-radius:12px}
+@media (max-width:1180px){.ro .body,.ro .lower{grid-template-columns:minmax(0,1fr)}}
 `;

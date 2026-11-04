@@ -580,9 +580,9 @@ def test_check_reads_the_unsaved_text_from_the_editor(api, db, monkeypatch):
 
 
 def test_check_reads_the_template_as_a_bare_request_drafts_it(api, db, monkeypatch):
-    """A consultancy request with no answers drafts payment in 30 days, the playbook's preferred
-    position. The editor's example value (45) would have made every consultancy check report a
-    fallback that no fresh draft contains."""
+    """A consultancy request with no answers drafts payment in 45 days (spec 014 FR-3: the playbook's
+    preferred position). A check that filled the template from anything but the bare-request defaults would
+    report findings no fresh draft contains."""
     user = _org_user(db, permissions=READ_RUN)
     _playbook(db, user, "Consultancy Agreement Playbook", _RULES)
     fake = _ai(monkeypatch, _FakeReview(PlaybookReviewOutput()))
@@ -592,7 +592,7 @@ def test_check_reads_the_template_as_a_bare_request_drafts_it(api, db, monkeypat
 
     sent = fake.calls[0]["contract_context"].text
     assert sent == _bare_draft("consultancy", default_body("consultancy"))
-    assert "within 30 days" in sent and "within 45 days" not in sent
+    assert "within 45 days" in sent and "within 30 days" not in sent
 
 
 def test_check_refuses_a_template_drafting_could_not_fill(api, db, monkeypatch):
@@ -702,6 +702,20 @@ def test_a_failed_review_is_recorded_on_the_check_and_leaks_nothing(api, db, mon
     assert body["state"] == "failed" and body["error_code"] == "ai_unavailable"
     assert "could not run" in body["error_message"] and "sk-secret" not in r.text
     assert job.status == JobStatus.FAILED and job.celery_task_id and "sk-secret" not in (job.error_message or "")
+
+
+def test_a_deliberate_ai_sample_is_a_persons_own_check_and_shows_as_one(api, db, monkeypatch):
+    """FR-1A: a sample run is recorded under the person who ran it, with trigger "sample". Treated as
+    an automatic trigger it would be attributed to the system and skipped for a retired type."""
+    user = _org_user(db, permissions=READ_RUN)
+    _playbook(db, user, SAAS, _RULES)
+    _ai(monkeypatch, _FakeReview(PlaybookReviewOutput()))
+    check = checks.request_check(db, org_id=user.org_id, key="saas", trigger="sample", actor_user_id=user.id)
+    _as(user)
+
+    body = api.get(f"{API}/saas/checks/{check.id}").json()
+
+    assert body["trigger"] == "sample" and body["on_behalf"] is False and body["requested_by"] == "Checker"
 
 
 def test_the_checks_of_a_template_list_newest_first_with_unsaved_ones_flagged(api, db, monkeypatch):

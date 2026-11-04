@@ -66,8 +66,8 @@
    "by_severity": {
     "critical": 3,
     "high": 39,
-    "low": 5,
-    "medium": 49
+    "low": 4,
+    "medium": 50
    },
    "by_status": {
     "deviation": 80,

@@ -34,8 +34,8 @@ describe("WorkflowCard", () => {
     expect(cur.querySelector("button")?.textContent).toBe("Check approval status");
     const todo = container.querySelectorAll(".wft .t.todo");
     expect(todo).toHaveLength(2);
-    expect(todo[0].textContent).toContain("Next");
-    expect(todo[1].textContent).not.toContain("Next");
+    expect(todo[0].textContent).toContain("Up next");
+    expect(todo[1].textContent).not.toContain("Up next");
   });
   it("marks skipped and failed steps without counting them as done", () => {
     /* Guards a skipped or failed step looking finished. */
@@ -54,34 +54,33 @@ describe("WorkflowCard", () => {
     show({ rows: [row({ tone: "cur", focus: true, badge: "here now", doorway: { href: "/contracts/c1", label: "Open the draft" } }), row({ node: "2", label: "Other" })] });
     expect(screen.getAllByRole("link", { name: "Open the draft" })).toHaveLength(1);
   });
-  it("hides the review result until opened", () => {
-    /* Guards the result list being always on or never reachable. */
+  it("shows the step details by default and lets a person fold them away", () => {
+    /* Guards the details being hidden behind a click again, or no longer foldable. */
     show({ rows: [row({ sidx: 2, detail: [["Risk", "High · Liability is unlimited"]] })] });
+    expect(screen.getByText("High · Liability is unlimited")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Step details/ }));
     expect(screen.queryByText("High · Liability is unlimited")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Review result/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Step details/ }));
     expect(screen.getByText("High · Liability is unlimited")).toBeTruthy();
     expect(screen.queryByText(/deviation_id|\{/)).toBeNull();
   });
-  it("keeps the approval chain with its decisions behind its link", () => {
+  it("shows the approval chain with its decisions by default", () => {
     /* Guards spec 009's per-rung decisions and comments being lost when the chain moved into the card. */
     show({ extras: [{ id: "approval-chain", label: "Approval chain", node: <ApprovalChain rungs={[rung]} /> }] });
-    expect(screen.queryByText("Legal team")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Approval chain/ }));
     expect(screen.getByText(/step 1 · 1\/2/)).toBeTruthy();
     expect(screen.getByText(/Priya · rejected · .*“Too risky”/)).toBeTruthy();
   });
-  it("collapses the hand-off trace and uses plain step names", () => {
+  it("shows the hand-off trace with plain step names", () => {
     /* Guards internal step names ("Clm Draft") and agent names leaking into the trace. */
     show({ trace: [{ step: "Clm Draft", type: "clm_draft", agent: "drafting_agent", summary: "Drafted it" }] });
-    expect(screen.queryByText(/Drafted it/)).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Agent hand-off trace (1)" }));
     expect(screen.getByText(/Drafted it/)).toBeTruthy();
     expect(screen.queryByText(/Clm Draft/)).toBeNull();
   });
   it("shows no links or buttons when there is nothing to open", () => {
     /* Guards empty Review result / trace / send-back links for viewers who cannot act. */
-    show();
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    const { container } = show();
+    // The filter bar and stage headers are always there; nothing that opens a detail, a check or a doorway is.
+    expect(container.querySelectorAll(".xtoggle, .ministep, .doorway, .startit")).toHaveLength(0);
     expect(screen.queryAllByRole("link")).toHaveLength(0);
   });
   it("opens the send-back form from the parent's state and keeps Send back disabled until a step is picked", () => {

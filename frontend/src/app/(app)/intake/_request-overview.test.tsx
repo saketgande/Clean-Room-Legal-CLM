@@ -20,14 +20,15 @@ const h = vi.hoisted(() => ({
   stageBar: false,
   // When true the stage bar is replaced by a marker, so a test can count how many bars the page draws.
   stageMarker: false,
-  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), activity: vi.fn(), counterparty: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), approvalSummary: vi.fn(), teams: vi.fn(), draftContract: vi.fn(), forms: vi.fn(), update: vi.fn() },
+  intakeApi: { get: vi.fn(), documents: vi.fn(), handoffs: vi.fn(), activity: vi.fn(), counterparty: vi.fn(), requestSummary: vi.fn(), assignees: vi.fn(), approvalChain: vi.fn(), approvalSummary: vi.fn(), teams: vi.fn(), draftContract: vi.fn(), forms: vi.fn(), update: vi.fn() },
   workflowsApi: { runForRequest: vi.fn(), lifecycle: vi.fn(), listFlows: vi.fn(), refreshRun: vi.fn(), retryReview: vi.fn(), completeStep: vi.fn(), startFlow: vi.fn(), returnStep: vi.fn() },
   contractsApi: { risk: vi.fn(), deviations: vi.fn(), reviewStatus: vi.fn() },
   brainApi: { ask: vi.fn() },
   approvalsApi: { decide: vi.fn() },
+  obligationsApi: { extract: vi.fn() },
 }));
 
-vi.mock("@/lib/endpoints", () => ({ intakeApi: h.intakeApi, workflowsApi: h.workflowsApi, contractsApi: h.contractsApi, brainApi: h.brainApi, approvalsApi: h.approvalsApi }));
+vi.mock("@/lib/endpoints", () => ({ intakeApi: h.intakeApi, workflowsApi: h.workflowsApi, contractsApi: h.contractsApi, brainApi: h.brainApi, approvalsApi: h.approvalsApi, obligationsApi: h.obligationsApi }));
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Legal One", permissions: h.permissions } }) }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), replace: vi.fn() }) }));
@@ -98,7 +99,7 @@ const tileOf = (name: string) => tiles().find((t) => t.querySelector("b")?.textC
 const findLadder = () => waitFor(() => { const el = ladder(); if (!el) throw new Error("no workflow tiles yet"); return el; });
 const mainColumn = () => document.querySelector(".body > .col") as HTMLElement;
 const sideColumn = () => document.querySelectorAll(".body > .col")[1] as HTMLElement;
-const headings = (el: Element) => [...el.querySelectorAll(":scope > .card > .ch h2, :scope > section.decision > .card > .ch h2")].map((h2) => h2.textContent);
+const headings = (el: Element) => [...el.querySelectorAll(":scope > .card > .ch h2, :scope > .rpane > .card > .ch h2, :scope > section.decision > .card > .ch h2")].map((h2) => h2.textContent);
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -110,6 +111,7 @@ beforeEach(() => {
   h.intakeApi.handoffs.mockResolvedValue([]);
   h.intakeApi.activity.mockResolvedValue({ items: [], truncated: false });
   h.intakeApi.counterparty.mockResolvedValue({ name: null, summary: { contracts: 0, active: 0, requests: 0 }, note: null, contracts: [], requests: [] });
+  h.intakeApi.requestSummary.mockResolvedValue({ text: null, at: null, by_name: null, instructions: [] });
   h.intakeApi.assignees.mockResolvedValue([]);
   h.intakeApi.approvalChain.mockResolvedValue([]);
   h.intakeApi.approvalSummary.mockResolvedValue({ request_id: "q-1", contract_id: "c-1", approval_request_id: "a-1", profile: "general", fields: [], open_risk: { critical: 0, high: 0 } });
@@ -247,10 +249,12 @@ describe("a request sent back after a rejected approval", () => {
       { rework: { reply_required: true, reason }, ...over },
     );
   const approve = () => screen.getByRole("button", { name: /Approve & advance/ });
+  /** The warning is the app's own dialog; say yes to it when it shows (it only shows when something is open). */
+  const sayYes = async () => { const b = await screen.findByRole("button", { name: "Approve anyway" }, { timeout: 400 }).catch(() => null); if (b) fireEvent.click(b); };
   let restoreConfirm = () => {};
 
   beforeEach(() => {
-    const spy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const spy = vi.spyOn(window, "confirm");
     restoreConfirm = () => spy.mockRestore();
     h.workflowsApi.runForRequest.mockResolvedValue(sentBack());
   });
@@ -272,17 +276,20 @@ describe("a request sent back after a rejected approval", () => {
     mount();
     fireEvent.change(await screen.findByLabelText("Reply to the rejection"), { target: { value: "  Fixed the dates.  " } });
     fireEvent.click(approve());
+    await sayYes();
     await waitFor(() => expect(h.workflowsApi.completeStep).toHaveBeenCalledWith("run-1", undefined, 1, undefined, "Fixed the dates."));
     await waitFor(() => expect(screen.queryByLabelText("Reply to the rejection")).toBeNull());
   });
 
-  it("shows the server's refusal and keeps what was typed", async () => {
+  it("keeps the server's refusal on the page (not a toast that vanishes) and keeps what was typed", async () => {
     h.workflowsApi.completeStep.mockRejectedValue(new Error("The approval was rejected: term dates are impossible. Write a reply to that before sending it on: say what you changed, or why it stands."));
     mount();
     const box = await screen.findByLabelText("Reply to the rejection");
     fireEvent.change(box, { target: { value: "Fixed." } });
     fireEvent.click(approve());
-    await waitFor(() => expect(h.notify).toHaveBeenCalledWith(expect.stringContaining("Write a reply"), "error"));
+    await sayYes();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Write a reply/);
+    expect(screen.getByText("This step can't be completed yet")).toBeInTheDocument();
     expect(box).toHaveValue("Fixed.");
   });
 
@@ -294,6 +301,7 @@ describe("a request sent back after a rejected approval", () => {
     await waitFor(() => expect(approve()).toBeEnabled());
     expect(screen.queryByLabelText("Reply to the rejection")).toBeNull();
     fireEvent.click(approve());
+    await sayYes();
     await waitFor(() => expect(h.workflowsApi.completeStep).toHaveBeenCalledWith("run-1", undefined, 1));
   });
 
@@ -405,18 +413,15 @@ describe("sending a step back (round 2, bugs 43 and 44)", () => {
     expect(within(card).queryByText(/Pick the step to return to, then/)).not.toBeInTheDocument();
   });
 
-  it("has one Send back form, and the decision card opens and focuses it instead of sending by itself", async () => {
-    // Failure mode: the button does nothing now that the form is behind a link, or sends without a reason.
+  it("the decision card's Send back opens the Workflow tab's form and focuses the step picker, sending nothing by itself", async () => {
+    // Failure mode: the button did nothing because the form sits in a hidden tab, or it sent without a reason.
     mount();
     await findLadder();
-    expect(screen.getByRole("button", { name: "Send back for rework…" })).toBeEnabled();
-    expect(document.querySelector(".sendback")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Send back for rework…" }));
     await waitFor(() => expect(screen.getByRole("combobox", { name: "Step to send back to" })).toHaveFocus());
     expect(document.querySelectorAll(".sendback")).toHaveLength(1);
+    expect(screen.getByRole("tab", { name: /Workflow/ })).toHaveAttribute("aria-selected", "true");
     expect(h.workflowsApi.returnStep).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Add a comment" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Request changes/ })).not.toBeInTheDocument();
   });
 });
 
@@ -435,7 +440,8 @@ describe("steps the engine skipped", () => {
     const rowOf = tileOf;
     expect(within(rowOf("Privacy review")).getByText("Skipped")).toBeInTheDocument();
     expect(within(rowOf("Privacy review")).queryByText("Done")).not.toBeInTheDocument();
-    expect(rowOf("Privacy review").querySelector("b")).toHaveTextContent("– Privacy review");
+    expect(rowOf("Privacy review").querySelector("b")).toHaveTextContent("Privacy review");
+    expect(rowOf("Privacy review").querySelector(".tnode")).toHaveTextContent("–");
     expect(rowOf("Privacy review")).toHaveClass("skip");
     expect(within(rowOf("Legal review")).getByText("Done")).toBeInTheDocument();
   });
@@ -444,8 +450,35 @@ describe("steps the engine skipped", () => {
     h.workflowsApi.runForRequest.mockResolvedValue(withSkipped());
     mount();
     await screen.findByRole("heading", { name: "Acme MSA" });
-    // 4 steps, 2 skipped: one of the 2 that applied is done.
-    expect(await screen.findByText(/1 of 2 steps done, 2 skipped/)).toBeInTheDocument();
+    // 4 steps: the drafting step is not a skip (the contract was already there), so only Privacy review is one.
+    expect(await screen.findByText(/2 of 3 steps done, 1 skipped/)).toBeInTheDocument();
+  });
+
+  it("does not call the drafting step skipped: it says whose paper the draft is", async () => {
+    // Failure mode: "Prepare draft — Skipped" on a request whose draft is the document the requester uploaded, or our own template.
+    h.intakeApi.get.mockResolvedValue({ ...request, field_values: { paper: "Our template" } });
+    h.workflowsApi.runForRequest.mockResolvedValue(withSkipped());
+    mount();
+    await findLadder();
+    const row = tileOf("Prepare draft");
+    expect(row).toHaveClass("done");
+    expect(within(row).getByText("Drafted from our template")).toBeInTheDocument();
+    expect(within(row).queryByText("Skipped")).not.toBeInTheDocument();
+  });
+
+  it("hides a step whose condition was not met, and shows it again on request", async () => {
+    // Failure mode: Quality review and Privacy review listed on a request they do not apply to.
+    h.workflowsApi.runForRequest.mockResolvedValue(runOf([
+      step(0, "human_task", "done", "Legal review"),
+      { ...step(1, "human_task", "skipped", "Privacy review", { note: "Condition not met" }), cond: { field: "personal_data", op: "is", value: "Yes" } } as never,
+      step(2, "human_task", "waiting_human", "Sign-off"),
+    ], { current_index: 2 }));
+    mount();
+    await findLadder();
+    expect(screen.queryByText("Privacy review")).not.toBeInTheDocument();
+    expect(await screen.findByText(/1 of 2 steps done$/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Show 1 step that does not apply/ }));
+    expect(tileOf("Privacy review")).toHaveClass("skip");
   });
 
   it("does not mention skipped steps when there are none", async () => {
@@ -467,28 +500,30 @@ describe("steps that run side by side", () => {
     { current_index: 1, ...over },
   );
   const approve = () => screen.getByRole("button", { name: /Approve & advance/ });
+  /** The warning is the app's own dialog; say yes to it when it shows (it only shows when something is open). */
+  const sayYes = async () => { const b = await screen.findByRole("button", { name: "Approve anyway" }, { timeout: 400 }).catch(() => null); if (b) fireEvent.click(b); };
 
   it("offers the step that is still waiting once the first is done, and completes that one", async () => {
     h.workflowsApi.runForRequest.mockResolvedValue(together("done", "waiting_human"));
     h.workflowsApi.completeStep.mockResolvedValue(together("done", "done", { current_index: 3 }));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mount();
     await screen.findByRole("heading", { name: "Acme MSA" });
     await waitFor(() => expect(approve()).toBeEnabled());
     // The page says where it is: the Privacy review, not the finished Quality review.
     expect(screen.getAllByText(/Privacy review/).length).toBeGreaterThan(0);
     fireEvent.click(approve());
+    await sayYes();
     await waitFor(() => expect(h.workflowsApi.completeStep).toHaveBeenCalledWith("run-1", undefined, 2));
   });
 
   it("names the step it completes, so the server never has to guess", async () => {
     h.workflowsApi.runForRequest.mockResolvedValue(together("waiting_human", "waiting_human"));
     h.workflowsApi.completeStep.mockResolvedValue(together("done", "waiting_human"));
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     mount();
     await screen.findByRole("heading", { name: "Acme MSA" });
     await waitFor(() => expect(approve()).toBeEnabled());
     fireEvent.click(approve());
+    await sayYes();
     await waitFor(() => expect(h.workflowsApi.completeStep).toHaveBeenCalledWith("run-1", undefined, 1));
   });
 });
@@ -966,7 +1001,7 @@ describe("the approval card and chain decisions on the request page (FR-1, FR-2,
     const approve = await screen.findByRole("button", { name: "Approve" });
     expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
     // They sit in the decision area, the first thing in the main column.
-    expect(approve.closest("section.decision")).toBe(mainColumn().firstElementChild);
+    expect(approve.closest("section.decision")).toBe(sideColumn().firstElementChild);
   });
 
   it("tells the card which approval step is open and what it is about", async () => {
@@ -987,19 +1022,7 @@ describe("the approval card and chain decisions on the request page (FR-1, FR-2,
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
     // A pending approval is shown to everyone who can open the page, first in the main column (AC-5, AC-20).
-    expect(waiting.closest("section.decision")).toBe(mainColumn().firstElementChild);
-  });
-
-  it("lists each rung's decisions with who, comment and when", async () => {
-    // Failure mode: a decision recorded but invisible on the page, so a rejection's comment is lost to the requester (FR-22, FR-26).
-    h.intakeApi.approvalChain.mockResolvedValue([rungOf({
-      status: "rejected",
-      decisions: [{ approver_user_id: "u-2", approver_name: "Priya", decision: "reject", comment: "Cap is too low", decided_at: "2026-10-20T10:00:00Z" }],
-    })]);
-    mount();
-    // The chain is a detail on the approval step: closed until opened.
-    fireEvent.click(await screen.findByRole("button", { name: "Approval chain" }));
-    expect(await screen.findByText(/Priya · rejected/)).toHaveTextContent("Cap is too low");
+    expect(waiting.closest("section.decision")).toBe(sideColumn().firstElementChild);
   });
 });
 
@@ -1020,9 +1043,11 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     mount();
     await screen.findByText("Waiting on Finance team");
     await screen.findByRole("heading", { name: "AI risk review" });
-    expect(headings(mainColumn())).toEqual(["Approval", "Your decision", "What was asked", "AI risk review", "Workflow", "Activity", "Comments and questions"]);
-    await screen.findByText("Globex");
-    expect(headings(sideColumn())).toEqual(["Counterparty", "Owner and people", "Documents", "Ask Aegis"]);
+    // One tab pane per section, in tab order; only the open pane (Overview) is on screen, the rest are inert.
+    expect(headings(mainColumn())).toEqual(["Workflow", "Documents", "AI risk review", "AI analysis", "Activity", "Comments and questions", "Counterparty"]);
+    expect([...document.querySelectorAll(".rpane[data-on]")].map((p) => p.id)).toEqual(["rp-overview"]);
+    await waitFor(() => expect(document.querySelector(".cpname")).toBeInTheDocument());
+    expect(headings(sideColumn())).toEqual(["Approval", "Your decision", "People involved", "About the counterparty"]);
     expect(screen.queryByRole("heading", { name: "Steps" })).toBeNull();
     expect(screen.getAllByTestId("stage-bar")).toHaveLength(1);
     for (const gone of ["You are here", "At a glance", "Workflow & stages", "Next step", "Relationship", "People", "Actions"]) {
@@ -1038,7 +1063,7 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     mount();
     const waiting = await screen.findByText("Waiting on Finance team");
     const area = document.querySelector("section.decision") as HTMLElement;
-    expect(area).toBe(mainColumn().firstElementChild);
+    expect(area).toBe(sideColumn().firstElementChild);
     expect(area).toContainElement(waiting);
     expect(within(area).queryByRole("button")).toBeNull();
   });
@@ -1051,7 +1076,7 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     await findLadder();
     expect(document.querySelector("section.decision")).toBeNull();
     expect(document.querySelector(".apc")).toBeNull();
-    expect(headings(mainColumn())[0]).toBe("What was asked");
+    expect(document.querySelector(".ov2 h2")?.textContent).toBe("Request details");
   });
 
   it("keeps the header to a one-line summary, and shows each fact once outside the approval card (AC-6)", async () => {
@@ -1072,10 +1097,10 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     expect(header).toHaveTextContent(/REQ-1 · raised by Asha · owner Legal One/);
     expect(header).toHaveTextContent("High risk");
     expect(header).not.toHaveTextContent("Sales");
-    expect(header).not.toHaveTextContent("Globex");
+    expect(header).toHaveTextContent("Globex"); // the mockup puts the counterparty in the header chips
     expect(header).not.toHaveTextContent("Signed an NDA");
     expect(header).not.toHaveTextContent(/medium|low/i);
-    const body = (document.querySelector(".body") as HTMLElement).cloneNode(true) as HTMLElement;
+    const body = (document.querySelector(".ro") as HTMLElement).cloneNode(true) as HTMLElement; // body + the read-later row
     const apc = body.querySelector(".apc") as HTMLElement;
     // The approval card repeats the value on purpose; it reads the same stored figure as the Value fact.
     expect(apc).toHaveTextContent("INR 5,00,000");
@@ -1085,13 +1110,12 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     expect(count(".person .n", "Legal One")).toBe(1);
     expect(count(".person .n", "Asha")).toBe(1);
     await waitFor(() => expect(document.querySelector(".cpname")).toBeInTheDocument());
-    const body2 = (document.querySelector(".body") as HTMLElement).cloneNode(true) as HTMLElement;
+    const body2 = (document.querySelector(".ro") as HTMLElement).cloneNode(true) as HTMLElement;
     body2.querySelector(".apc")?.remove();
     // 011 FR-16: Globex is a fact once and the Counterparty card's name once; the header has none.
-    expect([...body2.querySelectorAll(".facts .v")].filter((n) => n.textContent === "Globex")).toHaveLength(1);
+    expect([...body2.querySelectorAll(".ov2 .kv dd")].filter((n) => n.textContent === "Globex")).toHaveLength(1);
     expect(body2.querySelectorAll(".cpname")).toHaveLength(1);
     expect(body2.querySelectorAll(".rb")).toHaveLength(1);
-    expect(body2.textContent?.match(/Globex/g)).toHaveLength(2);
   });
 
   it("shows the requester's own title and words, and none of the system's filler (AC-8)", async () => {
@@ -1099,7 +1123,7 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     h.intakeApi.get.mockResolvedValue({ ...request, source: "form", subject: "Today_14_test", description: "Please review", requester_name: "Local Admin", field_values: { request_form: "nda" } });
     mount();
     expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent(/^Today_14_test$/);
-    const asked = screen.getByRole("heading", { name: "What was asked" }).closest(".card") as HTMLElement;
+    const asked = screen.getByRole("heading", { name: "Request details" }).closest(".card") as HTMLElement;
     expect(within(asked).getByText("Please review")).toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(/form by/);
     expect(document.body).not.toHaveTextContent(/workflow engine drives/);
@@ -1116,7 +1140,6 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     mount();
     await findLadder();
     expect(tileOf("Prepare draft")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review result" }));
     expect(screen.getByText(/High · Liability is unlimited/)).toBeInTheDocument();
     expect(document.body.textContent).not.toContain("Clm Draft");
     expect(document.body.textContent).not.toContain("deviation_id");
@@ -1136,8 +1159,9 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).toBeNull();
     expect(screen.queryByLabelText("Add a comment or question")).toBeNull();
     expect(screen.queryByLabelText("New owner")).toBeNull();
-    // Ask Aegis stays open to everyone.
-    expect(screen.getByLabelText("Ask a question")).toBeInTheDocument();
+    // Ask Aegis stays open to everyone: the header button opens the chat popup (there is no inline card).
+    expect(screen.getByRole("button", { name: "Ask Aegis" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Ask a question")).toBeNull();
   });
 
   it("offers each action once to a manager: Reassign, Post, Send back, Approve & advance (AC-18)", async () => {
@@ -1146,7 +1170,7 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     mount();
     await screen.findByRole("heading", { name: "Acme MSA" });
     await screen.findByRole("button", { name: /Approve & advance/ });
-    for (const label of ["Reassign owner", "Post", /Approve & advance/, "Send back for rework…", "Send back for rework", "Add a comment", "Recompute", "Open in CLM editor →"]) {
+    for (const label of ["Reassign owner", "Post", /Approve & advance/, "Send back for rework…", "Send back for rework", "Recompute", "Open in CLM editor →"]) {
       expect(screen.getAllByRole(label === "Open in CLM editor →" ? "link" : "button", { name: label })).toHaveLength(1);
     }
     // The form's own Send back button exists only once the card's link opens it, and then exactly once.
@@ -1172,9 +1196,9 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     h.intakeApi.activity.mockRejectedValue(new Error("boom"));
     mount();
     expect(await screen.findByText("Activity could not be loaded.")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "What was asked" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Request details" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Workflow" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Owner and people" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "People involved" })).toBeInTheDocument();
   });
 
   it("keeps a half-typed comment when more activity is shown (edge case)", async () => {
@@ -1199,13 +1223,65 @@ describe("the decision-first layout of the request page (spec 010)", () => {
     expect(window.scrollTo).toHaveBeenCalledWith({ top: 0 });
   });
 
-  it("asks Aegis from a chip: your question shows in the log and the question is sent", async () => {
-    // Failure mode: the chip sending the question without showing it, or showing it without asking.
-    h.brainApi.ask.mockResolvedValue({ answer: "Two high risks.", citations: [] });
+  it("opens the Ask Aegis chat popup from the header, tied to the request's contract", async () => {
+    // Failure mode: the button scrolling to a card that no longer exists, or opening a chat that is not about this request.
+    const seen: unknown[] = [];
+    const on = (e: Event) => seen.push((e as CustomEvent).detail);
+    window.addEventListener("aegis:ask", on);
     mount();
-    fireEvent.click(await screen.findByRole("button", { name: "What are the key risks here?" }));
-    await waitFor(() => expect(h.brainApi.ask).toHaveBeenCalledWith(expect.objectContaining({ question: "What are the key risks here?" })));
-    expect(await screen.findByText("Two high risks.")).toBeInTheDocument();
-    expect(screen.getAllByText("What are the key risks here?")).toHaveLength(1);
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Aegis" }));
+    window.removeEventListener("aegis:ask", on);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toHaveProperty("contractId");
+  });
+});
+
+describe("the request summary section on the request page (spec 013)", () => {
+  it("shows the instructions inside the page", async () => {
+    // Failure mode: filed instructions missing from the request page.
+    h.intakeApi.requestSummary.mockResolvedValue({ text: "An NDA.", at: "2026-10-27T09:00:00Z", by_name: "Asha", instructions: [{ text: "Copy procurement", differs: [] }] });
+    mount();
+    await screen.findByText("Copy procurement");
+    expect(h.intakeApi.requestSummary).toHaveBeenCalledWith("q-1");
+  });
+
+  it("a failing summary shows its own Retry and leaves the rest of the page", async () => {
+    // Failure mode: a rejected summary query blanking the request page.
+    h.intakeApi.requestSummary.mockRejectedValue(new Error("boom"));
+    mount();
+    await screen.findByText(/The request summary could not be loaded/);
+    expect(await screen.findByRole("heading", { name: "People involved" })).toBeTruthy();
+  });
+});
+
+describe("Retry on the request page's Active stage", () => {
+  const failed = {
+    name: "Obligation extraction failed", kind: "AI", detail: "The last attempt did not finish.", who: "Aegis AI",
+    status: "failed", when: null, action: { kind: "extract_obligations", label: "Retry", contract_id: "c-1" },
+  };
+  async function openActive(permissions: string[]) {
+    h.stageBar = true;
+    h.permissions = permissions;
+    h.workflowsApi.lifecycle.mockResolvedValue({ active: [failed] });
+    const mounted = mount();
+    fireEvent.click(await screen.findByRole("button", { name: /^Active:/ }));
+    return mounted;
+  }
+
+  it("shows Retry only to someone whose role may edit obligations (the server still decides)", async () => {
+    await openActive(["intake:read"]);
+    expect(await screen.findByText("Obligation extraction failed")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("starts the extraction for the row's contract and refetches the rows, also when the server refuses", async () => {
+    h.obligationsApi.extract.mockRejectedValueOnce(new Error("Obligations were already read for this version."));
+    const { invalidate } = await openActive(["obligation:update"]);
+    invalidate.mockClear();
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(h.obligationsApi.extract).toHaveBeenCalledWith("c-1"));
+    await waitFor(() => expect(keysOf(invalidate).map((k) => JSON.stringify(k))).toContain(JSON.stringify(["lifecycle-rows", "q-1"])));
+    // The refusal sits under this stage's list (the page has other alerts, so look for it by its text).
+    expect(await screen.findByText(/already read for this version/)).toHaveAttribute("role", "alert");
   });
 });

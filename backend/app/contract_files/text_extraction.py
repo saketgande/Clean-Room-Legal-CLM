@@ -7,9 +7,9 @@ from docx.oxml.ns import qn
 
 from app.core.config import settings
 from app.documents.reader.parsing.base import ParsedBlock
-from app.documents.reader.parsing.docx import _paragraph_text
+from app.documents.reader.parsing.docx import _iter_body, _paragraph_text
 from app.documents.reader.parsing.furniture import _strip_furniture
-from app.documents.reader.parsing.pdf import _SPARSE_TEXT_PER_PAGE
+from app.documents.reader.parsing.pdf import _SPARSE_TEXT_PER_PAGE, _is_scanned_page
 
 
 @dataclass(frozen=True)
@@ -206,27 +206,6 @@ def _num_pr(element) -> tuple[str, int] | None:
     return num_id, int(_child_val(num_pr, "w:ilvl") or 0)
 
 
-def _iter_body_items(parent_elm, parent):
-    """Yield a container's paragraphs and tables in document order.
-
-    ``Document.paragraphs`` is top-level body paragraphs ONLY — it silently
-    omits every table. In a contract that is the payment schedule, the fee
-    table, the SLA tiers, the liability cap and usually the signature block,
-    so the omission is invisible to the quality score and lands as a clause
-    that exists nowhere in the system. python-docx keeps paragraphs and tables
-    in separate collections with no ordering between them, so the only way to
-    read the document as written is to walk the XML body itself.
-    """
-    from docx.table import Table
-    from docx.text.paragraph import Paragraph
-
-    for child in parent_elm.iterchildren():
-        if child.tag == qn("w:p"):
-            yield Paragraph(child, parent)
-        elif child.tag == qn("w:tbl"):
-            yield Table(child, parent)
-
-
 def _render_table(table, numbering=None) -> str:
     """One row per line, cells tab-separated — what pasting the table into a
     text editor gives you. No markdown pipes: the text is embedded and quoted
@@ -255,7 +234,9 @@ def _render_table(table, numbering=None) -> str:
 
 def _render_container(parent_elm, parent, numbering=None) -> list[str]:
     parts: list[str] = []
-    for item in _iter_body_items(parent_elm, parent):
+    # The Documents reader's walker: the one that reads inside content controls (``Document.paragraphs``
+    # alone omits every table, and a walk of direct children alone omitted every Schedule in a w:sdt).
+    for item in _iter_body(parent_elm, parent):
         if hasattr(item, "rows"):  # Table
             rendered = _render_table(item, numbering)
             if rendered:
@@ -352,10 +333,14 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
             total_bytes = 0
             truncated = False
             image_pages = 0
+            picture_only_pages: list[int] = []
             with fitz.open(stream=content, filetype="pdf") as document:
                 for page_number, page in enumerate(document, start=1):
-                    image_pages += _is_scanned_page(page)
+                    scanned = _is_scanned_page(page)
+                    image_pages += scanned
                     page_text = _join_number_lines(page.get_text() or "")
+                    if scanned and len(page_text.strip()) < _SPARSE_TEXT_PER_PAGE:
+                        picture_only_pages.append(page_number)
                     # Hard cap per contract so a single PDF cannot OOM the worker.
                     if total_bytes + len(page_text.encode("utf-8")) > max_bytes:
                         remaining = max(0, max_bytes - total_bytes)
@@ -383,6 +368,13 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
                 _content_chars(pages) < _SPARSE_TEXT_PER_PAGE * len(pages)
             ):
                 result = replace(result, needs_ocr=True)
+            # One stapled-in scan (a Schedule or annexure) in a text PDF is not a majority, so
+            # the test above never fires and its page was stored empty without a word.
+            elif picture_only_pages:
+                result = replace(
+                    result, needs_ocr=True,
+                    metadata={**(result.metadata or {}), "picture_only_pages": picture_only_pages},
+                )
             return result
         except Exception as exc:
             return TextExtractionResult("", "pdf_failed", 0.0, needs_ocr=True, metadata={"error": str(exc)})
@@ -391,16 +383,6 @@ def extract_text(content: bytes, *, mime_type: str, filename: str) -> TextExtrac
         return TextExtractionResult("", "image_requires_ocr", 0.0, needs_ocr=True)
 
     return TextExtractionResult("", "unsupported", 0.0, needs_ocr=True, metadata={"filename": filename})
-
-
-def _is_scanned_page(page) -> bool:
-    """A page that is a picture: one image covering most of it, as a scanner produces."""
-    area = page.rect.width * page.rect.height or 1
-    return any(
-        rect.width * rect.height >= 0.5 * area
-        for image in page.get_images(full=True)
-        for rect in page.get_image_rects(image[0])
-    )
 
 
 def _content_chars(pages: list[str]) -> int:

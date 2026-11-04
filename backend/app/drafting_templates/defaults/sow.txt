@@ -1,6 +1,6 @@
 STATEMENT OF WORK
 
-This Statement of Work (the "SOW") is entered into as of {effective_date} (the "SOW Effective Date") by and between {company} (the "Customer") and {counterparty} (the "Provider"), each a "Party" and together the "Parties", under the Master Agreement between the Parties (the "Master Agreement").
+This Statement of Work (the "SOW") is entered into as of {effective_date} (the "SOW Effective Date") by and between {company} (the "Customer") and {counterparty} (the "Provider"), each a "Party" and together the "Parties", under {parent_agreement} (the "Master Agreement").
 
 1. RELATIONSHIP TO THE MASTER AGREEMENT
 
@@ -35,6 +35,8 @@ This Statement of Work (the "SOW") is entered into as of {effective_date} (the "
 4.5 Customer dependencies. No Customer dependency is listed at the SOW Effective Date. The Provider may rely on a failure by the Customer to provide information, access, facilities or decisions to excuse a delay only where that dependency is recorded in a signed Change Order. If the Customer fails to meet a dependency so recorded and that failure prevents the Provider from meeting a due date, the Provider shall notify the Customer promptly in writing and the affected due date shall be extended by a reasonable period agreed through a Change Order.
 
 4.6 Location and working hours. The Provider shall perform the Services at its own premises or remotely, during its normal business hours. It shall perform Services at the Customer's premises only where the Customer asks in writing, and shall then comply with the Customer's site rules.
+
+4.7 Service Levels. No Service Levels apply to this SOW, which is for project Deliverables. A Service Level may be added only by a signed Change Order, and the Master Agreement's service-credit terms then apply to it.
 
 5. KEY PERSONNEL
 
@@ -72,25 +74,13 @@ This Statement of Work (the "SOW") is entered into as of {effective_date} (the "
 
 8. FEES AND PRICING
 
-8.1 Pricing model: {pricing_model}
+{pricing_terms}
 
-8.2 Fixed fee. Where this SOW is priced as a fixed fee (including a fixed fee payable in instalments), the total fee for the Services and Deliverables is {fee_amount}, inclusive of all Provider costs and exclusive only of applicable taxes.
+9. PAYMENT
 
-8.3 Time and materials. Where this SOW is priced on a time-and-materials basis, the Provider shall charge for time actually and properly worked at the rates set out in the Master Agreement, supported by timesheets approved by the Customer. Total charges under this SOW shall not exceed the not-to-exceed amount of {fee_amount}. The Provider shall notify the Customer in writing when seventy-five percent (75%) of that amount has been reached. The Customer is not liable for any charges above the not-to-exceed amount unless it is increased by a signed Change Order.
+{sow_payment}
 
-8.4 Rates are as set out in the Master Agreement and are fixed for the term of this SOW. No rate increase applies to this SOW.
-
-8.5 Expenses are payable only where approved by the Customer in writing in advance, at cost and in accordance with the Customer's expenses policy, and count towards any not-to-exceed amount.{value_sentence}
-
-9. MILESTONES AND PAYMENT
-
-9.1 Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to calendar dates. The Provider may invoice each milestone payment only after the Customer has accepted in writing every Deliverable linked to that milestone under Clause 6:
-
-{milestone_payments_list}
-
-9.2 Where this SOW is priced on a time-and-materials basis, the Provider shall invoice monthly in arrears for time worked, and the Customer may hold back ten percent (10%) of each invoice until it has accepted all Deliverables in writing.
-
-9.3 The Customer shall pay valid, undisputed invoices within {payment_days} days of receipt, and may withhold any amount it disputes in good faith in accordance with the Master Agreement. Each invoice must reference this SOW and the Customer's purchase order number.
+9.2 The Customer shall pay valid, undisputed invoices within the period set out in the Master Agreement, and may withhold any amount it disputes in good faith in accordance with the Master Agreement. Each invoice must reference this SOW and the Customer's purchase order number.
 
 10. GOVERNANCE AND REPORTING
 
@@ -100,19 +90,34 @@ This Statement of Work (the "SOW") is entered into as of {effective_date} (the "
 
 11. TERMINATION
 
-11.1 This SOW may be terminated in accordance with the Master Agreement. On termination, the Customer shall pay only for Deliverables accepted, and for time-and-materials Services properly performed, up to the date of termination, and the Provider shall deliver all Deliverables, whether complete or in progress, to the Customer.
+11.1 This SOW may be terminated in accordance with the Master Agreement. On termination, the Customer shall pay only for Deliverables accepted, and for Services charged under Clause 8.1 that were properly performed, up to the date of termination, and the Provider shall deliver all Deliverables, whether complete or in progress, to the Customer.
 
 12. GENERAL
 
-12.1 All other terms of the Master Agreement, including those relating to confidentiality, data protection, intellectual property, indemnities, limitation of liability, insurance and governing law, apply to this SOW. This SOW is governed by the laws of {governing_law}, consistent with the Master Agreement.
+12.1 All other terms of the Master Agreement, including those on confidentiality, data protection, intellectual property, indemnities, limitation of liability and insurance, apply to this SOW. This SOW is governed by the law, and disputes under it are resolved in the manner, set out in the Master Agreement.
 
 12.2 This SOW may be executed in counterparts, each of which is an original and which together constitute one instrument. Signatures delivered electronically or by any electronic signature service are binding.
 
+12.3 Where the Provider processes personal data under this SOW, the data processing agreement under the Master Agreement applies, and no personal data is processed before it is signed.
+
 IN WITNESS WHEREOF, the Parties have executed this Statement of Work as of the SOW Effective Date.
 
-{company}                                    {counterparty}
+Signed for and on behalf of {company}
 
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
+By: ______________________________
+Name: {our_signatory_name}
+Title: {our_signatory_title}
+Date: ______________________________
+Registered office and address for notices: {company_address}
+Company number (CIN): ______________________________
+GSTIN: ______________________________
+
+Signed for and on behalf of {counterparty}
+
+By: ______________________________
+Name: {their_signatory_name}
+Title: {their_signatory_title}
+Date: ______________________________
+Address for notices: {counterparty_address}
+Company number: ______________________________
+Tax number (GSTIN or equivalent): ______________________________

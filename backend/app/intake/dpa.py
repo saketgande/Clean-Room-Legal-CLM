@@ -133,9 +133,9 @@ EXAMPLE_ANSWERS: dict = {
     "processing_purpose": "Running the occupational-health clinic booking system for staff and study volunteers.",
     "data_subjects": ["Employees", "Patients or trial subjects"],
     "data_types": ["Employee / HR", "Health or other special category"],
-    "transfer": "Yes", "transfer_countries": [{"country": "Ireland"}],
+    "transfer": "Yes", "transfer_countries": [{"country": "Netherlands"}],
     "subprocessors": "Yes",
-    "subprocessor_rows": [{"name": "Northwind Hosting Ltd", "country": "Ireland",
+    "subprocessor_rows": [{"name": "Northwind Hosting Ltd", "country": "Netherlands",
                            "processing": "Hosting of the clinic booking database"}],
 }
 EXAMPLE_VALUES: dict[str, str] = dpa_values(EXAMPLE_ANSWERS)
@@ -143,5 +143,5 @@ EXAMPLE_VALUES: dict[str, str] = dpa_values(EXAMPLE_ANSWERS)
 # fields are turned back into codes) must never be applied to our paper (FR-34).
 EXAMPLE_MARKERS: tuple[str, ...] = (
     EXAMPLE_ANSWERS["processing_purpose"], "Northwind Hosting Ltd",
-    "Hosting of the clinic booking database", "Ireland",
+    "Hosting of the clinic booking database", "Netherlands",
 )

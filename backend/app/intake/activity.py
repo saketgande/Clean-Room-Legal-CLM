@@ -68,6 +68,14 @@ def _skill(verb: str) -> Callable[[ResourceTimelineEvent], str]:
     return make
 
 
+def _skill_failed(row: ResourceTimelineEvent) -> str:
+    """"AI could not finish: obligation extraction", and why when the event carries its plain reason (app/ai/
+    outcomes.py writes one on every failure; older events have none)."""
+    base = _skill("AI could not finish")(row)
+    reason = _d(row).get("reason")
+    return f"{base} - {reason}" if isinstance(reason, str) and reason else base
+
+
 def _approval_decided(row: ResourceTimelineEvent) -> str | None:
     m = _APPROVAL.match(row.title or "")
     return f"{m.group(1).capitalize()}ed (step {m.group(2)})" if m else None
@@ -120,6 +128,7 @@ def _s(sentence: Sentence, who: str, tone: str | Callable = "plain", system: boo
 
 EVENTS: dict[str, _Spec] = {
     "intake.created": _s(None, "person"),
+    "intake.summary_filed": _s(None, "person"),
     "intake.triaged": _s("AI triage complete", "ai", "ai"),
     "intake.sender.unverified": _s(None, "aegis", "stage"),
     "intake.attachment.failed": _s(None, "aegis", "stage"),
@@ -151,7 +160,8 @@ EVENTS: dict[str, _Spec] = {
     "approval.escalate": _s(None, "person"),
     "ai.skill_started": _s(_skill("AI started"), "ai", "ai", True),
     "ai.skill_succeeded": _s(_skill("AI finished"), "ai", "ai", True),
-    "ai.skill_failed": _s(_skill("AI could not finish"), "ai", "ai", True),
+    # Not a system event: a failure nobody can see is a failure nobody fixes.
+    "ai.skill_failed": _s(_skill_failed, "ai", "ai"),
     "contract.uploaded": _s("Contract document stored", "person", system=True),
     "contract.text_extracted": _s("Document text read", "aegis", system=True),
     "contract.ai_jobs_dispatched": _s("AI analysis queued", "aegis", "ai", True),
@@ -166,9 +176,11 @@ EVENTS: dict[str, _Spec] = {
     "assistant.contract_version_replicated": _s("AI copied a version of the contract", "ai", "ai", True),
     "renewal.dates_recomputed": _s(None, "aegis", system=True),
     "contract.lifecycle_changed": _s(_lifecycle, "person", "stage"),
+    "contract.type_changed": _s(None, "person"),
     "playbook.run_completed": _s(_review_done, "ai", "ai"),
     "playbook.deviation_decided": _s("Decided a review issue", "person", "done"),
     "contract.issue_fixes_drafted": _s(None, "ai", "ai"),
+    "contract.obligations_extraction_requested": _s(None, "person", "ai"),
     "contract.auto_review_retried": _s("AI review restarted", "person", "ai"),
     "assistant.contract_redrafted": _s("AI redrafted the contract into a new version", "ai", "ai"),
     "assistant.contract_generated": _s("AI generated the contract", "ai", "ai"),

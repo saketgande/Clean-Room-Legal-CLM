@@ -30,9 +30,10 @@ from app.core.config import settings
 from app.core.database import utcnow
 from app.drafting_templates.service import TEMPLATES as _DOC_TYPES
 from app.drafting_templates.service import current_wording, default_body, field_uses, get_type
-from app.intake import consultancy, dpa, sow
+from app.intake import consultancy, dpa, paper, sow
 from app.intake.agreement_forms import form_fields, shown
 from app.intake.models import IntakeRequest
+from app.intake.paper import FEE_CAP_HELD, SCOPE_HELD, SOW_PRICING_HELD, DraftContext
 from app.organizations.models import Organization
 
 # The templates themselves live in app/drafting_templates: a shipped default
@@ -136,17 +137,26 @@ def _long_date(value) -> str:
     return f"{day.day} {day:%B %Y}" if day else str(value or "")
 
 
+_NDA_TERM_CLAUSE = {"2 years": "continues for two (2) years", "3 years": "continues for three (3) years",
+                    "5 years": "continues for five (5) years"}
+
+
 def template_values(doc_type: str, *, company: str, counterparty: str, effective: str,
-                    fields: dict | None = None, example: bool = False) -> dict:
+                    fields: dict | None = None, example: bool = False,
+                    context: DraftContext | None = None) -> dict:
     """Every placeholder a template may use (drafting_templates.PLACEHOLDERS),
     filled from the request's answers. A blank answer falls back to the
     playbook's preferred position, so a bare request still drafts paper the
     playbook accepts: NDA term 3 years with 5 years' survival, payment in 45
-    days (30 for consultancy).
+    days.
 
     ``example`` fills the Statement of Work, Consultancy and DPA fields (nine, four and six) with the
     example reading instead of the request's answers. Only the Templates page check passes it (FR-24):
-    a draft for a request never contains example content, whatever the request left unanswered."""
+    a draft for a request never contains example content, whatever the request left unanswered.
+
+    ``context`` is the register rows the request names (our entity's address and signatory, their
+    jurisdiction and address, the parent contract); ``paper.paper_values`` turns them and the answers into
+    the signature blocks, dispute clause, minimums and the other fields of spec 014."""
     f = fields or {}
     one_way = f.get("nda_kind") == "One-way"
     # The form asks "What is this agreement for?" in free text, and the template completes "The Parties wish to …"
@@ -170,38 +180,46 @@ def template_values(doc_type: str, *, company: str, counterparty: str, effective
     value = facts.get("value_amount")
     term = f"continues until {_long_date(end)}" if end else "continues until terminated"
     if end and f.get("term") == "Renews automatically":
+        # SaaS 6.1 and 6.2 must state one notice period (never under 60 days), so both read it from paper.
+        notice = (f"{paper.number_words(paper.renewal_notice_days(f))} days" if doc_type == "saas"
+                  else f.get("notice_days") or "60 days")
         term += (f", and then renews automatically for successive periods of {f.get('renewal_term') or '1 year'}"
-                 f" unless either Party gives {f.get('notice_days') or '60 days'}' written notice of non-renewal")
-    default_days = "30 days" if doc_type == "consultancy" else "45 days"
+                 f" unless either Party gives {notice}' written notice of non-renewal")
     return {
         "company": company, "counterparty": counterparty, "effective_date": _long_date(effective),
-        "governing_law": str(f.get("governing_law") or "").strip() or "the State of Delaware",
+        "governing_law": paper.governing_law(doc_type, f),
         "agreement_term": term,
-        "payment_days": str(f.get("payment_terms") or default_days).split()[0],
-        "value_sentence": (f" The total value of this Agreement shall not exceed {facts['currency']} {value:,.2f}."
+        "payment_days": str(f.get("payment_terms") or "45 days").split()[0],
+        "value_sentence": (f" The total value of this Agreement shall not exceed {facts['currency']} {value:,.2f}. "
+                            "That figure is a commercial limit on spending only; it does not limit or reduce "
+                            "either Party's liability, which is governed solely by the limitation of liability clause."
                            if value else ""),
         "nda_kind_title": "ONE-WAY " if one_way else "MUTUAL ",
         "nda_kind_word": "One-Way" if one_way else "Mutual",
         "purpose_phrase": (f"exchange confidential information for the following purpose: {purpose}"
                            if purpose else "explore a potential business relationship"),
         "direction_recital": direction_recital,
-        "term_clause": f"continues for the term of {nda_term}" if nda_term else "continues for three (3) years",
+        "term_clause": _NDA_TERM_CLAUSE.get(nda_term, "continues for three (3) years"),
         "survival_clause": f"continue for {survival} year(s)" if survival else "continue for five (5) years",
         # Every template is given these; str.format ignores the ones its wording does not use, so only
         # the SOW, Consultancy and DPA wording changes (FR-36, spec 008 FR-47).
         **sow.sow_values(f, example=example),
         **consultancy.consultancy_values(f, example=example),
         **dpa.dpa_values(f, example=example),
+        **paper.paper_values(doc_type, f, company=company, counterparty=counterparty, context=context,
+                             example=example),
     }
 
 
 def render_document(doc_type: str, *, company: str, counterparty: str, effective: str,
-                    fields: dict | None = None, body: str | None = None, example: bool = False) -> str:
+                    fields: dict | None = None, body: str | None = None, example: bool = False,
+                    context: DraftContext | None = None) -> str:
     """Fill a template. ``body`` is the org's saved wording (Templates page);
     without it, the shipped default for ``doc_type``."""
     text = body if body is not None else default_body(doc_type)
     return text.format(**template_values(doc_type, company=company, counterparty=counterparty,
-                                         effective=effective, fields=fields, example=example))
+                                         effective=effective, fields=fields, example=example,
+                                         context=context))
 
 
 # A draft step held for answers (not the SOW's rows) says so after its reason, and a person is told why it
@@ -270,17 +288,27 @@ def draft_hold(db, *, org_id: str, request: IntakeRequest) -> str | None:
       before. A Processor DPA request is skipped, not held (``template_skip``), and their paper is neither.
     * An emailed or chat DPA request has none of the form's answers: filing it on the form comes first."""
     doc = resolve_doc_type(request)
-    if doc == "sow":
-        if sow.rows_of(request.field_values):
-            return None
-        wording = current_wording(db, org_id, get_type(db, org_id, "sow"))
-        if {f["name"] for f in field_uses(wording.body)} & set(sow.ROW_FIELDS):
-            return sow.DRAFT_HELD
-        return None
     fv = request.field_values or {}
+    if doc == "sow":
+        used = {f["name"] for f in field_uses(current_wording(db, org_id, get_type(db, org_id, "sow")).body)}
+        if not sow.rows_of(fv) and used & set(sow.ROW_FIELDS):
+            return sow.DRAFT_HELD
+        # The wording prints only the pricing chosen, so it needs the model and the total (spec 014 FR-35).
+        if used & {"pricing_terms", "sow_payment"} and (
+                not str(fv.get("pricing") or "").strip() or sow.total_value(fv) is None):
+            return SOW_PRICING_HELD
+        if "services" in used and paper.placeholder_scope(fv.get("scope")):
+            return SCOPE_HELD
+        return None
     if doc not in ("consultancy", "dpa") or fv.get("paper") == "Their paper" or template_skip(request):
         return None
     used = {f["name"] for f in field_uses(current_wording(db, org_id, get_type(db, org_id, doc)).body)}
+    if doc == "consultancy" and "services" in used and paper.placeholder_scope(fv.get("scope")):
+        return SCOPE_HELD
+    # The Fees cap (and the 20% advance cap that reads it) prints the contract value; without one it would
+    # print a blank where the number belongs. The form requires the value, so only an older request lacks it.
+    if doc == "consultancy" and "fee_amount" in used and sow.total_value(fv) is None:
+        return FEE_CAP_HELD
     form = fv.get("request_form")
     if not form:  # email or chat: only a DPA gets here, and it has none of the form's answers
         return dpa.FREE_TEXT_HELD if used & set(dpa.FIELDS) else None
@@ -496,6 +524,30 @@ class DraftingService:
             lines.append(f"Counterparty: {cp.name}" + "".join(f"; {b}" for b in bits if b) + ".")
         return company, counterparty, lines
 
+    def _draft_context(self, request: IntakeRequest) -> DraftContext:
+        """The register rows the draft is filled from (spec 014): our entity's address and signatory, the
+        other side's jurisdiction and address, and the parent contract a SOW or DPA sits under. The parent
+        is used only when it belongs to the request's organisation (the guard ``apply_change_request`` uses)."""
+        from app.contracts.models import Contract
+        from app.parties import service as parties
+
+        db, fv = self.db, request.field_values or {}
+        entity = parties.get(db, org_id=request.org_id, kind="legal_entity", record_id=request.legal_entity_id)
+        cp = parties.get(db, org_id=request.org_id, kind="counterparty", record_id=request.counterparty_id)
+        parent_id = str(fv.get("parent_contract_id") or "").strip()
+        parent = db.get(Contract, parent_id) if parent_id else None
+        if parent is not None and parent.org_id != request.org_id:
+            parent = None
+        eff = getattr(parent, "effective_date", None)
+        return DraftContext(
+            entity_address=getattr(entity, "registered_address", None),
+            entity_signatory=getattr(entity, "authorised_signatory", None),
+            counterparty_jurisdiction=getattr(cp, "jurisdiction", None),
+            counterparty_address=getattr(cp, "address", None),
+            parent_title=parent.title if parent is not None else None,
+            parent_effective=eff.isoformat() if eff else None,
+        )
+
     def _template_at_this_moment(self, *, actor, key: str) -> tuple[str, dict]:
         """(the wording to render, the FR-46 record of the template it comes from), read now.
 
@@ -660,16 +712,6 @@ class DraftingService:
             if not text:
                 text = _custom_shell(company=company, counterparty=counterparty, fields=fv, label=spec["label"])
         else:
-            # Only the NDA form asks governing law; for everything else our
-            # contracting entity's jurisdiction is the sensible law, not the
-            # template's last-resort default (Delaware for an Indian entity drew a
-            # high finding on every MSA and SaaS draft).
-            if not str(fv.get("governing_law") or "").strip() and request.legal_entity_id:
-                from app.parties.models import LegalEntity
-
-                entity = db.get(LegalEntity, request.legal_entity_id)
-                if entity is not None and (entity.jurisdiction or "").strip():
-                    fv = {**fv, "governing_law": entity.jurisdiction.strip()}
             # The org's own wording from the Templates page, else the shipped default.
             body, record = self._template_at_this_moment(actor=actor, key=doc_type)
             if doc_type == "sow":
@@ -681,7 +723,7 @@ class DraftingService:
             elif doc_type == "dpa":
                 record.update(dpa.record_facts(fv))
             text = render_document(doc_type, company=company, counterparty=counterparty, effective=effective,
-                                   fields=fv, body=body)
+                                   fields=fv, body=body, context=self._draft_context(request))
         # One-way NDAs get a clearer label than the generic template label.
         label = spec["label"]
         if doc_type == "nda" and fv.get("nda_kind") == "One-way":

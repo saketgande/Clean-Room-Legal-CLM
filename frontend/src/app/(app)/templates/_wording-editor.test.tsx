@@ -31,7 +31,7 @@ const template = (over: Partial<DraftingTemplate> = {}): DraftingTemplate => ({
   binding: { form_key: "saas", form_name: "SaaS", agreement_kind: null, label: "SaaS agreements" },
   playbook: { id: "p1", name: "SaaS Playbook", version_id: "pv3", version_number: 3, pinned: true, available: true },
   shipped: true, active: true, source: "text", version: 3, original_filename: null, updated_at: null, updated_by: null,
-  editable: true, status: STATUS, body: BODY, default_body: BODY, placeholders: FIELDS, fields: [], original_file: null,
+  editable: true, status: STATUS, standard: null, body: BODY, default_body: BODY, placeholders: FIELDS, fields: [], original_file: null,
   ...over,
 });
 const result = (tpl: DraftingTemplate, over: Partial<TemplateMutationResult> = {}): TemplateMutationResult => ({

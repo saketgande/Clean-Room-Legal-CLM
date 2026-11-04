@@ -40,6 +40,16 @@ _NUMBER_ONLY_LINE = re.compile(
 _SPARSE_TEXT_PER_PAGE = 120
 
 
+def _is_scanned_page(page) -> bool:
+    """A page that is a picture: one image covering most of it, as a scanner produces."""
+    area = page.rect.width * page.rect.height or 1
+    return any(
+        rect.width * rect.height >= 0.5 * area
+        for image in page.get_images(full=True)
+        for rect in page.get_image_rects(image[0])
+    )
+
+
 def _line_text(line) -> str:
     return "".join(span.get("text", "") for span in line.get("spans", []))
 
@@ -211,7 +221,8 @@ class PdfParser:
     # 5: "Item 5" and OCR-glued "12.3.LICENSOR" read; recitals numbered 1., 2.;
     #    page counters ("1 of 4") removed.
     # 6: numbering that starts again at 1 is asked about, not a new part.
-    version = "6"
+    # 7: a picture-only page in a text PDF sends the file to OCR.
+    version = "7"
 
     def parse(self, content: bytes, *, filename: str) -> ParsedDocument:
         import fitz  # PyMuPDF
@@ -219,6 +230,7 @@ class PdfParser:
         blocks: list[ParsedBlock] = []
         warnings: list[str] = []
         total_chars = 0
+        picture_only_pages: list[int] = []
 
         try:
             opened = fitz.open(stream=content, filetype="pdf")
@@ -245,6 +257,8 @@ class PdfParser:
                     if block.get("type") == 0
                     for line in block.get("lines", [])
                 )
+                if page_chars < _SPARSE_TEXT_PER_PAGE and _is_scanned_page(page):
+                    picture_only_pages.append(page_number)
                 tables = _find_tables(page, page_chars)
                 table_rects = [tuple(t.bbox) for t in tables]
                 for table in tables:
@@ -322,6 +336,15 @@ class PdfParser:
             warnings.append(
                 f"Only {content_chars} characters of readable content across "
                 f"{page_count} pages{detail} — this PDF is images and needs OCR."
+            )
+        elif picture_only_pages:
+            # One scanned page stapled into a text PDF (a Schedule, an annexure) leaves the average
+            # healthy, so the test above never fired and that page was read as empty with no warning.
+            # The whole file goes to OCR, as a scan does: a page of picture and no text is not read here.
+            needs_ocr = True
+            warnings.append(
+                f"Page(s) {', '.join(map(str, picture_only_pages))} are pictures with no readable "
+                "text — this PDF needs OCR."
             )
         return ParsedDocument(
             blocks=blocks,

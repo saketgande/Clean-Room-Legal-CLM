@@ -51,22 +51,32 @@ beforeEach(() => {
   h.intakeApi.list.mockResolvedValue([waiting, running, finished]);
 });
 
-describe("the briefing", () => {
-  it("counts only unfinished requests as open and keeps 'to triage' and 'in workflow' apart", async () => {
+const tile = (label: string) => screen.getByRole("button", { name: new RegExp(label) });
+
+describe("the overview", () => {
+  it("counts only unfinished requests as open and keeps 'awaiting triage' and 'in workflow' apart", async () => {
     mount();
-    await screen.findByText("2 open requests.");
-    const line = document.querySelector(".oneline") as HTMLElement;
-    expect(line).toHaveTextContent("1 to triage");
-    expect(line).toHaveTextContent("1 in workflow");
+    await screen.findByText("Nobody has started this");
+    expect(tile("Open requests")).toHaveTextContent("2");
+    expect(tile("Awaiting triage")).toHaveTextContent("1");
+    expect(tile("In workflow")).toHaveTextContent("1");
   });
 
   it("does not call a finished request overdue even if its clock would have run out", async () => {
-    // The server reports a closed request as on track, but a stale one still marked open + overdue is counted;
-    // what matters here is that a closed row never reaches the overdue figure.
+    // A closed row never reaches the overdue figure.
     h.intakeApi.list.mockResolvedValue([{ ...finished, sla_status: "overdue" }, waiting]);
     mount();
-    await screen.findByText("1 open request.");
-    expect(screen.queryByText(/1 overdue/)).toBeNull();
+    await screen.findByText("Nobody has started this");
+    expect(tile("Open requests")).toHaveTextContent("1");
+    expect(tile("Overdue")).toHaveTextContent("0");
+  });
+
+  it("applies the matching filter when a tile is clicked", async () => {
+    mount();
+    await screen.findByText("Already in review");
+    fireEvent.click(tile("In workflow"));
+    await waitFor(() => expect(screen.queryByText("Nobody has started this")).toBeNull());
+    expect(screen.getByText("Already in review")).toBeInTheDocument();
   });
 });
 
@@ -75,7 +85,7 @@ describe("the Awaiting triage filter", () => {
     mount();
     await screen.findByText("Nobody has started this");
     expect(screen.getByText("Already in review")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Status/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Status/ }));
     fireEvent.click(screen.getByLabelText("Awaiting triage"));
     await waitFor(() => expect(screen.queryByText("Already in review")).toBeNull());
     expect(screen.getByText("Nobody has started this")).toBeInTheDocument();
@@ -91,7 +101,6 @@ describe("a queue that could not be loaded", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("You don't have access to the request queue.");
     expect(screen.getByRole("alert")).toHaveTextContent("Missing permission: intake:read");
     expect(screen.queryByText(/queue is healthy/)).toBeNull();
-    expect(screen.queryByText(/Everything's assigned/)).toBeNull();
     expect(screen.queryByText("No requests match these filters.")).toBeNull();
   });
 
@@ -99,7 +108,7 @@ describe("a queue that could not be loaded", () => {
     h.intakeApi.list.mockRejectedValueOnce(new HttpError(500, "Something broke")).mockResolvedValue([waiting]);
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
-    await screen.findByText("1 open request.");
+    await screen.findByText("Nobody has started this");
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -114,6 +123,6 @@ describe("a queue that could not be loaded", () => {
     h.intakeApi.list.mockReturnValue(new Promise(() => {}));
     mount();
     expect(await screen.findByText("Loading requests…")).toBeInTheDocument();
-    expect(screen.queryByText(/open requests?\./)).toBeNull();
+    expect(screen.queryByText("Open requests")).toBeNull();
   });
 });

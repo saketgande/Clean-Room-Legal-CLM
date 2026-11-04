@@ -100,7 +100,7 @@ def test_a_bare_request_drafts_at_the_playbooks_preferred_positions():
     assert nda["term_clause"] == "continues for three (3) years"
     assert nda["survival_clause"] == "continue for five (5) years"
     assert drafting.template_values("consultancy", company="A", counterparty="B", effective="x",
-                                    fields={})["payment_days"] == "30"
+                                    fields={})["payment_days"] == "45"
 
 
 def test_the_catalog_takes_its_contract_types_from_the_playbook_library():
@@ -1084,6 +1084,7 @@ def test_the_routes_use_exactly_the_permissions_the_application_already_had():
         ("POST", "/{key}/reset"): "playbook:update",
         ("POST", "/{key}/versions/{version}/restore"): "playbook:update",
         ("PUT", "/{key}/playbook"): "playbook:update",
+        ("POST", "/{key}/playbook/standard"): "playbook:publish",
     }
     assert set(found.values()) <= PLAYBOOK_PERMISSIONS <= ALL_PERMISSIONS
     assert PLAYBOOK_PERMISSIONS == {"playbook:read", "playbook:create", "playbook:update", "playbook:delete",

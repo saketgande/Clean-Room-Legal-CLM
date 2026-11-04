@@ -6,7 +6,9 @@ read and routed; Signature is who signs; Active is obligations and the renewal
 window; Closed is the contract ending. This reads those from their own tables so
 every stage shows the whole story, not only the workflow's part of it.
 
-Each row: {name, kind, detail, who, status (done|waiting|planned|skipped), when}.
+Each row: {name, kind, detail, who, status (done|waiting|planned|skipped|failed), when, action}. `action` is
+None, or {kind, label, contract_id}: something the viewer may be offered to press on that row (the page decides
+whether to show it from the viewer's permission; the server enforces it).
 """
 
 from __future__ import annotations
@@ -28,9 +30,9 @@ def _iso(v) -> str | None:
     return None
 
 
-def _row(name, kind, detail, who, status, when=None) -> dict:
+def _row(name, kind, detail, who, status, when=None, action=None) -> dict:
     return {"name": name, "kind": kind, "detail": detail or "", "who": who or "—", "status": status,
-            "when": _iso(when)}
+            "when": _iso(when), "action": action}
 
 
 def _user_label(db: Session, uid: str | None) -> str | None:
@@ -96,23 +98,66 @@ def _signature(db: Session, contract, request) -> list[dict]:
     ]
 
 
-def _active(db: Session, contract) -> list[dict]:
+def _plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def _extraction_rows(db: Session, contract, live: bool) -> list[dict]:
+    """The obligation row of the Active stage, from the one extraction state (app/obligations/extraction_audit.py):
+    tracked, none found (a valid answer), extracting, failed or never read (red, with a Retry when a retry can
+    help), or from an earlier version. Before the contract is Active nothing is expected yet."""
+    from app.obligations.extraction_audit import extraction_state
     from app.obligations.models import Obligation
+
+    open_states = (ObligationStatus.OPEN, ObligationStatus.DUE_SOON, ObligationStatus.OVERDUE)
+    ai = "Aegis AI"
+    if not live:
+        total = db.scalar(select(func.count(Obligation.id)).where(
+            Obligation.contract_id == contract.id, Obligation.deleted_at.is_(None))) or 0
+        if not total:
+            return [_row("Extract obligations", "AI", "Deliverables, payment dates and notice periods from the signed copy",
+                         ai, "planned")]
+    st = extraction_state(db, contract) if live else None
+    n = st.live_obligations if st else total
+    if st is None or st.state == "done":
+        nxt = db.scalars(
+            select(Obligation).where(Obligation.contract_id == contract.id, Obligation.deleted_at.is_(None),
+                                     Obligation.status.in_(open_states), Obligation.due_date.is_not(None))
+            .order_by(Obligation.due_date)
+        ).first()
+        detail = _plural(n, "obligation") + (f" · next due {nxt.due_date:%d %b %Y}: {nxt.description[:80]}" if nxt else "")
+        return [_row("Obligations tracked", "AI", detail, _user_label(db, contract.owner_user_id), "done")]
+    retry = {"kind": "extract_obligations", "label": "Retry", "contract_id": contract.id}
+    if st.state == "none_found":
+        detail = "The AI read the current copy and found no obligations." + (f" It said: {st.note}" if st.note else "")
+        if st.poor_text:
+            detail += " The text was read poorly, so check the document."
+        return [_row("No obligations found", "AI", detail, ai, "done")]
+    if st.state == "running":
+        return [_row("Extracting obligations", "AI", "Reading the current copy now.", ai, "waiting")]
+    if st.state == "failed":
+        tried = f" Tried {_plural(st.attempts, 'time')}" + (f", last on {st.last_failed_at:%d %b %Y}." if st.last_failed_at else ".") if st.attempts else ""
+        if not st.retryable:
+            # The failure says another try fails the same way and pays again: no button, a person has to look.
+            return [_row("Obligation extraction failed", "AI",
+                         f"{st.reason}{tried} Trying again would fail the same way, so ask an administrator to look.",
+                         ai, "failed", st.last_failed_at)]
+        return [_row("Obligation extraction failed", "AI", f"{st.reason}{tried}", ai, "failed", st.last_failed_at, retry)]
+    if st.state == "never":
+        return [_row("Obligations not read", "AI", st.reason, ai, "failed", None, retry)]
+    if st.state == "no_text":
+        return [_row("Obligations not read", "AI", st.reason, ai, "failed")]
+    # stale: obligations exist, from an earlier version of the document
+    return [_row("Obligations come from an earlier version", "AI",
+                 f"{_plural(n, 'obligation')} from an earlier copy; the current copy has not been read.", ai, "waiting",
+                 None, {**retry, "label": "Re-read"})]
+
+
+def _active(db: Session, contract) -> list[dict]:
     from app.renewals.models import RenewalEvent
 
     live = (contract.lifecycle_stage or "") in ("active", "closed")
-    open_states = (ObligationStatus.OPEN, ObligationStatus.DUE_SOON, ObligationStatus.OVERDUE)
-    total = db.scalar(select(func.count(Obligation.id)).where(Obligation.contract_id == contract.id)) or 0
-    nxt = db.scalars(
-        select(Obligation).where(Obligation.contract_id == contract.id, Obligation.status.in_(open_states),
-                                 Obligation.due_date.is_not(None)).order_by(Obligation.due_date)
-    ).first()
-    if total:
-        detail = f"{total} obligation{'s' if total != 1 else ''}" + (f" · next due {nxt.due_date:%d %b %Y}: {nxt.description[:80]}" if nxt else "")
-        rows = [_row("Obligations tracked", "AI", detail, _user_label(db, contract.owner_user_id), "done", None)]
-    else:
-        rows = [_row("Extract obligations", "AI", "Deliverables, payment dates and notice periods from the signed copy",
-                     "Aegis AI", "waiting" if live else "planned")]
+    rows = _extraction_rows(db, contract, live)
     ren = db.scalars(select(RenewalEvent).where(RenewalEvent.contract_id == contract.id)
                      .order_by(RenewalEvent.created_at.desc())).first()
     expiry = (ren.expiration_date if ren else None) or contract.expiration_date

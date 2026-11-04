@@ -256,11 +256,20 @@ def _type_tokens(value: str | None) -> set[str]:
     return {t for t in out if len(t) > 2} - _TYPE_STOPWORDS
 
 
+def _phrases(value: str | None) -> list[str]:
+    """One phrase per line; blank lines ignored; each line whitespace-collapsed.
+
+    A rule that must hold for every wording our own paper can produce lists each wording on its
+    own line. A single-line value gives one phrase, exactly as before."""
+    return [p for line in (value or "").splitlines() if (p := " ".join(line.split()))]
+
+
 def evaluate_rules_against_text(*, rules: list[PlaybookRule], text: str) -> list[EvaluatedDeviation]:
     deviations: list[EvaluatedDeviation] = []
     for rule in rules:
-        prohibited = _clean_phrase(rule.prohibited_language)
-        if prohibited:
+        severity = _normalize_severity(rule.risk_level, approval_required=rule.approval_required)
+        # Prohibited: the first line found is the one deviation, quoted from its match.
+        for prohibited in _phrases(rule.prohibited_language):
             match = find_phrase(text, prohibited)
             if match:
                 start, end = match
@@ -268,7 +277,7 @@ def evaluate_rules_against_text(*, rules: list[PlaybookRule], text: str) -> list
                 deviations.append(
                     EvaluatedDeviation(
                         rule=rule,
-                        severity=_normalize_severity(rule.risk_level, approval_required=rule.approval_required),
+                        severity=severity,
                         clause_type=rule.clause_type,
                         issue=f"Prohibited language found for {rule.clause_type}: {prohibited}",
                         suggested_fix=_suggested_fix(rule),
@@ -282,12 +291,14 @@ def evaluate_rules_against_text(*, rules: list[PlaybookRule], text: str) -> list
                         replacement_text=_suggested_fix(rule),
                     )
                 )
-        required = _clean_phrase(rule.required_language)
-        if required and find_phrase(text, required) is None:
+                break
+        # Required: any missing line is one deviation, naming the first missing line.
+        required = next((r for r in _phrases(rule.required_language) if find_phrase(text, r) is None), None)
+        if required:
             deviations.append(
                 EvaluatedDeviation(
                     rule=rule,
-                    severity=_normalize_severity(rule.risk_level, approval_required=rule.approval_required),
+                    severity=severity,
                     clause_type=rule.clause_type,
                     issue=f"Required language missing for {rule.clause_type}: {required}",
                     suggested_fix=_suggested_fix(rule),

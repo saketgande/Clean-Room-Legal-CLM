@@ -18,8 +18,8 @@
   /* NEUTRALS — warm paper ramp (modern-premium legal), canvas → ink */
   --color-slate-50: 244 246 249;   /* #F4F6F9  mockup canvas (screen-01..14 .app bg) */
   --color-slate-100: 255 255 255;  /* #FFFFFF  card/panel surface */
-  --color-slate-200: 236 233 227;  /* #ECE9E3  hairline divider  */
-  --color-slate-300: 224 221 213;  /* #E0DDD5  input / strong div */
+  --color-slate-200: 229 232 239;  /* #E5E8EF  hairline divider (cool) */
+  --color-slate-300: 211 216 227;  /* #D3D8E3  input / strong div */
   --color-slate-400: 173 176 182;  /* #ADB0B6  placeholder/disabled*/
   --color-slate-500: 138 141 149;  /* #8A8D95  muted / icons     */
   --color-slate-600: 86 90 99;     /* #565A63  secondary text    */
@@ -52,11 +52,11 @@
   --color-info-subtle: 234 239 251;
 
   /* Premium soft elevation — resting cards get a whisper of depth. */
-  --shadow-card: 0 1px 2px rgb(24 26 34 / 0.04), 0 6px 20px rgb(24 26 34 / 0.05);
+  --shadow-card: 0 1px 2px rgb(24 26 34 / 0.04);
   --shadow-pop: 0 2px 6px rgb(24 26 34 / 0.07), 0 14px 34px rgb(24 26 34 / 0.10);
   --shadow-modal: 0 14px 46px rgb(24 26 34 / 0.18);
 
-  --radius-sm: 8px;   /* badges, inputs, buttons */
+  --radius-sm: 6px;   /* badges, inputs, buttons */
   --radius-md: 12px;  /* cards, panels, menus    */
   --radius-lg: 16px;  /* hero cards, modals      */
 
@@ -127,8 +127,8 @@
   --ink: #18213a;
   --ink-2: #586178;
   --ink-3: #8a92a6;
-  --border: #e4e8f0;
-  --border-strong: #ccd3e0;
+  --border: #e5e8ef;
+  --border-strong: #d3d8e3;
   --accent: #3b4aa0;
   --accent-soft: #eaecf8;
   --accent-ink: #ffffff;
@@ -240,6 +240,13 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* One visible keyboard focus ring everywhere (WCAG 2.4.7 / 2.4.11). */
+:focus-visible {
+  outline: 2px solid rgb(var(--color-brand-500) / 0.55);
+  outline-offset: 2px;
+}
+h1, h2, h3 { letter-spacing: -0.015em; }
+
 ::selection {
   background-color: theme("colors.brand.500");
   color: #ffffff;
@@ -294,13 +301,53 @@ body {
   line-height: 1.72;
 }
 
-/* Honor OS-level reduced-motion preference (WCAG 2.3.3). */
+/* Notification drawer cards rise in one after another. */
+@keyframes nd-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+.nd-card { opacity: 0; animation: nd-in 0.32s cubic-bezier(0.22, 0.8, 0.2, 1) forwards; }
+
+/* Reduced-motion (WCAG 2.3.3): no long or looping motion, but keep short fades and slides so the
+   interface still feels responsive (a hard 0ms made every panel and the sidebar pop in with no feedback). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration: 0.01ms !important;
+    animation-duration: 0.2s !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0.2s !important;
   }
 }
+
+
+/* ---- The request-page look, on every page but Trademarks ------------------------------------------------------
+   AppShell puts `.clmx` on <main> for all routes except /trademarks. The shared primitives in components/ui.tsx carry
+   `ui-*` hook classes; pages with their own scoped CSS are matched by the class names they share (stat tiles, segmented
+   controls, table wrappers, dialogs). Look only: no layout, no content. */
+.clmx .ui-card{border-radius:14px;box-shadow:0 1px 3px rgba(20,26,40,.06)}
+.clmx .ui-card-head{border-radius:14px 14px 0 0;background:color-mix(in srgb,var(--accent, #4f46e5) 5%,var(--surface, #fff))}
+.clmx .ui-btn{border-radius:10px;font-weight:600;transition:transform .15s,box-shadow .15s,background-color .15s,border-color .15s}
+.clmx .ui-btn:not(:disabled):hover{transform:translateY(-1px);box-shadow:0 6px 14px -8px rgba(20,26,40,.35)}
+.clmx .ui-btn:not(:disabled):active{transform:none;box-shadow:none}
+.clmx .ui-badge{border-radius:99px;padding-inline:9px}
+.clmx .ui-input{border-radius:10px}
+.clmx .ui-table-wrap{border:1px solid var(--border,#dfe3ea);border-radius:14px;box-shadow:0 1px 3px rgba(20,26,40,.05)}
+.clmx .ui-th{background:color-mix(in srgb,var(--accent, #4f46e5) 5%,var(--surface-2, #f4f6f9));font-size:10.5px;letter-spacing:.07em}
+.clmx .ui-tr{transition:background-color .15s}
+.clmx .ui-tr:hover{background:color-mix(in srgb,var(--accent, #4f46e5) 6%,var(--surface, #fff))}
+.clmx .ui-stat,.clmx .statcard,.clmx .stat,.clmx .tile,.clmx .ccard{border-radius:14px;box-shadow:0 1px 3px rgba(20,26,40,.06);transition:transform .18s,box-shadow .18s,border-color .18s}
+.clmx .ui-stat:hover,.clmx .statcard:hover,.clmx .stat:hover,.clmx .tile:hover,.clmx .ccard:hover{transform:translateY(-2px);border-color:color-mix(in srgb,var(--accent, #4f46e5) 40%,var(--border, #dfe3ea));box-shadow:0 12px 22px -14px rgba(20,26,40,.32)}
+/* Tab bars: the same pill bar as the request page */
+.clmx .ui-tabs{gap:4px;padding:5px;border:1px solid var(--border,#dfe3ea);border-radius:14px;background:var(--surface,#fff);box-shadow:0 1px 3px rgba(20,26,40,.06);overflow-x:auto}
+.clmx .ui-tab{margin:0;padding:9px 16px;border:0!important;border-radius:10px;white-space:nowrap}
+.clmx .ui-tab:hover{background:var(--surface-2,#eef1f5)}
+.clmx .ui-tab[aria-selected=true]{background:color-mix(in srgb,var(--accent, #4f46e5) 12%,var(--surface, #fff));color:var(--accent, #4f46e5);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--accent, #4f46e5) 30%,transparent)}
+.clmx .seg{padding:4px;gap:4px;border-radius:99px}
+.clmx .seg button{border-radius:99px}
+.clmx .tablewrap,.clmx .sigtablewrap{border:1px solid var(--border,#dfe3ea);border-radius:14px;background:var(--surface,#fff);box-shadow:0 1px 3px rgba(20,26,40,.05)}
+.clmx .tablewrap thead th,.clmx .sigtablewrap thead th{background:color-mix(in srgb,var(--accent, #4f46e5) 5%,var(--surface-2, #f4f6f9));letter-spacing:.07em}
+.clmx .tablewrap tbody tr,.clmx .sigtablewrap tbody tr{transition:background-color .15s}
+.clmx .tablewrap tbody tr:hover td,.clmx .sigtablewrap tbody tr:hover td{background:color-mix(in srgb,var(--accent, #4f46e5) 6%,var(--surface, #fff))}
+.clmx .dlg{border-radius:18px}
+@media (prefers-reduced-motion:reduce){.clmx .ui-btn,.clmx .ui-stat,.clmx .statcard,.clmx .stat,.clmx .tile,.clmx .ccard{transition-duration:.15s!important}}

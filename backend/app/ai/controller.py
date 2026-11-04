@@ -4,14 +4,15 @@ from typing import Any
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.ai.citations import validate_citations
 from app.ai.confirmations import confirmation_details
 from app.ai.context import ContractAIContext, build_contract_context, list_contract_handles
-from app.ai.fallback import fallback_metadata_from_text
 from app.ai.gateway import AICallContext, gateway_for
 from app.ai.models import AICitation, AIConfirmation, AISkillRun
+from app.ai.outcomes import SetupError, failure_from_exception
 from app.ai.prompt_builder import prompt_builder
 from app.ai.prompt_versions import get_active_prompt_bundle
 from app.ai.redaction import redact_ai_payload
@@ -502,6 +503,7 @@ class AIController:
                                     "schema_version": 1,
                                     "pending_tool_use": tool_use,
                                     "messages": messages,
+                                    "done_results": list(tool_result_blocks),
                                     "skill_run_id": skill_run.id,
                                     "confirmation_id": result.get("confirmation_id"),
                                 }
@@ -707,26 +709,36 @@ class AIController:
 
         messages = list(provider_state.get("messages") or [])
         pending_tool_use = provider_state.get("pending_tool_use") or {}
-        messages.append(
-            {
-                "role": "user",
-                "content": [
+        confirmed_block = {
+            "type": "tool_result",
+            "tool_use_id": pending_tool_use.get("id") or tool_call.provider_tool_use_id,
+            "content": self._json_tool_result(
+                self._model_safe_result(
+                    db,
+                    value=result,
+                    org_id=user.org_id,
+                    session_id=run.session_id,
+                    user_id=user.id,
+                )
+            ),
+        }
+        # Claude needs a result for EVERY tool_use of its last turn. Siblings that ran
+        # before the confirmation kept theirs (done_results); any that never ran get a
+        # plain "not run" so the history stays valid (old runs lack done_results).
+        answered = [*(provider_state.get("done_results") or []), confirmed_block]
+        have = {b["tool_use_id"] for b in answered}
+        last = messages[-1] if messages else {}
+        for block in last.get("content") or [] if isinstance(last.get("content"), list) else []:
+            if block.get("type") == "tool_use" and block.get("id") not in have:
+                answered.append(
                     {
                         "type": "tool_result",
-                        "tool_use_id": pending_tool_use.get("id") or tool_call.provider_tool_use_id,
-                        "content": self._json_tool_result(
-                            self._model_safe_result(
-                                db,
-                                value=result,
-                                org_id=user.org_id,
-                                session_id=run.session_id,
-                                user_id=user.id,
-                            )
-                        ),
+                        "tool_use_id": block["id"],
+                        "content": "Not run: another step in this turn was waiting for the user's confirmation. Call it again if it is still needed.",
+                        "is_error": True,
                     }
-                ],
-            }
-        )
+                )
+        messages.append({"role": "user", "content": answered})
 
         final_answer_parts: list[str] = []
         try:
@@ -815,6 +827,7 @@ class AIController:
                                 "schema_version": 1,
                                 "pending_tool_use": tool_use,
                                 "messages": messages,
+                                "done_results": list(tool_result_blocks),
                                 "skill_run_id": skill_run.id,
                                 "confirmation_id": loop_result.get("confirmation_id"),
                             }
@@ -1237,7 +1250,7 @@ class AIController:
             # Feature = this skill, through the AI gateway: same prompt (built
             # above), budget and schema; the gateway checks the output against
             # spec.output_model (a cut-off answer or a missing/invalid tool call
-            # raises into the fallback below) and records the call. The ledger
+            # raises into the failure handling below) and records the call. The ledger
             # row goes on THIS session (record_on=db): the citations below point
             # at it by foreign key, and it commits or rolls back with the run.
             result = await gateway_for(self.claude_client).structured(
@@ -1321,45 +1334,34 @@ class AIController:
             if commit:
                 db.commit()
             return validated
-        except HTTPException:
+        except HTTPException as exc:
             # A cost-cap rejection (HTTP 429) raised before the Claude call must
-            # propagate as-is — never be masked by fallback metadata, which would
-            # silently defeat the daily token cap. Mark the run failed and re-raise.
+            # propagate as-is, so the caller sees the real status and the daily
+            # token cap holds. Mark the run failed, say why, and re-raise.
             skill_run.status = AISkillRunStatus.FAILED
             skill_run.validation_status = AIValidationStatus.INVALID
+            skill_run.error_message = failure_from_exception(exc)["reason"]
             skill_run.finished_at = utcnow()
             if commit:
                 db.commit()
             raise
         except Exception as exc:
-            fallback = self._fallback_output(spec, contract_context, exc)
-            if fallback is not None:
-                skill_run.status = AISkillRunStatus.NEEDS_REVIEW
-                skill_run.validation_status = AIValidationStatus.NEEDS_REVIEW
-                skill_run.output_payload = fallback.model_dump(mode="json")
-                skill_run.validation_error = f"Claude failed; fallback used: {exc.__class__.__name__}"
-                skill_run.finished_at = utcnow()
-                self._persist_skill_output(
-                    db,
-                    spec=spec,
-                    output=fallback,
-                    contract_context=contract_context,
-                    created_by_user_id=created_by_user_id,
-                    request_id=request_id,
-                    skill_run=skill_run,
-                    ai_call_log=ai_call_log,
-                )
-                if job_id:
-                    self._finish_job(db, job_id=job_id, status="succeeded", error_message="Fallback metadata used")
-                if commit:
-                    db.commit()
-                return fallback
+            # A failed database statement leaves the session unusable until it is rolled back; without this the
+            # FAILED marks below raised PendingRollbackError and the run stayed "running" for ever. Only for a
+            # database error: a provider error leaves the session fine, and rolling back would also discard
+            # this failed call's ledger row. Only when this call owns the commit: a commit=False caller keeps
+            # its own transaction. (`db.is_active` is not the test: a statement the server refused leaves it True.)
+            if commit and isinstance(exc, SQLAlchemyError):
+                db.rollback()
+            # No guessed answer is saved in place of a failed one: a regex reading of "the first date in the
+            # text" passed as a successful job and could dispute a correct start date from the request form.
+            failure = failure_from_exception(exc)
             skill_run.status = AISkillRunStatus.FAILED
             skill_run.validation_status = AIValidationStatus.INVALID
-            skill_run.error_message = str(exc)
+            skill_run.error_message = failure["reason"]  # plain; the raw text can carry the contract's own words
             skill_run.finished_at = utcnow()
             if job_id:
-                self._finish_job(db, job_id=job_id, status="failed", error_message=str(exc))
+                self._finish_job(db, job_id=job_id, status="failed", error_message=failure["reason"], failure=failure)
             write_timeline_event(
                 db,
                 org_id=org_id,
@@ -1371,7 +1373,7 @@ class AIController:
                 request_id=request_id,
                 job_id=job_id,
                 skill_run_id=skill_run.id,
-                details={"skill_run_id": skill_run.id, "error": str(exc)},
+                details={"skill_run_id": skill_run.id, "outcome": failure["outcome"], "reason": failure["reason"]},
             )
             if commit:
                 db.commit()
@@ -1391,7 +1393,7 @@ class AIController:
             else flag_value_is_enabled(setting.value, default=spec.enabled_by_default)
         )
         if not enabled:
-            raise RuntimeError(f"AI skill is disabled: {spec.name}")
+            raise SetupError(f"The AI skill \"{spec.name}\" is switched off in settings.")
 
     def _maybe_contract_context(
         self,
@@ -1732,7 +1734,9 @@ class AIController:
                 )
             )
 
-    def _finish_job(self, db: Session, *, job_id: str, status: str, error_message: str | None) -> None:
+    def _finish_job(
+        self, db: Session, *, job_id: str, status: str, error_message: str | None, failure: dict | None = None
+    ) -> None:
         job = db.get(JobRun, job_id)
         if job is None:
             return
@@ -1740,6 +1744,9 @@ class AIController:
         job.progress = 100 if status == "succeeded" else job.progress
         job.finished_at = utcnow()
         job.error_message = error_message
+        # A failed job carries why (app/ai/outcomes.py); a succeeded one never keeps an old failure.
+        meta = {k: v for k, v in (job.metadata_json or {}).items() if k != "failure"}
+        job.metadata_json = {**meta, "failure": failure} if failure else meta
 
     def _persist_obligations(
         self,
@@ -1776,18 +1783,6 @@ class AIController:
             db, contract=context.contract, version=context.version, output=output,
             skill_run=skill_run, created_by_user_id=created_by_user_id, request_id=request_id,
         )
-
-    def _fallback_output(
-        self,
-        spec: SkillSpec,
-        contract_context: ContractAIContext | None,
-        exc: Exception,
-    ) -> BaseModel | None:
-        if spec.name == "contract_metadata_extraction" and contract_context is not None:
-            return fallback_metadata_from_text(contract_context.text, filename=contract_context.contract.title)
-        if isinstance(exc, ValidationError):
-            return None
-        return None
 
 
 def _collect_citations(output: BaseModel) -> list[CitationInput]:

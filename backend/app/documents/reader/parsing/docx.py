@@ -265,6 +265,11 @@ def _iter_body(parent_elm, parent):
 
     python-docx keeps them in separate collections with no ordering between
     them, so the only way to read the document as written is to walk the body.
+
+    A block-level content control (`w:sdt`, how templates wrap a Schedule or a
+    fee table) and a `w:customXml` / `w:smartTag` wrapper hold their paragraphs
+    one level down; a walk of direct children alone dropped the whole Schedule
+    with no warning.
     """
     from docx.table import Table
     from docx.text.paragraph import Paragraph
@@ -274,6 +279,12 @@ def _iter_body(parent_elm, parent):
             yield Paragraph(child, parent)
         elif child.tag == qn("w:tbl"):
             yield Table(child, parent)
+        elif child.tag == qn("w:sdt"):
+            content = child.find(qn("w:sdtContent"))
+            if content is not None:
+                yield from _iter_body(content, parent)
+        elif child.tag in (qn("w:customXml"), qn("w:smartTag")):
+            yield from _iter_body(child, parent)
 
 
 def _paragraph_text(paragraph) -> str:
@@ -298,25 +309,52 @@ def _paragraph_text(paragraph) -> str:
     parts: list[str] = []
     for node in paragraph._p.iter():
         tag = node.tag
+        # w:delText (the spec's tag for deleted text) is skipped by not being listed. Some producers put a
+        # plain w:t inside w:del anyway, so `_unseen` checks the ancestry rather than trusting the tag.
+        if node is paragraph._p or tag not in _TEXT_TAGS or _unseen(node):
+            continue
         if tag == qn("w:t"):
-            # w:delText is the spec's tag for deleted text and is skipped by
-            # not being matched here. Some producers put a plain w:t inside
-            # w:del anyway, so check the ancestry rather than trusting the tag.
-            if not _inside_deletion(node):
-                parts.append(node.text or "")
+            parts.append(node.text or "")
         elif tag == qn("w:tab"):
             parts.append("\t")
-        elif tag in {qn("w:br"), qn("w:cr")}:
+        else:
+            # A break, or a text box's own paragraph inside this one: without one its words run on
+            # into ours ("due by the 5thFee: USD 5,000").
             parts.append("\n")
     return "".join(parts)
 
 
-def _inside_deletion(node) -> bool:
-    parent = node.getparent()
-    while parent is not None:
-        if parent.tag == qn("w:del"):
+_TEXT_TAGS = {qn("w:t"), qn("w:tab"), qn("w:br"), qn("w:cr"), qn("w:p")}
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+_TINY_HALF_POINTS = 4  # w:sz counts half-points: 2pt and under cannot be read
+
+
+def _hidden(run) -> bool:
+    """A run Word does not show (w:vanish) or no reader can see (2pt or smaller). A counterparty can plant
+    a sentence in one that no reviewer ever sees, and because it is in the stored text its quote then
+    passes the citation check and is shown as what the contract says."""
+    props = run.find(qn("w:rPr"))
+    if props is None:
+        return False
+    vanish = props.find(qn("w:vanish"))
+    if vanish is not None and vanish.get(qn("w:val")) not in ("0", "false", "off"):
+        return True
+    size = props.find(qn("w:sz"))
+    value = None if size is None else size.get(qn("w:val"))
+    return bool(value and value.isdigit() and int(value) <= _TINY_HALF_POINTS)
+
+
+def _unseen(node) -> bool:
+    """Text Word does not show for the document as it reads with changes accepted: struck by a tracked
+    deletion, the VML fallback copy of a text box (the DrawingML one beside it is the one read), or in a
+    hidden run."""
+    ancestor = node.getparent()
+    while ancestor is not None:
+        if ancestor.tag in (qn("w:del"), _MC_FALLBACK):
             return True
-        parent = parent.getparent()
+        if ancestor.tag == qn("w:r") and _hidden(ancestor):
+            return True
+        ancestor = ancestor.getparent()
     return False
 
 
@@ -453,7 +491,8 @@ class DocxParser:
     # 2: Word's numbering levels reach the tree (`tree.py`), so parents differ.
     # 3: "Item 5" read as a number; a numbered run after "WHEREAS:" is asked about.
     # 4: numbering that starts again at 1 is asked about, not a new part.
-    version = "4"
+    # 5: content controls and wrappers are read into, a text box once; hidden and tiny runs are not.
+    version = "5"
 
     def parse(self, content: bytes, *, filename: str) -> ParsedDocument:
         _guard_zip(content)

@@ -17,6 +17,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.auth.models import User
+from app.contracts.contract_types import canonical_contract_type, contract_status
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
@@ -145,8 +146,7 @@ class ScreeningService:
         today = utcnow().date()  # one notion of today (UTC), see tests/test_one_today.py
 
         def ended(c: Contract) -> bool:
-            return (c.lifecycle_stage == "closed" or bool(c.archived)
-                    or bool(c.expiration_date and c.expiration_date < today))
+            return contract_status(c, today) is None
 
         contracts.sort(key=lambda c: c.created_at, reverse=True)
         contracts.sort(key=ended)  # stable: live first, newest first within each
@@ -160,8 +160,8 @@ class ScreeningService:
                 if any(_name_match(name, n) for n in request_party_names(rq))]
         reqs.sort(key=lambda rq: rq.submitted_at or rq.created_at, reverse=True)
 
-        ndas = [c for c in contracts if "nda" in (c.title or "").lower()
-                or "non-disclosure" in (c.title or "").lower()]
+        ndas = [c for c in contracts if canonical_contract_type(c.contract_type) == "NDA"
+                and contract_status(c, today) == "in_force"]
         if not contracts and not reqs:
             note = "New counterparty. No other contracts or requests on file."
         else:
@@ -169,7 +169,7 @@ class ScreeningService:
             if contracts:
                 parts.append(f"{len(contracts)} prior contract(s)")
             if ndas:
-                parts.append(f"{len(ndas)} NDA on file")
+                parts.append(f"{len(ndas)} NDA in force")
             if reqs:
                 parts.append(f"{len(reqs)} prior request(s)")
             note = "Known counterparty: " + ", ".join(parts) + "."

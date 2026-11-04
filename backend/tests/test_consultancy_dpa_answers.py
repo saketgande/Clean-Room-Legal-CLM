@@ -46,7 +46,7 @@ CONSULTANCY = {
         {"name": "", "due": ""},
         {"name": "Process design report", "due": "2027-03-15"},
     ],
-    "payment_terms": "30 days", "fee_basis": "Fixed fee", "fee_rate": "25000",
+    "payment_terms": "45 days", "fee_basis": "Fixed fee", "fee_rate": "25000",
     "key_individuals": [{"name": "Anita Rao"}, {"name": "Dev Menon"}],
     "company_contact_name": " Ravi  Shah ", "company_contact_role": "Head of Quality",
     "personal_data": "No", "gxp": "No",

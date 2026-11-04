@@ -397,6 +397,19 @@ def test_an_unsaved_check_that_disagrees_does_not_make_the_results_vary(db):
     assert _status(db, user)["results_vary"] is False
 
 
+def test_a_deliberate_ai_sample_that_disagrees_does_not_make_the_results_vary(db):
+    """FR-1A: the sample runs the same wording many times on purpose, with different answers. Counting
+    them would put "results vary" on every template the sample touched, hiding the real signal."""
+    user, playbook, version = _ready(db)
+    _done(db, user, playbook, version, ago=20)
+    _done(db, user, playbook, version, findings=[_finding()], ago=2, trigger="sample")
+
+    status = _status(db, user)
+
+    assert status["results_vary"] is False
+    assert status["state"] == "has_findings"  # still the latest finished check: the truthful state
+
+
 def test_the_marker_is_gone_when_the_wording_or_the_playbook_version_changes(db):
     """Different wording, or a different playbook version, is a different question: the old
     disagreement says nothing about it until checks of the new pair disagree."""

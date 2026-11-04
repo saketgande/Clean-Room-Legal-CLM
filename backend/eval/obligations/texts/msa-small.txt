@@ -1,0 +1,52 @@
+MASTER SERVICES AGREEMENT
+
+This Master Services Agreement (the "Agreement") is entered into as of 2026-10-01 (the "Effective Date") by and between Aegis Audit Test Entity Pvt Ltd ("Aegis Audit Test Entity Pvt Ltd") and Audit Test Globex Corporation ("Provider"). Aegis Audit Test Entity Pvt Ltd and Provider are each a "Party" and together the "Parties."
+
+1. SERVICES AND STATEMENTS OF WORK
+
+1.1 Provider shall perform the services (the "Services") described in one or more statements of work executed by the Parties (each, an "SOW"). Each SOW is governed by and incorporated into this Agreement; in the event of a conflict, this Agreement controls except where an SOW expressly states otherwise for that SOW.
+
+2. FEES AND PAYMENT
+
+2.1 Aegis Audit Test Entity Pvt Ltd shall pay the fees set out in the applicable SOW. Undisputed invoices are payable within sixty (60) days of receipt. Aegis Audit Test Entity Pvt Ltd may withhold payment of amounts it disputes in good faith pending resolution. Fees are exclusive of applicable taxes, other than taxes on Provider's income.
+
+3. TERM AND TERMINATION
+
+3.1 This Agreement begins on the Effective Date and continues until terminated. Either Party may terminate this Agreement or any SOW for material breach not cured within thirty (30) days of written notice, or immediately if the other Party becomes insolvent. Aegis Audit Test Entity Pvt Ltd may terminate any SOW for convenience on thirty (30) days' notice, paying for Services performed through the termination date.
+
+4. CONFIDENTIALITY
+
+4.1 Each Party shall protect the other's Confidential Information with the same care it uses for its own (and no less than reasonable care), use it only to perform this Agreement, and not disclose it except to personnel with a need to know who are bound by confidentiality obligations.
+
+5. INTELLECTUAL PROPERTY
+
+5.1 Deliverables created for Aegis Audit Test Entity Pvt Ltd under an SOW are works made for hire and, upon full payment, are owned by Aegis Audit Test Entity Pvt Ltd. Provider retains ownership of its pre-existing materials and tools and grants Aegis Audit Test Entity Pvt Ltd a perpetual, non-exclusive license to use them as embedded in the deliverables.
+
+6. WARRANTIES
+
+6.1 Provider warrants that the Services will be performed in a professional and workmanlike manner in accordance with the applicable SOW and generally accepted industry standards, and that the deliverables will not infringe the intellectual property rights of any third party.
+
+7. LIMITATION OF LIABILITY
+
+7.1 Except for breaches of confidentiality, indemnification obligations, and a Party's gross negligence or willful misconduct, neither Party's aggregate liability under this Agreement will exceed the fees paid or payable under the applicable SOW in the six (6) months preceding the claim. Neither Party is liable for indirect, incidental, special, or consequential damages.
+
+8. INDEMNIFICATION
+
+8.1 Provider shall defend, indemnify and hold Aegis Audit Test Entity Pvt Ltd harmless from third-party claims arising from Provider's breach of this Agreement, its negligence or willful misconduct, or any allegation that a deliverable infringes a third party's intellectual property rights.
+
+9. INSURANCE
+
+9.1 Provider shall maintain, at its own expense, commercially reasonable insurance coverage appropriate to the Services, including commercial general liability and professional liability (errors and omissions), and shall provide certificates of insurance on request.
+
+10. GENERAL
+
+10.1 This Agreement is governed by the laws of the State of Delaware, without regard to its conflict-of-laws rules. It constitutes the entire agreement between the Parties regarding its subject matter, may be amended only in a signed writing, and may not be assigned by either Party without the other's prior written consent (except to a successor in a merger or sale of substantially all assets).
+
+IN WITNESS WHEREOF, the Parties have executed this Agreement as of the Effective Date.
+
+Aegis Audit Test Entity Pvt Ltd                                    Audit Test Globex Corporation
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

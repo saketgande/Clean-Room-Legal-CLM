@@ -4,7 +4,7 @@ This Data Processing Agreement (the "Agreement") is entered into as of {effectiv
 
 RECITALS
 
-A. The Processor provides services to the Controller under the services agreement between the Parties (the "Principal Agreement"), in the course of which the Processor processes Personal Data on behalf of the Controller.
+A. The Processor provides services to the Controller under {parent_agreement} (the "Principal Agreement"), in the course of which the Processor processes Personal Data on behalf of the Controller.
 
 B. This Agreement sets out the terms on which the Processor processes that Personal Data, so that the Processing complies with Applicable Data Protection Law. It forms part of, and is incorporated into, the Principal Agreement.
 
@@ -52,6 +52,8 @@ NOW, THEREFORE, the Parties agree as follows.
 
 3.4 The Processor shall not process Personal Data for its own purposes or for the purposes of any third party, and shall not sell, share for advertising, combine with other data, or use Personal Data to train, fine-tune or develop any artificial intelligence or machine learning model, except as expressly instructed by the Controller in writing.
 
+3.5 The Processor shall not undertake tracking, behavioural monitoring or targeted advertising directed at children, and shall process children's Personal Data only as the Controller instructs in accordance with section 9 of the DPDP Act.
+
 4. CONFIDENTIALITY OF PERSONNEL
 
 4.1 The Processor shall ensure that access to Personal Data is limited to those of its personnel who need access to perform the Services, and that every person authorised to process Personal Data is bound by a written obligation of confidentiality or is under an appropriate statutory obligation of confidentiality, and has received appropriate training in data protection.
@@ -84,9 +86,9 @@ NOW, THEREFORE, the Parties agree as follows.
 
 8. PERSONAL DATA BREACH NOTIFICATION
 
-8.1 The Processor shall notify the Controller of any personal data breach affecting Personal Data without undue delay, and in any event within forty-eight (48) hours, after becoming aware of it.
+8.1 The Processor shall notify the Controller of any personal data breach affecting Personal Data without undue delay, and in any event within twenty-four (24) hours (and within six (6) hours where it must be reported to the Indian Computer Emergency Response Team (CERT-In)), after becoming aware of it.
 
-8.2 The notification shall include, to the extent then known, and the Processor shall provide in phases as further information becomes available: (a) a description of the nature of the Personal Data Breach, including the categories and approximate number of Data Subjects and Personal Data records concerned; (b) the name and contact details of the Processor's contact point for further information; (c) the likely consequences of the Personal Data Breach; (d) the measures taken or proposed to address the Personal Data Breach and mitigate its possible adverse effects; and (e) any other information the Controller reasonably requires to notify Supervisory Authorities and affected Data Subjects.
+8.2 The notification shall include, to the extent then known, and the Processor shall provide in phases as further information becomes available: (a) a description of the nature of the Personal Data Breach, including the categories and approximate number of Data Subjects and Personal Data records concerned; (b) the name and contact details of the Processor's contact point for further information; (c) the likely consequences of the Personal Data Breach; (d) the measures taken or proposed to address the Personal Data Breach and mitigate its possible adverse effects; (e) any other information the Controller reasonably requires to notify Supervisory Authorities and affected Data Subjects; (f) the date, time and location of the Personal Data Breach and when it was discovered; and (g) its cause and, where known, the person responsible.
 
 8.3 The Processor shall take immediate steps to contain, investigate and remediate the Personal Data Breach, cooperate fully with the Controller, and shall not notify any Supervisory Authority, Data Subject or other third party of the Personal Data Breach without the Controller's prior written consent, except where required by law.
 
@@ -94,9 +96,9 @@ NOW, THEREFORE, the Parties agree as follows.
 
 9.1 International transfers of Personal Data are permitted only in accordance with this Section 9. The Processor shall not transfer, or permit any Sub-processor to transfer, Personal Data outside India (or, for Personal Data subject to the GDPR or UK GDPR, outside the European Economic Area or the United Kingdom), or permit Personal Data to be accessed from outside those territories, without the Controller's prior written authorisation.
 
-9.2 Any authorised transfer shall be made only to a country not restricted under Applicable Data Protection Law, and only where the Standard Contractual Clauses or another lawful transfer safeguard recognised by Applicable Data Protection Law is in place before the transfer, together with any supplementary measures needed to ensure an essentially equivalent level of protection.
+9.2 Any authorised transfer shall be made only as follows: (a) for Personal Data subject to the DPDP Act, never to a country or territory restricted by the Central Government under section 16 of the DPDP Act, and in compliance with any conditions prescribed under it, and no other safeguard is required for such data; and (b) for Personal Data subject to the GDPR or the UK GDPR, only under the Standard Contractual Clauses (Module Two, or Module Three for a transfer by the Processor to a Sub-processor), together with the UK International Data Transfer Addendum for UK data, or another safeguard recognised under Chapter V of the GDPR, with any supplementary measures needed.
 
-9.3 Where the Standard Contractual Clauses apply, they are incorporated by reference, with the Controller as data exporter and the Processor as data importer, and they prevail over this Agreement to the extent of any conflict.
+9.3 Where the Standard Contractual Clauses apply, they are incorporated by reference with the Controller as data exporter and the Processor as data importer: Clause 7 (docking clause) is included; under Clause 9 Option 1 (prior specific authorisation) applies; under Clause 13 the competent supervisory authority is that of the data exporter; Clauses 17 and 18 are governed by the law of Ireland and the courts of Ireland; and Annexes I to III are completed by Annexes 1 to 3 of this Agreement. The Standard Contractual Clauses prevail over this Agreement to the extent of any conflict.
 
 10. AUDIT AND COMPLIANCE
 
@@ -110,6 +112,8 @@ NOW, THEREFORE, the Parties agree as follows.
 
 10.5 The Processor shall assist the Controller with any data protection impact assessment and any prior consultation with a Supervisory Authority relating to the Processing.
 
+10.6 The Processor shall keep a record of its Processing as required by Applicable Data Protection Law, notify the Controller promptly (where lawful) of any request by a public authority for access to Personal Data, and erase specific Personal Data within ten (10) business days of the Controller's instruction.
+
 11. RETURN OR DELETION OF PERSONAL DATA
 
 11.1 On termination or expiry of the Services, or at any earlier time on the Controller's written request, the Processor shall, at the Controller's choice, return all Personal Data to the Controller in a commonly used, machine-readable format and/or securely delete it, and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within thirty (30) days.
@@ -120,13 +124,15 @@ NOW, THEREFORE, the Parties agree as follows.
 
 12. LIABILITY AND INDEMNITY
 
-12.1 The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor.
+12.1 The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor, including any fine or penalty imposed on the Controller to the extent caused by the Processor, a Sub-processor or their personnel.
 
-12.2 Any limitation or exclusion of liability in the Principal Agreement shall not apply to the Processor's liability under this Agreement or for breach of Applicable Data Protection Law.
+12.2 The Processor's total aggregate liability under this Agreement and for breach of Applicable Data Protection Law shall not exceed the greater of (a) three (3) times the fees paid or payable under the Principal Agreement in the twelve (12) months preceding the event giving rise to the claim and (b) {data_breach_floor}, save that this limit does not apply to liability arising from the Processor's fraud or wilful misconduct.
+
+12.3 This Section 12 applies in place of any limitation of liability in the Principal Agreement for the liability it covers, and the limit in Section 12.2 is never lower than the general limit of liability in the Principal Agreement.
 
 13. TERM AND TERMINATION
 
-13.1 This Agreement commences on the Effective Date and {agreement_term}. Notwithstanding that, this Agreement continues in force for as long as the Processor or any Sub-processor retains any Personal Data.
+13.1 This Agreement takes effect on the Effective Date, applies to all Processing under the Principal Agreement whether before or after that date, and continues until the later of the termination or expiry of the Principal Agreement and the return or deletion of all Personal Data under Section 11.
 
 13.2 The Controller may terminate this Agreement and the affected parts of the Principal Agreement immediately on written notice if the Processor materially breaches this Agreement or Applicable Data Protection Law, or if the Processor notifies the Controller that it can no longer comply with this Agreement.
 
@@ -134,9 +140,9 @@ NOW, THEREFORE, the Parties agree as follows.
 
 14. GENERAL
 
-14.1 Governing Law and Jurisdiction. This Agreement shall be governed by and construed in accordance with the laws of {governing_law}, without regard to its conflict of laws principles, and each Party submits to the exclusive jurisdiction of the courts of {governing_law}, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.
+14.1 Governing Law and Disputes. This Agreement is governed by the law that governs the Principal Agreement, and disputes under it are resolved under the dispute-resolution clause of the Principal Agreement, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.
 
-14.2 Notices. Notices under this Agreement shall be in writing and delivered by hand, by recognised courier, or by email with confirmation of transmission to the address of the receiving Party set out in its signature block below. Notices of a Personal Data Breach shall also be given by telephone to the Controller's designated privacy contact.
+14.2 Notices. Notices under this Agreement shall be in writing and delivered by hand, by recognised courier, or by email with confirmation of transmission to the address for notices of the receiving Party set out in its signature block below. The Controller's privacy contact is ______________________________ (name, email and telephone) and the Processor's privacy contact is ______________________________ (name, email and telephone), each as updated by written notice. Notices of a Personal Data Breach shall also be given by telephone to the Controller's privacy contact.
 
 14.3 Assignment. The Processor may not assign, transfer or subcontract this Agreement or any of its rights or obligations without the Controller's prior written consent.
 
@@ -150,13 +156,25 @@ NOW, THEREFORE, the Parties agree as follows.
 
 IN WITNESS WHEREOF, the Parties have executed this Agreement by their duly authorised representatives as of the Effective Date.
 
-{company}                                    {counterparty}
+Signed for and on behalf of {company}
 
-By: ______________________________          By: ______________________________
-Name:                                        Name:
-Title:                                       Title:
-Date:                                        Date:
-Address for notices:                         Address for notices:
+By: ______________________________
+Name: {our_signatory_name}
+Title: {our_signatory_title}
+Date: ______________________________
+Registered office and address for notices: {company_address}
+Company number (CIN): ______________________________
+GSTIN: ______________________________
+
+Signed for and on behalf of {counterparty}
+
+By: ______________________________
+Name: {their_signatory_name}
+Title: {their_signatory_title}
+Date: ______________________________
+Address for notices: {counterparty_address}
+Company number: ______________________________
+Tax number (GSTIN or equivalent): ______________________________
 
 
 ANNEX 1 - DESCRIPTION OF THE PROCESSING

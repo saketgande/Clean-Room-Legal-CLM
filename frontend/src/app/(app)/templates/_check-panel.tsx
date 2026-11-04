@@ -90,6 +90,7 @@ const TRIGGER_LABEL: Record<TemplateCheckTrigger, string> = {
   manual: "Checked by hand",
   check_all: "Check all",
   retry: "Tried again",
+  sample: "Sample answers",
 };
 
 const STATUS_INTENT: Record<TemplateStatusState, "info" | "success" | "warning" | "error"> = {
@@ -641,7 +642,12 @@ function History({
                     </button>
                   </TD>
                   <TD>{byText(c)}</TD>
-                  <TD>{TRIGGER_LABEL[c.trigger]}{c.unsaved ? " (unsaved wording)" : ""}</TD>
+                  <TD>
+                    {TRIGGER_LABEL[c.trigger]}{c.unsaved ? " (unsaved wording)" : ""}
+                    {typeof c.trigger_detail?.combination === "string" && (
+                      <span className="block text-xs text-slate-500">{c.trigger_detail.combination}</span>
+                    )}
+                  </TD>
                   <TD>{c.template_version === 0 ? "Shipped wording" : `Version ${c.template_version}`}</TD>
                   <TD>
                     {c.playbook_name ?? "None"}

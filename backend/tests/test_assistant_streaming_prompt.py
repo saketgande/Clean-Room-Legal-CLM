@@ -62,7 +62,7 @@ def test_the_review_prompts_tell_the_model_which_way_a_term_helps():
         # then to 1.0.5 as it gained `position` (an item it finds at the preferred position is
         # discarded) and was told to judge each rule as written (no extra floors, no "might be read
         # another way", no outside law the rules do not mention).
-        assert skill_registry.get(key).prompt_version == {"playbook_review": "1.0.6"}.get(key, "1.0.1")
+        assert skill_registry.get(key).prompt_version == {"playbook_review": "1.0.7"}.get(key, "1.0.1")
 
 
 def test_the_assistant_is_told_how_to_compare_versions_and_not_to_invent_screens():

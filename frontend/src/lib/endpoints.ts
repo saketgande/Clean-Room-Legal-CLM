@@ -1,6 +1,9 @@
 // Typed endpoint functions, grouped by backend module.
 import { apiFetch, apiDownload } from "./api";
 import type {
+  RequestSummary,
+  ContractTypeOption,
+  TypeNeededList,
   AdminSetting,
   CheckAllResult,
   DraftContractResult,
@@ -10,6 +13,7 @@ import type {
   TemplateCheck,
   TemplateMutationResult,
   TemplatePlaybookChange,
+  TemplateStandardAdopt,
   TemplateSavePayload,
   TemplateTypeOptions,
   TemplateVersionAction,
@@ -46,6 +50,7 @@ import type {
   SignerOption,
   ExternalShareView,
   ContractDeviation,
+  ReviewHistoryVersion,
   DraftIssueFixesResponse,
   IssueFixJob,
   ReviewRetryResponse,
@@ -69,6 +74,7 @@ import type {
   NoticeReminderRun,
   NoticeSummary,
   Obligation,
+  ObligationSummary,
   OrganizationResponse,
   BuildChatResponse,
   ExtractedDoc,
@@ -579,6 +585,13 @@ export const orgApi = {
 export const contractsApi = {
   list: () => apiFetch<ContractResponse[]>("/contracts"),
   get: (id: string) => apiFetch<ContractResponse>(`/contracts/${id}`),
+  types: () => apiFetch<ContractTypeOption[]>("/contracts/types"),
+  typeNeeded: () => apiFetch<TypeNeededList>("/contracts/type-needed"),
+  setType: (id: string, contract_type: string) =>
+    apiFetch<ContractResponse>(`/contracts/${id}/type`, {
+      method: "PUT",
+      body: { contract_type },
+    }),
   risk: (id: string) =>
     apiFetch<ContractRiskSummary>(`/contracts/${id}/risk`),
   computeRisk: (id: string) =>
@@ -622,6 +635,8 @@ export const contractsApi = {
     apiFetch<ReviewRetryResponse>(`/contracts/${id}/review/retry`, { method: "POST", body: {} }),
   deviations: (id: string) =>
     apiFetch<ContractDeviation[]>(`/contracts/${id}/deviations`),
+  reviewHistory: (id: string) =>
+    apiFetch<ReviewHistoryVersion[]>(`/contracts/${id}/review-history`),
   plainSummary: (id: string) =>
     apiFetch<{ summary: string; generated: boolean }>(`/contracts/${id}/plain-summary`),
   logCounterpartyRevision: (id: string, file: File, change_summary?: string) => {
@@ -990,6 +1005,8 @@ export const draftingTemplatesApi = {
   checkAll: () => apiFetch<CheckAllResult>("/drafting-templates/check-all", { method: "POST", body: {} }),
   setPlaybook: (key: string, payload: TemplatePlaybookChange) =>
     apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/playbook`, { method: "PUT", body: payload }),
+  adoptStandardPlaybook: (key: string, payload: TemplateStandardAdopt) =>
+    apiFetch<TemplateMutationResult>(`/drafting-templates/${key}/playbook/standard`, { method: "POST", body: payload }),
   options: () => apiFetch<TemplateTypeOptions>("/drafting-templates/options"),
 };
 
@@ -1199,8 +1216,9 @@ export const noticesApi = {
 };
 
 export const obligationsApi = {
-  list: (params: { contract_id?: string; status_filter?: string; limit?: number } = {}) =>
+  list: (params: { contract_id?: string; status_filter?: string; date_state?: string; limit?: number } = {}) =>
     apiFetch<Obligation[]>(`/obligations${qs(params)}`),
+  summary: () => apiFetch<ObligationSummary>("/obligations/summary"),
   update: (id: string, payload: Record<string, unknown>) =>
     apiFetch<Obligation>(`/obligations/${id}`, {
       method: "PATCH",
@@ -1209,13 +1227,16 @@ export const obligationsApi = {
   complete: (id: string) =>
     apiFetch<Obligation>(`/obligations/${id}/complete`, { method: "POST" }),
   extract: (contract_id: string) =>
-    apiFetch<{ job_id: string; status: string }>(
+    apiFetch<{ job_id: string; status: string; started?: boolean }>(
       `/obligations/extract${qs({ contract_id })}`,
       { method: "POST" },
     ),
   runReminders: () =>
     apiFetch<{
       reminders_sent: number;
+      reminders_failed: number;
+      /** Left unsent: nobody active who can open the contract to send it to. */
+      reminders_skipped: number;
       marked_overdue: number;
       marked_due_soon: number;
     }>("/obligations/run-reminders", { method: "POST" }),
@@ -1534,6 +1555,8 @@ export const intakeApi = {
   activity: (id: string) => apiFetch<RequestActivity>(`/intake/requests/${id}/activity`),
   counterparty: (id: string) =>
     apiFetch<RequestCounterparty>(`/intake/requests/${id}/counterparty`),
+  requestSummary: (id: string) =>
+    apiFetch<RequestSummary>(`/intake/requests/${id}/summary`),
 
   // tasks
   tasks: (id: string) => apiFetch<IntakeTask[]>(`/intake/requests/${id}/tasks`),

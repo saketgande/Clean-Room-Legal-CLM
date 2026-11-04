@@ -8,7 +8,9 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { PenLine, Plus } from "lucide-react";
+import { Building2, PenLine, Plus } from "lucide-react";
+import { AdBtn, Empty, Pill, Search, SecHead } from "./_admin-kit";
+import { Tile } from "./_atoms";
 import {
   Badge, Button, Card, CardBody, CenterSpinner, EmptyState, ErrorState, Field, Input, Modal,
   Table, TD, TH, THead, TR, Textarea,
@@ -39,6 +41,7 @@ const FIELDS: Record<Kind, { key: string; label: string; long?: boolean; type?: 
 export function PartiesRegisterTab() {
   return (
     <div className="space-y-8">
+      <SecHead title="Entities & counterparties" desc="The party register the request wizard looks up. We keep our own legal entities here; counterparties are mostly added from the wizard and corrected or retired here." />
       <Register kind="entity" title="Our legal entities"
         hint="The companies on our side of an agreement. Requesters must pick one of these on step 1 of a new agreement." />
       <Register kind="counterparty" title="Counterparties"
@@ -69,33 +72,33 @@ function Register({ kind, title, hint }: { kind: Kind; title: string; hint: stri
 
   return (
     <section className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="ad-sh">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-          <p className="text-xs text-slate-500">{hint}</p>
+          <h3 className="ad-subh">{title}</h3>
+          <p className="ad-subp">{hint}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Input aria-label={`Search ${title}`} placeholder="Search by name" value={q} onChange={(e) => setQ(e.target.value)} className="w-56" />
-          <Button onClick={() => setEditing("new")}><Plus className="h-4 w-4" />{kind === "entity" ? "New entity" : "New counterparty"}</Button>
+          <Search value={q} onChange={setQ} placeholder={`Search ${title.toLowerCase()}`} />
+          <AdBtn kind="primary" onClick={() => setEditing("new")}><Plus size={15} />{kind === "entity" ? "New entity" : "New counterparty"}</AdBtn>
         </div>
       </div>
-      <Card>
-        {isLoading ? <CardBody><CenterSpinner /></CardBody>
-          : error ? <CardBody><ErrorState error={error} /></CardBody>
+      <div className="ad-card" style={{ padding: 12 }}>
+        {isLoading ? <div className="ad-load"><span className="ad-spin" /></div>
+          : error ? <ErrorState error={error} />
           : (data ?? []).length === 0 ? (
-            <CardBody><EmptyState title={q ? "Nothing matches" : kind === "entity" ? "No legal entities yet" : "No counterparties yet"}
-              description={kind === "entity" ? "Add your company's legal entities so requesters can pick them." : "Counterparties appear here as requesters add them."} /></CardBody>
+            <Empty icon={<Building2 size={26} />} title={q ? "Nothing matches" : kind === "entity" ? "No legal entities yet" : "No counterparties yet"}
+              desc={kind === "entity" ? "Add your company's legal entities so requesters can pick them." : "Counterparties appear here as requesters add them."} />
           ) : (
             <Table>
               <THead><TR>
                 <TH>Name</TH><TH>Jurisdiction</TH><TH>{kind === "entity" ? "Authorised signatory" : "Contact email"}</TH><TH>Status</TH><TH></TH>
               </TR></THead>
-              <tbody>{(data ?? []).map((row) => (
-                <TR key={row.id}>
-                  <TD className="font-medium">{row.name}</TD>
+              <tbody>{(data ?? []).map((row, i) => (
+                <TR key={row.id} style={{ animationDelay: `${Math.min(i, 12) * 30}ms` }}>
+                  <TD className="font-medium"><span className="ad-who"><Tile name={row.name} size={30} />{row.name}</span></TD>
                   <TD className="text-slate-500">{row.jurisdiction ?? "—"}</TD>
                   <TD className="text-slate-500">{(kind === "entity" ? (row as LegalEntity).authorised_signatory : (row as Counterparty).contact_email) ?? "—"}</TD>
-                  <TD>{row.active ? <Badge tone="green">Active</Badge> : <Badge tone="slate">Retired</Badge>}</TD>
+                  <TD><Pill tone={row.active ? "green" : "slate"}>{row.active ? "Active" : "Retired"}</Pill></TD>
                   <TD className="text-right">
                     <Button variant="ghost" size="sm" onClick={() => setEditing(row)}><PenLine className="h-3.5 w-3.5" />Edit</Button>
                     <Button variant="ghost" size="sm" onClick={() => setActive(row, !row.active)}>{row.active ? "Retire" : "Restore"}</Button>
@@ -104,7 +107,7 @@ function Register({ kind, title, hint }: { kind: Kind; title: string; hint: stri
               ))}</tbody>
             </Table>
           )}
-      </Card>
+      </div>
       {editing && (
         <RecordModal kind={kind} existing={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}

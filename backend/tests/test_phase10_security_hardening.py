@@ -159,6 +159,8 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
         # DocuSign Connect HMAC is required once DocuSign is live (mock off),
         # and public links must use a non-loopback https base URL.
         docusign_connect_hmac_key="z" * 40,
+        resend_api_key="re_test_key",
+        resend_from_email="legal@clm.acme.test",
         app_base_url="https://app.example.com",
         cors_origins="https://app.example.com",
         allowed_hosts="app.example.com",
@@ -171,3 +173,21 @@ def test_runtime_settings_accepts_a_correctly_locked_down_production_config():
     )
     # Must not raise.
     validate_runtime_settings(settings)
+    # Guards owners hearing nothing: with no key every reminder send raises, and Resend refuses the
+    # example.com sender, while the sweep still reports success.
+    for bad in ({"resend_api_key": None}, {"resend_from_email": "legal-clm@example.com"}):
+        with pytest.raises(RuntimeError, match="RESEND_"):
+            validate_runtime_settings(settings.model_copy(update=bad))
+
+
+@pytest.mark.parametrize("environment", ["local", "production"])
+def test_a_token_ceiling_below_a_skills_budget_refuses_to_boot(environment):
+    """Guards the env template's old CLAUDE_MAX_TOKENS_CEILING=8000: every skill budgeted above it was
+    cut off, a cut-off answer stores nothing, and the contract went Active with no obligations."""
+    from app.ai.gateway.features import feature_registry
+
+    biggest = max(f.max_tokens for f in feature_registry.all())
+    with pytest.raises(RuntimeError, match="CLAUDE_MAX_TOKENS_CEILING"):
+        validate_runtime_settings(Settings(environment=environment, claude_max_tokens_ceiling=biggest - 1))
+    validate_runtime_settings(Settings(environment="local", claude_max_tokens_ceiling=biggest))
+    validate_runtime_settings(Settings(environment="local", claude_max_tokens_ceiling=0))

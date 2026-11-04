@@ -83,6 +83,7 @@ def record_call(
     validated_output: dict[str, Any] | None = None,
     validation_error: str | None = None,
     error_class: str | None = None,
+    provider_request_id: str | None = None,
     latency_ms: float | None = None,
 ) -> AICallLog:
     usage = response.token_usage if response is not None else {}
@@ -116,7 +117,7 @@ def record_call(
         validation_status=validation_status,
         validation_error=validation_error,
         error_class=error_class,
-        provider_request_id=response.provider_request_id if response is not None else None,
+        provider_request_id=response.provider_request_id if response is not None else provider_request_id,
         stop_reason=response.stop_reason if response is not None else None,
         raw_ai_output=response.raw_response if (response is not None and settings.ai_store_raw_outputs) else None,
         validated_output=validated_output,

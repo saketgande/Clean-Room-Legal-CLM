@@ -12,6 +12,7 @@ Owner agents: backend-dev, db-engineer
 ## Endpoints
 
 - `GET /obligations` -- permission: `obligation:read` -- request: str | None -- response: ?
+- `GET /obligations/summary` -- permission: `obligation:read` -- request: ? -- response: ?
 - `GET /obligations/{obligation_id}` -- permission: `obligation:read` -- request: ? -- response: ?
 - `PATCH /obligations/{obligation_id}` -- permission: `obligation:update` -- request: ObligationUpdate -- response: ?
 - `POST /obligations/extract` -- permission: `obligation:update` -- request: ? -- response: ?
@@ -24,7 +25,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
-(none matched -- check specs/_graph/repo-graph.json for the full migration chain)
+- `0077_obligation_edit_roles` (backend/alembic/versions/0077_obligation_edit_roles.py)
 
 ## Frontend counterpart
 
@@ -33,4 +34,5 @@ Api group: `obligationsApi` (confidence: exact)
 - `obligationsApi.extract()` -> `POST /obligations/extract${qs({ contract_id })}`
 - `obligationsApi.list()` -> `GET /obligations${qs(params)}`
 - `obligationsApi.runReminders()` -> `POST /obligations/run-reminders`
+- `obligationsApi.summary()` -> `GET /obligations/summary`
 - `obligationsApi.update()` -> `PATCH /obligations/${id}`

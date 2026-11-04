@@ -31,6 +31,7 @@ from app.intake.schemas import (
     RequestCounterpartyResponse,
     RequestCreate,
     RequestResponse,
+    RequestSummaryResponse,
     RequestUpdate,
     TaskCreateReq,
     TaskResponse,
@@ -295,6 +296,18 @@ def request_counterparty(
 ):
     r = intake_service.get_request(user=current_user, request_id=request_id)
     return screening_service.visible_counterparty(current_user, r)
+
+
+@router.get("/requests/{request_id}/summary", response_model=RequestSummaryResponse)
+def request_summary(
+    request_id: str,
+    intake_service: IntakeService = Depends(get_intake_service),
+    current_user=Depends(_CREATE),
+):
+    from app.intake.request_summary import read
+
+    r = intake_service.get_request(user=current_user, request_id=request_id)
+    return read(intake_service.db, r)
 
 
 # ---- tasks ----------------------------------------------------------------

@@ -4,6 +4,7 @@ import traceback
 from datetime import timedelta
 
 import httpx
+from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import and_, delete, func, or_, select, update
 
 # Every mapper, before any task touches a model: the worker imports only what
@@ -13,12 +14,20 @@ import app.models  # noqa: F401
 from app.ai.controller import ai_controller
 from app.ai.embeddings import generate_embeddings_for_snapshot
 from app.ai.models import AISkillRun
+from app.ai.outcomes import Outcome, failure_from_exception, failure_payload
 from app.ai.schemas import TabularCellOutput, TabularRowOutput
 from app.contract_brain.ingestion import ingest_contract_brain
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
 from app.contracts.models import Contract
+from app.core import retry_policy
 from app.core.database import SessionLocal, utcnow
-from app.core.enums import AISkillRunStatus, JobStatus, ObligationStatus, TabularCellStatus
+from app.core.enums import (
+    AISkillRunStatus,
+    AIValidationStatus,
+    JobStatus,
+    ObligationStatus,
+    TabularCellStatus,
+)
 from app.jobs.celery_app import celery_app
 from app.jobs.models import JobRun
 from app.tabular_review.models import TabularReview, TabularReviewCell, TabularReviewColumn
@@ -34,34 +43,19 @@ TRANSIENT_ERRORS = (httpx.TransportError, ConnectionError, TimeoutError)
 
 
 def _humanize_cell_error(exc: Exception) -> str:
-    """Turn a raw exception into a reason a lawyer can read.
+    """The reason a lawyer reads on a failed cell, from the failure's outcome (app/ai/outcomes.py) and never from
+    the raw text: a refused insert prints the contract's own words as its parameters, and the cell is shown in the
+    review grid and its tooltip. The full traceback still lands on the JobRun (error_stack)."""
+    failure = failure_from_exception(exc)
+    if failure["outcome"] == Outcome.INTERNAL:
+        # Two of our own failures worth telling apart (fixed sentences; nothing of the error is shown).
+        lowered = str(exc).lower()
+        if "event loop is closed" in lowered:
+            return "A temporary worker error interrupted this cell. Re-run to retry."
+        if "no text" in lowered or "snapshot" in lowered:
+            return "This contract has no extracted text to analyze yet. Ensure extraction finished, then re-run."
+    return f"{failure['reason']} Re-run this cell to retry." if failure["retryable"] else failure["reason"]
 
-    The raw ``str(exc)`` (a pydantic ValidationError dump, an httpx timeout, a
-    provider 429) is meaningless to an end user and sometimes leaks internals.
-    Map the common cases to a plain sentence; fall back to a trimmed message
-    for anything unrecognized. The full traceback still lands on the JobRun
-    (error_stack) for debugging, so nothing is lost.
-    """
-    raw = str(exc).strip()
-    lowered = raw.lower()
-    if isinstance(exc, (httpx.TimeoutException, TimeoutError)) or "timed out" in lowered or "timeout" in lowered:
-        return "The AI request timed out before finishing. Re-run this cell to retry."
-    if "event loop is closed" in lowered:
-        return "A temporary worker error interrupted this cell. Re-run to retry."
-    status_code = getattr(getattr(exc, "response", None), "status_code", None)
-    if status_code == 429 or "rate limit" in lowered or "429" in raw:
-        return "The AI provider is rate-limiting requests. Wait a moment, then re-run this cell."
-    if status_code in (401, 403) or "api key" in lowered or "unauthorized" in lowered:
-        return "The AI provider rejected the request (auth/configuration). Contact an admin."
-    if isinstance(exc, (httpx.TransportError, ConnectionError)) or "connection" in lowered:
-        return "Could not reach the AI provider (network error). Re-run this cell to retry."
-    if "validation" in lowered or "validationerror" in exc.__class__.__name__.lower():
-        return "The AI returned an unexpected format for this column. Re-run this cell to retry."
-    if "no text" in lowered or "snapshot" in lowered or "not found" in lowered:
-        return "This contract has no extracted text to analyze yet. Ensure extraction finished, then re-run."
-    # Unknown: surface a trimmed single line so the table stays readable.
-    first_line = raw.splitlines()[0] if raw else exc.__class__.__name__
-    return f"Extraction failed: {first_line[:200]}"
 
 # JobStatus has no dedicated dead-letter member, so terminal failures use the
 # closest existing value (FAILED) and are tagged in metadata_json["dead_letter"]
@@ -102,6 +96,11 @@ def _should_run(job: JobRun, now) -> bool:
 def run_ai_job(self, job_id: str) -> dict:
     try:
         return asyncio.run(_run_ai_job(job_id))
+    except SoftTimeLimitExceeded:
+        # Celery's own time limit (task_soft_time_limit): the worker is told to stop, with a few minutes before the
+        # hard kill. Say so plainly instead of leaving the job "running" until its lease runs out, and do not re-run it.
+        _mark_job_soft_limit(job_id)
+        raise
     except TRANSIENT_ERRORS:
         # Let Celery's autoretry handle transient errors. On the final attempt
         # autoretry re-raises here; flag the job as a terminal dead-letter so it
@@ -201,6 +200,10 @@ async def _maybe_auto_review(db, *, job) -> None:
 
 
 async def _run_ai_job(job_id: str) -> dict:
+    # A job holds its worker slot anyway and a failed one can be retried, so its model calls wait for a busy provider
+    # (app/core/retry_policy.py); a call made for a person on a web request gives up fast. Set here rather than in the
+    # Celery task so the exam and the fixture seeder, which call this directly, run the policy production does.
+    patient = retry_policy.patient.set(True)
     db = SessionLocal()
     try:
         # Locked read + immediate status flip to RUNNING (committed below) is the
@@ -217,6 +220,8 @@ async def _run_ai_job(job_id: str) -> dict:
         job.started_at = utcnow()
         job.attempt_count += 1
         job.progress = max(job.progress, 5)
+        if "failure" in (job.metadata_json or {}):  # a running job is not failing; this attempt writes its own
+            job.metadata_json = {k: v for k, v in job.metadata_json.items() if k != "failure"}
         db.commit()
 
         # Checked here, not where jobs are queued: every path that queues
@@ -352,6 +357,8 @@ async def _run_ai_job(job_id: str) -> dict:
             if await _maybe_auto_review(db, job=job) == "incomplete":
                 job.status = JobStatus.FAILED
                 job.error_message = "The playbook review did not run."
+                job.metadata_json = {**(job.metadata_json or {}),
+                                     "failure": failure_payload(Outcome.INTERNAL, job.error_message)}
                 job.finished_at = utcnow()
             else:
                 _mark_job_succeeded(job)
@@ -372,7 +379,9 @@ async def _run_ai_job(job_id: str) -> dict:
             await _run_tabular_job(db, job)
         else:
             job.status = JobStatus.FAILED
-            job.error_message = f"Unsupported job type for AI architecture spine: {job.job_type}"
+            job.error_message = f"This kind of job ({job.job_type}) is not one the worker can run."
+            job.metadata_json = {**(job.metadata_json or {}),
+                                 "failure": failure_payload(Outcome.INTERNAL, job.error_message, retryable=False)}
             job.finished_at = utcnow()
             db.commit()
         return {"job_id": job_id, "status": db.get(JobRun, job_id).status}
@@ -383,14 +392,19 @@ async def _run_ai_job(job_id: str) -> dict:
         db.rollback()
         job = db.get(JobRun, job_id)
         if job is not None:
+            # A plain sentence and an outcome (app/ai/outcomes.py), never str(exc): a failed insert prints its
+            # parameters, which are the contract's own words. The stack stays here for an administrator.
+            failure = failure_from_exception(exc)
             job.status = JobStatus.FAILED
-            job.error_message = str(exc)
+            job.error_message = failure["reason"]
             job.error_stack = traceback.format_exc()
+            job.metadata_json = {**(job.metadata_json or {}), "failure": failure}
             job.finished_at = utcnow()
             db.commit()
         raise
     finally:
         db.close()
+        retry_policy.patient.reset(patient)
 
 
 def _sync_job_from_skill_runs(db, *, job_id: str) -> None:
@@ -416,6 +430,9 @@ def _sync_job_from_skill_runs(db, *, job_id: str) -> None:
         job.status = JobStatus.FAILED
         job.finished_at = utcnow()
         job.error_message = skill_run.error_message or skill_run.validation_error
+        meta = dict(job.metadata_json or {})
+        meta.setdefault("failure", failure_payload(Outcome.INTERNAL, skill_run.error_message))
+        job.metadata_json = meta
     db.commit()
 
 
@@ -425,6 +442,8 @@ def _mark_job_succeeded(job: JobRun) -> None:
     job.finished_at = utcnow()
     job.error_message = None
     job.error_stack = None
+    if "failure" in (job.metadata_json or {}):  # a retry that worked leaves no old failure behind
+        job.metadata_json = {k: v for k, v in job.metadata_json.items() if k != "failure"}
 
 
 @celery_app.task
@@ -535,10 +554,13 @@ def _reclaim_stale_jobs(db, *, now) -> dict:
         if job.attempt_count >= MAX_JOB_ATTEMPTS:
             job.status = JobStatus.FAILED
             job.finished_at = now
-            job.error_message = job.error_message or "The worker stopped before finishing this job."
+            # The same sentence in both places: an older attempt's message would contradict the payload.
+            gave_up = "The worker stopped before finishing this job, again and again."
+            job.error_message = gave_up
             job.metadata_json = {
                 **(job.metadata_json or {}),
                 DEAD_LETTER_META_KEY: {"reason": "lease_expired", "at": now.isoformat()},
+                "failure": failure_payload(Outcome.INTERNAL, gave_up),
             }
             _fail_stuck_cells(db, job)
             dead_lettered += 1
@@ -546,6 +568,8 @@ def _reclaim_stale_jobs(db, *, now) -> dict:
             job.status = JobStatus.QUEUED
             job.celery_task_id = None
             requeued += 1
+    db.commit()
+    skill_runs_closed = _close_orphan_skill_runs(db, now=now)
     db.commit()
 
     undispatched = db.scalars(
@@ -573,6 +597,7 @@ def _reclaim_stale_jobs(db, *, now) -> dict:
         "dead_lettered": dead_lettered,
         "redispatched": redispatched,
         "dispatch_failed": dispatch_failed,
+        "skill_runs_closed": skill_runs_closed,
     }
 
 
@@ -831,6 +856,66 @@ async def _resume_workflow_runs() -> dict:
         db.close()
 
 
+def _close_skill_runs(db, *conditions, reason: str) -> int:
+    """Mark the AI runs that match as FAILED with a plain reason (never touches one that is not still RUNNING)."""
+    result = db.execute(
+        update(AISkillRun)
+        .where(AISkillRun.status == AISkillRunStatus.RUNNING, *conditions)
+        .values(status=AISkillRunStatus.FAILED, validation_status=AIValidationStatus.INVALID, error_message=reason,
+                finished_at=utcnow())
+    )
+    return result.rowcount or 0
+
+
+def _close_orphan_skill_runs(db, *, now) -> int:
+    """Whatever job it belonged to, an AI run still "running" past the lease was left behind by a worker that died (the
+    hard limit kills the process at 15 minutes, the lease is 20): nothing will ever finish it. Matching on the run itself,
+    not its job, because the longest call in a clause job (the playbook review) is not tied to any job. A run for a
+    chat answer is closed only once that answer has ended (the assistant's own sweep marks a dead one INTERRUPTED but
+    never touches its AI runs): while the answer is running or waiting on a confirmation, a resumed turn reuses the
+    same run row with its old start time."""
+    from app.assistant.models import AssistantRun
+    from app.core.enums import AssistantRunStatus
+
+    ended = select(AssistantRun.id).where(AssistantRun.status.in_((
+        AssistantRunStatus.SUCCEEDED, AssistantRunStatus.FAILED, AssistantRunStatus.INTERRUPTED,
+        AssistantRunStatus.CANCELLED)))
+    return _close_skill_runs(
+        db, func.coalesce(AISkillRun.started_at, AISkillRun.created_at) < now - JOB_LEASE,
+        or_(AISkillRun.assistant_run_id.is_(None), AISkillRun.assistant_run_id.in_(ended)),
+        reason="The worker stopped before finishing.")
+
+
+# A template check's re-run (after the lease: reclaim) ends the check as "interrupted" and starts the next one WITHOUT a
+# new paid review, and a check left "running" blocks the template for ever, so on the soft limit it is left RUNNING for
+# that. Every other job is failed here: re-running it would pay for the same work again.
+_OWN_RECOVERY_JOB_TYPES = ("template_check",)
+
+
+def _mark_job_soft_limit(job_id: str) -> None:
+    """The worker hit Celery's soft time limit while running this job. A fresh session: the run's own is closed or
+    unusable by now. Best-effort, never masks the original exception."""
+    db = SessionLocal()
+    try:
+        job = db.get(JobRun, job_id)
+        if job is None:
+            return
+        failure = failure_from_exception(SoftTimeLimitExceeded())
+        _close_skill_runs(db, AISkillRun.job_id == job_id, reason=failure["reason"])
+        if job.status == JobStatus.RUNNING and job.job_type not in _OWN_RECOVERY_JOB_TYPES:
+            job.status = JobStatus.FAILED
+            job.finished_at = utcnow()
+            job.error_message = failure["reason"]
+            job.metadata_json = {**(job.metadata_json or {}), "failure": failure}
+            _fail_stuck_cells(db, job)  # a tabular job's cells must not keep showing "Running"
+        db.commit()
+    except Exception:  # pragma: no cover - defensive
+        db.rollback()
+        logger.exception("Failed to record the soft time limit for job %s", job_id)
+    finally:
+        db.close()
+
+
 def _mark_job_dead_letter(job_id: str, *, reason: str) -> None:
     """Mark a job terminally failed after retries are exhausted.
 
@@ -854,7 +939,9 @@ def _mark_job_dead_letter(job_id: str, *, reason: str) -> None:
             DEAD_LETTER_META_KEY: {"reason": reason, "at": utcnow().isoformat()},
         }
         if not job.error_message:
-            job.error_message = f"Dead-lettered: {reason}"
+            job.error_message = "The job kept failing and ran out of retries."
+        if "failure" not in job.metadata_json:
+            job.metadata_json = {**job.metadata_json, "failure": failure_payload(Outcome.INTERNAL, job.error_message)}
         db.commit()
     except Exception:  # pragma: no cover - defensive; never mask the real error
         db.rollback()
@@ -921,6 +1008,20 @@ _RESOURCE_TIMELINE_EVENT_RETENTION_DAYS = 365
 
 
 @celery_app.task
+def audit_obligation_extraction() -> dict:
+    """Daily: check that every Active contract's obligations were really read, tell people about what was not, and (only
+    when switched on) start a read of contracts nobody ever read. Never re-runs a failed job. All of it is in
+    app/obligations/extraction_sweep.py; this is only the thin task around it."""
+    from app.obligations.extraction_sweep import audit_all_orgs
+
+    db = SessionLocal()
+    try:
+        return {"orgs": audit_all_orgs(db)}
+    finally:
+        db.close()
+
+
+@celery_app.task
 def send_obligation_reminders() -> dict:
     """Daily: recompute obligation statuses and email due reminders, all orgs.
 
@@ -931,10 +1032,9 @@ def send_obligation_reminders() -> dict:
 
 
 async def _send_obligation_reminders(*, resend=None) -> dict:
-    from app.auth.models import User
     from app.integrations.dependencies import get_resend_client
-    from app.obligations.models import Obligation, ObligationReminder
-    from app.obligations.service import reminder_email
+    from app.obligations.models import Obligation
+    from app.obligations.service import live_contract_ids, send_due_reminders
 
     resend = resend or get_resend_client()
     db = SessionLocal()
@@ -943,7 +1043,11 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
         # Recompute overdue / due-soon across every org's active obligations as three
         # set-based UPDATEs: memory stays flat however many obligations exist.
         soon = today + timedelta(days=_OBLIGATION_DUE_SOON_DAYS)
-        live = (Obligation.deleted_at.is_(None), Obligation.due_date.is_not(None))
+        live = (
+            Obligation.deleted_at.is_(None),
+            Obligation.due_date.is_not(None),
+            Obligation.contract_id.in_(live_contract_ids()),
+        )
 
         def _set_status(to_status, from_statuses, *window):
             return db.execute(
@@ -965,51 +1069,9 @@ async def _send_obligation_reminders(*, resend=None) -> dict:
         # The status recompute is committed on its own so a slow email batch can't lose it.
         db.commit()
 
-        due_reminders = db.scalars(
-            select(ObligationReminder)
-            .where(
-                ObligationReminder.sent_at.is_(None),
-                ObligationReminder.remind_at <= today,
-            )
-            .order_by(ObligationReminder.remind_at.asc())
-            .limit(_REMINDER_BATCH)
-        ).all()
-        sent = 0
-        failed = 0
-        for reminder in due_reminders:
-            ob = db.get(Obligation, reminder.obligation_id)
-            if ob is None or ob.deleted_at is not None or ob.status in {
-                ObligationStatus.COMPLETED,
-                ObligationStatus.CANCELLED,
-            }:
-                continue
-            owner = db.get(User, ob.owner_user_id) if ob.owner_user_id else None
-            # Record the reminder as sent, and commit, BEFORE the email goes out. A
-            # crash or time limit after this point can at worst lose this one
-            # reminder; it can no longer re-send the whole batch on the next run.
-            reminder.sent_at = today
-            db.commit()
-            if owner is not None:
-                # Same wording as the manual run, incl. "calculated - not yet confirmed".
-                subject, html = reminder_email(ob)
-                try:
-                    await resend.send_email(to=owner.email, subject=subject, html=html)
-                except Exception:
-                    logger.exception(
-                        "obligation reminder email failed",
-                        extra={"obligation_id": ob.id, "reminder_id": reminder.id},
-                    )
-                    reminder.sent_at = None  # not delivered: the next run retries it
-                    db.commit()
-                    failed += 1
-                    continue
-            sent += 1
-        return {
-            "reminders_sent": sent,
-            "reminders_failed": failed,
-            "marked_overdue": overdue,
-            "marked_due_soon": due_soon,
-        }
+        # One loop for this job and the manual button: send, then mark, a reminder at a time.
+        result = await send_due_reminders(db, resend, today=today, limit=_REMINDER_BATCH)
+        return {**result, "marked_overdue": overdue, "marked_due_soon": due_soon}
     finally:
         db.close()
 
@@ -1134,8 +1196,11 @@ def check_stage_slas() -> dict:
 def close_expired_contracts() -> dict:
     """Daily: close ACTIVE contracts whose expiration date has passed.
 
-    Guardrails: skip any contract with an undecided renewal (an open decision
-    means someone is actively working it) or with the renewal_due flag set.
+    Guardrails: skip any contract whose renewal is undecided (an open decision
+    means someone is actively working it) or was decided renew / renegotiate (it
+    is continuing, and "Renew" does not move the end date, so the old one would
+    close it and, with obligations tracked only while open, silence its duties),
+    or with the renewal_due flag set.
     ACTIVE -> CLOSED is an allowed transition, so the normal state machine,
     stage history and audit trail all apply; the actor is None (system).
     Idempotent — already-closed contracts never match the query.
@@ -1160,10 +1225,15 @@ def close_expired_contracts() -> dict:
         closed = 0
         skipped = 0
         for contract in candidates:
+            # ponytail: a decision never resets, so a contract renewed once is not auto-closed at any
+            # later expiry either, until its end date is moved. Reset it when the end date moves, or have
+            # "Renew" take the new end date.
             undecided_renewal = db.scalar(
                 select(RenewalEvent.id).where(
                     RenewalEvent.contract_id == contract.id,
-                    RenewalEvent.decision == RenewalDecision.UNDECIDED,
+                    RenewalEvent.decision.in_(
+                        (RenewalDecision.UNDECIDED, RenewalDecision.RENEW, RenewalDecision.RENEGOTIATE)
+                    ),
                 )
             )
             if undecided_renewal or contract.renewal_due:

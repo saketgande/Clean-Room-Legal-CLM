@@ -149,7 +149,7 @@ _TRUE = {"true", "yes", "y", "1", "on"}
 _FALSE = {"false", "no", "n", "0", "off"}
 
 
-def _coerce_field(f, raw):
+def _coerce_field(f, raw, values=None, stored=None):
     """Return ``raw`` as the type the field declares, or raise 422.
 
     Forms post everything as strings, so a `number` arrives as "1500" and a
@@ -216,11 +216,18 @@ def _coerce_field(f, raw):
         return [str(p) for p in picked]
 
     if kind == "select":
+        from app.intake.agreement_forms import options_for
+
         allowed = [
-            str(o.get("value")) for o in (f.options or []) if isinstance(o, dict) and "value" in o
+            str(o.get("value"))
+            for o in (options_for(f, values or {}) or [])
+            if isinstance(o, dict) and "value" in o
         ]
         text = str(raw).strip()
-        if allowed and text not in allowed:
+        # An answer the update leaves as filed stays, so a request holding an option dropped since
+        # ("30 days" on an MSA) can still be edited.
+        kept = stored is not None and text == stored.get(f.key)
+        if allowed and text not in allowed and not kept:
             raise HTTPException(
                 422, f'Field "{f.label}" must be one of: {", ".join(allowed)}'
             )
@@ -306,7 +313,7 @@ def _validate_field_values(fields: list, values: dict | None, *, stored: dict | 
         if (getattr(f, "legacy_single", False) and stored is not None and isinstance(raw, str)
                 and raw == stored.get(f.key)):
             continue  # an older single choice ("Several" too) sent back as it was: kept verbatim
-        cleaned[f.key] = value = _coerce_field(f, raw)
+        cleaned[f.key] = value = _coerce_field(f, raw, cleaned, stored)
         if getattr(f, "max_length", None) and isinstance(value, str):
             cleaned[f.key] = value = tidy(value)
         if stored is None or value != stored.get(f.key):
@@ -577,13 +584,26 @@ class _PreparedAttachment:
     extraction_quality: float | None
 
 
+def _ocr_text(filename: str, mime_type: str, content: bytes) -> str:
+    import asyncio
+
+    from app.integrations.dependencies import get_reducto_client
+
+    try:
+        return asyncio.run(get_reducto_client().extract_text(
+            filename=filename, mime_type=mime_type, content=content)).text or ""
+    except Exception:
+        logger.warning("OCR of attachment %s failed", filename, exc_info=True)
+        return ""
+
+
 def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _PreparedAttachment:
     """Check one attachment and read its text, or raise an error that names the file.
 
     Runs before anything is saved, so a bad file stops the filing instead of
     leaving a request behind with its attachment missing."""
     from app.contract_files.service import _scan_for_malware, validate_upload_mime
-    from app.contract_files.text_extraction import extract_text
+    from app.contract_files.text_extraction import extract_text, score_extraction_quality
 
     name = (filename or "attachment")[:300]
     if not content:
@@ -605,8 +625,15 @@ def _prepare_attachment(filename: str, mime_type: str, content: bytes) -> _Prepa
         # Postgres TEXT/VARCHAR columns can never store a NUL byte — some PDF
         # extractors emit them for certain font encodings, which would
         # otherwise fail this insert.
-        extracted = (result.text or "").replace("\x00", "")[:20000]
-        quality = result.quality_score
+        text, quality = result.text or "", result.quality_score
+        if result.needs_ocr:
+            # A scan (or a scan with only an e-signature stamp as text) reads as stamps, and the contract
+            # made from this attachment is built from this text, so OCR it here like the main upload does.
+            # A failed OCR keeps the native text rather than refusing the filing.
+            ocr_text = _ocr_text(name, mime_type, content)
+            if ocr_text:
+                text, quality = ocr_text, score_extraction_quality(ocr_text)
+        extracted = text.replace("\x00", "")[:20000]
     except Exception:
         extracted = ""
     return _PreparedAttachment(name, mime_type[:120], len(content), extracted or None, quality)
@@ -1072,6 +1099,9 @@ class IntakeService:
         # so triage can read what was attached.
         for att in attachments:
             self._attach(actor=actor, r=r, att=att)
+        from app.intake.request_summary import record_summary
+
+        record_summary(db, actor, r, getattr(payload, "summary", None), field_values, request_id)
         form = (field_values or {}).get("request_form")
         if form == "sow":
             # What the requester filed for the SOW, exactly as stored (FR-38): the rows, and the pricing,

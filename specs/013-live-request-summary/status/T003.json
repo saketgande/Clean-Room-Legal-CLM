@@ -1,0 +1,1 @@
+{"task": "T003", "agent": "backend-dev", "status": "done", "detail": "module, schemas, GET /summary, filing call, drafts, EVENTS row; targeted 56 passed, full 4726 passed (1 known unrelated fail), ruff clean", "updated": "2026-10-27T09:39:29Z"}

@@ -62,10 +62,15 @@ class JobsService:
         if job.status == JobStatus.QUEUED and job.celery_task_id:
             return job
         if job.status == JobStatus.FAILED:
+            from app.jobs.tasks import DEAD_LETTER_META_KEY
+
             job.status = JobStatus.QUEUED
             job.error_message = None
             job.error_stack = None
             job.finished_at = None
+            # A job queued again is not failed or dead-lettered any more; the old reasons would sit beside a new one.
+            job.metadata_json = {k: v for k, v in (job.metadata_json or {}).items()
+                                 if k not in ("failure", DEAD_LETTER_META_KEY)}
         task = run_ai_job.delay(job.id)
         job.celery_task_id = task.id
         db.add(job)

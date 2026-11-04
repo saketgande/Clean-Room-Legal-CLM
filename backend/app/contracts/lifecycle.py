@@ -181,6 +181,36 @@ def allowed_transitions_for(stage: str) -> list[str]:
     return sorted(ALLOWED_TRANSITIONS.get(stage, set()))
 
 
+# job type -> (singular, plural, the page where its result is shown)
+_ACTIVATION_JOBS = {
+    "obligation_extraction": ("obligation", "obligations", "Obligations"),
+    "renewal_extraction": ("renewal", "renewals", "Renewals"),
+}
+
+
+def activation_note(*, wanted: tuple[str, ...], scheduled: list[str], has_text: bool) -> str:
+    """What happened to the extraction when a contract became Active, said as it was. "Being monitored" is
+    only true when the rows are already on file: a contract with no readable text, or one whose job was
+    already on record (running, done or failed), is not being monitored by anything just queued."""
+    if not wanted:
+        return "Obligations and renewals are already on file and being monitored."
+    queued = [t for t in wanted if t in scheduled]
+    left = [t for t in wanted if t not in scheduled]
+    parts = []
+    if queued:
+        names = " and ".join(_ACTIVATION_JOBS[t][0] for t in queued).capitalize()
+        parts.append(f"{names} extraction {'was' if len(queued) == 1 else 'were'} queued automatically.")
+    if left:
+        what = " and ".join(_ACTIVATION_JOBS[t][1] for t in left)
+        parts.append(
+            f"The contract has no readable text yet, so {what} were not extracted and are not being monitored."
+            if not has_text
+            else f"Extraction of {what} was not queued again: an earlier one is already on record "
+            f"(check the {' and '.join(_ACTIVATION_JOBS[t][2] for t in left)} page{'s' if len(left) > 1 else ''})."
+        )
+    return " ".join(parts)
+
+
 class ContractLifecycleService:
     """Lifecycle stage transitions and their stage-entry side effects.
 
@@ -581,18 +611,15 @@ class ContractLifecycleService:
             if job_types
             else []
         )
+        version, snapshot = self._authoritative_artifacts(contract)
         self._notify_owner(
             contract=contract,
             actor_user_id=actor_user_id,
             event_type="lifecycle.entered_active",
             subject=f"Now active: {contract.title}",
-            body=(
-                f'"{contract.title}" is now active. '
-                + (
-                    "Obligation and renewal extraction were queued automatically."
-                    if scheduled
-                    else "Obligations and renewals are being monitored."
-                )
+            body=f'"{contract.title}" is now active. '
+            + activation_note(
+                wanted=tuple(job_types), scheduled=scheduled, has_text=version is not None and snapshot is not None
             ),
         )
 

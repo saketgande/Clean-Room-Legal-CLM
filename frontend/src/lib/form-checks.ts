@@ -79,6 +79,13 @@ export function shown(rules: RequestFormRule[] | undefined, values: Record<strin
   });
 }
 
+/** The choices a select offers now: the first `options_when` entry whose rules all match the answers (the
+ *  server resolves it the same way), else the default `options`. */
+export function optionsFor(field: RequestFormField, values: Record<string, unknown>): string[] {
+  const hit = (field.options_when ?? []).find((o) => shown(o.when, values));
+  return hit ? hit.options : field.options ?? [];
+}
+
 /** The columns of a table question that apply to the form's current answers (the Share column: Milestones only). */
 export function shownColumns(field: RequestFormField, values: Record<string, unknown>): RequestFormColumn[] {
   return (field.columns ?? []).filter((c) => shown(c.show, values));
@@ -112,8 +119,11 @@ export function answerProblem(
   value: FormValue | undefined,
   notBefore?: { label: string; value: FormValue | undefined },
   rules?: AnswerRules,
+  offered?: string[],
 ): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
+  // `offered` is given for a select only: a half-filled draft can hold a choice the form no longer offers.
+  if (offered && !offered.includes(value)) return `"${value}" is no longer offered for this agreement. Pick again.`;
   if (kind === "email" && !looksLikeEmail(value)) return EMAIL_PROBLEM;
   if (kind === "date" && notBefore && typeof notBefore.value === "string") {
     // Both are ISO days (YYYY-MM-DD), which sort the way the days do.

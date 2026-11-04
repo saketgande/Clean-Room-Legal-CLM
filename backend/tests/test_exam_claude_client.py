@@ -190,13 +190,14 @@ def test_after_gets_none_when_the_request_failed(calls, monkeypatch):
 def test_the_hook_runs_once_per_call_not_once_per_retry(calls, monkeypatch):
     """before() sits outside the retry wrapper: a transient error retried inside would
     otherwise admit (and reserve worst-case spend for) the same call several times."""
-    monkeypatch.setattr(settings, "claude_retry_initial_backoff_seconds", 0.0)
+    monkeypatch.setattr(settings, "claude_retry_base_wait_seconds", 0.0)
     fake = claude._anthropic_client()
     fake.stream_error = anthropic.APIConnectionError(request=httpx.Request("POST", "http://x"))
     monkeypatch.setattr(claude, "exam_meter", Meter(calls))
     with pytest.raises(anthropic.APIConnectionError):
         run(ask_text())
-    assert len(fake.streamed) == settings.claude_max_retries > 1
+    # The exam is not a background job, so its calls give up fast: the inline policy, not the patient one.
+    assert len(fake.streamed) == settings.claude_retry_inline_tries > 1
     assert [c[0] for c in calls].count("before") == 1 and [c[0] for c in calls].count("after") == 1
 
 
@@ -229,8 +230,8 @@ def test_an_ordinary_refusal_is_still_recorded_by_the_gateway(calls, monkeypatch
 
 
 def test_deferred_leaves_a_skill_run_without_fallback_output_or_ledger_row(calls, monkeypatch, db_session):
-    """The controller's `except Exception` writes fallback metadata and a FAILED run;
-    a capture abort must skip all of that, or the exam DB would hold invented output."""
+    """The controller's `except Exception` writes a FAILED run and a failure on the job;
+    a capture abort must skip all of that, or the exam DB would hold failures for calls only recorded for the batch."""
     org_id = new_uuid()
     monkeypatch.setattr(claude, "exam_meter", Meter(calls, before_error=Deferred()))
     with pytest.raises(Deferred):

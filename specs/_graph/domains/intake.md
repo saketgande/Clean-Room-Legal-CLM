@@ -34,6 +34,7 @@ Owner agents: backend-dev, db-engineer
 - `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/requests/{request_id}/handoffs` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[HandoffResponse]
 - `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/requests/{request_id}/summary` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestSummaryResponse
 - `GET /intake/requests/{request_id}/tasks` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TaskResponse]
 - `GET /intake/sla-ops` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/teams` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TeamResponse]
@@ -66,7 +67,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-ActivityItem, AssigneeResponse, AttachmentIn, CounterpartyContractItem, CounterpartyRequestItem, CounterpartySummary, DraftContractResponse, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestActivityResponse, RequestCounterpartyResponse, RequestCreate, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+AcceptedChange, ActivityItem, AssigneeResponse, AttachmentIn, CounterpartyContractItem, CounterpartyRequestItem, CounterpartySummary, DraftContractResponse, DraftResponse, DraftSave, ExtraInstruction, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestActivityResponse, RequestCounterpartyResponse, RequestCreate, RequestResponse, RequestSummaryFiling, RequestSummaryResponse, RequestUpdate, SummaryDiffers, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 
@@ -114,6 +115,7 @@ Api group: `intakeApi` (confidence: exact)
 - `intakeApi.pause()` -> `POST /intake/requests/${id}/pause?paused=${paused}`
 - `intakeApi.pool()` -> `GET /intake/requests/pool`
 - `intakeApi.promote()` -> `POST /intake/requests/${id}/promote`
+- `intakeApi.requestSummary()` -> `GET /intake/requests/${id}/summary`
 - `intakeApi.screen()` -> `POST /intake/requests/${id}/screen`
 - `intakeApi.setParties()` -> `PUT /intake/requests/${id}/parties`
 - `intakeApi.slaLegs()` -> `GET /intake/requests/${id}/sla`

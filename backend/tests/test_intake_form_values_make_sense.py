@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app.intake.agreement_forms import form_defs, form_fields
+from app.intake.agreement_forms import form_defs, form_fields, options_for
 from app.intake.service import _validate_field_values, looks_like_email
 
 MSA = {
@@ -47,6 +47,10 @@ def complete(form, **over):
             "2026-10-01" if kind == "date" else "10" if kind == "number" else "a@example.com" if kind == "email" else "x"
         )
     values.update(over)
+    for f in form_fields(form):  # a choice that depends on another answer (payment terms) follows it
+        offered = [o["value"] for o in options_for(f, values) or []]
+        if f.kind == "select" and f.key not in over and offered and values.get(f.key) not in offered:
+            values[f.key] = offered[0]
     for table in tables:
         values.setdefault(table.key, [one_row(table, values)])
     return values

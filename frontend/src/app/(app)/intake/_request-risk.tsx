@@ -1,7 +1,9 @@
 "use client";
 import { useState } from "react";
-import { Check, RefreshCw, ShieldCheck } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, History, RefreshCw, ShieldCheck } from "lucide-react";
 import type { ContractDeviation, ContractRiskSummary, RiskDriver } from "@/lib/types";
+import { contractsApi } from "@/lib/endpoints";
 import { riskBand, RISK_UNKNOWN_LABEL, type RiskBand } from "@/lib/utils";
 
 const SEV_ORDER = ["critical", "high", "medium", "low"] as const;
@@ -50,7 +52,7 @@ export function RiskReview({ risk, facts: f, canRecompute, recomputing, onRecomp
         <div className="glyph warn"><ShieldCheck className="ic" /></div><h2>AI risk review</h2>
         {canRecompute ? <button className="ministep" style={{ marginLeft: "auto" }} disabled={recomputing} onClick={onRecompute}><RefreshCw className="ic" />Recompute</button> : null}
       </div>
-      <div className="cb">
+      <div className="cb"><p className="hint">What the playbook found wrong in the contract text.</p>
         {!risk ? (
           <div className="analyzing"><span>Loading the risk review…</span></div>
         ) : f.unknown ? (
@@ -93,6 +95,105 @@ export function RiskReview({ risk, facts: f, canRecompute, recomputing, onRecomp
   );
 }
 
+const SRC: Record<string, string> = { upload: "Uploaded", manual_upload: "Uploaded again", playbook_redline: "Playbook changes", assistant_edit: "Aegis edit", counterparty_revision: "Counterparty version", editor_save: "Edited in Word", generated: "Drafted" };
+const srcLabel = (s: string) => SRC[s] ?? s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+const dayOf = (iso: string) => new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+const DECISION: Record<string, string> = { rejected: "Rejected", accepted: "Accepted", accepted_fallback: "Accepted fallback", waived: "Waived", escalated: "Escalated", fixed: "Fixed", dismissed: "Dismissed" };
+const decLabel = (s: string) => DECISION[s] ?? s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+/** What was reviewed and decided on each version, so a new version does not make the earlier work disappear. */
+export function ReviewHistory({ contractId }: { contractId: string }) {
+  const { data } = useQuery({ queryKey: ["review-history", contractId], queryFn: () => contractsApi.reviewHistory(contractId) });
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+  if (!data) return null;
+  const has = (v: (typeof data)[number]) => v.reviews.length > 0 || v.edits.length > 0;
+  const current = data.find((v) => v.is_current);
+  const lastReviewed = data.find((v) => v.reviews.length > 0);
+  const firstOpen = data.find(has)?.version_id;
+  // Suggested changes nobody has accepted or rejected yet, on ANY version: the Review stage will not let the contract leave while one is open.
+  const waiting = data.flatMap((v) => v.edits.filter((e) => e.status === "proposed").map((e) => ({ e, v })));
+  return (
+    <>
+    {waiting.length ? (
+      <div className="card rh-wait">
+        <div className="ch"><div className="glyph warn"><History className="ic" /></div><h2>Waiting for a decision</h2><span className="rh-n">{waiting.length}</span></div>
+        <div className="cb">
+          <p className="hint">These suggested changes are neither accepted nor rejected. The contract cannot leave Review while any is open{waiting.some((w) => !w.v.is_current) ? ", including ones made on an earlier version" : ""}.</p>
+          {waiting.map(({ e, v }) => (
+            <div key={e.id} className="rh-edit">
+              <span className="rh-vn">v{v.version_number}</span>
+              <div className="rh-ed">
+                {e.original_text ? <del>{e.original_text}</del> : null}
+                {e.replacement_text ? <ins>{e.replacement_text}</ins> : null}
+                {!v.is_current ? <em className="rh-old">Made on version {v.version_number}; the current text is version {current?.version_number}.</em> : null}
+              </div>
+            </div>
+          ))}
+          <a className="rh-go" href={`/contracts/${contractId}`}>Open the contract to decide them</a>
+        </div>
+      </div>
+    ) : null}
+    <div className="card rh-card">
+      <div className="ch"><div className="glyph"><History className="ic" /></div><h2>Earlier reviews and decisions</h2></div>
+      <div className="cb">
+        <p className="hint">Each version keeps what was reviewed and decided on it.</p>
+        {current && lastReviewed && current.version_id !== lastReviewed.version_id && current.reviews.length === 0 ? (
+          <div className="rh-note">The current text (version {current.version_number}) has not been reviewed yet. The last review was on version {lastReviewed.version_number}; its decisions are below.</div>
+        ) : null}
+        {data.map((v) => {
+          const isOpen = open[v.version_id] ?? v.version_id === firstOpen;
+          const rejected = v.edits.filter((e) => e.status === "rejected").length;
+          const accepted = v.edits.filter((e) => e.status === "accepted").length;
+          return (
+            <section key={v.version_id} className={`rh-ver${v.is_current ? " cur" : ""}`}>
+              <button className="rh-hd" aria-expanded={isOpen} onClick={() => setOpen((o) => ({ ...o, [v.version_id]: !isOpen }))}>
+                <span className="rh-vn">v{v.version_number}</span>
+                <span className="rh-tt"><b>{srcLabel(v.source)}</b><em>{dayOf(v.created_at)}</em></span>
+                {v.is_current ? <span className="rh-cur">Current</span> : null}
+                <span className="rh-sum">{has(v) ? [v.reviews.length ? `${v.reviews.reduce((n, r) => n + r.findings.length, 0)} findings` : "", v.edits.length ? `${v.edits.length} suggested changes` : ""].filter(Boolean).join(" · ") : "nothing decided"}</span>
+                <span className="chev">{isOpen ? "▾" : "▸"}</span>
+              </button>
+              {isOpen ? (
+                <div className="rh-body">
+                  {!has(v) ? <div className="dim" style={{ fontSize: 12 }}>No review or decision was made on this version.</div> : null}
+                  {v.reviews.map((r) => (
+                    <div key={r.id} className="rh-run">
+                      <div className="rh-rt">Playbook review · {dayOf(r.created_at)} · {r.status}</div>
+                      {r.findings.map((f) => { const sv = sevOf(f.severity); return (
+                        <div key={f.id} className={`risk ${sv === "critical" ? "crit" : sevCls(sv)}`}>
+                          <div className="rh"><span className={`sevpill sev-${sevCls(sv)}`}>{sv}</span><span className="rt">{(f.clause_type || "clause").replace(/_/g, " ")}</span>
+                            <span className={`rh-dec${f.decision || f.status !== "open" ? " done" : ""}`}>{f.decision ? `${decLabel(f.decision)}${f.decided_by ? ` by ${f.decided_by}` : ""}` : f.status === "open" ? "Not decided" : decLabel(f.status)}</span></div>
+                          <div className="ri">{f.issue}</div>
+                          {f.rationale ? <div className="rfix"><div><b>Reason:</b> {f.rationale}</div></div> : null}
+                        </div>
+                      ); })}
+                    </div>
+                  ))}
+                  {v.edits.length ? (
+                    <div className="rh-run">
+                      <div className="rh-rt">Suggested changes · {[accepted ? `${accepted} accepted` : "", rejected ? `${rejected} rejected` : "", v.edits.length - accepted - rejected ? `${v.edits.length - accepted - rejected} pending` : ""].filter(Boolean).join(" · ")}</div>
+                      {v.edits.map((e) => (
+                        <div key={e.id} className="rh-edit">
+                          <span className={`rh-dec ${e.status === "accepted" ? "ok" : e.status === "rejected" ? "no" : ""}`}>{decLabel(e.status)}</span>
+                          <div className="rh-ed">
+                            {e.original_text ? <del>{e.original_text}</del> : null}
+                            {e.replacement_text ? <ins>{e.replacement_text}</ins> : null}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+      </div>
+    </div>
+    </>
+  );
+}
+
 // Long clause text wraps and clamps (4 lines) so a row never balloons. Colours are palette variables only (light + dark).
 export const RISK_CSS = `
 .ro .risktop{display:flex;align-items:center;gap:14px;padding:2px 0 8px}
@@ -107,4 +208,28 @@ export const RISK_CSS = `
 .ro .risk .rh{display:flex;align-items:center;gap:8px;margin-bottom:5px} .ro .risk .rt{font-weight:650;font-size:12.5px;text-transform:capitalize;min-width:0;overflow-wrap:anywhere}
 .ro .risk .ri{font-size:12px;color:var(--ink-2);line-height:1.55;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .ro .risk .rfix{display:flex;gap:6px;font-size:12px;color:var(--good);line-height:1.5;margin-top:4px;min-width:0;overflow-wrap:anywhere} .ro .risk .rfix .ic{width:13px;height:13px;flex:none;margin-top:2px} .ro .risk .rfix b{color:var(--ink);font-weight:600}
+.ro .rh-note{font-size:12px;color:var(--ink-2);background:var(--warn-soft);border-radius:10px;padding:9px 12px;margin:2px 0 10px;line-height:1.5}
+.ro .rh-ver{border-radius:12px;box-shadow:inset 0 0 0 1px var(--border);margin-bottom:8px;overflow:hidden;transition:box-shadow .2s}
+.ro .rh-ver.cur{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.ro .rh-hd{display:flex;align-items:center;gap:10px;width:100%;padding:10px 12px;text-align:left;background:none;border:0;cursor:pointer;min-width:0}
+.ro .rh-hd:hover{background:var(--surface-2)}
+.ro .rh-vn{flex:none;font:700 11px var(--mono);padding:3px 8px;border-radius:99px;background:var(--accent-soft);color:var(--accent)}
+.ro .rh-tt{display:flex;flex-direction:column;line-height:1.25;min-width:0} .ro .rh-tt b{font-size:12.5px} .ro .rh-tt em{font-style:normal;font-size:11px;color:var(--ink-3)}
+.ro .rh-cur{flex:none;font:700 10px var(--sans);letter-spacing:.05em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:2px 8px;border-radius:99px}
+.ro .rh-sum{margin-left:auto;font-size:11.5px;color:var(--ink-3);text-align:right}
+.ro .rh-hd .chev{color:var(--ink-3);font-size:11px}
+.ro .rh-body{padding:4px 12px 12px;animation:rhin .25s cubic-bezier(.2,.8,.2,1) both}
+@keyframes rhin{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.ro .rh-rt{font:650 11px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);margin:8px 0 6px}
+.ro .rh-dec{margin-left:auto;font:650 11px var(--sans);padding:2px 9px;border-radius:99px;background:var(--surface-2);color:var(--ink-2);white-space:nowrap}
+.ro .rh-dec.done,.ro .rh-dec.ok{background:var(--good-soft);color:var(--good)} .ro .rh-dec.no{background:var(--crit-soft);color:var(--crit)}
+.ro .rh-edit{display:flex;gap:10px;align-items:flex-start;padding:7px 0;border-top:1px solid var(--border)}
+.ro .rh-edit .rh-dec{margin-left:0;flex:none}
+.ro .rh-ed{font-size:12px;line-height:1.5;color:var(--ink-2);min-width:0;overflow-wrap:anywhere} .ro .rh-ed del{display:block;color:var(--crit);opacity:.8} .ro .rh-ed ins{display:block;text-decoration:none;color:var(--good)}
+.ro .risk .rh .rh-dec{margin-left:auto}
+@media (prefers-reduced-motion:reduce){.ro .rh-body{animation:none}}
+.ro .rh-n{margin-left:auto;font:700 11px var(--sans);padding:2px 9px;border-radius:99px;background:var(--warn-soft);color:var(--warn)}
+.ro .rh-old{display:block;font-style:normal;font-size:11px;color:var(--ink-3);margin-top:3px}
+.ro .rh-go{display:inline-block;margin-top:10px;font-weight:650;font-size:12.5px;color:var(--accent);text-decoration:none} .ro .rh-go:hover{text-decoration:underline}
+.ro .rh-wait .rh-edit .rh-vn{margin-top:1px}
 `;

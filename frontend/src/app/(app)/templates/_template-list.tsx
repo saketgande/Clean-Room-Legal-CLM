@@ -117,6 +117,9 @@ export function TemplateList({
                 <span className="flex flex-wrap items-center gap-1.5">
                   <StatusBadge status={t.status} />
                   {t.status.results_vary && <ResultsVaryBadge />}
+                  {(t.standard?.wording_behind || t.standard?.playbook_behind) && (
+                    <Badge tone="amber">Older than the standard</Badge>
+                  )}
                 </span>
                 <span className="block text-xs text-slate-600">{t.status.reason}</span>
                 <span className="block text-xs text-slate-500">{playbookText(t)}</span>

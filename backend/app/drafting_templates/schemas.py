@@ -9,7 +9,7 @@ A nullable field here has no default on purpose: the contract says the key is al
 as ``null`` when empty, and the page relies on that.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -39,6 +39,7 @@ TemplateCheckTrigger = Literal[
     "manual",
     "check_all",
     "retry",
+    "sample",
 ]
 TemplateCheckState = Literal["queued", "running", "completed", "failed", "superseded"]
 TemplateCheckError = Literal[
@@ -91,6 +92,12 @@ class TemplateCheckRequest(BaseModel):
     # The editor's text, so unsaved changes can be checked before they are saved. Left out,
     # the saved wording is checked.
     body: str | None = Field(default=None, max_length=200_000)
+
+
+class TemplateStandardAdopt(BaseModel):
+    """"Use the standard rules" on the playbook that reviews a template."""
+
+    note: str | None = Field(default=None, max_length=300)
 
 
 class TemplatePlaybookChange(BaseModel):
@@ -188,6 +195,13 @@ class TemplateFileRefOut(BaseModel):
     size_bytes: int
 
 
+class TemplateStandardOut(BaseModel):
+    revision: str  # "014": the standard this release ships
+    updated_on: date
+    wording_behind: bool  # the organisation's own saved wording predates the standard
+    playbook_behind: bool  # the reviewing playbook differs from the standard and predates it
+
+
 class DraftingTemplateSummaryOut(BaseModel):
     key: str
     name: str
@@ -204,6 +218,7 @@ class DraftingTemplateSummaryOut(BaseModel):
     updated_by: str | None
     editable: bool  # false for a Word-based template (FR-40)
     status: TemplateStatusOut
+    standard: TemplateStandardOut | None  # null for a type that was not shipped
 
 
 class DraftingTemplatePlaceholderOut(BaseModel):

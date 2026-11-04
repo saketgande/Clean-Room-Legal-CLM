@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AEGIS onboarding preview</title>
+<style>
+:root{--b50:#eff6ff;--b100:#dbeafe;--b400:#60a5fa;--b600:#2563eb;--b700:#1d4ed8;--ink:#0f172a;--ink2:#334155;--muted:#526077;--line:#e2e8f0;--line2:#cbd5e1;--canvas:#f8fafc}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 Inter,system-ui,sans-serif;color:var(--ink);background:var(--canvas)}
+.bar{position:sticky;top:0;z-index:5;display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px;background:#fff;border-bottom:1px solid var(--line)}
+.bar b{margin-right:8px;align-self:center}.bar button{height:32px;padding:0 12px;border:1px solid var(--line);border-radius:8px;background:#fff;font:500 13px inherit;cursor:pointer}
+.bar button.on{background:var(--b50);border-color:var(--b400);color:var(--b700)}
+.page{display:flex;min-height:calc(100vh - 53px)}
+.brand{display:none;position:relative;overflow:hidden;width:50%;flex-direction:column;justify-content:space-between;padding:48px;color:#fff;background:linear-gradient(135deg,#2563eb,#4f46e5,#6d28d9)}
+@media(min-width:1024px){.brand{display:flex}.mlogo{display:none!important}}
+.blob{position:absolute;border-radius:50%;filter:blur(64px)}
+.logo{display:flex;align-items:center;gap:12px;font-weight:600;font-size:18px;position:relative}
+.tile{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,.15);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25);display:grid;place-items:center;backdrop-filter:blur(8px)}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:4px 12px;border-radius:99px;background:rgba(255,255,255,.12);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);font-size:12px}
+.dot{width:8px;height:8px;border-radius:50%;background:#4ade80}
+.brand h1{font-size:34px;line-height:1.15;margin:16px 0;letter-spacing:-.02em;max-width:460px}
+.brand li{list-style:none;margin:10px 0;opacity:.92}.brand ul{padding:0;margin:0}
+.glass{padding:20px;border-radius:16px;background:rgba(255,255,255,.1);box-shadow:inset 0 0 0 1px rgba(255,255,255,.2);backdrop-filter:blur(8px);font-size:13px;position:relative}
+.right{flex:1;display:flex;align-items:center;justify-content:center;padding:24px}.col{width:100%;max-width:384px}
+.mlogo{display:flex;align-items:center;gap:10px;font-weight:600;margin-bottom:28px}.mlogo .tile{width:36px;height:36px;background:var(--b600)}
+h2{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0}.sub{color:var(--muted);margin:4px 0 24px}
+.back{display:inline-block;margin-bottom:16px;color:var(--b600);font-weight:500;font-size:13px;text-decoration:none}.back:hover{text-decoration:underline}
+.card{background:#fff;border:1px solid rgba(226,232,240,.8);border-radius:12px;box-shadow:0 1px 2px rgba(15,23,42,.04);padding:24px;display:grid;gap:16px}
+.opt{display:flex;gap:14px;align-items:center;width:100%;padding:16px;margin-bottom:12px;text-align:left;background:#fff;border:1px solid var(--line);border-radius:12px;cursor:pointer;font:inherit;transition:.15s}
+.opt:hover{border-color:var(--line2);transform:translateY(-1px);box-shadow:0 6px 16px -8px rgba(15,23,42,.18)}
+.opt .t{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none;font-size:18px}.opt b{font-size:15px;display:block}.opt span.d{color:var(--muted);font-size:13px}
+label{font-size:13px;font-weight:500;color:var(--ink2);display:block;margin-bottom:6px}.hint{font-size:11.5px;color:var(--muted);margin-top:4px}
+input,select,textarea{width:100%;height:40px;padding:0 12px;border:1px solid var(--line);border-radius:8px;font:14px inherit;background:#fff;outline:none}textarea{height:80px;padding:10px 12px;font-size:13px}
+input:focus,select:focus,textarea:focus{border-color:var(--b400);box-shadow:0 0 0 2px var(--b100)}
+.suffix{display:flex;align-items:center;border:1px solid var(--line);border-radius:8px;padding-right:12px;color:var(--muted)}.suffix input{border:0;box-shadow:none!important}
+.suffix:focus-within{border-color:var(--b400);box-shadow:0 0 0 2px var(--b100)}
+.btn{height:40px;width:100%;border:0;border-radius:8px;background:var(--b600);color:#fff;font:500 14px inherit;cursor:pointer;transition:.1s}.btn:hover{background:var(--b700)}.btn:active{transform:scale(.98)}
+.btn.sec{background:#fff;color:var(--ink2);border:1px solid var(--line2)}.btn.sec:hover{background:var(--canvas)}.btn.sm{width:auto;padding:0 14px;height:34px}.btn.ghost{background:none;color:var(--ink2);width:auto;padding:0 12px;height:34px}.btn.ghost:hover{background:var(--canvas)}
+.ban{padding:10px 12px;border-radius:8px;font-size:12.5px}.err{background:#fef2f2;color:#b91c1c}.info{background:var(--b50);border:1px solid var(--b100);color:var(--b700)}.warn{background:#fffbeb;border:1px solid #fde68a;color:#b45309}
+.ok{color:#15803d;font-size:12px;margin-top:4px}.foot{text-align:center;font-size:12px;color:var(--muted);margin-top:16px}
+.center{text-align:center;justify-items:center}.check{width:48px;height:48px;border-radius:50%;background:#f0fdf4;color:#15803d;display:grid;place-items:center;font-size:22px}
+.admin{max-width:760px;width:100%}.tabs{display:flex;gap:4px;margin:16px 0;border-bottom:1px solid var(--line)}.tabs span{padding:8px 14px;font-weight:500;color:var(--muted)}.tabs .on{color:var(--b600);border-bottom:2px solid var(--b600)}
+.rq{background:#fff;border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:12px;display:grid;gap:8px}.rq .h{display:flex;justify-content:space-between;align-items:center}.rq small{color:var(--muted)}
+.st{padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:600}.st.w{background:#fffbeb;color:#b45309}.st.c{background:var(--b50);color:var(--b700)}.st.r{background:#f0fdf4;color:#15803d}
+.hand{background:var(--canvas);border:1px solid var(--line);border-radius:8px;padding:12px;display:grid;gap:8px;font-size:13px}.hand div{display:flex;justify-content:space-between;align-items:center;gap:8px}.hand code{background:#fff;padding:2px 8px;border-radius:6px;border:1px solid var(--line)}
+.badge{background:var(--b600);color:#fff;border-radius:99px;font-size:11px;padding:1px 7px;margin-left:6px}
+section{display:none;width:100%}section.on{display:flex}
+</style></head><body>
+<div class="bar"><b>Preview</b>
+<button data-s="s1" class="on">1 Welcome</button><button data-s="s2">2 Sign in</button><button data-s="s3">3 New company</button><button data-s="s4">4 Received</button><button data-s="s5">5 Admin review</button><button data-s="s6">6 First administrator</button></div>
+
+<template id="brand"><div class="brand"><div class="blob" style="width:300px;height:300px;top:-80px;right:-60px;background:rgba(255,255,255,.1)"></div><div class="blob" style="width:340px;height:340px;bottom:-100px;left:-80px;background:rgba(125,211,252,.2)"></div><div class="blob" style="width:240px;height:240px;top:45%;left:40%;background:rgba(232,121,249,.15)"></div>
+<div class="logo"><div class="tile">⚖</div>AEGIS</div>
+<div style="position:relative"><span class="pill"><i class="dot"></i>Built for legal teams</span><h1>Every contract, from request to renewal, in one calm place.</h1><ul><li>✦ Review and redline with an AI assistant</li><li>✦ Approvals and signatures that never get lost</li><li>✦ Obligations tracked after signing</li></ul></div>
+<div class="glass">“We stopped chasing contracts across email. Everyone sees where each one stands.”<br><small style="opacity:.75">Head of Legal, customer story</small></div></div></template>
+
+<section id="s1" class="page on"><div data-brand></div><div class="right"><div class="col"><div class="mlogo"><div class="tile">⚖</div>AEGIS</div>
+<h2>Welcome</h2><p class="sub">Sign in to your company, or bring a new company on board.</p>
+<button class="opt" data-go="s2"><div class="t" style="background:var(--b600);color:#fff">→</div><div style="flex:1"><b>Sign in to your company</b><span class="d">You already have an account.</span></div>›</button>
+<button class="opt" data-go="s3"><div class="t" style="background:var(--b50);color:var(--b600)">▦</div><div style="flex:1"><b>Set up a new company</b><span class="d">Request a workspace for your organisation. We review it and send you the address and a setup code.</span></div>›</button></div></div></section>
+
+<section id="s2" class="page"><div data-brand></div><div class="right"><div class="col"><div class="mlogo"><div class="tile">⚖</div>AEGIS</div>
+<a class="back" href="#" data-go="s1">← Back</a><h2>Welcome back</h2><p class="sub">Sign in to your workspace.</p>
+<div class="card"><div class="ban err">⚠ The email or password is not right. Please try again.</div><div><label>Email</label><input placeholder="you@company.com"></div><div><label>Password</label><input type="password" placeholder="••••••••••"></div><button class="btn">🔑 Sign in</button></div>
+<p class="foot">Sessions last 12h and can be revoked by an administrator.</p></div></div></section>
+
+<section id="s3" class="page"><div data-brand></div><div class="right"><div class="col"><div class="mlogo"><div class="tile">⚖</div>AEGIS</div>
+<a class="back" href="#" data-go="s1">← Back</a><h2>Set up a new company</h2><p class="sub">Tell us about the company. We review the request and send you its workspace address and a setup code.</p>
+<div class="card"><div><label>Company name</label><input id="cn" placeholder="e.g. City Hospital Pvt Ltd"></div>
+<div><label>Short name (your web address)</label><div class="suffix"><input id="sn" placeholder="cityhospital"><span>.aegis.app</span></div><div class="ok" id="av"></div></div>
+<div><label>Sector</label><select><option>Choose the main sector</option><option>Healthcare</option><option>Financial services</option><option>Technology</option></select></div>
+<div><label>Your name</label><input></div><div><label>Work email</label><input type="email"></div><div><label>Note (optional)</label><textarea></textarea></div>
+<button class="btn">Send request</button><div class="ban info">Nothing is created until an administrator approves the request.</div></div></div></div></section>
+
+<section id="s4" class="page"><div data-brand></div><div class="right"><div class="col"><div class="card center"><div class="check">✓</div><div style="font-size:20px;font-weight:600">Request received</div><p style="margin:0;color:var(--muted)">Your address will be <b>cityhospital.aegis.app</b>. We send a setup code after review.</p><button class="btn sec" data-go="s1">Back to start</button></div></div></div></section>
+
+<section id="s5" class="page" style="justify-content:center;padding:24px"><div class="admin"><h2>Company workspaces</h2><p class="sub" style="margin-bottom:0">Review requests from new companies.</p>
+<div class="tabs"><span class="on">Waiting for review<i class="badge">2</i></span><span>All companies</span></div>
+<div class="rq"><div class="h"><b>City Hospital Pvt Ltd</b><span class="st w">Waiting</span></div><small>cityhospital.aegis.app · Healthcare · Asha Rao, asha@cityhospital.com · 2 hours ago</small><div>“We want to start with vendor contracts.”</div><div style="display:flex;gap:8px"><button class="btn sm">Approve</button><button class="btn ghost">Decline</button></div></div>
+<div class="rq"><div class="h"><b>Northwind Traders</b><span class="st c">⟳ Creating</span></div><small>northwind.aegis.app · Retail · Dev Mehta · 1 day ago</small></div>
+<div class="rq"><div class="h"><b>Hooli Cloud Services</b><span class="st r">Ready</span></div><small>hooli.aegis.app · Technology · Priya N · 3 days ago</small><div class="hand"><div>Address <span><code>hooli.aegis.app</code> ⧉</span></div><div>Setup code <span><code>K7QD-92XM-TT4B</code> ⧉</span></div></div></div></div></section>
+
+<section id="s6" class="page"><div data-brand></div><div class="right"><div class="col"><div class="mlogo"><div class="tile">⚖</div>AEGIS</div>
+<h2>Create the first administrator</h2><p class="sub">This workspace has no users yet.</p>
+<div class="card"><div class="ban warn">Enter the setup code you were given. It is used once.</div><div><label>Name</label><input></div><div><label>Email</label><input></div><div><label>Password</label><input type="password"><div class="hint">At least 10 characters</div></div><div><label>Setup code</label><input placeholder="XXXX-XXXX-XXXX"></div><button class="btn">Create administrator</button></div></div></div></section>
+
+<script>
+const b=document.getElementById('brand').innerHTML;document.querySelectorAll('[data-brand]').forEach(e=>e.outerHTML=b);
+function go(id){document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===id));document.querySelectorAll('.bar button').forEach(x=>x.classList.toggle('on',x.dataset.s===id))}
+document.addEventListener('click',e=>{const t=e.target.closest('[data-s],[data-go]');if(t){e.preventDefault();go(t.dataset.s||t.dataset.go)}});
+const cn=document.getElementById('cn'),sn=document.getElementById('sn'),av=document.getElementById('av');let edited=false;
+sn.oninput=()=>{edited=true;av.textContent=sn.value?'Available':''};cn.oninput=()=>{if(!edited){sn.value=cn.value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,24);av.textContent=sn.value?'Available':''}};
+</script></body></html>

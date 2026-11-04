@@ -28,8 +28,13 @@ CONSULTANCY_HELD = (
     "Enter these answers on the request first: {answers}. The Engagement Schedule of the Consultancy "
     "draft is made from them, and this request does not have them yet."
 )
-# basis -> (the rate as a noun phrase, the unit it is charged per)
-_RATE_BASIS = {"Day rate": ("a day rate", "day"), "Hourly rate": ("an hourly rate", "hour")}
+# basis -> (the rate as a noun phrase, the unit it is charged per, what a unit means and what is not charged)
+_RATE_BASIS = {
+    "Day rate": ("a day rate", "day", (" A day is eight (8) hours; part days are charged pro rata. "
+                                       "Travel time is not chargeable unless agreed in writing.")),
+    "Hourly rate": ("an hourly rate", "hour", (" Part hours are charged pro rata. "
+                                               "Travel time is not chargeable unless agreed in writing.")),
+}
 
 
 # --- small formats (dpa.py reuses them) -----------------------------------------------------------
@@ -87,9 +92,9 @@ def _fee_basis(fv: dict) -> str:
         # The rate is read as exact money the way the total is: half-up to the cent.
         rate = sow.total_value({"value": fv.get("fee_rate")})
         if rate is not None:
-            noun, unit = _RATE_BASIS[basis]
+            noun, unit, terms = _RATE_BASIS[basis]
             return (f"The Fees are charged at {noun} of {sow.money(rate, currency)} per {unit} "
-                    "for time properly spent on the Services.")
+                    f"for time properly spent on the Services.{terms}")
     return ""
 
 

@@ -12,9 +12,11 @@ const h = vi.hoisted(() => ({
   notify: vi.fn(),
   renewalsApi: { list: vi.fn(), runWindowCheck: vi.fn() },
   contractsApi: { list: vi.fn(), update: vi.fn() },
+  intakeApi: { list: vi.fn() },
 }));
 
-vi.mock("@/lib/endpoints", () => ({ renewalsApi: h.renewalsApi, contractsApi: h.contractsApi }));
+vi.mock("@/lib/endpoints", () => ({ renewalsApi: h.renewalsApi, contractsApi: h.contractsApi, intakeApi: h.intakeApi }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }), usePathname: () => "/renewals", useSearchParams: () => new URLSearchParams() }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 vi.mock("next/link", () => ({ default: (p: { href: string; children: ReactNode }) => <a href={p.href}>{p.children}</a> }));
 
@@ -51,6 +53,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   h.renewalsApi.list.mockResolvedValue([renewal({})]);
   h.contractsApi.list.mockResolvedValue([]);
+  h.intakeApi.list.mockResolvedValue([]);
 });
 
 describe("running contracts that expire soon but have no renewal record", () => {
@@ -75,7 +78,7 @@ describe("running contracts that expire soon but have no renewal record", () => 
       contract({ id: "c-3", expiration_date: isoIn(200) }),
     ]);
     mount();
-    await screen.findByText("Far Away Ltd");
+    await screen.findAllByText("Far Away Ltd"); // the card heading and its contract chip
     expect(screen.queryByRole("note")).toBeNull();
   });
 

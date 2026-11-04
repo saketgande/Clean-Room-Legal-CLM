@@ -37,6 +37,7 @@ const h = vi.hoisted(() => ({
   reset: vi.fn(),
   restore: vi.fn(),
   setPlaybook: vi.fn(),
+  adopt: vi.fn(),
   options: vi.fn(),
   preview: vi.fn(),
   router: { push: vi.fn(), replace: vi.fn() },
@@ -46,7 +47,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/endpoints", () => ({
   draftingTemplatesApi: {
     list: h.list, get: h.get, versions: h.versions, checks: h.checks, checkDetail: h.checkDetail, check: h.check,
-    checkAll: h.checkAll, save: h.save, reset: h.reset, restore: h.restore, setPlaybook: h.setPlaybook,
+    checkAll: h.checkAll, save: h.save, reset: h.reset, restore: h.restore, setPlaybook: h.setPlaybook, adoptStandardPlaybook: h.adopt,
     options: h.options, preview: h.preview,
   },
 }));
@@ -98,7 +99,7 @@ const tpl = (over: Partial<DraftingTemplate>): DraftingTemplate => ({
   key: "nda", name: "Non-Disclosure Agreement", label: "Mutual NDA", contract_type: "NDA",
   binding: { form_key: "new_agreement", form_name: "New agreement", agreement_kind: "NDA", label: "New agreement · NDA" },
   playbook: pb("p1", "NDA Playbook", 2, true), shipped: true, active: true, source: "default", version: 0,
-  original_filename: null, updated_at: null, updated_by: null, editable: true, status: status("never_checked"),
+  original_filename: null, updated_at: null, updated_by: null, editable: true, status: status("never_checked"), standard: null,
   body: NDA_BODY, default_body: NDA_BODY, placeholders: FIELDS, fields: [], original_file: null, ...over,
 });
 
@@ -969,5 +970,49 @@ describe("leaving with unsaved changes (FR-61)", () => {
     await waitFor(() => expect(beforeUnload()).toBe(true));
     edit("Non-Disclosure Agreement", original);
     await waitFor(() => expect(beforeUnload()).toBe(false));
+  });
+});
+
+// ---- FR-53, FR-54: older than the standard ------------------------------------------------------------------------
+describe("older than the standard (FR-53, FR-54)", () => {
+  const behind = (over: Partial<NonNullable<DraftingTemplate["standard"]>> = {}) =>
+    ({ revision: "014", updated_on: "2026-10-27", wording_behind: false, playbook_behind: false, ...over });
+
+  // Failure mode: an org keeps its old wording or rules and nothing tells it they are behind.
+  it("badges the list entry and shows both notices, with the button for someone who may publish", async () => {
+    mount({ list: [tpl({ standard: behind({ wording_behind: true, playbook_behind: true }) }), msa()], perms: [...ADMIN, "playbook:publish"] });
+    expect(await screen.findAllByText("Older than the standard")).toHaveLength(1); // only the NDA entry
+    const header = await headerOf("Non-Disclosure Agreement");
+    expect(within(header).getByText(/older than the standard wording of 27 October 2026/)).toBeInTheDocument();
+    expect(within(header).getByText(/NDA Playbook has rules older than the standard rules of 27 October 2026/)).toBeInTheDocument();
+    expect(within(header).getByRole("button", { name: "Use the standard rules" })).toBeInTheDocument();
+  });
+
+  // Failure mode: the button is offered to a user the server then refuses with 403.
+  it("hides the button without playbook:publish", async () => {
+    mount({ list: [tpl({ standard: behind({ playbook_behind: true }) })], perms: ADMIN });
+    const header = await headerOf("Non-Disclosure Agreement");
+    expect(within(header).getByText(/has rules older than the standard rules/)).toBeInTheDocument();
+    expect(within(header).queryByRole("button", { name: "Use the standard rules" })).toBeNull();
+  });
+
+  // Failure mode: the rules are replaced without asking, or the page keeps showing the notice afterwards.
+  it("asks first, then publishes through the typed client and toasts the version", async () => {
+    const behindNda = tpl({ standard: behind({ playbook_behind: true }) });
+    const done = { ...behindNda, standard: behind(), playbook: pb("p1", "NDA Playbook", 5, true) };
+    h.adopt.mockResolvedValue({ template: done, changed: true, check: null } satisfies TemplateMutationResult);
+    mount({ list: [behindNda], perms: [...ADMIN, "playbook:publish"] });
+    const header = await headerOf("Non-Disclosure Agreement");
+    fireEvent.click(within(header).getByRole("button", { name: "Use the standard rules" }));
+    expect(h.adopt).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Use the standard rules" }));
+    await waitFor(() => expect(h.adopt).toHaveBeenCalledWith("nda", {}));
+    await waitFor(() => expect(h.notify).toHaveBeenCalledWith("Standard rules published as version 5.", "success"));
+  });
+
+  it("shows neither badge nor notice for a template that is current", async () => {
+    mount({ list: [tpl({ standard: behind() })], perms: [...ADMIN, "playbook:publish"] });
+    await headerOf("Non-Disclosure Agreement");
+    expect(screen.queryByText("Older than the standard")).toBeNull();
   });
 });

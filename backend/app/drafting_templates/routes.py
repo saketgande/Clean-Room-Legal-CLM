@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_db, require_permission
-from app.drafting_templates import checks
+from app.drafting_templates import checks, standard
 from app.drafting_templates.dependencies import get_drafting_template_service
 from app.drafting_templates.schemas import (
     CheckAllResultOut,
@@ -27,6 +27,7 @@ from app.drafting_templates.schemas import (
     TemplatePreviewOut,
     TemplatePreviewRequest,
     TemplateSaveRequest,
+    TemplateStandardAdopt,
     TemplateTypeOptionsOut,
     TemplateVersionAction,
 )
@@ -206,3 +207,16 @@ def change_template_playbook(
     return service.set_playbook(
         actor=user, key=key, playbook_id=payload.playbook_id, note=payload.note, request_id=_rid(request),
     )
+
+
+@router.post("/{key}/playbook/standard", response_model=TemplateMutationResultOut)
+def adopt_standard_playbook(
+    key: str,
+    payload: TemplateStandardAdopt,
+    request: Request,
+    user=Depends(require_permission("playbook:publish")),
+    db: Session = Depends(get_db),
+):
+    """Publish the standard rules as the next version of the playbook that reviews this template, then
+    check the template against them. Publishing a playbook is what ``playbook:publish`` is for."""
+    return standard.adopt(db, actor=user, key=key, note=payload.note, request_id=_rid(request))

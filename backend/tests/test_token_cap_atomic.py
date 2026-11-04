@@ -71,7 +71,9 @@ class _FakeStream:
         raise StopAsyncIteration
 
     async def get_final_message(self):
-        return SimpleNamespace(to_dict=lambda: {"content": [], "usage": self.usage, "model": "m"})
+        # A finished answer always says why it stopped; the client treats a stream with no stop reason as dropped.
+        return SimpleNamespace(
+            to_dict=lambda: {"content": [], "usage": self.usage, "model": "m", "stop_reason": "end_turn"})
 
 
 def _wire(monkeypatch, stream, calls):

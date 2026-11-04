@@ -3,8 +3,9 @@ import { resolve } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { AGREEMENT_FORMS, AgreementWizard } from "./_agreement-forms";
+import { AGREEMENT_FORMS, AgreementWizard, Question } from "./_agreement-forms";
 import { fmtDate } from "@/lib/utils";
+import { EMPTY_BOX } from "@/lib/summary-edits";
 import type { IntakeDraft } from "@/lib/types";
 
 // What a person meets while filling a request form (round 2, bugs 7, 46 and 47): answers that cannot be right are
@@ -17,6 +18,12 @@ const h = vi.hoisted(() => ({
   partiesApi: { entities: vi.fn(), counterparties: vi.fn(), createCounterparty: vi.fn() },
 }));
 vi.mock("@/lib/endpoints", () => ({ intakeApi: h.intakeApi, contractsApi: h.contractsApi, partiesApi: h.partiesApi }));
+// buildSummary can be made to throw for the "a broken summary never stops filing" test; otherwise it is the real one.
+const boom = vi.hoisted(() => ({ on: false }));
+vi.mock("@/lib/request-summary", async (orig) => {
+  const m = await orig<typeof import("@/lib/request-summary")>();
+  return { ...m, buildSummary: (...a: Parameters<typeof m.buildSummary>) => { if (boom.on) throw new Error("boom"); return m.buildSummary(...a); } };
+});
 vi.mock("@/lib/auth", () => ({ useAuth: () => ({ user: { full_name: "Saket Gande" } }) }));
 vi.mock("@/components/toast", () => ({ useToast: () => ({ notify: h.notify }) }));
 
@@ -60,6 +67,7 @@ function fillRow(n: number, name: string, due: string, owners: [string, string] 
 }
 
 beforeEach(() => {
+  boom.on = false;
   vi.resetAllMocks();
   h.intakeApi.forms.mockResolvedValue(serverForms);
   h.intakeApi.approvalPreview.mockResolvedValue({ workflow: null, approvers: [] });
@@ -645,9 +653,9 @@ const ADVICE = "There are no separate deliverables (advice only)";
 const CONSULT: IntakeDraft["values"] = {
   agreement_type: "Consultancy", entity: "Acme Ltd", entity_id: "e-1", counterparty: "Northwind Ltd", counterparty_id: "cp-1",
   cp_signer_name: "Maya Chen", cp_signer_email: "maya@example.com", paper: "Our template",
-  purpose: "Advice on quality processes", department: "Quality",
+  needed_by: "2026-11-15", department: "Quality",
   value: "1800000", currency: "INR", start_date: "2026-11-01", term: "Fixed end date", end_date: "2027-04-30",
-  scope: "Advise on the design of the new quality-management process.", payment_terms: "30 days",
+  scope: "Advise on the design of the new quality-management process.", payment_terms: "45 days",
   consultancy_deliverables: [{ name: "Current-state review", due: "2026-12-15" }, { name: "Process design report", due: "2027-03-15" }],
   fee_basis: "Fixed fee", key_individuals: [{ name: "Anita Rao" }, { name: "Dev Menon" }],
   company_contact_name: "Ravi Shah", company_contact_role: "Head of Quality", personal_data: "No", gxp: "No",
@@ -1228,5 +1236,281 @@ describe("while the Consultancy and DPA questions load, and when they cannot (AC
     expect(screen.queryByRole("table")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("heading", { name: key === "dpa" ? "The data" : "Commercial terms" })).toBeInTheDocument();
+  });
+});
+
+// ---- Helpers for an NDA wizard ---------------------------------------------------------------------
+
+const NDA_ANSWERS: IntakeDraft["values"] = { ...CONSULT, agreement_type: "NDA", nda_kind: "Mutual", nda_term: "2 years", governing_law: "India" };
+const ndaWizard = async (page = 1, over: IntakeDraft["values"] = {}) => {
+  const handles = mount("new_agreement", draftOf("new_agreement", page, { ...NDA_ANSWERS, ...over }));
+  await screen.findByText("Step " + (page + 1) + " of 4", { exact: false });
+  return handles;
+};
+
+// ---- The request in words (013) ------------------------------------------------------------------------------
+// A live plain-language box in the aside, an editable copy on the review step, and extra instructions. Nothing
+// about it may stop filing except being over the word limit.
+
+describe("the request in words (FR-1, FR-2, FR-9 to FR-13, FR-20, FR-29, FR-32, FR-34 to FR-36, FR-38)", () => {
+  const LAW = "It lasts 2 years and is under Indian law.";
+  beforeEach(() => {
+    h.intakeApi.deleteDraft.mockResolvedValue(undefined);
+    h.intakeApi.create.mockResolvedValue({ id: "q-1", ref: "REQ-1" });
+    h.intakeApi.updateDraft.mockResolvedValue({ id: "d-2", updated_at: "2026-10-02T00:00:00Z" });
+  });
+  const review = () => ndaWizard(3);
+  // One free-text box for the whole summary: reword the law sentence inside it, then leave the box.
+  const box = () => screen.getByRole("textbox", { name: "Your request in words" }) as HTMLTextAreaElement;
+  const editLaw = (text: string) => {
+    fireEvent.change(box(), { target: { value: box().value.replace(LAW, text) } });
+    fireEvent.blur(box());
+  };
+  const file = async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    await waitFor(() => expect(h.intakeApi.create).toHaveBeenCalled());
+    return h.intakeApi.create.mock.calls[0][0] as { summary: { text: string | null; instructions: unknown[]; accepted: unknown[] };
+      field_values: Record<string, unknown> };
+  };
+
+  it("sits in the aside on the first step, above the routing, and follows the answers (FR-1, FR-10)", async () => {
+    // Failure mode: the box missing on the first step, or going stale after an answer changes.
+    await ndaWizard(0);
+    const aside = document.querySelector("aside")!;
+    const heads = Array.from(aside.children).map((c) => c.textContent ?? "");
+    expect(heads[0]).toMatch(/^Your request in words/);
+    expect(heads[1]).toMatch(/^What these answers do/);
+    expect(heads[2]).toMatch(/^Where this request goes/);
+    const box = within(screen.getByRole("region", { name: "Your request in words" }));
+    expect(box.getByText("Needed by 15 Nov 2026.")).toBeInTheDocument();
+    type("Needed by", "2026-12-01");
+    expect(box.getByText("Needed by 1 Dec 2026.")).toBeInTheDocument();
+    expect(box.queryByText("Needed by 15 Nov 2026.")).toBeNull();
+  });
+
+  it("has a link to the box for small screens, only where the box is in the aside (FR-10)", async () => {
+    // Failure mode: on a phone the box sits far below the form with no way to reach it.
+    await ndaWizard(0);
+    expect(screen.getByRole("link", { name: "Read your request in words" })).toHaveAttribute("href", "#request-in-words");
+  });
+
+  it("on the review step, shows the editor AND the answers list, in the planned order (AC-6, FR-12, FR-38)", async () => {
+    // Failure mode: the editor replacing the answer list, or the note to approvers landing before the editor.
+    await review();
+    const at = (el: HTMLElement) => el;
+    const name = at(screen.getByLabelText("Name this request"));
+    const editor = at(screen.getByRole("textbox", { name: "Your request in words" }));
+    const answers = at(screen.getByText("Counterparty", { selector: "dt" }));
+    const note = at(screen.getByLabelText("Note to approvers (optional)"));
+    const extra = at(screen.getByRole("heading", { name: /Extra instructions for Legal/ }));
+    const order = [name, editor, answers, note, extra];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(document.querySelector("aside")!.textContent).not.toMatch(/^Your request in words/m);
+    expect(screen.queryByRole("region", { name: "Your request in words" })).toBeNull();
+  });
+
+  it("accepting an offer changes the answer the same way a control does: the routing is asked again (AC-13, FR-20)", async () => {
+    // Failure mode: the answer changing silently on typing, or changing without routing and the answers list following.
+    await review();
+    editLaw("It lasts 2 years and is under English law.");
+    const group = await screen.findByRole("group", { name: "Update the answer?" });
+    expect(group).toHaveTextContent("Governing law: India → England and Wales");
+    expect(screen.getByText("India", { selector: "dd" })).toBeInTheDocument(); // nothing changed yet
+    fireEvent.click(within(group).getByRole("button", { name: "Update answer" }));
+    await waitFor(() => expect(h.intakeApi.approvalPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({ field_values: expect.objectContaining({ governing_law: "England and Wales" }) })));
+    expect(screen.getByText("England and Wales", { selector: "dd" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Update the answer?" })).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("Governing law updated to England and Wales.");
+    const body = await file();
+    expect(body.field_values.governing_law).toBe("England and Wales");
+    expect(body.summary.accepted).toEqual([{ key: "governing_law", label: "Governing law", old: "India", new: "England and Wales" }]);
+    expect(body.summary.text).toContain("English");
+  });
+
+  it("files with the sentences as text, and a pending instruction it was never asked to add (FR-34)", async () => {
+    // Failure mode: text typed in 'Anything else' and not yet added being dropped at Submit.
+    await review();
+    fireEvent.change(screen.getByLabelText("Anything else for Legal?"), { target: { value: "Send a copy to procurement" } });
+    const body = await file();
+    expect(body.summary.text).toContain("This is a mutual NDA between Acme Ltd and Northwind Ltd, on our template.");
+    expect(body.summary.text).not.toContain("not given yet");
+    expect(body.summary.instructions).toEqual([{ text: "Send a copy to procurement", differs: [] }]);
+    expect(body.summary.accepted).toEqual([]);
+  });
+
+  it("Submit with an offer open files nothing, says so, and focuses the offer; once answered it files (AC-24, FR-34)", async () => {
+    // Failure mode: an unanswered offer silently becoming an instruction, or Submit filing past a change the person never settled.
+    await review();
+    editLaw("It lasts 2 years and is under English law.");
+    const group = await screen.findByRole("group", { name: "Update the answer?" });
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    expect(await screen.findByText("You have 1 change waiting — update or keep each one, then submit.")).toBeInTheDocument();
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(group).getByRole("button", { name: "Update answer" })).toHaveFocus());
+    fireEvent.click(within(group).getByRole("button", { name: "Keep my answer" }));
+    const body = await file();
+    expect(body.field_values.governing_law).toBe("India");
+    expect(body.summary.instructions).toEqual([{
+      text: "It lasts 2 years and is under English law.",
+      differs: [expect.objectContaining({ key: "governing_law", answer: "India" })],
+    }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("a summary that cannot be built still files, with text null (AC-2, FR-9)", async () => {
+    // Failure mode: a bug in the wording rules turning every request into one that cannot be filed.
+    boom.on = true;
+    await review();
+    expect(screen.queryByRole("textbox", { name: "Your request in words" })).toBeNull();
+    const body = await file();
+    expect(body.summary.text).toBeNull();
+    expect(body.field_values.request_form).toBe("new_agreement");
+  });
+
+  it("over the word limit is refused with the way out, nothing is cut and nothing is sent (AC-22, FR-32)", async () => {
+    // Failure mode: a long instruction being silently truncated, or sent to be refused by the server only.
+    await review();
+    const long = Array.from({ length: 2001 }, (_, i) => `w${i}`).join(" ");
+    fireEvent.change(screen.getByLabelText("Anything else for Legal?"), { target: { value: long } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+    expect(await screen.findByText(/over the limit of about 2,000/)).toHaveTextContent(
+      "Your extra instructions are 2,001 words, over the limit of about 2,000. Shorten them, or attach them as a file under Supporting documents on the “Risk checks and files” step.");
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+    expect(screen.getByRole("list", { name: "Extra instructions for Legal" })).toHaveTextContent(long);
+  });
+
+  // Forms with no file question: the way out is shortening only. Restored drafts carry the over-long instruction.
+  const LONG = { text: Array.from({ length: 2001 }, (_, i) => `w${i}`).join(" "), differs: [] };
+  const overLimit = async (form: string, page: number, values: IntakeDraft["values"]) => {
+    mount(form, { ...draftOf(form, page, values), summary_box: { ...EMPTY_BOX, instructions: [LONG] } });
+    if (form === "regularize") { // the signed agreement is required and a draft cannot hold a file: add it on step 1, then go to Review
+      await screen.findByText("Step 1 of 4", { exact: false });
+      const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      fireEvent.change(input, { target: { files: [new File(["x"], "signed.pdf", { type: "application/pdf" })] } });
+      fireEvent.click(screen.getByRole("button", { name: /Review and submit/ }));
+    }
+    fireEvent.click(await screen.findByRole("button", { name: "Submit request" }));
+    return screen.findByText(/over the limit of about 2,000/);
+  };
+
+  it("Signed outside the system over the limit says to shorten, never to attach (DEC-2)", async () => {
+    // Failure mode: telling the person to attach a file on a form that has no place to attach one.
+    const note = await overLimit("regularize", 0, { entity: "Acme India Pvt Ltd", entity_id: "e-1", counterparty: "Northwind Ltd", counterparty_id: "cp-1",
+      date_signed: "2026-09-01", value: "100000", currency: "INR", start_date: "2026-09-01", term: "No end date (evergreen)",
+      why_outside: "Urgency", prior_approval: "Yes, in full", signed_by_us: "Yes" });
+    expect(note).toHaveTextContent("over the limit of about 2,000. Shorten them — this form has no place to attach a file.");
+    expect(note).not.toHaveTextContent("Shorten them, or shorten them");
+    expect(note).not.toHaveTextContent("Supporting documents");
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+  });
+
+  it("Cancel a request over the limit says to shorten, never to attach (DEC-2)", async () => {
+    // Failure mode: the attach-a-file advice shown on the other form with no file question.
+    const note = await overLimit("cancellation", 2, { cancel_request_ref: "REQ-1", cancel_reason: "No longer needed", tell_cp: "No" });
+    expect(note).toHaveTextContent("over the limit of about 2,000. Shorten them — this form has no place to attach a file.");
+    expect(note).not.toHaveTextContent("Shorten them, or shorten them");
+    expect(note).not.toHaveTextContent("Supporting documents");
+    expect(h.intakeApi.create).not.toHaveBeenCalled();
+  });
+
+  it("exactly at the limit files (AC-22)", async () => {
+    // Failure mode: an off-by-one refusing the largest allowed instruction.
+    await review();
+    fireEvent.change(screen.getByLabelText("Anything else for Legal?"), { target: { value: Array.from({ length: 2000 }, () => "w").join(" ") } });
+    await file();
+  });
+
+  it("Save as draft sends the box, and resuming shows an instruction and an open offer (AC-25, FR-36)", async () => {
+    // Failure mode: edits, offers and instructions lost when the person leaves and comes back.
+    await review();
+    editLaw("It lasts 2 years and is under English law.");
+    await screen.findByRole("group", { name: "Update the answer?" });
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+    await waitFor(() => expect(h.intakeApi.updateDraft).toHaveBeenCalled());
+    const saved = h.intakeApi.updateDraft.mock.calls[0][1].summary_box;
+    expect(saved.offers).toHaveLength(1);
+    expect(saved.edits).toBeDefined();
+    document.body.innerHTML = "";
+    mount("new_agreement", { ...draftOf("new_agreement", 3, NDA_ANSWERS),
+      summary_box: { ...saved, instructions: [{ text: "Send a copy to procurement", differs: [] }] } });
+    await screen.findByRole("heading", { name: "Review and submit" });
+    expect(await screen.findByRole("group", { name: "Update the answer?" })).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Extra instructions for Legal" })).toHaveTextContent("Send a copy to procurement");
+    // Failure mode: a resumed draft showing the generated text and hiding what the person had typed.
+    expect(box().value).toContain("English law");
+  });
+
+  it("a resumed draft whose answer has since changed does not offer the old change (FR-36, FR-23)", async () => {
+    // Failure mode: an offer from last week updating an answer that is now something else.
+    await review();
+    editLaw("It lasts 2 years and is under English law.");
+    await screen.findByRole("group", { name: "Update the answer?" });
+    fireEvent.click(screen.getByRole("button", { name: "Save as draft" }));
+    await waitFor(() => expect(h.intakeApi.updateDraft).toHaveBeenCalled());
+    const saved = h.intakeApi.updateDraft.mock.calls[0][1].summary_box;
+    document.body.innerHTML = "";
+    mount("new_agreement", { ...draftOf("new_agreement", 3, { ...NDA_ANSWERS, governing_law: "Singapore" }), summary_box: saved });
+    await screen.findByRole("heading", { name: "Review and submit" });
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Update the answer?" })).toBeNull());
+    expect(screen.getByRole("list", { name: "Extra instructions for Legal" })).toHaveTextContent("English law");
+  });
+
+  it("the note to approvers stays an answer and never becomes an instruction (FR-38)", async () => {
+    // Failure mode: the note being copied into the extra instructions, or filed twice.
+    await review();
+    fireEvent.change(screen.getByLabelText("Note to approvers (optional)"), { target: { value: "Two lines beat a paragraph." } });
+    const body = await file();
+    expect(body.field_values.note_approvers).toBe("Two lines beat a paragraph.");
+    expect(body.summary.instructions).toEqual([]);
+    expect(body.summary.text).toContain("Note to approvers: Two lines beat a paragraph.");
+  });
+
+  it("Add moves the typed line into the list and Remove takes it out (FR-29)", async () => {
+    // Failure mode: an instruction that cannot be taken back before filing.
+    await review();
+    fireEvent.change(screen.getByLabelText("Anything else for Legal?"), { target: { value: "Cc procurement" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("list", { name: "Extra instructions for Legal" })).toHaveTextContent("Cc procurement");
+    expect(screen.getByLabelText("Anything else for Legal?")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Remove instruction 1" }));
+    expect(screen.queryByRole("list", { name: "Extra instructions for Legal" })).toBeNull();
+  });
+
+  it("the box shows the number of kept instructions on the other steps (FR-10)", async () => {
+    // Failure mode: instructions written on the review step being forgotten when the person goes back.
+    await review();
+    fireEvent.change(screen.getByLabelText("Anything else for Legal?"), { target: { value: "Cc procurement" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    fireEvent.click(screen.getByRole("button", { name: /Back/ }));
+    expect(await screen.findByText("1 extra instruction for Legal — see the Review step.")).toBeInTheDocument();
+  });
+});
+
+describe("payment options follow the agreement type (FR-3)", () => {
+  const field = {
+    key: "payment_terms", label: "Payment terms", kind: "select", required: true,
+    options: ["30 days", "45 days", "60 days", "90 days"],
+    options_when: [
+      { when: [{ field: "agreement_type", in: ["Services (MSA)"] }], options: ["45 days", "60 days"] },
+      { when: [{ field: "agreement_type", in: ["Buying from a vendor"] }], options: ["45 days", "60 days", "90 days"] },
+    ],
+  } as unknown as Parameters<typeof Question>[0]["field"];
+  const choices = (type: string) => {
+    const { unmount } = render(
+      <Question k="payment_terms" label="Payment terms" req field={field}
+        values={{ agreement_type: type }} labels={{}} set={() => undefined} />,
+    );
+    const got = within(screen.getByRole("combobox", { name: "Payment terms" })).getAllByRole("option").map((o) => o.textContent);
+    unmount();
+    return got;
+  };
+
+  // Failure mode: the select lists every period, so a person picks "30 days" for an MSA and the playbook rejects it.
+  it("offers 45/60 for an MSA and 45/60/90 for a vendor", () => {
+    expect(choices("Services (MSA)")).toEqual(["Select…", "45 days", "60 days"]);
+    expect(choices("Buying from a vendor")).toEqual(["Select…", "45 days", "60 days", "90 days"]);
   });
 });

@@ -219,7 +219,23 @@ def contract_risk(db: Session, contract: Contract) -> dict:
         return summary
     summary["playbook_id"] = playbook.id
     if not qualifying:
-        summary["note"] = _unknown_note(rows, version_ids, playbook.name)
+        note = _unknown_note(rows, version_ids, playbook.name)
+        if note.startswith("The text changed") and rows:
+            # Say which versions: "changed" alone read as a mistake when the person saw no edit.
+            from app.contract_files.models import ContractVersion
+
+            nos = dict(db.execute(
+                select(ContractVersion.id, ContractVersion.version_number).where(
+                    ContractVersion.id.in_([contract.current_authoritative_version_id, rows[0].contract_version_id])
+                )
+            ).all())
+            cur, last = nos.get(contract.current_authoritative_version_id), nos.get(rows[0].contract_version_id)
+            if cur and last:
+                note = (
+                    f"The text changed since the last review: the current text is version {cur}, "
+                    f"the last review was on version {last}. Re-run the playbook review."
+                )
+        summary["note"] = note
         return summary
 
     unverified_runs = {r.id for r in qualifying if r.validation_status == "needs_review"}

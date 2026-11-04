@@ -252,7 +252,7 @@ def test_filled_file_keeps_styles_numbering_tables_headers_footers_and_page_setu
     assert after.paragraphs[1].style.name == "List Number"
     assert after.tables[0].style.name == "Table Grid"
     assert _cell_texts(out) == ["Party", "Acme Industries", "Law",
-                                "Governed by the State of Delaware."]
+                                "Governed by India."]
     assert after.sections[0].header.paragraphs[0].text == "Draft for Aegis Pharma Ltd"
     assert after.sections[0].footer.paragraphs[0].text == "Confidential: Acme Industries"
     assert after.sections[0].page_width == before.sections[0].page_width

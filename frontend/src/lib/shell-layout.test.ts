@@ -15,7 +15,7 @@ describe("needsOldChrome", () => {
   });
 
   it("leaves the full-screen and redesigned pages alone", () => {
-    for (const path of ["/", "/intake", "/my-work", "/contracts", "/contracts/c-1", "/brain", "/playbooks/build", "/notices", "/tabular-reviews", "/renewals", "/search", "/signatures", "/workflow-builder/f-1"]) {
+    for (const path of ["/", "/intake", "/my-work", "/contracts", "/contracts/c-1", "/brain", "/playbooks/build", "/notices", "/tabular-reviews", "/renewals", "/signatures", "/workflow-builder/f-1"]) {
       expect(needsOldChrome(path), path).toBe(false);
     }
   });

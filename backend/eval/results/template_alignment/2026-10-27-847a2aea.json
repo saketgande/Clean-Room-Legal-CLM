@@ -1,0 +1,1030 @@
+{
+  "date": "2026-10-27",
+  "batch": "847a2aea-6eda-4ce6-88bd-1b5ddbb76c5f",
+  "as": "admin@example.com",
+  "runs_per_combination": 3,
+  "runs": [
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "governing_law_and_jurisdiction",
+          "severity": "medium",
+          "issue": "The governing law clause selects 'the laws of the State of Delaware' without naming a specific city court, but Section 9.2 separately submits to 'the courts at the city in which Aegis Pharma Ltd's registered office is situated.' The playbook expressly permits Delaware law where chosen for the transaction and treats 'courts at <city>' as meeting the preferred position; however, the registered office city is left blank in the signature block, meaning the forum is currently unascertainable and creates enforcement ambiguity. No senior-counsel escalation is triggered by the rule, but the blank should be completed before execution.",
+          "quote": "Each Party irrevocably submits to the exclusive jurisdiction of the courts at the city in which Aegis Pharma Ltd's registered office is situated for any dispute arising out of or in connection with this Agreement",
+          "quote_template": "Each Party irrevocably submits to the exclusive jurisdiction of the courts at the city in which {company}'s registered office is situated for any dispute arising out of or in connection with this Agreement",
+          "suggested_fix": "Each Party irrevocably submits to the exclusive jurisdiction of the courts at [INSERT CITY], being the city in which Aegis Pharma Ltd's registered office is situated, for any dispute arising out of or in connection with this Agreement and waives any objection to those courts, including that they are an inconvenient forum, provided that either Party may seek urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggested_fix_template": "Each Party irrevocably submits to the exclusive jurisdiction of the courts at [INSERT CITY], being the city in which {company}'s registered office is situated, for any dispute arising out of or in connection with this Agreement and waives any objection to those courts, including that they are an inconvenient forum, provided that either Party may seek urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 12,
+          "clause_type": "personal_data",
+          "severity": "medium",
+          "issue": "Section 11.1 references the Digital Personal Data Protection Act, 2023 and 'without undue delay' for breach notification, meeting the required language. However, the clause is conditioned on the parties not expecting to share personal data ('The Parties do not expect to share personal data under this Agreement'), which may create a gap if personal data is in fact shared and a party argues the clause was not intended to apply. This is an ambiguity that could limit the DPDP Act protections in practice.",
+          "quote": "The Parties do not expect to share personal data under this Agreement. If any Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with applicable data protection laws, including the Digital Personal Data Protection Act, 2023, with reasonable security safeguards.",
+          "quote_template": "{nda_personal_data}",
+          "suggested_fix": "If any Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with applicable data protection laws, including the Digital Personal Data Protection Act, 2023, with reasonable security safeguards. Each Party shall notify the other without undue delay of any personal data breach affecting the other Party's Confidential Information.",
+          "suggested_fix_template": "If any Confidential Information includes personal data, the Receiving Party shall process it only for the Purpose and in compliance with applicable data protection laws, including the Digital Personal Data Protection Act, 2023, with reasonable security safeguards. Each Party shall notify the other without undue delay of any personal data breach affecting the other Party's Confidential Information.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The cap is expressed as fees paid or payable 'under this Agreement' in the preceding 12 months, not 'fees paid or payable in the preceding 12 months' as the preferred wording states. Because the Agreement also contains a total-value ceiling of INR 4,500,000 (Clause 6.1), the practical cap may be lower than 12 months of actual fees in later contract years, potentially under-protecting the Customer on large claims; Legal Counsel approval is required for any deviation from the preferred cap formulation.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "suggested_fix": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggested_fix_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 8,
+          "clause_type": "service_levels",
+          "severity": "low",
+          "issue": "Clause 5.3 describes service credits as 'a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.' While this language does not use the prohibited phrase 'sole and exclusive remedy,' the characterisation as a 'price adjustment' rather than a remedy could be read to limit the Customer's ability to claim damages beyond the credit in some interpretations; however the express 'without prejudice to the Customer's other rights and remedies' language preserves those rights. This is flagged for awareness only as the prohibited phrase is absent and the savings language is present.",
+          "quote": "Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.",
+          "quote_template": "Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.",
+          "suggested_fix": "Service credits shall be deducted from the next invoice and are without prejudice to the Customer's other rights and remedies.",
+          "suggested_fix_template": "Service credits shall be deducted from the next invoice and are without prejudice to the Customer's other rights and remedies.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The liability cap is calculated on fees 'paid or payable under this Agreement in the twelve (12) months immediately preceding the event' rather than the playbook's preferred 'fees paid or payable in the preceding 12 months' tied to the contract as a whole. Because Clause 6.1 caps the total contract value at INR 4,500,000, the cap as drafted is functionally equivalent to the preferred position for a 12-month contract, but the phrase 'under this Agreement' (rather than 'under this Agreement or the relevant SOW') could be read to aggregate all SOW fees rather than only those for the affected services, potentially inflating the cap above the preferred level. Legal Counsel approval is required for any deviation from the preferred cap formula.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "suggested_fix": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date, provided that where a claim relates solely to a single Statement of Work, the cap shall be calculated by reference to the Fees paid or payable under that Statement of Work in the same periods.",
+          "suggested_fix_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date, provided that where a claim relates solely to a single Statement of Work, the cap shall be calculated by reference to the Fees paid or payable under that Statement of Work in the same periods.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The liability cap is expressed as fees paid or payable 'under this Agreement' in the preceding 12 months, not 'in the preceding 12 months' as the preferred wording requires; the phrase 'paid or payable' is present but the qualifier 'under this Agreement' (rather than a rolling 12-month look-back tied to the claim) could be read to include all fees ever payable under the Agreement rather than only those in the 12 months before the claim, creating potential ambiguity about the cap amount \u2014 Legal Counsel approval is required for any deviation from this rule.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "suggested_fix": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggested_fix_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The liability cap is measured against fees paid or payable 'under this Agreement' in the preceding 12 months, not against fees paid or payable 'in the preceding 12 months' as the preferred position requires. Because the Agreement has a stated total value of USD 4,500,000, the cap could be calculated against the full contract value rather than the trailing 12-month fees, materially increasing the Customer's maximum exposure; Legal Counsel approval is required.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "suggested_fix": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggested_fix_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "medium",
+          "issue": "The acceptance criteria for each Deliverable are only partially defined at SOW execution: the SOW states criteria include conformance to Clause 4.3 descriptions AND 'any specification the Parties agree in writing before its due date', meaning the full criteria are deferred to future agreement. This creates a gap risk \u2014 if no specification is agreed, the criteria default solely to the Clause 4.3 descriptions, which may be insufficiently detailed to resolve disputes about conformance. No escalation is required but Legal Counsel should ensure specifications are agreed and documented before each Deliverable's due date.",
+          "quote": "The acceptance criteria of each Deliverable listed below are that it conforms in all material respects to its description in Clause 4.3 and to any specification the Parties agree in writing before its due date",
+          "quote_template": "The acceptance criteria of each Deliverable listed below are that it conforms in all material respects to its description in Clause 4.3 and to any specification the Parties agree in writing before its due date",
+          "suggested_fix": "The acceptance criteria of each Deliverable are set out in Schedule [X] to this SOW. Each Deliverable must conform in all material respects to those criteria. Any amendment to the acceptance criteria requires a signed Change Order.",
+          "suggested_fix_template": "The acceptance criteria of each Deliverable are set out in Schedule [X] to this SOW. Each Deliverable must conform in all material respects to those criteria. Any amendment to the acceptance criteria requires a signed Change Order.",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract does not require the DPA to be signed contemporaneously with this Agreement or by the Effective Date; it only requires signing before any personal data is actually processed, leaving a gap where processing could begin without a DPA in place and without the 24-hour breach notification obligation being contractually binding from day one. Compliance escalation is required.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace Clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been signed by both Parties. The Parties shall sign such data processing agreement simultaneously with this Agreement (or, if personal data processing is not anticipated at the Effective Date, before any personal data is first processed), and it shall form part of this Agreement and prevail over it on the processing of personal data from the date it is signed.\"",
+          "suggested_fix_template": "Replace Clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been signed by both Parties. The Parties shall sign such data processing agreement simultaneously with this Agreement (or, if personal data processing is not anticipated at the Effective Date, before any personal data is first processed), and it shall form part of this Agreement and prevail over it on the processing of personal data from the date it is signed.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract does not require the Vendor to hold professional indemnity insurance. Although the Background states this is a goods supply agreement, the scope includes 'services' referenced in clause 4.7 and clause 5.1(b) (re-performance of services), meaning services may be supplied under Orders. If services are supplied, the absence of a professional indemnity requirement (minimum INR 5 crore per claim) leaves the Company without the insurance backstop the playbook requires.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim. The Vendor shall provide evidence of cover on request.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than {insurance_minimum} per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix": "Add to Clause 12.1 after the product liability sentence: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity insurance with a limit of not less than INR 50,000,000 (five crore rupees) per claim for the term of this Agreement and for one (1) year after it ends.\"",
+          "suggested_fix_template": "Add to Clause 12.1 after the product liability sentence: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity insurance with a limit of not less than {insurance_minimum} per claim for the term of this Agreement and for one (1) year after it ends.\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract anticipates that no personal data will be processed and requires a DPA to be signed before any processing begins, but no DPA on the Company's template has been executed or attached as an exhibit. The preferred position requires a DPA on the Company's template to apply from the Effective Date; the fallback requires a counterparty DPA meeting the same standards. Without an executed DPA, the Company has no contractual data-processing protections in place if processing begins, creating regulatory exposure under the DPDP Act 2023. Compliance escalation is required.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Insert the following after Clause 7.2: \"The Parties shall execute the Company's standard Data Processing Agreement simultaneously with this Agreement, which shall form part of this Agreement and apply from the Effective Date. The Vendor shall not process any personal data until the Data Processing Agreement has been signed by both Parties.\"",
+          "suggested_fix_template": "Insert the following after Clause 7.2: \"The Parties shall execute the Company's standard Data Processing Agreement simultaneously with this Agreement, which shall form part of this Agreement and apply from the Effective Date. The Vendor shall not process any personal data until the Data Processing Agreement has been signed by both Parties.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract requires only product/public liability and cyber liability insurance. It does not require professional indemnity insurance. The playbook requires a services supplier to hold professional indemnity insurance of at least INR 5 crore (or currency equivalent) per claim. Although the Background states the agreement is for goods, the scope includes 'services' in clause 4.7 and clause 5.1(b) references re-performance of services, so a professional indemnity requirement should be included. The absence of a stated professional indemnity amount means the insurance carve-out in the liability cap is not fully backed.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim. The Vendor shall provide evidence of cover on request.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than {insurance_minimum} per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix": "Add the following sentence after the cyber liability sentence in Clause 12.1: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity insurance of not less than INR 50,000,000 (five crore rupees) per claim for the term of this Agreement and for one (1) year after it ends.\"",
+          "suggested_fix_template": "Add the following sentence after the cyber liability sentence in Clause 12.1: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity insurance of not less than {insurance_minimum} per claim for the term of this Agreement and for one (1) year after it ends.\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 11,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "Clause 18.2 states 'the courts at Mumbai have exclusive supervisory jurisdiction', which contains the prohibited phrase 'exclusive jurisdiction of the courts of' (in substance). The playbook prohibits 'exclusive jurisdiction of the courts of'. The supervisory jurisdiction of courts over arbitration seated in India is a standard feature of the Arbitration and Conciliation Act, 1996, but the contract uses the word 'exclusive' in conjunction with court jurisdiction, which triggers the prohibited-language rule. This exposes the Company to a risk that disputes are litigated in court rather than arbitrated, or that the exclusive court jurisdiction clause is read to override the arbitration agreement. Senior-counsel review and approval are required.",
+          "quote": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction",
+          "quote_template": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction",
+          "suggested_fix": "Delete 'Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction' and replace with: 'The courts at Mumbai shall have supervisory jurisdiction over the arbitration to the extent permitted by the Arbitration and Conciliation Act, 1996, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.'",
+          "suggested_fix_template": "Delete 'Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction' and replace with: 'The courts at Mumbai shall have supervisory jurisdiction over the arbitration to the extent permitted by the Arbitration and Conciliation Act, 1996, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract does not require the DPA to be signed with this Agreement and to apply from the Effective Date; instead it defers signing until before any personal data is processed, meaning there is a window where no DPA is in place and the preferred position (DPA signed at execution, barring any processing until signed) is not met. Compliance escalation is required.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace Clause 7.2 with: \"The Vendor shall sign the Company's standard data processing agreement ('DPA') simultaneously with this Agreement, and the DPA shall form part of this Agreement and apply from the Effective Date. The Vendor shall not process any personal data of the Company until the DPA has been signed. Where the Parties do not expect the Vendor to process personal data, the DPA shall nonetheless be signed with this Agreement and shall apply immediately upon any processing commencing.\"",
+          "suggested_fix_template": "Replace Clause 7.2 with: \"The Vendor shall sign the Company's standard data processing agreement ('DPA') simultaneously with this Agreement, and the DPA shall form part of this Agreement and apply from the Effective Date. The Vendor shall not process any personal data of the Company until the DPA has been signed. Where the Parties do not expect the Vendor to process personal data, the DPA shall nonetheless be signed with this Agreement and shall apply immediately upon any processing commencing.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "Clause 11.2 excludes 'loss of profit, revenue or goodwill that is indirect or consequential' but does not exclude all indirect losses categorically \u2014 the qualifier 'that is indirect or consequential' attached to loss of profit/revenue/goodwill could be read as limiting the exclusion only to indirect/consequential loss of profit, leaving direct loss of profit potentially recoverable. This creates ambiguity against the preferred position of a clean indirect-loss exclusion, representing a medium risk to the Company as the party that would typically be liable under the cap.",
+          "quote": "neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential.",
+          "quote_template": "neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, revenue or goodwill that is indirect or consequential.",
+          "suggested_fix": "Replace Clause 11.2 with: \"Subject to clauses 11.3 and 11.4, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, loss of revenue, loss of goodwill, loss of anticipated savings or loss of business opportunity, whether direct or indirect.\"",
+          "suggested_fix_template": "Replace Clause 11.2 with: \"Subject to clauses 11.3 and 11.4, neither Party shall be liable to the other for any indirect, incidental, special or consequential loss or damage, or for any loss of profit, loss of revenue, loss of goodwill, loss of anticipated savings or loss of business opportunity, whether direct or indirect.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract defers execution of the DPA to a future date rather than requiring it to be signed with this Agreement and to apply from the Effective Date; no personal data may be processed until it is signed, but the DPA is not attached or signed at execution, meaning the preferred-position requirement of a DPA 'on our template applies from the start' is not met. Compliance escalation is required.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace Clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been signed by both Parties, which agreement shall form part of this Agreement and prevail over it in relation to the processing of personal data. The Parties shall sign such data processing agreement simultaneously with this Agreement, to apply from the Effective Date.\"",
+          "suggested_fix_template": "Replace Clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been signed by both Parties, which agreement shall form part of this Agreement and prevail over it in relation to the processing of personal data. The Parties shall sign such data processing agreement simultaneously with this Agreement, to apply from the Effective Date.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract does not require the DPA to be signed with this Agreement and to apply from the Effective Date; instead Clause 7.2 defers DPA execution to before any personal data is processed, which falls short of the preferred position (DPA signed with this Agreement, applying from the Effective Date) and requires Compliance approval.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace Clause 7.2 with: \"A data processing agreement on the Company's standard template (the \"DPA\") is signed together with this Agreement, applies from the Effective Date, and forms part of this Agreement, prevailing over it on all matters relating to the processing of personal data. The Vendor shall not process any personal data on behalf of the Company until the DPA has been signed.\"",
+          "suggested_fix_template": "Replace Clause 7.2 with: \"A data processing agreement on the Company's standard template (the \"DPA\") is signed together with this Agreement, applies from the Effective Date, and forms part of this Agreement, prevailing over it on all matters relating to the processing of personal data. The Vendor shall not process any personal data on behalf of the Company until the DPA has been signed.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Clause 9.2 requires the Customer's prior written approval 'given after review by the Customer's privacy function' for any data movement, which partially satisfies the rule, but the defined term 'privacy function' is not used in the clause as a standalone named gatekeeper in the way the playbook requires; the clause does not name or define 'privacy function' as a distinct organisational function whose written approval is a precondition, creating ambiguity about whether the approval mechanism meets the playbook's compliance requirement. Compliance escalation is required.",
+          "quote": "The Provider shall not move Customer Data to, or permit access to it from, any other location without the Customer's prior written approval given after review by the Customer's privacy function",
+          "quote_template": "The Provider shall not move Customer Data to, or permit access to it from, any other location without the Customer's prior written approval given after review by the Customer's privacy function",
+          "suggested_fix": "Replace 'the Customer's prior written approval given after review by the Customer's privacy function' with 'the prior written approval of the Customer's privacy function (being the Customer's designated data privacy officer or privacy compliance team)'.",
+          "suggested_fix_template": "Replace 'the Customer's prior written approval given after review by the Customer's privacy function' with 'the prior written approval of the Customer's privacy function (being the Customer's designated data privacy officer or privacy compliance team)'.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The contract defines and uses the term 'Data Breach Cap' in clause 15.2, which satisfies the required language. However, the IP indemnity under clause 14.1(a) is carved out from the General Cap (clause 15.4(b)) but is not expressly stated as uncapped \u2014 it is simply excluded from the cap provisions without a positive statement that it is uncapped, creating ambiguity about whether it is subject to any cap. This is an ambiguous or conflicting text issue that could limit the Customer's recovery on IP indemnity claims. Senior-counsel review is required.",
+          "quote": "This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "quote_template": "This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "suggested_fix": "After 'the indemnities in clauses 14.1(a) and 14.1(c)' insert '(each of which is uncapped)'.",
+          "suggested_fix_template": "After 'the indemnities in clauses 14.1(a) and 14.1(c)' insert '(each of which is uncapped)'.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 1,
+      "finding_count": 4,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted exclusively in the European Union, not India (the preferred location). Although the EU is a permissible region under the playbook if the privacy function gives prior written approval and the location is stated in the Order Form, the contract body (clause 9.1) states the EU location as a fait accompli rather than conditioning it on the Order Form and privacy-function approval being obtained before execution. This creates regulatory exposure under the DPDP Act and requires Compliance sign-off.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in [India / the European Union as specified in the Order Form]. That location is subject to the prior written approval of the Customer's privacy function, which approval must be obtained and recorded in the Order Form before this Agreement is executed and before any Customer Data is stored or processed at that location. The Provider shall not move Customer Data to any other location without the Customer's prior written approval given after review by the Customer's privacy function, and never to a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in [India / the European Union as specified in the Order Form]. That location is subject to the prior written approval of the Customer's privacy function, which approval must be obtained and recorded in the Order Form before this Agreement is executed and before any Customer Data is stored or processed at that location. The Provider shall not move Customer Data to any other location without the Customer's prior written approval given after review by the Customer's privacy function, and never to a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The contract does not use the defined term 'Data Breach Cap' as required by the playbook's required_language list; the defined term used is 'Data Breach Cap' only within clause 15.2 itself, but the playbook requires it to appear as a labelled, defined cap. More materially, the data-breach cap is expressed solely as EUR 550,000 (the EUR equivalent), whereas the playbook preferred position requires the cap to be the greater of 3\u00d7 the General Cap and INR 5 crore (or the stated currency equivalents). The contract correctly uses the greater-of formulation (3\u00d7 General Cap or EUR 550,000) but omits the INR 5 crore floor, which could result in a lower cap if fees are low. This requires Legal Counsel approval.",
+          "quote": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "quote_template": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (or, if the Fees are denominated in INR, INR 5,00,00,000) (the \"Data Breach Cap\"). \"Data Breach Claim\" means any liability arising from a Security Incident or from a breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, including where the same facts are also a breach of clause 11 (Confidentiality) or fall within the indemnity in clause 14.1(b). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it.",
+          "suggested_fix_template": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (or, if the Fees are denominated in INR, INR 5,00,00,000) (the \"Data Breach Cap\"). \"Data Breach Claim\" means any liability arising from a Security Incident or from a breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, including where the same facts are also a breach of clause 11 (Confidentiality) or fall within the indemnity in clause 14.1(b). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The contract does not reference the Micro, Small and Medium Enterprises Development Act, 2006 by its full statutory name in the payment clause (clause 4.3) where the 45-day payment obligation is established; the Act is named only in clause 4.7 which addresses the MSME notification obligation. The playbook requires the full Act name to appear in the payment terms. This is a low-severity administrative gap but is a required-language miss.",
+          "quote": "The Customer shall pay undisputed invoices within 60 days of receipt of a valid, undisputed invoice.",
+          "quote_template": "The Customer shall pay undisputed invoices within 60 days of receipt of a valid, undisputed invoice.",
+          "suggested_fix": "The Customer shall pay undisputed invoices within 60 days of receipt of a valid, undisputed invoice, except that where the Provider is a micro or small enterprise within the meaning of the Micro, Small and Medium Enterprises Development Act, 2006, payment shall be made within 45 days of acceptance of the goods or services invoiced, in accordance with clause 4.7.",
+          "suggested_fix_template": "The Customer shall pay undisputed invoices within 60 days of receipt of a valid, undisputed invoice, except that where the Provider is a micro or small enterprise within the meaning of the Micro, Small and Medium Enterprises Development Act, 2006, payment shall be made within 45 days of acceptance of the goods or services invoiced, in accordance with clause 4.7.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 3,
+          "rule_index": 14,
+          "clause_type": "tax_compliance",
+          "severity": "low",
+          "issue": "The contract does not include the required language 'input tax credit' and 'reverse charge' in a single integrated tax clause; 'input tax credit' appears in clause 4.6 and 'reverse charge' also appears in clause 4.6, so both terms are present. However, the contract does not address the scenario where the Provider is outside India and the Customer pays GST under reverse charge in the same clause that references the GSTIN and input tax credit obligations, creating a potential ambiguity about which regime applies when. On closer reading clause 4.6 does address both scenarios. This item is borderline; flagged at low confidence as a potential ambiguity rather than a clear gap.",
+          "quote": "The Provider shall state its GSTIN (where it is registered in India) on each invoice, issue tax invoices that comply with GST law and report and pay the tax collected, so that the Customer can claim input tax credit, and shall reimburse any input tax credit the Customer loses through its default, with any interest and penalty. Where the Provider is outside India, the Customer shall pay GST on the Service under reverse charge, the Provider's invoice is sufficient for that purpose, and the Fees shall not be increased.",
+          "quote_template": "The Provider shall state its GSTIN (where it is registered in India) on each invoice, issue tax invoices that comply with GST law and report and pay the tax collected, so that the Customer can claim input tax credit, and shall reimburse any input tax credit the Customer loses through its default, with any interest and penalty. Where the Provider is outside India, the Customer shall pay GST on the Service under reverse charge, the Provider's invoice is sufficient for that purpose, and the Fees shall not be increased.",
+          "suggested_fix": "No change required if the Provider is confirmed to be India-registered. If the Provider is outside India, add: 'Where the Provider is established outside India, the Provider shall issue invoices that include sufficient information for the Customer to account for GST under the reverse charge mechanism, and the Fees shall not be increased on account of such GST.' The existing clause 4.6 substantially covers this; confirm Provider's GST registration status in the Order Form.",
+          "suggested_fix_template": "No change required if the Provider is confirmed to be India-registered. If the Provider is outside India, add: 'Where the Provider is established outside India, the Provider shall issue invoices that include sufficient information for the Customer to account for GST under the reverse charge mechanism, and the Fees shall not be increased on account of such GST.' The existing clause 4.6 substantially covers this; confirm Provider's GST registration status in the Order Form.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 2,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted exclusively in the European Union, not India (the preferred location). Although the EU location is stated in the Order Form and subject to the privacy function's written approval \u2014 which the playbook says meets the preferred position \u2014 the contract does not reference the DPDP Act section 16 restricted-country prohibition in clause 9.1 itself (it appears only in clause 9.2 for secondary transfers). The primary hosting clause therefore does not on its face confirm that the EU location has been cleared against section 16, creating a compliance gap that requires Compliance approval.",
+          "quote": "9.1 The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "9.1 The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "9.1 The Provider shall host, store and process Customer Data only in data centres located in the European Union, provided that location has been confirmed by the Customer's privacy function not to be a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. That location shall be stated in the Order Form and is subject to the prior written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix_template": "9.1 The Provider shall host, store and process Customer Data only in data centres located in the European Union, provided that location has been confirmed by the Customer's privacy function not to be a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. That location shall be stated in the Order Form and is subject to the prior written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The uncapped carve-outs in clause 15.4 omit the IP indemnity (clause 14.1(a)) from the list of items that are uncapped; the playbook requires the IP indemnity to be uncapped. Clause 15.4(b) carves out only the indemnities in clauses 14.1(a) and 14.1(c) from the general cap but those indemnities remain subject to the Data Breach Cap structure \u2014 re-reading clauses 15.2 and 15.4 together, clause 14.1(a) (IP indemnity) is carved out from the General Cap by clause 15.4(b) but is not expressly stated to be uncapped, leaving ambiguity as to whether the Data Breach Cap or some other cap applies to it. This requires Legal Counsel approval.",
+          "quote": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "quote_template": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "suggested_fix": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnity in clause 14.1(a) (IP indemnity) and the indemnity in clause 14.1(c), each of which is uncapped; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law. For the avoidance of doubt, the indemnity in clause 14.1(b) is subject to the Data Breach Cap in clause 15.2.",
+          "suggested_fix_template": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnity in clause 14.1(a) (IP indemnity) and the indemnity in clause 14.1(c), each of which is uncapped; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law. For the avoidance of doubt, the indemnity in clause 14.1(b) is subject to the Data Breach Cap in clause 15.2.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "medium",
+          "issue": "Clause 4.7 conditions the 45-day MSMED Act payment period on it being shorter than the standard 60-day period in clause 4.3, rather than treating 45 days as an absolute ceiling for micro or small enterprises as required by the MSMED Act and the playbook. In practice the 60-day period in clause 4.3 will always be longer, so the 45-day cap will apply, but the drafting creates unnecessary ambiguity and does not expressly state that the 45-day limit is a statutory maximum that overrides any longer period.",
+          "quote": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Notwithstanding clause 4.3, the Customer shall pay each valid, undisputed invoice from such a Provider within forty-five (45) days from the day of acceptance of the goods or services invoiced, which period shall apply as a statutory maximum and shall override any longer payment period in this Agreement.",
+          "suggested_fix_template": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Notwithstanding clause 4.3, the Customer shall pay each valid, undisputed invoice from such a Provider within forty-five (45) days from the day of acceptance of the goods or services invoiced, which period shall apply as a statutory maximum and shall override any longer payment period in this Agreement.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 3,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted exclusively in the European Union, not India (the preferred location). While the EU is a permitted region under the playbook, the contract does not reference the 'privacy function' by that name as the approving body \u2014 it refers to 'the Customer's privacy function' in clause 9.1 and 9.2, which does satisfy the required_language check. However, the preferred position states India is preferred and the EU requires the privacy function's prior written approval stated in the Order Form; the Order Form has not been supplied and it is unknown whether that approval has been given. Additionally, the contract does not contain the prohibited language. This deviation requires Compliance approval because the data location is outside India and the Order Form approval cannot be verified from the supplied document.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "Retain clause 9.1 as drafted but ensure the executed Order Form expressly names the EU data centre location(s) and records the prior written approval of the Customer's privacy function before any Customer Data is stored there. If India hosting is available, amend to: 'The Provider shall host, store and process Customer Data only in data centres located in India [or, if agreed in the Order Form and approved in writing by the Customer's privacy function prior to storage, in the European Union].'",
+          "suggested_fix_template": "Retain clause 9.1 as drafted but ensure the executed Order Form expressly names the EU data centre location(s) and records the prior written approval of the Customer's privacy function before any Customer Data is stored there. If India hosting is available, amend to: 'The Provider shall host, store and process Customer Data only in data centres located in India [or, if agreed in the Order Form and approved in writing by the Customer's privacy function prior to storage, in the European Union].'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The IP indemnity (clause 14.1(a)) and the negligence/wilful misconduct/fraud indemnity (clause 14.1(c)) are carved out from the General Cap under clause 15.4(b), but the contract does not expressly state that these indemnities are uncapped \u2014 it merely removes the General Cap ceiling without substituting any cap or confirming uncapped status. This creates ambiguity about whether a residual cap (e.g., the Data Breach Cap) applies to those indemnities. The playbook requires the IP indemnity to be uncapped. Senior counsel review is required to confirm the intended uncapped treatment and to add express language.",
+          "quote": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "quote_template": "15.4 This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "suggested_fix": "Amend clause 15.4 to read: '15.4 The caps and exclusions in clauses 15.1, 15.2 and 15.3 do not apply to, and liability for the following is uncapped: (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.'",
+          "suggested_fix_template": "Amend clause 15.4 to read: '15.4 The caps and exclusions in clauses 15.1, 15.2 and 15.3 do not apply to, and liability for the following is uncapped: (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) and 14.1(c); (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted in the United States, not India (the preferred location). Although the contract requires Order Form documentation and privacy-function written approval before data is stored there, the US is a non-preferred region and this deviation requires Compliance sign-off under rule 3.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India. If the Order Form specifies an alternative location (limited to the EU, the US or another region named in the Order Form), that location is subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there, and shall never be a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India. If the Order Form specifies an alternative location (limited to the EU, the US or another region named in the Order Form), that location is subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there, and shall never be a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The IP indemnity in clause 14.1(a) and the negligence/fraud indemnity in clause 14.1(c) are carved out from the General Cap under clause 15.4(b), but the playbook requires the IP indemnity to be uncapped separately from the data indemnity carve-out. Clause 15.4 lists the IP indemnity (14.1(a)) and the negligence/fraud indemnity (14.1(c)) together under one sub-paragraph (b), while the data-breach carve-out is handled via the Data Breach Cap. This structure is substantively consistent with the playbook's preferred position; however, the defined term \"Data Breach Cap\" is used in clause 15.2 but is not listed in the Definitions clause (clause 1.1), creating a minor ambiguity as to its scope. This is a low-severity drafting gap with no material commercial impact but should be corrected for clarity.",
+          "quote": "\"Data Breach Claim\" means any liability arising from a Security Incident or from a breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, including where the same facts are also a breach of clause 11 (Confidentiality) or fall within the indemnity in clause 14.1(b). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it.",
+          "quote_template": "\"Data Breach Claim\" means any liability arising from a Security Incident or from a breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, including where the same facts are also a breach of clause 11 (Confidentiality) or fall within the indemnity in clause 14.1(b). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it.",
+          "suggested_fix": "Add to clause 1.1: \"Data Breach Cap\" has the meaning given in clause 15.2. Confirm in clause 15.4 that the IP indemnity under clause 14.1(a) is uncapped and separate from the Data Breach Cap carve-out, for example: \"15.4 This limitation of liability does not apply to (a) the IP indemnity in clause 14.1(a); (b) the indemnity in clause 14.1(c) (negligence, wilful misconduct or fraud); (c) breach of clause 11 (Confidentiality) other than a Data Breach Claim; (d) gross negligence or wilful misconduct; (e) fraud or fraudulent misrepresentation; (f) death or personal injury caused by negligence; or (g) any other liability that cannot be limited or excluded under Applicable Law.\"",
+          "suggested_fix_template": "Add to clause 1.1: \"Data Breach Cap\" has the meaning given in clause 15.2. Confirm in clause 15.4 that the IP indemnity under clause 14.1(a) is uncapped and separate from the Data Breach Cap carve-out, for example: \"15.4 This limitation of liability does not apply to (a) the IP indemnity in clause 14.1(a); (b) the indemnity in clause 14.1(c) (negligence, wilful misconduct or fraud); (c) breach of clause 11 (Confidentiality) other than a Data Breach Claim; (d) gross negligence or wilful misconduct; (e) fraud or fraudulent misrepresentation; (f) death or personal injury caused by negligence; or (g) any other liability that cannot be limited or excluded under Applicable Law.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted in the United States, not India (the preferred location). Although the US location is stated in the Order Form and is subject to the privacy function's prior written approval (meeting the fallback condition in the preferred position), the contract contains no reference to section 16 of the DPDP Act restrictions in clause 9.1 itself, and the prohibited language 'any location chosen by the Provider' does not appear. The US location with privacy-function approval meets the preferred position's express fallback ('A location stated in the Order Form and subject to the privacy function's prior written approval meets this position'), so this is a fallback/approval-required item rather than an outside deviation. Compliance sign-off is required.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": null,
+          "suggested_fix_template": null,
+          "suggestion_is_wording": false,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted in the United States, not India (the preferred location). The US is not India, and while the Order Form location and privacy-function written approval mechanism is present, the contract locks in the US as the sole hosting location without naming any other approved region from the Order Form \u2014 Compliance approval is required before execution.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location shall be stated in the Order Form and is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India, or in such other location as is stated in the Order Form and approved in writing by the Customer's privacy function before any Customer Data is stored there, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India, or in such other location as is stated in the Order Form and approved in writing by the Customer's privacy function before any Customer Data is stored there, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Clause 9.1 requires data to be hosted only in regions 'named in the Order Form' subject to the privacy function's written approval, but does not itself name any location (including India) and does not use the words 'privacy function' in clause 9.1 \u2014 that phrase appears only in clause 9.2. The preferred position requires the privacy function's written approval to be a condition stated in the agreement itself, and a location must be named (or the Order Form must name one with prior written approval of the privacy function). Because no location is named in the agreement and the privacy function approval language is split across two sub-clauses rather than being a unified condition, there is residual ambiguity about whether the Order Form alone can authorise any location without the privacy function's prior written approval being a contractual prerequisite. Compliance escalation is required.",
+          "quote": "9.1 The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "quote_template": "9.1 The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "suggested_fix": "9.1 The Provider shall host, store and process Customer Data only in the data centre regions expressly named in the Order Form and approved in writing by the Customer's privacy function before any Customer Data is stored there. India is the preferred hosting location; any other region requires the prior written approval of the Customer's privacy function and must be named in the Order Form.",
+          "suggested_fix_template": "9.1 The Provider shall host, store and process Customer Data only in the data centre regions expressly named in the Order Form and approved in writing by the Customer's privacy function before any Customer Data is stored there. India is the preferred hosting location; any other region requires the prior written approval of the Customer's privacy function and must be named in the Order Form.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "Clause 4.3 sets a 45-day payment period for undisputed invoices, which meets the preferred position. However, the required language 'Micro, Small and Medium Enterprises Development Act, 2006' does not appear in the payment obligation itself (clause 4.3); it appears only in clause 4.7, which is a conditional clause triggered only if the Provider self-identifies as a micro or small enterprise and states its Udyam number. The playbook requires the contract to state the MSMED Act 2006 as a binding payment-terms obligation, not merely as a contingent reference. The current drafting means the 45-day MSMED cap applies only if the Provider volunteers its status, creating a compliance gap if the Provider is an MSME but does not notify.",
+          "quote": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "4.7 If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "4.7 If the Provider is or becomes a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall notify the Customer immediately and state its Udyam registration number on each invoice. Regardless of whether the Provider gives such notice, if the Provider is in fact a micro or small enterprise within the meaning of that Act, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this obligation applies automatically by operation of law.",
+          "suggested_fix_template": "4.7 If the Provider is or becomes a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall notify the Customer immediately and state its Udyam registration number on each invoice. Regardless of whether the Provider gives such notice, if the Provider is in fact a micro or small enterprise within the meaning of that Act, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this obligation applies automatically by operation of law.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 2,
+      "error": "AIOutputInvalid: playbook_review: output failed PlaybookReviewOutput validation: 1 error(s)"
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause states cover of USD 600,000 per claim for professional indemnity and cyber liability but does not include any public liability amount, leaving the quantum of public liability cover unspecified and potentially unenforceable as a minimum; the playbook requires a stated per-claim amount for all required covers.",
+          "quote": "The Consultant shall maintain, during the term and for two (2) years after it ends, professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "quote_template": "The Consultant shall maintain, during the term and for two (2) years after it ends, professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix": "The Consultant shall maintain, during the term and for two (2) years after it ends: (a) professional indemnity insurance of not less than USD 600,000 per claim; (b) public liability insurance of not less than USD 600,000 per claim; and (c) where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim; and shall provide evidence of cover on request.",
+          "suggested_fix_template": "The Consultant shall maintain, during the term and for two (2) years after it ends: (a) professional indemnity insurance of not less than USD 600,000 per claim; (b) public liability insurance of not less than USD 600,000 per claim; and (c) where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim; and shall provide evidence of cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    }
+  ],
+  "negatives": [
+    {
+      "playbook": "consultancy",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "governing_law",
+        "insurance",
+        "data_protection",
+        "non_compete"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "non_compete"
+      ],
+      "finding_count": 5
+    },
+    {
+      "playbook": "dpa",
+      "expected_clause_types": [
+        "breach_notification",
+        "international_transfers",
+        "return_or_deletion",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "breach_notification",
+        "governing_law",
+        "international_transfers",
+        "return_or_deletion"
+      ],
+      "finding_count": 4
+    },
+    {
+      "playbook": "msa",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "insurance",
+        "service_levels",
+        "data_protection",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "service_levels"
+      ],
+      "finding_count": 5
+    },
+    {
+      "playbook": "nda",
+      "expected_clause_types": [
+        "definition_of_confidential_information",
+        "permitted_use_and_standard_of_care",
+        "compelled_disclosure_and_legal_process",
+        "return_or_destruction_of_information",
+        "term_and_duration_of_confidentiality",
+        "governing_law_and_jurisdiction",
+        "remedies_and_injunctive_relief",
+        "non_compete_and_exclusivity",
+        "indemnity",
+        "residuals"
+      ],
+      "found_clause_types": [
+        "compelled_disclosure_and_legal_process",
+        "definition_of_confidential_information",
+        "exclusions_from_confidential_information",
+        "governing_law_and_jurisdiction",
+        "indemnity",
+        "non_compete_and_exclusivity",
+        "permitted_use_and_standard_of_care",
+        "personal_data",
+        "remedies_and_injunctive_relief",
+        "residuals",
+        "return_or_destruction_of_information",
+        "term_and_duration_of_confidentiality"
+      ],
+      "finding_count": 12
+    },
+    {
+      "playbook": "saas",
+      "expected_clause_types": [
+        "data_security",
+        "data_location",
+        "limitation_of_liability",
+        "suspension",
+        "data_use",
+        "governing_law",
+        "insurance"
+      ],
+      "found_clause_types": [
+        "data_location",
+        "data_security",
+        "data_use",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "suspension"
+      ],
+      "finding_count": 7
+    },
+    {
+      "playbook": "sow",
+      "expected_clause_types": [
+        "acceptance",
+        "fees_and_pricing",
+        "milestone_payments",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "acceptance",
+        "fees_and_pricing",
+        "governing_law",
+        "milestone_payments",
+        "order_of_precedence"
+      ],
+      "finding_count": 6
+    },
+    {
+      "playbook": "vendor",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "data_protection",
+        "delivery_and_acceptance",
+        "insurance",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "delivery_and_acceptance",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "payment_terms"
+      ],
+      "finding_count": 6
+    }
+  ],
+  "totals": {
+    "main_runs": 57,
+    "main_with_findings": 21,
+    "risky_runs": 7,
+    "failures": 22
+  }
+}

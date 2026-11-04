@@ -5,7 +5,7 @@ import { DecisionArea, type HumanDecision } from "./_decision-area";
 const human = (over: Partial<HumanDecision> = {}): HumanDecision => ({
   stepName: "Legal review", warning: { tone: "ok", text: "No blocking risks — clear to advance" },
   rework: null, reply: "", onReply: vi.fn(), replyMissing: false, busy: false, onApprove: vi.fn(),
-  canSendBack: true, onJumpToSendBack: vi.fn(), onJumpToComment: vi.fn(), ...over,
+  sendBack: { options: [{ value: "0", label: "1. Draft" }], to: "", onTo: vi.fn(), note: "", onNote: vi.fn(), open: false, onToggle: vi.fn(), onSend: vi.fn() }, risks: [], onSeeRisks: vi.fn(), note: "", onNote: vi.fn(), ...over,
 });
 
 describe("DecisionArea", () => {
@@ -38,14 +38,32 @@ describe("DecisionArea", () => {
     expect(onReply).toHaveBeenCalledWith("fixed");
   });
 
-  it("wires approve, send back and comment to the parent callbacks; hides send back on the first step", () => {
+  it("wires approve, send back and the decision note to the parent callbacks; hides send back on the first step", () => {
     const h = human();
     const { rerender } = render(<DecisionArea approval={null} human={h} negotiation={null} />);
     fireEvent.click(screen.getByRole("button", { name: /Approve & advance/ }));
     fireEvent.click(screen.getByRole("button", { name: /Send back for rework/ }));
-    fireEvent.click(screen.getByRole("button", { name: /Add a comment/ }));
-    expect(h.onApprove).toHaveBeenCalled(); expect(h.onJumpToSendBack).toHaveBeenCalled(); expect(h.onJumpToComment).toHaveBeenCalled();
-    rerender(<DecisionArea approval={null} human={human({ canSendBack: false })} negotiation={null} />);
+    fireEvent.change(screen.getByLabelText(/Decision note/), { target: { value: "checked cl. 4" } });
+    expect(h.onApprove).toHaveBeenCalled(); expect(h.sendBack!.onToggle).toHaveBeenCalled(); expect(h.onNote).toHaveBeenCalledWith("checked cl. 4");
+    rerender(<DecisionArea approval={null} human={human({ sendBack: null })} negotiation={null} />);
     expect(screen.queryByRole("button", { name: /Send back for rework/ })).toBeNull();
+  });
+
+  it("lists the open high risks in the card and offers the full list", () => {
+    const h = human({ warning: { tone: "warn", text: "1 high risk open — review before approving" }, risks: [{ id: "d1", severity: "high", clause: "limitation of liability", issue: "Cap is uncapped" }] });
+    render(<DecisionArea approval={null} human={h} negotiation={null} />);
+    expect(screen.getByText("Cap is uncapped")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Limitation of liability/i }));
+    expect(h.onSeeRisks).toHaveBeenCalled();
+  });
+
+  it("lets the person hand the work to someone in the step's own team", () => {
+    const onConfirm = vi.fn(); const onPick = vi.fn();
+    const reassign = { teamName: "Legal Counsel", options: [{ id: "u2", name: "Asha Rao", detail: "2 open" }], open: true, onToggle: vi.fn(), picked: "u2", onPick, onConfirm };
+    render(<DecisionArea approval={null} human={human({ reassign })} negotiation={null} />);
+    expect(screen.getByText(/someone in Legal Counsel/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: /Asha Rao/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reassign to selected person" }));
+    expect(onPick).toHaveBeenCalledWith("u2"); expect(onConfirm).toHaveBeenCalled();
   });
 });

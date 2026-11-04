@@ -50,7 +50,7 @@ def form_fields(key: str | None) -> list[SimpleNamespace]:
     return [
         SimpleNamespace(key=f["key"], label=f["label"], kind=f["kind"], required=f["required"],
                         options=[{"value": o, "label": o} for o in f.get("options") or []] or None,
-                        show=f.get("show"), not_before=f.get("not_before"),
+                        show=f.get("show"), options_when=f.get("options_when"), not_before=f.get("not_before"),
                         no_blanks=f.get("no_blanks", False), min_exclusive=f.get("min_exclusive"),
                         min_rows=f.get("min_rows"), max_rows=f.get("max_rows"),
                         legacy_key=f.get("legacy_key"), legacy_label=f.get("legacy_label"),
@@ -78,6 +78,15 @@ def rules_match(rules: list[dict] | None, values: dict) -> bool:
 def shown(field, values: dict) -> bool:
     """Whether a conditional question applies: every ``show`` rule must match."""
     return rules_match(getattr(field, "show", None), values)
+
+
+def options_for(field, values: dict) -> list[dict] | None:
+    """The choices a select question offers given the form's answers: the first ``options_when`` entry
+    whose rules all match, else the question's own ``options``. Frontend ``optionsFor`` mirrors this."""
+    for entry in getattr(field, "options_when", None) or []:
+        if rules_match(entry["when"], values):
+            return [{"value": o, "label": o} for o in entry["options"]]
+    return field.options
 
 
 # --- the "rows" question kind: a table whose rows are filed with the request -------------------------

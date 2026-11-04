@@ -1,0 +1,321 @@
+{
+  "schema": 1,
+  "id": "msa-small",
+  "title": "Master Services Agreement (short, 4.3k characters)",
+  "metadata": {"title": "Master Services Agreement \u2014 Audit Test Globex Corporation", "contract_type": "MSA", "counterparty_name": "Audit Test Globex Corporation"},
+  "text_file": "texts/msa-small.txt",
+  "text_sha256": "7197779f4f8ee602d7ae292b64acd032c7da8726119239f1acab79ff2ebf6b57",
+  "status": {
+    "state": "draft",
+    "confirmed_by": null,
+    "confirmed_at": null,
+    "note": "AI-drafted answer key. A lawyer must read the whole text and confirm every atom and every not_duty before any score from it is named a baseline."
+  },
+  "provenance": {
+    "source_contract_id": "a8b176ba-4763-4650-89a1-a57572761152",
+    "origin": "Dev database, current authoritative version's text snapshot (27715cc5-eb77-4ffd-9491-1f04890ef338).",
+    "wording": "Synthetic 'Audit Test' parties created for the October 2026 obligations audit; where the wording came from is not traced. Confirm before this text is committed.",
+    "labelled_by": "AI draft (Claude Sonnet 5.5), 2026-10-27, from a full read, the 12 stored rows and the audit's named misses. Not lawyer-confirmed.",
+    "audit_hand_counts": {
+      "atoms": "about 20",
+      "strict_precision_first_run": "5 of 12",
+      "named_misses": [
+        "2.1 (taxes on top of the fees)"
+      ]
+    }
+  },
+  "parties": {
+    "us": {
+      "names": [
+        "Aegis Audit Test Entity Pvt Ltd"
+      ],
+      "roles": []
+    },
+    "them": {
+      "names": [
+        "Audit Test Globex Corporation"
+      ],
+      "roles": [
+        "Provider"
+      ]
+    }
+  },
+  "anchors": {
+    "effective_date": "2026-10-01",
+    "expiration_date": null,
+    "signature_date": null
+  },
+  "atoms": [
+    {
+      "id": "A01",
+      "clause": "1.1",
+      "quote": "Provider shall perform the services (the \"Services\") described in one or more statements of work executed by the Parties",
+      "owed_by": "them",
+      "kind": "duty",
+      "type": "performance",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "A02",
+      "clause": "2.1",
+      "quote": "Aegis Audit Test Entity Pvt Ltd shall pay the fees set out in the applicable SOW.",
+      "owed_by": "us",
+      "kind": "duty",
+      "type": "payment",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "A03",
+      "clause": "2.1",
+      "quote": "Undisputed invoices are payable within sixty (60) days of receipt.",
+      "owed_by": "us",
+      "kind": "duty",
+      "type": "payment",
+      "timing": {
+        "kind": "deadline",
+        "period_number": 60,
+        "period_unit": "days",
+        "direction": "after",
+        "anchor": "invoice_received",
+        "anchor_text": "receipt",
+        "stated_in_text": true
+      }
+    },
+    {
+      "id": "A04",
+      "clause": "2.1",
+      "quote": "Fees are exclusive of applicable taxes, other than taxes on Provider's income.",
+      "owed_by": "us",
+      "kind": "duty",
+      "type": "payment",
+      "timing": {
+        "kind": "ongoing"
+      },
+      "note": "Taxes on top of the fees. The audit counted this as a missed duty; a lawyer may reclassify it as an allocation."
+    },
+    {
+      "id": "C01",
+      "clause": "3.1",
+      "quote": "not cured within thirty (30) days of written notice",
+      "owed_by": "both",
+      "kind": "condition",
+      "type": "notice",
+      "timing": {
+        "kind": "condition",
+        "period_number": 30,
+        "period_unit": "days",
+        "direction": "after",
+        "anchor": "notice_received",
+        "stated_in_text": true
+      },
+      "note": "Cure period a party must allow before terminating for material breach."
+    },
+    {
+      "id": "C02",
+      "clause": "3.1",
+      "quote": "on thirty (30) days' notice",
+      "owed_by": "us",
+      "kind": "condition",
+      "type": "notice",
+      "timing": {
+        "kind": "condition",
+        "period_number": 30,
+        "period_unit": "days",
+        "direction": "before",
+        "anchor": "termination",
+        "stated_in_text": true
+      },
+      "note": "Notice Aegis must give before terminating an SOW for convenience."
+    },
+    {
+      "id": "A05",
+      "clause": "3.1",
+      "quote": "paying for Services performed through the termination date",
+      "owed_by": "us",
+      "kind": "duty",
+      "type": "payment",
+      "timing": {
+        "kind": "condition"
+      }
+    },
+    {
+      "id": "A06",
+      "clause": "4.1",
+      "quote": "Each Party shall protect the other's Confidential Information with the same care it uses for its own (and no less than reasonable care)",
+      "owed_by": "both",
+      "kind": "duty",
+      "type": "confidentiality",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "A07",
+      "clause": "4.1",
+      "quote": "use it only to perform this Agreement",
+      "owed_by": "both",
+      "kind": "restriction",
+      "type": "confidentiality",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "A08",
+      "clause": "4.1",
+      "quote": "not disclose it except to personnel with a need to know who are bound by confidentiality obligations",
+      "owed_by": "both",
+      "kind": "restriction",
+      "type": "confidentiality",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "K01",
+      "clause": "5.1",
+      "quote": "grants Aegis Audit Test Entity Pvt Ltd a perpetual, non-exclusive license to use them as embedded in the deliverables",
+      "owed_by": "them",
+      "kind": "commitment",
+      "type": "ip_license",
+      "timing": {
+        "kind": "condition"
+      }
+    },
+    {
+      "id": "A09",
+      "clause": "8.1",
+      "quote": "Provider shall defend, indemnify and hold Aegis Audit Test Entity Pvt Ltd harmless from third-party claims arising from Provider's breach of this Agreement, its negligence or willful misconduct, or any allegation that a deliverable infringes a third party's intellectual property rights.",
+      "owed_by": "them",
+      "kind": "duty",
+      "type": "indemnification",
+      "timing": {
+        "kind": "condition"
+      }
+    },
+    {
+      "id": "A10",
+      "clause": "9.1",
+      "quote": "Provider shall maintain, at its own expense, commercially reasonable insurance coverage appropriate to the Services, including commercial general liability and professional liability (errors and omissions)",
+      "owed_by": "them",
+      "kind": "duty",
+      "type": "insurance",
+      "timing": {
+        "kind": "ongoing"
+      }
+    },
+    {
+      "id": "A11",
+      "clause": "9.1",
+      "quote": "shall provide certificates of insurance on request",
+      "owed_by": "them",
+      "kind": "duty",
+      "type": "insurance",
+      "timing": {
+        "kind": "condition",
+        "anchor": "request_received"
+      }
+    },
+    {
+      "id": "A12",
+      "clause": "10.1",
+      "quote": "may not be assigned by either Party without the other's prior written consent (except to a successor in a merger or sale of substantially all assets)",
+      "owed_by": "both",
+      "kind": "restriction",
+      "type": "assignment",
+      "timing": {
+        "kind": "ongoing"
+      }
+    }
+  ],
+  "not_duties": [
+    {
+      "id": "N01",
+      "clause": "1.1",
+      "quote": "Each SOW is governed by and incorporated into this Agreement; in the event of a conflict, this Agreement controls except where an SOW expressly states otherwise for that SOW.",
+      "reason": "effect"
+    },
+    {
+      "id": "N02",
+      "clause": "2.1",
+      "quote": "Aegis Audit Test Entity Pvt Ltd may withhold payment of amounts it disputes in good faith pending resolution.",
+      "reason": "right"
+    },
+    {
+      "id": "N03",
+      "clause": "3.1",
+      "quote": "This Agreement begins on the Effective Date and continues until terminated.",
+      "reason": "effect"
+    },
+    {
+      "id": "N04",
+      "clause": "3.1",
+      "quote": "Either Party may terminate this Agreement or any SOW for material breach",
+      "reason": "right"
+    },
+    {
+      "id": "N05",
+      "clause": "3.1",
+      "quote": "or immediately if the other Party becomes insolvent",
+      "reason": "right"
+    },
+    {
+      "id": "N06",
+      "clause": "3.1",
+      "quote": "Aegis Audit Test Entity Pvt Ltd may terminate any SOW for convenience",
+      "reason": "right"
+    },
+    {
+      "id": "N07",
+      "clause": "5.1",
+      "quote": "Deliverables created for Aegis Audit Test Entity Pvt Ltd under an SOW are works made for hire and, upon full payment, are owned by Aegis Audit Test Entity Pvt Ltd.",
+      "reason": "effect"
+    },
+    {
+      "id": "N08",
+      "clause": "5.1",
+      "quote": "Provider retains ownership of its pre-existing materials and tools",
+      "reason": "effect"
+    },
+    {
+      "id": "N09",
+      "clause": "6.1",
+      "quote": "Provider warrants that the Services will be performed in a professional and workmanlike manner in accordance with the applicable SOW and generally accepted industry standards, and that the deliverables will not infringe the intellectual property rights of any third party.",
+      "reason": "representation"
+    },
+    {
+      "id": "N10",
+      "clause": "7.1",
+      "quote": "neither Party's aggregate liability under this Agreement will exceed the fees paid or payable under the applicable SOW in the six (6) months preceding the claim.",
+      "reason": "allocation"
+    },
+    {
+      "id": "N11",
+      "clause": "7.1",
+      "quote": "Neither Party is liable for indirect, incidental, special, or consequential damages.",
+      "reason": "allocation"
+    },
+    {
+      "id": "N12",
+      "clause": "10.1",
+      "quote": "This Agreement is governed by the laws of the State of Delaware, without regard to its conflict-of-laws rules.",
+      "reason": "effect"
+    },
+    {
+      "id": "N13",
+      "clause": "10.1",
+      "quote": "It constitutes the entire agreement between the Parties regarding its subject matter",
+      "reason": "effect"
+    },
+    {
+      "id": "N14",
+      "clause": "10.1",
+      "quote": "may be amended only in a signed writing",
+      "reason": "formality"
+    }
+  ]
+}

@@ -74,6 +74,11 @@ celery_app.conf.beat_schedule = {
         "task": "app.jobs.tasks.reconcile_tabular_reviews",
         "schedule": crontab(minute="*/5"),  # settle reviews and stuck cells without anyone opening them
     },
+    "audit-obligation-extraction": {
+        "task": "app.jobs.tasks.audit_obligation_extraction",
+        # daily, after close-expired-contracts; minute 58 so it never lands on the */5 reclaim tick
+        "schedule": crontab(hour=7, minute=58),
+    },
     "send-obligation-reminders": {
         "task": "app.jobs.tasks.send_obligation_reminders",
         "schedule": crontab(hour=8, minute=0),  # daily 08:00 UTC
