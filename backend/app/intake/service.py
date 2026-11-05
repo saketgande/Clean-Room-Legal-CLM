@@ -480,6 +480,31 @@ def _decode_b64(content_b64: str, filename: str) -> bytes:
 _PARTY_ROLES = {"counterparty", "adverse", "related", "our_side"}
 
 
+# A trademark clearance case, and an examination / opposition response, are worked in the Trademarks
+# module, so the Legal Intake request tables do not list them. Each is marked by the answer its workflow is
+# chosen by; these must equal app.trademarks.clearance_service.CLEARANCE_MARKER_FIELD and
+# RESPONSE_MARKER_FIELD (a test holds them together).
+CLEARANCE_MARKER_FIELD = "tm_clearance"
+RESPONSE_MARKER_FIELD = "tm_response"
+TRADEMARK_MARKER_FIELDS = (CLEARANCE_MARKER_FIELD, RESPONSE_MARKER_FIELD)
+
+
+def _outside_clearance_cases():
+    """True for every request except one worked in Trademarks. IS DISTINCT FROM keeps requests with no
+    answers at all (NULL) in the list."""
+    return and_(
+        *(IntakeRequest.field_values[marker].as_string().is_distinct_from("true") for marker in TRADEMARK_MARKER_FIELDS)
+    )
+
+
+def _public_screening(screening: dict | None) -> dict | None:
+    """Old rows still hold an org-wide `relationship` dossier (counts, total value) that every
+    viewer would receive; it is never sent. The per-viewer read is GET .../counterparty."""
+    if not isinstance(screening, dict):
+        return screening
+    return {k: v for k, v in screening.items() if k != "relationship"}
+
+
 def _accessible(user: User):
     """Staff (intake:read) see the whole org queue; everyone else only their own."""
     from app.core.rbac import has_permission
@@ -599,7 +624,6 @@ def _validate_attachment(filename: str, mime_type: str, content: bytes) -> _Prep
 
     Split from extraction so an idempotent repeat is answered before any OCR is paid for."""
     from app.contract_files.service import _scan_for_malware, validate_upload_mime
-    from app.contract_files.text_extraction import extract_text
 
     name = (filename or "attachment")[:300]
     if not content:
@@ -620,7 +644,7 @@ def _validate_attachment(filename: str, mime_type: str, content: bytes) -> _Prep
 
 def _extract_attachment(att: _PreparedAttachment, content: bytes) -> _PreparedAttachment:
     """Read the text of an attachment that has passed _validate_attachment."""
-    from app.contract_files.text_extraction import extract_text
+    from app.contract_files.text_extraction import extract_text, score_extraction_quality
 
     name, mime_type = att.filename, att.mime_type
     extracted, quality = "", None
@@ -1103,7 +1127,7 @@ class IntakeService:
             duplicate = self._recent_duplicate_request(actor=actor, payload=payload,
                                                   field_values=field_values)
             if duplicate is not None:
-                return self.serialize_request(duplicate)
+                return self.serialize_request(duplicate, actor) | {"idempotent_repeat": False}
         now = utcnow()
         r = IntakeRequest(
             org_id=org_id, ref=self._next_ref(), source=source,
@@ -1155,14 +1179,41 @@ class IntakeService:
                                 idem_hash=idem_hash, auth=auth, request_id=request_id)
         # Saved in the same transaction as the request and before triage is queued,
         # so triage can read what was attached.
-        for att in attachments:
-            self._attach(actor=actor, r=r, att=att)
+        # Text is read only now: a repeat, a conflict and the losing side of a race all
+        # returned above, so none of them pays for OCR.
+        for att, (_, content) in zip(attachments, raw, strict=True):
+            self._attach(actor=actor, r=r, att=_extract_attachment(att, content), auth=auth)
+        from app.intake.request_summary import record_summary
+
+        record_summary(db, actor, r, getattr(payload, "summary", None), field_values, request_id)
+        form = (field_values or {}).get("request_form")
+        if form == "sow":
+            # What the requester filed for the SOW, exactly as stored (FR-38): the rows, and the pricing,
+            # window and money they were checked against.
+            facts = {k: field_values.get(k) for k in ("deliverable_rows", "pricing", "services_start",
+                                                      "services_end", "value", "currency")}
+        else:
+            # What the requester filed for the draft, exactly as stored: every answer a template field is
+            # built from (a form without any adds nothing).
+            facts = {f.key: field_values[f.key] for f in form_fields(form) if f.fills and f.key in field_values}
+        agent_filed = filed_via_api_key_id is not None
         write_audit_log(db, action="intake.created", resource_type="intake_request", resource_id=r.id,
-                        org_id=actor.org_id, actor_user_id=actor.id, request_id=request_id,
-                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority})
-        write_timeline_event(db, org_id=actor.org_id, resource_type="intake_request", resource_id=r.id,
-                             event_type="intake.created", title=f"Request filed — {r.type_label}",
-                             actor_user_id=actor.id, request_id=request_id)
+                        org_id=org_id, actor_user_id=actor_id, request_id=request_id,
+                        after={"ref": r.ref, "type": r.type_label, "priority": r.priority, **facts},
+                        metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id,
+                                  "source": source, "idempotency_key": idem_key,
+                                  "attachment_count": len(attachments),
+                                  "filed_by_agent": agent_filed})
+        if agent_filed:
+            write_timeline_event(
+                db, org_id=org_id, resource_type="intake_request", resource_id=r.id,
+                event_type="intake.created", actor_user_id=actor_id, request_id=request_id,
+                title=f"Request filed by agent {self._user_label(actor_id)} — {r.type_label}",
+                details={"filed_by_agent": True})
+        else:
+            write_timeline_event(db, org_id=org_id, resource_type="intake_request", resource_id=r.id,
+                                 event_type="intake.created", title=f"Request filed — {r.type_label}",
+                                 actor_user_id=actor_id, request_id=request_id)
         # The relationship-note job is queued HERE, inside the request's own
         # transaction: if the request exists, its job exists, so it can no longer
         # be lost to a crash or swallowed by a bare except.
@@ -1185,13 +1236,55 @@ class IntakeService:
                 # The request is saved; the reclaim sweep re-dispatches the queued job.
                 logger.warning("could not dispatch intake triage for request %s", r.id, exc_info=True)
             self.dispatch_screening(screening_job)
-            return self.serialize_request(r)
+            return self.serialize_request(r, actor) | {"idempotent_repeat": False}
         self._assign_and_notify(r, actor)
         db.commit()
         db.refresh(r)
         self.dispatch_screening(screening_job)
         self._enrich_after_commit(r, actor)
-        return self.serialize_request(r)
+        return self.serialize_request(r, actor) | {"idempotent_repeat": False}
+
+    def _find_by_idempotency_key(self, *, org_id: str, key: str) -> IntakeRequest | None:
+        """The request this API key already filed. Its own method so a test can inject a race."""
+        return self.db.scalar(select(IntakeRequest).where(
+            IntakeRequest.org_id == org_id, IntakeRequest.idempotency_key == key))
+
+    @staticmethod
+    def _idempotency_hash(payload, field_values: dict | None, raw: list) -> str:
+        """Fingerprint of what was asked for. Priority, department, requester_name and
+        source are left out: they are routing hints (a client derives priority from the
+        date, so a retry across midnight must still match) and not the request's content."""
+        body = {
+            "type_label": payload.type_label.strip(),
+            "subject": getattr(payload, "subject", None),
+            "description": payload.description or "",
+            "field_values": field_values or {},
+            "attachments": [[a.filename, a.mime_type, hashlib.sha256(content).hexdigest()]
+                            for a, content in raw],
+        }
+        canon = json.dumps(body, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canon.encode()).hexdigest()
+
+    def _repeat(self, existing: IntakeRequest, *, actor_id: str, org_id: str, key: str,
+                idem_hash: str | None, auth: AuthContext, request_id: str | None) -> dict:
+        """Answer a retry with the original request, or refuse a reused key.
+
+        Different content and a different requester get the one same message, so a
+        caller can never learn that someone else's request holds a key (or its ref)."""
+        db = self.db
+        if existing.requester_user_id != actor_id or existing.idempotency_hash != idem_hash:
+            raise HTTPException(
+                409,
+                "This idempotency_key was already used for a different request — "
+                "use a new key to file a new request",
+            )
+        write_audit_log(db, action="intake.create_repeated", resource_type="intake_request",
+                        resource_id=existing.id, org_id=org_id, actor_user_id=actor_id,
+                        request_id=request_id, after={"ref": existing.ref},
+                        metadata={"auth_method": auth.method, "api_key_id": auth.api_key_id,
+                                  "idempotency_key": key})
+        db.commit()
+        return self.serialize_request(existing) | {"idempotent_repeat": True}
 
     def _apply_ai_triage(self, r: IntakeRequest) -> None:
         """Context-aware triage: the AI reads the WHOLE request for category,

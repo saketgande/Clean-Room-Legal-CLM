@@ -128,6 +128,13 @@ def get_rails_instance():
     config = RailsConfig.from_path(str(CONFIG_PATH))
     for model in config.models:
         model.model = settings.guardrails_model
+        # An organization-wide key must name the workspace on every request (400 otherwise);
+        # NeMo builds its own Anthropic client, so the header has to be passed to it here.
+        if settings.claude_workspace_id:
+            model.parameters = {
+                **(model.parameters or {}),
+                "default_headers": {"anthropic-workspace-id": settings.claude_workspace_id},
+            }
     rails = LLMRails(config)
     _register_fence_tolerant_parsers(rails)
     return rails

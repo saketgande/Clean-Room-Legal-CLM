@@ -27,10 +27,14 @@ Owner agents: backend-dev, db-engineer
 - `GET /intake/requests/mine` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: list[RequestResponse]
 - `GET /intake/requests/pool` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[RequestResponse]
 - `GET /intake/requests/{request_id}` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: RequestResponse
+- `GET /intake/requests/{request_id}/activity` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestActivityResponse
 - `GET /intake/requests/{request_id}/approval-chain` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
+- `GET /intake/requests/{request_id}/approval-summary` -- permission: `*(none -- verify manual auth)*` -- request: str | None -- response: ?
+- `GET /intake/requests/{request_id}/counterparty` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestCounterpartyResponse
 - `GET /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
 - `GET /intake/requests/{request_id}/handoffs` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[HandoffResponse]
 - `GET /intake/requests/{request_id}/sla` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
+- `GET /intake/requests/{request_id}/summary` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestSummaryResponse
 - `GET /intake/requests/{request_id}/tasks` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TaskResponse]
 - `GET /intake/sla-ops` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: ?
 - `GET /intake/teams` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: list[TeamResponse]
@@ -45,7 +49,7 @@ Owner agents: backend-dev, db-engineer
 - `POST /intake/requests` -- permission: `*(none -- verify manual auth)*` -- request: RequestCreate -- response: RequestCreateResponse
 - `POST /intake/requests/{request_id}/assign-to-me` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/documents` -- permission: `*(none -- verify manual auth)*` -- request: Response -- response: ?
-- `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
+- `POST /intake/requests/{request_id}/draft-contract` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: DraftContractResponse
 - `POST /intake/requests/{request_id}/handoff` -- permission: `*(none -- verify manual auth)*` -- request: HandoffCreate -- response: RequestResponse
 - `POST /intake/requests/{request_id}/ingest-attachment` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
 - `POST /intake/requests/{request_id}/pause` -- permission: `*(none -- verify manual auth)*` -- request: ? -- response: RequestResponse
@@ -63,7 +67,7 @@ Owner agents: backend-dev, db-engineer
 
 ## Schemas
 
-AssigneeResponse, AttachmentIn, DraftResponse, DraftSave, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestCreate, RequestCreateResponse, RequestResponse, RequestUpdate, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
+AcceptedChange, ActivityItem, AssigneeResponse, AttachmentIn, CounterpartyContractItem, CounterpartyRequestItem, CounterpartySummary, DraftContractResponse, DraftResponse, DraftSave, ExtraInstruction, HandoffCreate, HandoffResponse, PartiesUpdate, PartyIn, PromoteRequest, RequestActivityResponse, RequestCounterpartyResponse, RequestCreate, RequestCreateResponse, RequestResponse, RequestSummaryFiling, RequestSummaryResponse, RequestUpdate, SummaryDiffers, TaskCreateReq, TaskResponse, TaskUpdateReq, TeamCreate, TeamMemberResponse, TeamMemberSpec, TeamResponse, TeamUpdate, TriageActionRequest, WorkflowStep
 
 ## Migrations touching this domain (heuristic: table/domain name in filename)
 

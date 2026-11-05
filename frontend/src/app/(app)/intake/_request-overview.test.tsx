@@ -211,7 +211,7 @@ describe("the Filed by row", () => {
     // Old data and demo fixtures have no such field and must render as before.
     mount();
     await screen.findByRole("heading", { name: "Acme MSA" });
-    await screen.findByText("Raised by");
+    await screen.findByText("Requested by");
     expect(screen.queryByText("Filed by")).toBeNull();
   });
 });
