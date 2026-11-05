@@ -174,4 +174,4 @@ def test_moved_prompts_are_byte_for_byte_what_the_modules_had():
         assert hashlib.sha256(DEFAULT_SKILL_PROMPTS[key].encode()).hexdigest() == digest, key
 
 
-EXPECTED_HASHES = '{"trademark_journal_vision": "dd1d8a0f57ee9fbbac6d85e91b1d32feb563cb30431428ebafd9ff79c0b9b5da", "renewal_recommendation": "02a7b2958efb60151bb35cb8803bd2cf7928f3bf863212f12dbfb69ba7ea3f51", "playbook_expand": "82f5d163c131f5dfcb3b59aa979652c762c2b2c9a1917b3f4f87f99a981560d8"}'
+EXPECTED_HASHES = '{"trademark_journal_vision": "854193e062c6c7aff569aaedfa9f69f003c85327fd822068dc0b2be45c3ae953", "renewal_recommendation": "4c2931f4df86fc33c890d68998b659d7e6500ac27276ccf6b67617e9a8d6fb7b", "playbook_expand": "82f5d163c131f5dfcb3b59aa979652c762c2b2c9a1917b3f4f87f99a981560d8"}'

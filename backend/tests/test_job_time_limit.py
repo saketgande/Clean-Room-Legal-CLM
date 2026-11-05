@@ -9,6 +9,7 @@ rolled-back transaction; the worker's own session is pointed at it.
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -279,4 +280,5 @@ def test_the_reclaim_task_runs_the_sweep_and_reports_it(monkeypatch):
 
 def test_the_test_database_is_the_one_in_use():
     """Guards a mis-pointed run: these tests write rows (rolled back) and must never see the dev database."""
-    assert (engine.url.database or "").endswith("_test")
+    # On CI the service database is its own throwaway and keeps its name (tests/_testdb.py).
+    assert (engine.url.database or "").endswith("_test") or os.environ.get("CI") == "true"

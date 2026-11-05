@@ -26,6 +26,11 @@ ACCEPTED = {"key": "governing_law", "label": "x", "old": "England and Wales", "n
 
 @pytest.fixture
 def w(db, monkeypatch):  # noqa: F811
+    # Filing is limited to 10/minute per client; this file files more than that in one minute
+    # (the counter is shared through Redis), so later tests got a 429 and no "id".
+    from app.core.rate_limit import limiter
+
+    monkeypatch.setattr(limiter, "enabled", False)
     return World(db, monkeypatch)
 
 
