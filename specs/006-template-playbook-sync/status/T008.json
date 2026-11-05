@@ -1,0 +1,1 @@
+{"task": "T008", "agent": "frontend-dev", "status": "done", "detail": "_request-overview.tsx keeps template_notice from draft and shows it as a warning MessageBar at the top; 2 tests added (notice / none); vitest 34/34 in file, full suite 61 files / 898 tests pass; typecheck: no errors outside old templates files", "updated": "2026-10-15T07:43:35Z"}

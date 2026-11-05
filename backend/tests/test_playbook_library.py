@@ -16,7 +16,7 @@ import pytest
 from app.contract_files.blocks import find_phrase
 from app.intake import drafting
 from app.playbooks.library import CONTRACT_TYPE_OF_FORM, CONTRACT_TYPE_OF_KIND, PLAYBOOK_LIBRARY
-from app.playbooks.service import _type_tokens
+from app.playbooks.service import _phrases, _type_tokens
 
 _BY_NAME = {p["name"]: p for p in PLAYBOOK_LIBRARY}
 
@@ -60,10 +60,10 @@ def test_our_own_template_passes_the_literal_check(playbook, doc_type):
                                     fields=_FIELDS)
     for r in _BY_NAME[playbook]["rules"]:
         rule = SimpleNamespace(**r)
-        if rule.required_language:
-            assert find_phrase(text, rule.required_language), f"{rule.clause_type}: '{rule.required_language}' missing"
-        if rule.prohibited_language:
-            assert not find_phrase(text, rule.prohibited_language), f"{rule.clause_type}: template says '{rule.prohibited_language}'"
+        for phrase in _phrases(rule.required_language):
+            assert find_phrase(text, phrase), f"{rule.clause_type}: '{phrase}' missing"
+        for phrase in _phrases(rule.prohibited_language):
+            assert not find_phrase(text, phrase), f"{rule.clause_type}: template says '{phrase}'"
 
 
 def test_every_rule_is_complete():

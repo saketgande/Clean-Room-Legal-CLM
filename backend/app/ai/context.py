@@ -208,6 +208,40 @@ def build_contract_context(
     )
 
 
+def text_only_context(
+    *, text: str, title: str, contract_type: str | None, counterparty_name: str | None = None
+) -> ContractAIContext:
+    """The context a skill gets for text that is NOT a stored contract (a template being
+    checked against its playbook): the same manifest and text sections the model reads for a
+    real contract, so a check sees what a real review sees. Nothing here touches the database
+    and the Contract is never added to a session. test_template_check pins that the manifest
+    keys equal build_contract_context's, so the two cannot drift apart unnoticed."""
+    payload_text = text[:MAX_FULL_TEXT_CHARS]
+    was_truncated = len(text) > len(payload_text)
+    contract = Contract(title=title, contract_type=contract_type, counterparty_name=counterparty_name)
+    return ContractAIContext(
+        contract=contract,
+        version=None,
+        snapshot=None,
+        text=payload_text,
+        text_was_truncated=was_truncated,
+        manifest={
+            "contract_id": None,
+            "contract_version_id": None,
+            "text_snapshot_id": None,
+            "text_length": len(text),
+            "text_was_truncated": was_truncated,
+            "focus_applied": False,
+            "title": title,
+            "contract_type": contract_type,
+            "counterparty_name": counterparty_name,
+            "jurisdiction": None,
+            "value_amount": None,
+            "currency": None,
+        },
+    )
+
+
 # Skills that must not see the risk band: the playbook review PRODUCES the findings
 # the band is computed from, so showing it the previous band anchors its own answer.
 RISK_BLIND_SKILLS = frozenset({"playbook_review"})

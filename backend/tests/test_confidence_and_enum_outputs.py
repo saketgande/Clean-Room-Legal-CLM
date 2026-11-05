@@ -83,7 +83,7 @@ def test_an_agent_step_with_no_threshold_never_clears_itself(monkeypatch):
 
 
 def test_a_system_step_with_no_agent_still_advances(monkeypatch):
-    """Guards 'Activate & track' (every library workflow's last step: no agent, no
+    """Guards 'Activate' (every library workflow's last step: no agent, no
     bar) against being wedged by the fail-closed rule."""
     outcome, sr = _run_skill_step(monkeypatch, "high", config={})
     assert outcome == "advance"

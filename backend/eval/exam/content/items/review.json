@@ -5549,7 +5549,7 @@
      "original_text": "All Intellectual Property Rights in the Deliverables vest in and belong to the Customer upon payment of the Fees for the relevant Deliverable. The Provider hereby assigns, and shall procure that its Personnel assign, to the Customer, with effect from that payment, all right, title and interest in and to the Deliverables and all intellectual property in them, and shall procure the waiver of any moral rights in the Deliverables to the extent permitted by Applicable Law.",
      "changed_text": "All Intellectual Property Rights in the Deliverables remain with the Provider. The Provider grants the Customer a non-exclusive, non-transferable licence to use the Deliverables for the Customer's internal business purposes during the term of this Agreement only.",
      "anchor_text": "nless retention is required by Applicable Law.\n\n11. INTELLECTUAL PROPERTY\n\n11.1 ",
-     "char_start": 15789,
+     "char_start": 15798,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / intellectual_property"
     }
@@ -5572,7 +5572,7 @@
      "original_text": "8.1 The Customer may terminate this Agreement or any Statement of Work for convenience at any time on thirty (30) days' written notice to the Provider.",
      "changed_text": null,
      "anchor_text": "nt continues to apply to that Statement of Work until it ends.\n\n8. TERMINATION\n\n",
-     "char_start": 8949,
+     "char_start": 8958,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / termination"
     }
@@ -5602,7 +5602,7 @@
      "original_text": "If the Provider fails to meet a Service Level, the Provider shall credit the Customer with the service credits specified in the Statement of Work. Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.",
      "changed_text": "If the Provider fails to meet a Service Level, the Provider shall use reasonable efforts to remedy the failure. No service credits are payable and the Customer's sole remedy is the remediation plan under Clause 5.2.",
      "anchor_text": "cipated failure to meet a Service Level, together with a remediation plan.\n\n5.3 ",
-     "char_start": 6299,
+     "char_start": 6302,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / service_levels"
     }
@@ -5642,7 +5642,7 @@
      "original_text": "(c) any allegation that the Services or Deliverables, or their use by the Customer as contemplated by this Agreement, infringe the Intellectual Property Rights of a third party; or\n(d) any breach by the Provider of Clause 10 or the Data Protection Laws.",
      "changed_text": "(c) any breach by the Provider of Clause 10 or the Data Protection Laws.",
      "anchor_text": "b) the negligence, wilful misconduct or fraud of the Provider or its Personnel;\n",
-     "char_start": 17694,
+     "char_start": 17706,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / indemnification"
     }
@@ -5679,15 +5679,15 @@
     "rule": "insurance",
     "status": "deviation",
     "evidence_quote": "The Provider is not required to maintain any insurance in connection with this Agreement or the Services.",
-    "severity": "low",
+    "severity": "medium",
     "planted": {
      "rule": "insurance",
      "status": "deviation",
      "original_text": "The Provider shall, at its own cost, maintain with reputable insurers during the term of this Agreement and for one (1) year after its termination or expiry:\n(a) commercial general liability insurance; and\n(b) professional indemnity (errors and omissions) insurance,\neach with limits of cover appropriate to the Services and not less than any amounts specified in a Statement of Work, together with any other insurance required by Applicable Law.\n\n14.2 The Provider shall provide certificates of insurance to the Customer on request and shall notify the Customer promptly of any cancellation or material reduction of cover. The Provider's insurance does not limit its liability under this Agreement.",
      "changed_text": "The Provider is not required to maintain any insurance in connection with this Agreement or the Services.",
      "anchor_text": "nder Clause 5 do not count towards the cap in Clause 13.1.\n\n14. INSURANCE\n\n14.1 ",
-     "char_start": 19682,
-     "severity": "low",
+     "char_start": 19694,
+     "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / insurance"
     }
    },
@@ -5709,7 +5709,7 @@
      "original_text": "and in any event within seventy-two (72) hours, after becoming aware of any personal data breach",
      "changed_text": "and in any event within thirty (30) days, after becoming aware of any personal data breach",
      "anchor_text": "r disclosure.\n\n10.4 The Provider shall notify the Customer without undue delay, ",
-     "char_start": 15046,
+     "char_start": 15058,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / data_protection"
     }
@@ -5735,7 +5735,7 @@
      "original_text": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim",
      "changed_text": "the Customer's total aggregate liability arising out of or in connection with this Agreement shall be unlimited, and the Provider's total aggregate liability shall not exceed the Fees paid in the three (3) months immediately preceding the event giving rise to the claim",
      "anchor_text": "tionality.\n\n13. LIMITATION OF LIABILITY\n\n13.1 Subject to Clauses 13.3 and 13.4, ",
-     "char_start": 18667,
+     "char_start": 18678,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / limitation_of_liability"
     }
@@ -5765,7 +5765,7 @@
      "original_text": "Any advance or mobilisation payment shall not exceed twenty percent (20%) of the total Fees under the relevant Statement of Work and shall be credited against the first invoices issued under it.",
      "changed_text": "The Customer shall pay fifty percent (50%) of the total Fees under each Statement of Work in advance, on signature of that Statement of Work, and the balance on delivery.",
      "anchor_text": "n. The Provider shall continue to perform the Services during any dispute.\n\n6.5 ",
-     "char_start": 7916,
+     "char_start": 7921,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / payment_terms"
     }
@@ -5788,7 +5788,7 @@
      "original_text": "The obligations in this Clause 9 continue during the term of this Agreement and for five (5) years after its termination or expiry, and in respect of trade secrets, for as long as the information remains a trade secret under Applicable Law.",
      "changed_text": "The obligations in this Clause 9 continue during the term of this Agreement and for six (6) months after its termination or expiry.",
      "anchor_text": "or held in routine back-up systems, which remain subject to this Clause 9.\n\n9.6 ",
-     "char_start": 13530,
+     "char_start": 13541,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / confidentiality"
     }
@@ -5901,7 +5901,7 @@
      "original_text": "All Intellectual Property Rights in the Work Product vest in the Company on creation. The Consultant hereby assigns to the Company, by way of present assignment of future rights, all right, title and interest in and to the Work Product and all intellectual property in it, with full title guarantee, throughout the world and for the full term of those rights, and shall procure an equivalent assignment from each of its Personnel.",
      "changed_text": "All Intellectual Property Rights in the Work Product remain with the Consultant. The Consultant grants the Company a non-exclusive, non-transferable licence to use the Work Product for the Company's internal purposes during the term of this Agreement only.",
      "anchor_text": "survive termination or expiry of this Agreement.\n\n8. INTELLECTUAL PROPERTY\n\n8.1 ",
-     "char_start": 8187,
+     "char_start": 8190,
      "severity": "high",
      "severity_source": "Consultancy Agreement Playbook / intellectual_property"
     }
@@ -5968,7 +5968,7 @@
      "original_text": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement.",
      "changed_text": "the Company's total aggregate liability arising out of or in connection with this Agreement shall be unlimited, and the Consultant's total aggregate liability shall not exceed INR 100,000 in aggregate.",
      "anchor_text": "ributions.\n\n12. LIMITATION OF LIABILITY\n\n12.1 Subject to Clauses 12.3 and 12.4, ",
-     "char_start": 13970,
+     "char_start": 13973,
      "severity": "high",
      "severity_source": "Consultancy Agreement Playbook / limitation_of_liability"
     }
@@ -6017,7 +6017,7 @@
      "original_text": "The obligations in this Clause 9 continue during the term of this Agreement and for five (5) years after its termination or expiry, and in respect of trade secrets, for as long as the information remains a trade secret under Applicable Law.",
      "changed_text": "The obligations in this Clause 9 continue during the term of this Agreement and for six (6) months after its termination or expiry.",
      "anchor_text": "pies it is required to keep by law, which remain subject to this Clause 9.\n\n9.6 ",
-     "char_start": 12623,
+     "char_start": 12629,
      "severity": "medium",
      "severity_source": "Consultancy Agreement Playbook / confidentiality"
     }
@@ -6040,7 +6040,7 @@
      "original_text": "10.1 During the term of this Agreement and for twelve (12) months after it ends, neither Party shall, without the other Party's prior written consent, directly or indirectly solicit or entice away, or attempt to solicit or entice away, any employee or Personnel of the other Party with whom it had material dealings in connection with the Services.\n\n10.2 General recruitment advertising not specifically directed at those persons, and hiring a person who responds to it without other solicitation, is not a breach of this Clause 10.",
      "changed_text": null,
      "anchor_text": "(72) hours of becoming aware of any breach affecting it.\n\n10. NON-SOLICITATION\n\n",
-     "char_start": 13375,
+     "char_start": 13381,
      "severity": "low",
      "severity_source": "Consultancy Agreement Playbook / non_solicitation"
     }
@@ -6087,7 +6087,7 @@
      "original_text": "All Intellectual Property Rights in the Work Product vest in the Company on creation. The Consultant hereby assigns to the Company, by way of present assignment of future rights, all right, title and interest in and to the Work Product and all intellectual property in it, with full title guarantee, throughout the world and for the full term of those rights, and shall procure an equivalent assignment from each of its Personnel.",
      "changed_text": "All Intellectual Property Rights in the Work Product remain with the Consultant. The Consultant grants the Company a non-exclusive, non-transferable licence to use the Work Product for the Company's internal purposes during the term of this Agreement only.",
      "anchor_text": "survive termination or expiry of this Agreement.\n\n8. INTELLECTUAL PROPERTY\n\n8.1 ",
-     "char_start": 8641,
+     "char_start": 8649,
      "severity": "high",
      "severity_source": "Consultancy Agreement Playbook / intellectual_property"
     }
@@ -6131,7 +6131,7 @@
      "original_text": "Any advance payment shall not exceed twenty percent (20%) of the total Fees and shall be credited against the first invoices issued under this Agreement.",
      "changed_text": "The Company shall pay fifty percent (50%) of the total Fees in advance on signature of this Agreement.",
      "anchor_text": "greed or determined to be due within 30 days of resolution of the dispute.\n\n6.5 ",
-     "char_start": 6641,
+     "char_start": 6649,
      "severity": "medium",
      "severity_source": "Consultancy Agreement Playbook / payment_terms"
     }
@@ -6147,7 +6147,7 @@
      "original_text": "7.1 The Company may terminate this Agreement for convenience at any time on fifteen (15) days' written notice to the Consultant.",
      "changed_text": null,
      "anchor_text": "cordance with the Company's expenses policy, against receipts.\n\n7. TERMINATION\n\n",
-     "char_start": 7233,
+     "char_start": 7241,
      "severity": "medium",
      "severity_source": "Consultancy Agreement Playbook / termination"
     }
@@ -6267,7 +6267,7 @@
      "original_text": "6.1 The Vendor shall, and shall ensure that its personnel and subcontractors shall, comply with all Applicable Law in performing this Agreement, including:\n(a) anti-bribery and anti-corruption laws, including the Prevention of Corruption Act, 1988 (India), the U.S. Foreign Corrupt Practices Act and the UK Bribery Act 2010;\n(b) economic and trade sanctions and export-control laws applicable to either Party;\n(c) labour and employment laws, including laws on minimum wages, working hours, health and safety, child labour, forced labour and modern slavery; and\n(d) environmental laws and regulations.\n\n6.2 The Vendor shall comply with the Supplier Code of Conduct. The Vendor shall not, directly or indirectly, offer, promise, give, request or accept any bribe, facilitation payment or other improper advantage in connection with this Agreement.\n\n6.3 The Vendor shall maintain adequate policies and procedures to ensure compliance with this clause, shall notify the Company promptly of any actual or suspected breach of it, and shall provide such certifications of compliance as the Company reasonably requests.\n\n6.4 Any breach of this Compliance clause is a material breach of this Agreement, and the Company may terminate this Agreement and any Order immediately by written notice, without liability to the Vendor.",
      "changed_text": "6.1 The Vendor shall use reasonable efforts to comply with Applicable Law in performing this Agreement. The Company has no right to terminate this Agreement or any Order for any breach of Applicable Law by the Vendor.",
      "anchor_text": "t infringe the intellectual property rights of any third party.\n\n6. COMPLIANCE\n\n",
-     "char_start": 7457,
+     "char_start": 7605,
      "severity": "high",
      "severity_source": "Vendor Agreement Playbook / compliance"
     }
@@ -6297,7 +6297,7 @@
      "original_text": "14.2 The Company, or an auditor appointed by it and bound by confidentiality, may on reasonable notice during normal business hours audit and inspect those records and the Vendor's relevant premises and systems to verify the Vendor's compliance with this Agreement. The Vendor shall cooperate fully with any such audit. If an audit reveals an overcharge, the Vendor shall promptly refund it, and if the overcharge exceeds five percent (5%) of the Fees for the audited period, the Vendor shall also bear the reasonable cost of the audit.",
      "changed_text": null,
      "anchor_text": " the Deliverables, for at least six (6) years after the end of this Agreement.\n\n",
-     "char_start": 15841,
+     "char_start": 15912,
      "severity": "low",
      "severity_source": "Vendor Agreement Playbook / audit_rights"
     }
@@ -6313,7 +6313,7 @@
      "original_text": "and in any event within seventy-two (72) hours, after becoming aware of any personal data breach affecting the Company's personal data",
      "changed_text": "and in any event within thirty (30) days, after becoming aware of any personal data breach affecting the Company's personal data",
      "anchor_text": "on or disclosure.\n\n7.4 The Vendor shall notify the Company without undue delay, ",
-     "char_start": 8666,
+     "char_start": 8814,
      "severity": "high",
      "severity_source": "Vendor Agreement Playbook / data_protection"
     }
@@ -6339,7 +6339,7 @@
      "original_text": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence) or otherwise, shall not exceed the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim.",
      "changed_text": "the Company's total aggregate liability arising out of or in connection with this Agreement shall be unlimited, and the Vendor's total aggregate liability shall not exceed the total Fees paid in the three (3) months preceding the event giving rise to the claim.",
      "anchor_text": "iverables.\n\n11. LIMITATION OF LIABILITY\n\n11.1 Subject to clauses 11.3 and 11.4, ",
-     "char_start": 14303,
+     "char_start": 14451,
      "severity": "high",
      "severity_source": "Vendor Agreement Playbook / limitation_of_liability"
     }
@@ -6392,7 +6392,7 @@
      "original_text": "The Vendor shall not subcontract any of its obligations under this Agreement without the Company's prior written consent. The Vendor remains fully responsible for the acts and omissions of its subcontractors as if they were its own, and shall ensure each subcontractor is bound by obligations consistent with this Agreement.",
      "changed_text": "The Vendor may subcontract any of its obligations under this Agreement to any third party without the Company's consent, and is not responsible for the acts or omissions of its subcontractors.",
      "anchor_text": "ide evidence of such cover on request.\n\n13. SUBCONTRACTING AND ASSIGNMENT\n\n13.1 ",
-     "char_start": 15780,
+     "char_start": 15851,
      "severity": "medium",
      "severity_source": "Vendor Agreement Playbook / subcontracting"
     }
@@ -6439,7 +6439,7 @@
      "original_text": "10.1 The Vendor shall defend, indemnify and hold harmless the Company, its Affiliates and their respective officers, directors and employees from and against all losses, damages, liabilities, costs and expenses (including reasonable legal fees) arising out of any third-party claim to the extent arising from:\n(a) defective goods or any defect in the Deliverables;\n(b) the Vendor's breach of Applicable Law, including the Compliance clause and Data Protection Laws;\n(c) the negligence, wilful misconduct or fraud of the Vendor, its personnel or subcontractors; or\n(d) any allegation that the Deliverables, or their use by the Company in accordance with this Agreement, infringe the intellectual property rights of a third party.",
      "changed_text": "10.1 The Vendor's only liability in respect of any third-party claim relating to the Deliverables is to refund the Fees paid for the Deliverables concerned.",
      "anchor_text": "iliates to receive and make full use of the Deliverables.\n\n10. INDEMNIFICATION\n\n",
-     "char_start": 12768,
+     "char_start": 12916,
      "severity": "high",
      "severity_source": "Vendor Agreement Playbook / indemnification"
     }
@@ -6499,7 +6499,7 @@
      "original_text": "and in any event within seventy-two (72) hours, after becoming aware of any personal data breach affecting the Company's personal data",
      "changed_text": "and in any event within thirty (30) days, after becoming aware of any personal data breach affecting the Company's personal data",
      "anchor_text": "on or disclosure.\n\n7.4 The Vendor shall notify the Company without undue delay, ",
-     "char_start": 9722,
+     "char_start": 9870,
      "severity": "high",
      "severity_source": "Vendor Agreement Playbook / data_protection"
     }
@@ -6598,7 +6598,7 @@
      "original_text": "in any event within seventy-two (72) hours after becoming aware of it",
      "changed_text": "in any event within thirty (30) days after becoming aware of it",
      "anchor_text": "der shall notify the Customer of any Security Incident without undue delay, and ",
-     "char_start": 10830,
+     "char_start": 10771,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_security"
     }
@@ -6614,7 +6614,7 @@
      "original_text": "The Provider shall host, store and process Customer Data only in data centres located in India, or, where the Order Form expressly so provides, in the European Union.",
      "changed_text": "The Provider may host, store and process Customer Data in data centres located in any country of its choice, without notice to the Customer.",
      "anchor_text": "ate data protection and security training.\n\n9. DATA LOCATION AND TRANSFERS\n\n9.1 ",
-     "char_start": 12113,
+     "char_start": 12054,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_location"
     }
@@ -6655,10 +6655,10 @@
     "planted": {
      "rule": "payment_terms",
      "status": "deviation",
-     "original_text": "provided that no amount invoiced before the relevant period begins shall exceed twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a signed Order Form",
+     "original_text": "after the period to which they relate",
      "changed_text": "and the Provider may invoice up to one hundred percent (100%) of the annual Fees in advance, at the start of each year",
-     "anchor_text": "rears, or at the start of each billing period where the Order Form so provides, ",
-     "char_start": 7018,
+     "anchor_text": "8,500,000.00.\n\n4.2 The Provider shall invoice the Fees periodically in arrears, ",
+     "char_start": 6945,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / payment_terms"
     }
@@ -6728,7 +6728,7 @@
      "original_text": "The Provider shall send the Customer a written renewal reminder, stating the renewal date, the cancellation deadline and the Fees that will apply on renewal, at least thirty (30) days before the cancellation deadline. If the Provider fails to send that reminder, the Subscription Term shall not renew without the Customer's express written confirmation.",
      "changed_text": "The Provider is not required to send the Customer a renewal reminder, or to state the renewal date, the cancellation deadline or the Fees that will apply on renewal.",
      "anchor_text": "east sixty (60) days before the end of the then-current Subscription Term.\n\n6.3 ",
-     "char_start": 8862,
+     "char_start": 8652,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / renewal"
     }
@@ -6741,10 +6741,10 @@
     "planted": {
      "rule": "limitation_of_liability",
      "status": "missing",
-     "original_text": "15.2 Subject to clauses 15.4 and 15.5, the Provider's total aggregate liability arising out of or in connection with any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws shall not exceed three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This amount is separate from and in addition to the amount in clause 15.1.",
+     "original_text": "15.2 Subject to clauses 15.4 and 15.5, for the Provider's total aggregate liability arising out of any Security Incident or any breach of clause 8 (Data Security and Data Protection), clause 9 (Data Location and Transfers) or Data Protection Laws, the General Cap is raised to three (3) times the total Fees paid and payable under this Agreement in the twelve (12) months preceding the event giving rise to the claim. This higher cap replaces the General Cap for that liability and is not in addition to it.",
      "changed_text": null,
-     "anchor_text": "eement in the twelve (12) months preceding the event giving rise to the claim.\n\n",
-     "char_start": 18435,
+     "anchor_text": " (12) months preceding the event giving rise to the claim (the \"General Cap\").\n\n",
+     "char_start": 18245,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / limitation_of_liability"
     }
@@ -6798,7 +6798,7 @@
      "original_text": "On expiry or termination of this Agreement or any Order Form for any reason, the Provider shall, for a period of thirty (30) days (the \"Exit Period\"), continue to allow the Customer to access the Service and export all Customer Data in a standard, machine-readable format such as CSV, JSON or XML, without additional charge.",
      "changed_text": "On expiry or termination of this Agreement or any Order Form for any reason, the Provider may delete all Customer Data immediately and has no obligation to return or export it.",
      "anchor_text": " the Customer may object on reasonable grounds.\n\n10. EXIT AND DATA RETURN\n\n10.1 ",
-     "char_start": 12559,
+     "char_start": 12489,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / exit_and_data_return"
     }
@@ -6814,7 +6814,7 @@
      "original_text": "The Provider may increase the Fees with effect from a renewal of the Subscription Term only by giving the Customer written notice of the increase at least ninety (90) days before the renewal date, and any increase shall not exceed five percent (5%) of the Fees for the preceding twelve (12) months. No increase may take effect more than once in any twelve (12) month period. An increase notified late, or above that cap, is of no effect.",
      "changed_text": "The Provider may increase the Fees at any time on thirty (30) days' notice by any amount it considers appropriate.",
      "anchor_text": "S\n\n5.1 The Fees may not be increased during the initial Subscription Term.\n\n5.2 ",
-     "char_start": 7921,
+     "char_start": 7848,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / price_increases"
     }
@@ -6841,10 +6841,10 @@
     "planted": {
      "rule": "payment_terms",
      "status": "deviation",
-     "original_text": "provided that no amount invoiced before the relevant period begins shall exceed twenty percent (20%) of the annual Fees unless the Parties agree otherwise in a signed Order Form",
+     "original_text": "after the period to which they relate",
      "changed_text": "and the Provider may invoice up to one hundred percent (100%) of the annual Fees in advance, at the start of each year",
-     "anchor_text": "rears, or at the start of each billing period where the Order Form so provides, ",
-     "char_start": 7045,
+     "anchor_text": "5,000,000.00.\n\n4.2 The Provider shall invoice the Fees periodically in arrears, ",
+     "char_start": 6972,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / payment_terms"
     }
@@ -6950,7 +6950,7 @@
      "original_text": "Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to calendar dates. The Provider may invoice each milestone payment only after the Customer has accepted in writing every Deliverable linked to that milestone under Clause 6:",
      "changed_text": "Payment under this SOW falls due on the calendar dates stated below, whether or not the related Deliverables have been delivered or accepted. The Provider may invoice each payment on its due date:",
      "anchor_text": "is Agreement shall not exceed INR 9,500,000.00.\n\n9. MILESTONES AND PAYMENT\n\n9.1 ",
-     "char_start": 7531,
+     "char_start": 7537,
      "severity": "medium",
      "severity_source": "Statement of Work Playbook / milestone_payments"
     }
@@ -6989,7 +6989,7 @@
      "original_text": "The Provider shall ensure that the Key Personnel devote the time necessary to perform their roles. The Provider shall not remove or replace any Key Personnel without the Customer's prior written consent, except where the individual leaves the Provider's employment or is unavailable through illness or other circumstances beyond the Provider's reasonable control.",
      "changed_text": "The Provider may remove or replace any Key Personnel at any time without notice to, or the consent of, the Customer.",
      "anchor_text": "[Name] - [Role] - [Responsibilities]\n\n[Name] - [Role] - [Responsibilities]\n\n5.2 ",
-     "char_start": 3526,
+     "char_start": 3532,
      "severity": "low",
      "severity_source": "Statement of Work Playbook / key_personnel"
     }
@@ -7015,7 +7015,7 @@
      "original_text": "Any service, deliverable or activity not expressly listed in Clauses 4.2 and 4.3 is out of scope. The Provider shall not perform, and the Customer is not obliged to pay for, any out-of-scope work unless it is added through a Change Order under Clause 7.",
      "changed_text": "The Services and Deliverables are described in general terms only. The Provider shall perform any other work reasonably related to them that the Customer requires, and shall be paid for it at the rates in the Master Agreement.",
      "anchor_text": "YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].\n\n4.4 Out of scope. ",
-     "char_start": 2536,
+     "char_start": 2542,
      "severity": "high",
      "severity_source": "Statement of Work Playbook / scope_and_deliverables"
     }
@@ -7038,7 +7038,7 @@
      "original_text": "Total charges under this SOW shall not exceed the not-to-exceed amount of [currency and amount]. The Provider shall notify the Customer in writing when seventy-five percent (75%) of that amount has been reached. The Customer is not liable for any charges above the not-to-exceed amount unless it is increased by a signed Change Order.",
      "changed_text": "There is no cap on the total charges under this SOW, and the Customer shall pay for all time worked as invoiced.",
      "anchor_text": " out in the Master Agreement, supported by timesheets approved by the Customer. ",
-     "char_start": 6889,
+     "char_start": 6895,
      "severity": "medium",
      "severity_source": "Statement of Work Playbook / fees_and_pricing"
     }
@@ -7061,7 +7061,7 @@
      "original_text": "7.3 Until a Change Order is signed by both Parties, the Provider shall continue to perform this SOW unchanged. The Provider is not entitled to any additional payment or extension of time for work performed, or delay incurred, without a signed Change Order.\n\n7.4 Instructions given orally, by email or in meetings do not change this SOW unless and until they are recorded in a signed Change Order.",
      "changed_text": "7.3 Any change to this SOW may be agreed orally or by email between the Parties' representatives and takes effect immediately, and the Provider is entitled to additional payment and an extension of time for it.",
      "anchor_text": "ibing the effect of the change on the scope, Deliverables, due dates and Fees.\n\n",
-     "char_start": 6135,
+     "char_start": 6141,
      "severity": "medium",
      "severity_source": "Statement of Work Playbook / change_control"
     }
@@ -7108,7 +7108,7 @@
      "original_text": "A Deliverable is accepted only when the Customer confirms acceptance in writing. Use of a Deliverable, payment of any invoice, or the passing of the testing period without a written confirmation does not constitute acceptance.",
      "changed_text": "A Deliverable is deemed accepted if the Customer does not notify the Provider of a non-conformity within five (5) working days of receiving it, or if the Customer uses it.",
      "anchor_text": "Acceptance criteria]\n\nD2: [Acceptance criteria]\n\nD3: [Acceptance criteria]\n\n6.2 ",
-     "char_start": 4601,
+     "char_start": 4610,
      "severity": "medium",
      "severity_source": "Statement of Work Playbook / acceptance"
     }
@@ -7131,7 +7131,7 @@
      "original_text": "Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to calendar dates. The Provider may invoice each milestone payment only after the Customer has accepted in writing every Deliverable linked to that milestone under Clause 6:",
      "changed_text": "Payment under this SOW falls due on the calendar dates stated below, whether or not the related Deliverables have been delivered or accepted. The Provider may invoice each payment on its due date:",
      "anchor_text": "s Agreement shall not exceed INR 60,000,000.00.\n\n9. MILESTONES AND PAYMENT\n\n9.1 ",
-     "char_start": 7693,
+     "char_start": 7702,
      "severity": "medium",
      "severity_source": "Statement of Work Playbook / milestone_payments"
     }
@@ -7161,7 +7161,7 @@
      "original_text": "The Provider shall ensure that the Key Personnel devote the time necessary to perform their roles. The Provider shall not remove or replace any Key Personnel without the Customer's prior written consent, except where the individual leaves the Provider's employment or is unavailable through illness or other circumstances beyond the Provider's reasonable control.",
      "changed_text": "The Provider may remove or replace any Key Personnel at any time without notice to, or the consent of, the Customer.",
      "anchor_text": "[Name] - [Role] - [Responsibilities]\n\n[Name] - [Role] - [Responsibilities]\n\n5.2 ",
-     "char_start": 3742,
+     "char_start": 3751,
      "severity": "low",
      "severity_source": "Statement of Work Playbook / key_personnel"
     }
@@ -7281,7 +7281,7 @@
      "original_text": "International transfers of Personal Data are permitted only in accordance with this Section 9. The Processor shall not transfer, or permit any Sub-processor to transfer, Personal Data outside India (or, for Personal Data subject to the GDPR or UK GDPR, outside the European Economic Area or the United Kingdom), or permit Personal Data to be accessed from outside those territories, without the Controller's prior written authorisation.",
      "changed_text": "The Processor may transfer Personal Data to, and permit it to be accessed from, any country, without notice to or the authorisation of the Controller.",
      "anchor_text": "written consent, except where required by law.\n\n9. INTERNATIONAL TRANSFERS\n\n9.1 ",
-     "char_start": 10455,
+     "char_start": 10456,
      "severity": "high",
      "severity_source": "Data Processing Agreement Playbook / international_transfers"
     }
@@ -7297,7 +7297,7 @@
      "original_text": "The Processor shall allow for and contribute to audits, including inspections, conducted by the Controller or an independent auditor mandated by the Controller, on reasonable prior written notice and during normal business hours. The Controller may also audit at any time following a Personal Data Breach or where required by a Supervisory Authority.",
      "changed_text": "The Controller has no right to audit the Processor, and the Processor's own certification is conclusive evidence of its compliance.",
      "anchor_text": "strate compliance with this Agreement and Applicable Data Protection Law.\n\n10.2 ",
-     "char_start": 11415,
+     "char_start": 11416,
      "severity": "medium",
      "severity_source": "Data Processing Agreement Playbook / audit"
     }
@@ -7320,7 +7320,7 @@
      "original_text": "On termination or expiry of the Services, or at any earlier time on the Controller's written request, the Processor shall, at the Controller's choice, return all Personal Data to the Controller in a commonly used, machine-readable format and/or securely delete it, and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within thirty (30) days.",
      "changed_text": "On termination or expiry of the Services, the Processor may retain all Personal Data indefinitely for its own purposes.",
      "anchor_text": "rity relating to the Processing.\n\n11. RETURN OR DELETION OF PERSONAL DATA\n\n11.1 ",
-     "char_start": 12287,
+     "char_start": 12288,
      "severity": "medium",
      "severity_source": "Data Processing Agreement Playbook / return_or_deletion"
     }
@@ -7532,7 +7532,7 @@
      "original_text": "All other terms of the Master Agreement, including those relating to confidentiality, data protection, intellectual property, indemnities, limitation of liability, insurance and governing law, apply to this SOW. This SOW is governed by the laws of India, consistent with the Master Agreement.",
      "changed_text": "All other terms of the Master Agreement apply to this SOW, except the terms on limitation of liability, which do not apply. The Provider's total aggregate liability arising out of or in connection with this SOW shall not exceed INR 100,000.",
      "anchor_text": "iverables, whether complete or in progress, to the Customer.\n\n12. GENERAL\n\n12.1 ",
-     "char_start": 34881,
+     "char_start": 34887,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / limitation_of_liability"
     }
@@ -7562,7 +7562,7 @@
      "original_text": "shall pay valid, undisputed invoices within 45 days of receipt, and may withhold any amount it disputes in good faith in accordance with the Master Agreement",
      "changed_text": "shall pay all invoices within seven (7) days of receipt, whether or not disputed, and may not withhold any amount for any reason",
      "anchor_text": "ch invoice until it has accepted all Deliverables in writing.\n\n9.3 The Customer ",
-     "char_start": 33978,
+     "char_start": 33984,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / payment_terms"
     }
@@ -7606,7 +7606,7 @@
      "original_text": "and in any event within forty-eight (48) hours, after becoming aware of it",
      "changed_text": "and in any event within thirty (30) days, after becoming aware of it",
      "anchor_text": "roller of any personal data breach affecting Personal Data without undue delay, ",
-     "char_start": 44772,
+     "char_start": 44778,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / data_protection"
     }
@@ -7639,7 +7639,7 @@
      "original_text": "The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor.",
      "changed_text": "The Controller shall indemnify and hold harmless the Processor against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of the Processing of Personal Data under this Agreement.",
      "anchor_text": " for the purpose of complying with that law.\n\n12. LIABILITY AND INDEMNITY\n\n12.1 ",
-     "char_start": 48860,
+     "char_start": 48881,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / indemnification"
     }
@@ -7669,7 +7669,7 @@
      "original_text": "This SOW may be terminated in accordance with the Master Agreement. On termination, the Customer shall pay only for Deliverables accepted, and for time-and-materials Services properly performed, up to the date of termination, and the Provider shall deliver all Deliverables, whether complete or in progress, to the Customer.",
      "changed_text": "This SOW may not be terminated for convenience. On any termination the Customer shall pay the Provider all Fees that would have been payable for the full term of this SOW.",
      "anchor_text": "mer: [name, role, email]. Provider: [name, role, email].\n\n11. TERMINATION\n\n11.1 ",
-     "char_start": 34546,
+     "char_start": 34564,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / termination"
     }
@@ -7706,7 +7706,7 @@
      "original_text": "International transfers of Personal Data are permitted only in accordance with this Section 9. The Processor shall not transfer, or permit any Sub-processor to transfer, Personal Data outside India (or, for Personal Data subject to the GDPR or UK GDPR, outside the European Economic Area or the United Kingdom), or permit Personal Data to be accessed from outside those territories, without the Controller's prior written authorisation.",
      "changed_text": "The Processor may transfer Personal Data to, and permit it to be accessed from, any country, without notice to or the authorisation of the Controller.",
      "anchor_text": "written consent, except where required by law.\n\n9. INTERNATIONAL TRANSFERS\n\n9.1 ",
-     "char_start": 45815,
+     "char_start": 45836,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / data_protection"
     }
@@ -7732,7 +7732,7 @@
      "original_text": "Any limitation or exclusion of liability in the Principal Agreement shall not apply to the Processor's liability under this Agreement or for breach of Applicable Data Protection Law.",
      "changed_text": "The Processor's total aggregate liability under this Agreement shall not exceed INR 100,000 in aggregate.",
      "anchor_text": " of Applicable Data Protection Law by the Processor or any Sub-processor.\n\n12.2 ",
-     "char_start": 49709,
+     "char_start": 49733,
      "severity": "high",
      "severity_source": "Master Services Agreement Playbook / limitation_of_liability"
     }
@@ -7762,7 +7762,7 @@
      "original_text": "shall pay valid, undisputed invoices within 45 days of receipt, and may withhold any amount it disputes in good faith in accordance with the Master Agreement",
      "changed_text": "shall pay all invoices within seven (7) days of receipt, whether or not disputed, and may not withhold any amount for any reason",
      "anchor_text": "ch invoice until it has accepted all Deliverables in writing.\n\n9.3 The Customer ",
-     "char_start": 34251,
+     "char_start": 34269,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / payment_terms"
     }
@@ -7778,7 +7778,7 @@
      "original_text": "This SOW may be terminated in accordance with the Master Agreement. On termination, the Customer shall pay only for Deliverables accepted, and for time-and-materials Services properly performed, up to the date of termination, and the Provider shall deliver all Deliverables, whether complete or in progress, to the Customer.",
      "changed_text": "This SOW may not be terminated for convenience. On any termination the Customer shall pay the Provider all Fees that would have been payable for the full term of this SOW.",
      "anchor_text": "mer: [name, role, email]. Provider: [name, role, email].\n\n11. TERMINATION\n\n11.1 ",
-     "char_start": 34810,
+     "char_start": 34828,
      "severity": "medium",
      "severity_source": "Master Services Agreement Playbook / termination"
     }
@@ -7839,7 +7839,7 @@
      "original_text": "and in any event within forty-eight (48) hours, after becoming aware of it",
      "changed_text": "and in any event within thirty (30) days, after becoming aware of it",
      "anchor_text": "roller of any personal data breach affecting Personal Data without undue delay, ",
-     "char_start": 44670,
+     "char_start": 44371,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_security"
     }
@@ -7855,7 +7855,7 @@
      "original_text": "International transfers of Personal Data are permitted only in accordance with this Section 9. The Processor shall not transfer, or permit any Sub-processor to transfer, Personal Data outside India (or, for Personal Data subject to the GDPR or UK GDPR, outside the European Economic Area or the United Kingdom), or permit Personal Data to be accessed from outside those territories, without the Controller's prior written authorisation.",
      "changed_text": "The Processor may transfer Personal Data to, and permit it to be accessed from, any country, without notice to or the authorisation of the Controller.",
      "anchor_text": "written consent, except where required by law.\n\n9. INTERNATIONAL TRANSFERS\n\n9.1 ",
-     "char_start": 45807,
+     "char_start": 45508,
      "severity": "high",
      "severity_source": "Software / SaaS Agreement Playbook / data_location"
     }
@@ -7899,7 +7899,7 @@
      "original_text": "shall pay valid, undisputed invoices within 45 days of receipt, and may withhold any amount it disputes in good faith in accordance with the Master Agreement",
      "changed_text": "shall pay all invoices within seven (7) days of receipt, whether or not disputed, and may not withhold any amount for any reason",
      "anchor_text": "ch invoice until it has accepted all Deliverables in writing.\n\n9.3 The Customer ",
-     "char_start": 33811,
+     "char_start": 33512,
      "severity": "medium",
      "severity_source": "Software / SaaS Agreement Playbook / payment_terms"
     }

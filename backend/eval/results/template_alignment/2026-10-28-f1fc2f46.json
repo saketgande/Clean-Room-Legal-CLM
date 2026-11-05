@@ -1,0 +1,543 @@
+{
+  "date": "2026-10-28",
+  "batch": "f1fc2f46-1262-429e-adb2-51c7a676cd40",
+  "as": "admin@example.com",
+  "runs_per_combination": 3,
+  "runs": [
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause requires product and public liability insurance (INR 1 crore per claim) and cyber liability insurance (INR 5 crore per claim where personal data is handled), but does not require professional indemnity insurance. The Agreement's scope is goods supply, but Orders may include installation, repair, replacement or re-performance services; the playbook requires professional indemnity of at least INR 5 crore per claim for any services supplier. The absence of a professional indemnity requirement creates a coverage gap if any Order encompasses services beyond warranty work.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim. The Vendor shall provide evidence of cover on request.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than {insurance_minimum} per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix": "Where any Order requires the Vendor to supply services (other than installing, repairing, replacing or re-performing delivered goods under the warranty), the Vendor shall also maintain professional indemnity (errors and omissions) insurance of not less than INR 50,000,000 (five crore rupees) per claim, for the term of this Agreement and for one (1) year after it ends.",
+          "suggested_fix_template": "Where any Order requires the Vendor to supply services (other than installing, repairing, replacing or re-performing delivered goods under the warranty), the Vendor shall also maintain professional indemnity (errors and omissions) insurance of not less than {insurance_minimum} per claim, for the term of this Agreement and for one (1) year after it ends.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 2,
+          "clause_type": "indemnification",
+          "severity": "medium",
+          "issue": "The indemnification clause does not expressly state that the Vendor controls the defence of third-party claims; clause 10.2 requires the Company not to settle without the Vendor's consent but is silent on who directs the defence, leaving the Company potentially exposed to uncoordinated defence strategies and cost disputes.",
+          "quote": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's consent (not to be unreasonably withheld). The Vendor shall not settle any claim in a way that imposes any obligation or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice.",
+          "quote_template": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's consent (not to be unreasonably withheld). The Vendor shall not settle any claim in a way that imposes any obligation or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice.",
+          "suggested_fix": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's prior written consent (not to be unreasonably withheld). The Vendor shall have the right to assume sole control of the defence and settlement of any such claim, at its cost and with counsel of its choice, provided that the Vendor shall not settle any claim in a way that imposes any obligation, restriction or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice at its own cost.",
+          "suggested_fix_template": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's prior written consent (not to be unreasonably withheld). The Vendor shall have the right to assume sole control of the defence and settlement of any such claim, at its cost and with counsel of its choice, provided that the Vendor shall not settle any claim in a way that imposes any obligation, restriction or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice at its own cost.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 2,
+          "clause_type": "indemnification",
+          "severity": "medium",
+          "issue": "The indemnification clause does not expressly vest control of the defence in the Vendor; instead it gives the Company a right to participate with its own counsel, but the clause does not state that the Vendor controls the defence. This is a departure from the playbook's preferred position (and fallback) that defence is controlled by the indemnifying party, creating risk that the Company bears defence costs or loses control of strategy in a third-party claim.",
+          "quote": "The Company may participate in the defence with counsel of its choice.",
+          "quote_template": "The Company may participate in the defence with counsel of its choice.",
+          "suggested_fix": "The Vendor shall have the right to control the defence and settlement of any claim for which it is obligated to indemnify the Company under this clause, provided that the Company may participate in the defence with counsel of its choice at its own cost, and the Vendor shall not settle any claim without the Company's prior written consent (not to be unreasonably withheld or delayed).",
+          "suggested_fix_template": "The Vendor shall have the right to control the defence and settlement of any claim for which it is obligated to indemnify the Company under this clause, provided that the Company may participate in the defence with counsel of its choice at its own cost, and the Vendor shall not settle any claim without the Company's prior written consent (not to be unreasonably withheld or delayed).",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause does not specify product liability or public liability insurance, which the playbook requires for a goods supplier. Although the Background describes this as a services agreement, the definition of 'Deliverables' includes 'documents, materials or other output' and Orders could encompass goods supply; the absence of a product/public liability requirement creates a gap if any Order involves goods. This is a medium-severity gap that should be tracked.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, professional indemnity insurance with a limit of not less than INR 50,000,000 (five crore rupees) per claim and in the aggregate and employer's liability or workmen's compensation insurance as required by Applicable Law.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, professional indemnity insurance with a limit of not less than {insurance_minimum} per claim and in the aggregate and employer's liability or workmen's compensation insurance as required by Applicable Law.",
+          "suggested_fix": "Where any Order involves the supply of goods, the Vendor shall also maintain product liability and public liability insurance with a limit of not less than INR 10,000,000 (one crore rupees) per claim (or the equivalent in the currency of the Fees: USD 120,000, EUR 110,000 or GBP 95,000), and shall provide evidence of such cover on request.",
+          "suggested_fix_template": "Where any Order involves the supply of goods, the Vendor shall also maintain product liability and public liability insurance with a limit of not less than INR 10,000,000 (one crore rupees) per claim (or the equivalent in the currency of the Fees: USD 120,000, EUR 110,000 or GBP 95,000), and shall provide evidence of such cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 2,
+          "rule_index": 9,
+          "clause_type": "delivery_and_acceptance",
+          "severity": "low",
+          "issue": "The contract does not address delivery on DAP (Incoterms 2020) terms to a named place, passage of title and risk on written acceptance, or the vendor's obligation to run product recalls at its cost. The Background states this is a services agreement so Incoterms and recalls may not apply, but the Deliverables definition is broad enough to include physical output; the absence of these terms creates a gap if any Order involves physical goods.",
+          "quote": "The Company may inspect and test the Deliverables within thirty (30) days of delivery or completion. A Deliverable is accepted only when the Company confirms acceptance in writing; use, payment or the passing of time is not acceptance.",
+          "quote_template": "The Company may inspect and test the Deliverables within thirty (30) days of delivery or completion. A Deliverable is accepted only when the Company confirms acceptance in writing; use, payment or the passing of time is not acceptance.",
+          "suggested_fix": "Where any Order involves the supply of physical goods: (a) delivery shall be DAP (Incoterms 2020) to the place named in the Order; (b) title and risk in the goods shall pass to the Company on the Company's written acceptance; (c) the Company may reject short or excess quantities; and (d) the Vendor shall conduct any product recall at its own cost and on the Company's written instruction.",
+          "suggested_fix_template": "Where any Order involves the supply of physical goods: (a) delivery shall be DAP (Incoterms 2020) to the place named in the Order; (b) title and risk in the goods shall pass to the Company on the Company's written acceptance; (c) the Company may reject short or excess quantities; and (d) the Vendor shall conduct any product recall at its own cost and on the Company's written instruction.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "Clause 15.4(b) states the IP indemnity (clause 14.1(a)) and the indemnity in clause 14.1(c) are unlimited and outside every cap, but the indemnity in clause 14.1(c) covers negligence, wilful misconduct and fraud \u2014 categories that the playbook lists as uncapped but does not extend to a full third-party indemnity. More critically, clause 15.4(a) carves out breach of confidentiality (other than a Data Breach Claim) from the caps without an express ceiling, creating potentially uncapped confidentiality liability for the Customer as well as the Provider; the playbook preferred position does not require confidentiality to be uncapped for the Customer and this bilateral uncapped exposure requires Legal Counsel review.",
+          "quote": "This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) (the IP indemnity) and 14.1(c), which are unlimited and not subject to the General Cap, the Data Breach Cap or any other cap in this clause 15; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "quote_template": "This limitation of liability does not apply to (a) breach of clause 11 (Confidentiality), other than a Data Breach Claim; (b) the indemnities in clauses 14.1(a) (the IP indemnity) and 14.1(c), which are unlimited and not subject to the General Cap, the Data Breach Cap or any other cap in this clause 15; (c) gross negligence or wilful misconduct; (d) fraud or fraudulent misrepresentation; (e) death or personal injury caused by negligence; or (f) any other liability that cannot be limited or excluded under Applicable Law.",
+          "suggested_fix": "Amend clause 15.4(b) to read: 'the indemnity in clause 14.1(a) (the IP indemnity), which is unlimited and not subject to the General Cap, the Data Breach Cap or any other cap in this clause 15;' and move the clause 14.1(c) indemnity (negligence, wilful misconduct, fraud) into clause 15.4(c)\u2013(d) as uncapped categories rather than as an unlimited indemnity. Amend clause 15.4(a) to add a ceiling for the Customer's confidentiality liability, for example: 'breach of clause 11 (Confidentiality) by the Customer, other than a Data Breach Claim, shall be subject to the General Cap.'",
+          "suggested_fix_template": "Amend clause 15.4(b) to read: 'the indemnity in clause 14.1(a) (the IP indemnity), which is unlimited and not subject to the General Cap, the Data Breach Cap or any other cap in this clause 15;' and move the clause 14.1(c) indemnity (negligence, wilful misconduct, fraud) into clause 15.4(c)\u2013(d) as uncapped categories rather than as an unlimited indemnity. Amend clause 15.4(a) to add a ceiling for the Customer's confidentiality liability, for example: 'breach of clause 11 (Confidentiality) by the Customer, other than a Data Breach Claim, shall be subject to the General Cap.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "Clause 20.2 provides for MCIA (Mumbai Centre for International Arbitration) arbitration seated in Mumbai under the Arbitration and Conciliation Act, 1996. The playbook preferred position for an Indian provider specifies 'an Indian institution such as MCIA where the provider is Indian' \u2014 this is met. However, the contract does not state whether Globex Corporation is incorporated or established outside India; its address is in Bengaluru, India, suggesting it is an Indian entity, in which case MCIA/Mumbai is the preferred position and there is no deviation. This item is flagged at low confidence only because the contract does not expressly confirm Globex Corporation's place of incorporation, leaving a residual ambiguity.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration and Conciliation Act, 1996, administered by the Mumbai Centre for International Arbitration under its rules. The seat of arbitration is Mumbai, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration and Conciliation Act, 1996, administered by the Mumbai Centre for International Arbitration under its rules. The seat of arbitration is Mumbai, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "Add a recital or clause confirming Globex Corporation's place of incorporation, e.g.: 'Globex Corporation is a company incorporated under the laws of India.' If Globex Corporation is in fact incorporated outside India, replace the arbitration clause with: 'Any dispute shall be finally resolved by arbitration under the SIAC Rules, with the seat of arbitration in Singapore, conducted in English by a sole arbitrator.'",
+          "suggested_fix_template": "Add a recital or clause confirming {counterparty}'s place of incorporation, e.g.: '{counterparty} is a company incorporated under the laws of India.' If {counterparty} is in fact incorporated outside India, replace the arbitration clause with: 'Any dispute shall be finally resolved by arbitration under the SIAC Rules, with the seat of arbitration in Singapore, conducted in English by a sole arbitrator.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "Clause 20.2 contains the prohibited phrase 'exclusive jurisdiction of the courts of' (applied to Mumbai courts for supervisory jurisdiction), which is expressly prohibited by the playbook regardless of context; this creates a risk that the courts carve-out could be read to override the arbitration mechanism and requires Legal Counsel review.",
+          "quote": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "quote_template": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggested_fix": "Subject to this, the courts at Mumbai shall have supervisory jurisdiction over the arbitration (including for the purposes of the Arbitration and Conciliation Act, 1996), and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggested_fix_template": "Subject to this, the courts at Mumbai shall have supervisory jurisdiction over the arbitration (including for the purposes of the Arbitration and Conciliation Act, 1996), and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Clause 9.1 names data centre regions 'in the Order Form' subject to the Customer's privacy function's written approval, which meets the preferred position. However, clause 9.1 does not itself name any specific location (India, EU, US, or otherwise) \u2014 the named location is deferred entirely to the Order Form. If the Order Form is not yet executed or does not name a location, there is no operative data-location restriction, creating a gap that Compliance should confirm is closed before execution.",
+          "quote": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form (which shall name at least one specific region, with India as the preferred location), each subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form (which shall name at least one specific region, with India as the preferred location), each subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "The agreement body does not name any data hosting location; it defers entirely to the Order Form (clause 9.1). Until the Order Form is executed and names a location with the Customer's privacy function's prior written approval, there is no confirmed data residency commitment. This creates a gap between signing and Order Form execution during which data location is unconfirmed. No approval escalation is required if the Order Form names a location with prior privacy-function approval, but the gap should be tracked.",
+          "quote": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form, each subject to the written approval of the Customer's privacy function before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form. The Parties confirm that, as at the Effective Date, the data centre region(s) named in the Order Form are [India / the region(s) set out in Schedule [X]], each subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there. No Customer Data shall be stored in any region not so approved.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in the data centre regions named in the Order Form. The Parties confirm that, as at the Effective Date, the data centre region(s) named in the Order Form are [India / the region(s) set out in Schedule [X]], each subject to the prior written approval of the Customer's privacy function before any Customer Data is stored there. No Customer Data shall be stored in any region not so approved.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "Clause 20.2 contains the phrase 'exclusive supervisory jurisdiction' of the courts at Mumbai, which uses language matching the prohibited pattern 'exclusive jurisdiction of the courts of'. Although this is framed as supervisory jurisdiction ancillary to arbitration (not as the primary dispute resolution mechanism), the prohibited phrase pattern is present and requires tracking; no approval escalation is triggered by the rule for this position.",
+          "quote": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "quote_template": "Subject to this, the courts at Mumbai have exclusive supervisory jurisdiction, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggested_fix": "Subject to this clause, the courts at Mumbai shall have non-exclusive supervisory jurisdiction over the arbitration, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggested_fix_template": "Subject to this clause, the courts at Mumbai shall have non-exclusive supervisory jurisdiction over the arbitration, and nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract requires public liability insurance but states no minimum amount and no 'per claim' figure for that cover, meaning the required language 'per claim' is absent for public liability and the amount is unquantified, leaving the Company without a guaranteed minimum backstop for public liability claims.",
+          "quote": "public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim",
+          "quote_template": "public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than {insurance_minimum} per claim",
+          "suggested_fix": "Replace the public liability reference with: 'public liability insurance of not less than INR 50,000,000 (five crore rupees) per claim,'",
+          "suggested_fix_template": "Replace the public liability reference with: 'public liability insurance of not less than {insurance_minimum} per claim,'",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract states a quantified per-claim amount for professional indemnity and cyber liability insurance (INR 50,000,000 / five crore rupees per claim), meeting the preferred position for those covers, but does not state any minimum amount for public liability insurance \u2014 the preferred position requires a stated amount per claim for public liability cover during the engagement and 2 years after, and the absence of a quantum means the cover cannot be verified as adequate; no escalation is required but the gap should be remedied.",
+          "quote": "professional indemnity insurance of not less than INR 50,000,000 (five crore rupees) per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim",
+          "quote_template": "professional indemnity insurance of not less than {insurance_minimum} per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than {insurance_minimum} per claim",
+          "suggested_fix": "professional indemnity insurance of not less than INR 50,000,000 (five crore rupees) per claim, public liability insurance of not less than INR 50,000,000 (five crore rupees) per claim, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim",
+          "suggested_fix_template": "professional indemnity insurance of not less than {insurance_minimum} per claim, public liability insurance of not less than {insurance_minimum} per claim, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than {insurance_minimum} per claim",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "return_or_deletion",
+          "severity": "medium",
+          "issue": "Section 11.1 grants the Processor up to 30 days after termination to complete return or deletion of all Personal Data (including Sub-processor and backup copies), which is longer than the 10-business-day window the playbook requires for erasure of specific data on instruction; the 30-day window for end-of-term deletion is not addressed by the preferred position and creates a period during which Personal Data remains with the Processor without a clear instruction-based trigger.",
+          "quote": "the Processor shall, at the Controller's choice, return all Personal Data to the Controller in a commonly used, machine-readable format and/or securely delete it, and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within thirty (30) days.",
+          "quote_template": "the Processor shall, at the Controller's choice, return all Personal Data to the Controller in a commonly used, machine-readable format and/or securely delete it, and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within thirty (30) days.",
+          "suggested_fix": "Replace 'within thirty (30) days' with 'within ten (10) business days', so that the clause reads: '\u2026and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within ten (10) business days.'",
+          "suggested_fix_template": "Replace 'within thirty (30) days' with 'within ten (10) business days', so that the clause reads: '\u2026and in either case shall then securely delete all existing copies, including copies held by Sub-processors and in backup systems, within ten (10) business days.'",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 16,
+          "clause_type": "governing_law",
+          "severity": "low",
+          "issue": "Section 14.1 does not use the prohibited phrase and correctly defers to the Principal Agreement's governing law; however, the clause does not explicitly state which law governs the Principal Agreement, leaving the governing law of this DPA indeterminate on the face of the document alone \u2014 this creates ambiguity if the Principal Agreement's governing law is ever disputed or if the Principal Agreement is silent on the point.",
+          "quote": "This Agreement is governed by the law that governs the Principal Agreement, and disputes under it are resolved under the dispute-resolution clause of the Principal Agreement, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.",
+          "quote_template": "This Agreement is governed by the law that governs the Principal Agreement, and disputes under it are resolved under the dispute-resolution clause of the Principal Agreement, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.",
+          "suggested_fix": "Insert the governing law of the Principal Agreement by name, for example: 'This Agreement is governed by the laws of India (being the law that governs the Principal Agreement), and disputes under it are resolved under the dispute-resolution clause of the Principal Agreement, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.'",
+          "suggested_fix_template": "Insert the governing law of the Principal Agreement by name, for example: 'This Agreement is governed by the laws of India (being the law that governs the Principal Agreement), and disputes under it are resolved under the dispute-resolution clause of the Principal Agreement, save that the Standard Contractual Clauses, where they apply, are governed by the law and forum they specify.'",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 9,
+          "clause_type": "liability",
+          "severity": "high",
+          "issue": "The indemnity in Section 12.1 covers fines and penalties caused by the Processor, and Section 12.2 sets the cap, but the contract does not explicitly state that fines recoverable under the indemnity are subject to (i.e., within) the Section 12.2 cap, creating an ambiguity about whether the indemnity for regulatory fines is capped or uncapped; this ambiguity requires senior-counsel review.",
+          "quote": "The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor, including any fine or penalty imposed on the Controller to the extent caused by the Processor, a Sub-processor or their personnel.\n\n12.2 The Processor's total aggregate liability under this Agreement and for breach of Applicable Data Protection Law shall not exceed the greater of (a) three (3) times the fees paid or payable under the Principal Agreement in the twelve (12) months preceding the event giving rise to the claim and (b) INR 50,000,000 (five crore rupees), save that this limit does not apply to liability arising from the Processor's fraud or wilful misconduct.",
+          "quote_template": "The Processor shall indemnify and hold harmless the Controller against all losses, damages, fines, penalties, costs and expenses (including reasonable legal fees) arising out of any breach of this Agreement or of Applicable Data Protection Law by the Processor or any Sub-processor, including any fine or penalty imposed on the Controller to the extent caused by the Processor, a Sub-processor or their personnel.\n\n12.2 The Processor's total aggregate liability under this Agreement and for breach of Applicable Data Protection Law shall not exceed the greater of (a) three (3) times the fees paid or payable under the Principal Agreement in the twelve (12) months preceding the event giving rise to the claim and (b) {insurance_minimum}, save that this limit does not apply to liability arising from the Processor's fraud or wilful misconduct.",
+          "suggested_fix": "Add the following sentence at the end of Section 12.1: \"The indemnity in this Section 12.1, including in respect of fines and penalties, is subject to the aggregate liability limit in Section 12.2.\"",
+          "suggested_fix_template": "Add the following sentence at the end of Section 12.1: \"The indemnity in this Section 12.1, including in respect of fines and penalties, is subject to the aggregate liability limit in Section 12.2.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    }
+  ],
+  "negatives": [
+    {
+      "playbook": "consultancy",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "governing_law",
+        "insurance",
+        "data_protection",
+        "non_compete"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "non_compete"
+      ],
+      "finding_count": 5
+    },
+    {
+      "playbook": "dpa",
+      "expected_clause_types": [
+        "breach_notification",
+        "international_transfers",
+        "return_or_deletion",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "breach_notification",
+        "children_data",
+        "governing_law",
+        "international_transfers",
+        "liability",
+        "return_or_deletion"
+      ],
+      "finding_count": 6
+    },
+    {
+      "playbook": "saas",
+      "expected_clause_types": [
+        "data_security",
+        "data_location",
+        "limitation_of_liability",
+        "suspension",
+        "data_use",
+        "governing_law",
+        "insurance"
+      ],
+      "found_clause_types": [
+        "data_location",
+        "data_security",
+        "data_use",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "suspension"
+      ],
+      "finding_count": 7
+    },
+    {
+      "playbook": "vendor",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "data_protection",
+        "delivery_and_acceptance",
+        "insurance",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "delivery_and_acceptance",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability"
+      ],
+      "finding_count": 5
+    }
+  ],
+  "totals": {
+    "main_runs": 33,
+    "main_with_findings": 12,
+    "risky_runs": 4,
+    "failures": 12
+  }
+}

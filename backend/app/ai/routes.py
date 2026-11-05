@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.ai.controller import AIController
@@ -11,6 +11,8 @@ from app.ai.prompt_versions import DEFAULT_SKILL_PROMPTS, hash_text
 from app.ai.registry import SkillRegistry
 from app.ai.schemas import AIPromptVersionResponse, AISkillRunResponse, SkillInfo
 from app.contract_files.models import ContractTextSnapshot, ContractVersion
+from app.contracts.access import accessible_contract_filter
+from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.config import settings
 from app.core.deps import get_db, require_permission
@@ -43,9 +45,15 @@ def list_skill_runs(
     db: Session = Depends(get_db),
     current_user=Depends(require_permission("assistant:use")),
 ):
+    # A run on a contract carries that contract's id and error text; a member must not read the runs of
+    # one they cannot open (a wall or clearance seals it off even from an admin).
+    reachable = select(Contract.id).where(accessible_contract_filter(current_user))
     return db.scalars(
         select(AISkillRun)
-        .where(AISkillRun.org_id == current_user.org_id)
+        .where(
+            AISkillRun.org_id == current_user.org_id,
+            or_(AISkillRun.contract_id.is_(None), AISkillRun.contract_id.in_(reachable)),
+        )
         .order_by(AISkillRun.created_at.desc())
         .limit(100)
     ).all()

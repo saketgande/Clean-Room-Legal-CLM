@@ -30,7 +30,6 @@ const ALL_SCREEN_ROUTE_PATHS: readonly string[] = [
   "/",
   "/my-work",
   "/notifications",
-  "/search",
   "/prompts",
   "/assistant",
   "/brain",

@@ -1,0 +1,1 @@
+{"task": "T004", "agent": "frontend-dev", "status": "done", "detail": "types.ts + endpoints.ts per freeze; tests 1750 pass; typecheck only stale .next docstudio errors", "updated": "2026-10-22T21:25:00Z"}

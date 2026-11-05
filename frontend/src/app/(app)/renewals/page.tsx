@@ -4,25 +4,24 @@
 // mockup style (scoped `.renw`). Deadline urgency (crit/warn/good) is derived
 // from days-until-notice-date for undecided events.
 
-import { useId, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, RefreshCw } from "lucide-react";
-import { contractsApi, renewalsApi } from "@/lib/endpoints";
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { AlertTriangle, CalendarClock, CheckCircle2, ChevronDown, Clock, FileText, Gavel, Inbox, RefreshCw, Search } from "lucide-react";
+import { contractsApi, intakeApi, renewalsApi } from "@/lib/endpoints";
 import { Modal } from "@/components/ui";
 import { fmtDate, titleCase } from "@/lib/utils";
 import { daysToExpiry, expiringWithoutRenewal } from "@/lib/expiry";
 import { useToast } from "@/components/toast";
-import type { RenewalEvent } from "@/lib/types";
+import type { IntakeRequest, RenewalEvent } from "@/lib/types";
+import { MockupShell, pageList } from "../intake/_legal-intake";
 import {
   EVERGREEN_NOTE, STATUS_TEXT, STATUS_TONE, canConfirm, conflictField, conflictText, evergreenConflict, mustTypeExpiry,
   recomputed,
 } from "./dates";
 import { conflictChoices } from "../obligations/deadline";
-
-const ic = (p: string) => (
-  <svg className="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" dangerouslySetInnerHTML={{ __html: p }} />
-);
 
 type RenewalDecision = "renew" | "terminate" | "renegotiate";
 const DECISIONS: RenewalDecision[] = ["renew", "terminate", "renegotiate"];
@@ -58,27 +57,112 @@ const DECISION_TONE: Record<RenewalEvent["decision"], "slate" | "good" | "warn" 
   terminate: "crit",
 };
 
+type Tab = "decide" | "soon" | "done" | "all";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const TONE_VAR = { crit: "var(--c-red)", warn: "var(--c-amb)", good: "var(--c-emr)", none: "var(--border-strong)" } as const;
+
+/** A number that counts up to its value, so the cards feel live. */
+function CountUp({ n }: { n: number }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setV(n); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / 650);
+      setV(Math.round(n * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [n]);
+  return <>{v}</>;
+}
+
+/** The days left to give notice, drawn as a ring that empties as the deadline nears. */
+function Ring({ days, tone }: { days: number | null; tone: Urgency | "none" }) {
+  const R = 19;
+  const C = 2 * Math.PI * R;
+  const frac = days == null ? 0 : Math.max(0.06, Math.min(1, days / 90));
+  const [on, setOn] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setOn(true), 60); return () => clearTimeout(t); }, []);
+  return (
+    <span className={`rnring ${tone}`} aria-hidden>
+      <svg viewBox="0 0 48 48" width="48" height="48">
+        <circle cx="24" cy="24" r={R} className="rt" />
+        <circle cx="24" cy="24" r={R} className="rv" stroke={TONE_VAR[tone]} strokeDasharray={C} strokeDashoffset={on ? C * (1 - frac) : C} transform="rotate(-90 24 24)" />
+      </svg>
+      <b>{days == null ? "–" : days < 0 ? "!" : days}</b>
+      <em>{days == null ? "" : days < 0 ? "late" : "days"}</em>
+    </span>
+  );
+}
+
 export default function RenewalsPage() {
   const qc = useQueryClient();
+  const router = useRouter();
   const { notify } = useToast();
   const [deciding, setDeciding] = useState<RenewalEvent | null>(null);
   const [confirming, setConfirming] = useState<RenewalEvent | null>(null);
   const [windowBusy, setWindowBusy] = useState(false);
+  const [tabSel, setTabSel] = useState<Tab | null>(null);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["renewals"],
     queryFn: () => renewalsApi.list(),
   });
-  const rows = data ?? [];
+  const rows = useMemo(() => data ?? [], [data]);
   // Running contracts that end within 90 days but have no row here: the Contracts screen counts them.
   const { data: contracts } = useQuery({ queryKey: ["contracts-list"], queryFn: contractsApi.list });
+  // The request each contract came from; someone who cannot see requests gets the contract name as the heading.
+  const { data: requests } = useQuery({ queryKey: ["intake-requests-all"], queryFn: () => intakeApi.list(), retry: false, staleTime: 60_000 });
+  const reqByContract = useMemo(() => {
+    const m = new Map<string, IntakeRequest>();
+    (requests ?? []).forEach((r) => { if (r.contract_id && !m.has(r.contract_id)) m.set(r.contract_id, r); });
+    return m;
+  }, [requests]);
+  const contractById = useMemo(() => new Map((contracts ?? []).map((c) => [c.id, c])), [contracts]);
   const untracked = expiringWithoutRenewal(contracts ?? [], rows);
-  const undecided = rows.filter((r) => r.decision === "undecided").length;
-  const dueSoon = rows.filter((r) => {
-    const u = noticeUrgency(r);
-    return u && (u.tone === "crit" || u.tone === "warn");
-  }).length;
-  const decided = rows.length - undecided;
+
+  const isSoon = (r: RenewalEvent) => { const u = noticeUrgency(r); return !!u && (u.tone === "crit" || u.tone === "warn"); };
+  const undecided = rows.filter((r) => r.decision === "undecided");
+  const soon = rows.filter(isSoon);
+  const decided = rows.filter((r) => r.decision !== "undecided");
+  const tab: Tab = tabSel ?? (undecided.length ? "decide" : "all");
+  const pickTab = (t: Tab) => { setTabSel(t); setPage(0); };
+
+  const q = search.trim().toLowerCase();
+  const shown = useMemo(() => {
+    const base = tab === "decide" ? undecided : tab === "soon" ? soon : tab === "done" ? decided : rows;
+    const list = base.filter((r) => !q || `${r.contract_title ?? ""} ${reqByContract.get(r.contract_id)?.subject ?? ""} ${reqByContract.get(r.contract_id)?.ref ?? ""}`.toLowerCase().includes(q));
+    // Undecided first, nearest notice deadline first (overdue leads); decided ones after.
+    const key = (r: RenewalEvent) => (r.decision === "undecided" ? 0 : 1e9) + (daysUntil(r.notice_date) ?? 9e8);
+    return [...list].sort((a, b) => key(a) - key(b));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, tab, q, reqByContract]);
+  const pageCount = Math.max(1, Math.ceil(shown.length / pageSize));
+  const cur = Math.min(page, pageCount - 1);
+  const visible = shown.slice(cur * pageSize, (cur + 1) * pageSize);
+
+  // Expirations over the next twelve months, split by whether anyone has decided yet.
+  const byMonth = useMemo(() => {
+    const now = new Date();
+    const slots = Array.from({ length: 12 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      return { key: `${d.getFullYear()}-${d.getMonth()}`, label: MONTHS[d.getMonth()], decide: 0, done: 0 };
+    });
+    for (const r of rows) {
+      if (!r.expiration_date) continue;
+      const d = new Date(`${r.expiration_date}T00:00:00`);
+      const slot = slots.find((s) => s.key === `${d.getFullYear()}-${d.getMonth()}`);
+      if (slot) { if (r.decision === "undecided") slot.decide++; else slot.done++; }
+    }
+    return slots;
+  }, [rows]);
+  const chartHas = byMonth.some((m) => m.decide || m.done);
 
   async function runWindowCheck() {
     setWindowBusy(true);
@@ -97,152 +181,180 @@ export default function RenewalsPage() {
     }
   }
 
+  const kcards: { t: Tab; n: number; l: string; sub: string; I: typeof Inbox; c: string }[] = [
+    { t: "all", n: rows.length, l: "Renewals", sub: "tracked in all", I: CalendarClock, c: "ind" },
+    { t: "decide", n: undecided.length, l: "Need a decision", sub: "nobody has decided", I: Gavel, c: "vio" },
+    { t: "soon", n: soon.length, l: "Notice due soon", sub: "within 30 days", I: AlertTriangle, c: "red" },
+    { t: "done", n: decided.length, l: "Decided", sub: "renew, renegotiate, end", I: CheckCircle2, c: "emr" },
+  ];
+  const EMPTY: Record<Tab, { t: string; d: string }> = {
+    decide: { t: "Nothing waiting for a decision", d: "Every renewal has been decided." },
+    soon: { t: "No notice deadline is close", d: "Nothing needs notice within the next 30 days." },
+    done: { t: "No decisions recorded yet", d: "Renewals you decide will appear here." },
+    all: { t: "No renewal events", d: "Renewal events are created as contracts approach their expiration window." },
+  };
+
   return (
+    <MockupShell
+      icon={<RefreshCw />}
+      title="Renewals"
+      subtitle="watch every expiry and notice deadline, and record what you decided"
+      actions={<button className="btn" disabled={windowBusy} onClick={runWindowCheck}><RefreshCw className="sic" />{windowBusy ? "Checking…" : "Run window check"}</button>}
+    >
     <div className="renw">
       <style dangerouslySetInnerHTML={{ __html: RENW_CSS }} />
-      <div className="hd">
-        <div>
-          <h1>Renewals</h1>
-          <p className="sub">Monitor upcoming expirations and record renewal decisions.</p>
-        </div>
-        <div className="acts">
-          <button className="btn" disabled={windowBusy} onClick={runWindowCheck}>
-            <RefreshCw className="sic" />
-            {windowBusy ? "Checking…" : "Run window check"}
-          </button>
-        </div>
-      </div>
-
       {rows.length > 0 && (
-        <div className="stats">
-          <div className="stat">
-            <span className="si a">{ic('<path d="M8 2v4M16 2v4M3 10h18"/><rect x="3" y="4" width="18" height="18" rx="2"/>')}</span>
-            <div><div className="sv">{rows.length}</div><div className="sl">renewal{rows.length === 1 ? "" : "s"}</div></div>
-          </div>
-          <div className="stat">
-            <span className="si b">{ic('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>')}</span>
-            <div><div className="sv">{undecided}</div><div className="sl">undecided</div></div>
-          </div>
-          <div className="stat">
-            <span className="si w">{ic('<path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/>')}</span>
-            <div><div className="sv">{dueSoon}</div><div className="sl">due soon</div></div>
-          </div>
-          <div className="stat">
-            <span className="si g">{ic('<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>')}</span>
-            <div><div className="sv">{decided}</div><div className="sl">decided</div></div>
-          </div>
+        <div className="kcards" style={{ gridTemplateColumns: "repeat(4,minmax(0,1fr))", marginTop: 4 }}>
+          {kcards.map((k) => (
+            <button key={k.t} type="button" className={`kcard kc-${k.c}`} onClick={() => pickTab(k.t)} tabIndex={-1} aria-hidden="true" style={{ cursor: "pointer", padding: 14, gap: 12 }}>
+              <span className="kic"><k.I className="ic" aria-hidden /></span>
+              <span className="ktx"><span className="kl">{k.l}</span><b className="kn num"><CountUp n={k.n} /></b><span className="ks">{k.sub}</span></span>
+            </button>
+          ))}
         </div>
       )}
 
       {untracked.length > 0 && (
-        <div className="empty" role="note" style={{ marginBottom: 12, textAlign: "left" }}>
-          <b>
-            {untracked.length} running contract{untracked.length === 1 ? "" : "s"} expire within 90 days but{" "}
-            {untracked.length === 1 ? "has" : "have"} no renewal record yet, so {untracked.length === 1 ? "it is" : "they are"} not
-            listed below:
-          </b>{" "}
-          {untracked.map((c, i) => (
-            <span key={c.id}>
-              {i > 0 ? ", " : ""}
-              <Link href={`/contracts/${c.id}`} style={{ textDecoration: "underline" }}>{c.title}</Link> ({daysToExpiry(c)}d)
-            </span>
-          ))}
-          . A renewal record is created when a contract&apos;s renewal terms have been read.
+        <div className="rnwarn rnin" role="note">
+          <span className="wic"><AlertTriangle size={18} /></span>
+          <div>
+            <b>
+              {untracked.length} running contract{untracked.length === 1 ? "" : "s"} expire within 90 days but{" "}
+              {untracked.length === 1 ? "has" : "have"} no renewal record yet, so {untracked.length === 1 ? "it is" : "they are"} not
+              listed below:
+            </b>{" "}
+            {untracked.map((c, i) => (
+              <span key={c.id}>
+                {i > 0 ? ", " : ""}
+                <Link href={`/contracts/${c.id}`} style={{ textDecoration: "underline" }}>{c.title}</Link> ({daysToExpiry(c)}d)
+              </span>
+            ))}
+            . A renewal record is created when a contract&apos;s renewal terms have been read.
+          </div>
+        </div>
+      )}
+
+      {rows.length > 0 && chartHas && (
+        <section className="rncard rnin" style={{ animationDelay: "120ms" }}>
+          <header><h3>Expiries over the next 12 months</h3><span className="rnleg"><i className="d" />Needs a decision<i className="o" />Decided</span></header>
+          <ResponsiveContainer width="100%" height={150}>
+            <BarChart data={byMonth} margin={{ top: 6, right: 6, left: -22, bottom: 0 }} barCategoryGap="22%">
+              <CartesianGrid stroke="var(--border)" strokeDasharray="3 4" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--ink-3)" }} tickLine={false} axisLine={false} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--ink-3)" }} tickLine={false} axisLine={false} />
+              <Tooltip cursor={{ fill: "var(--surface-2)" }} contentStyle={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, fontSize: 12, color: "var(--ink)" }} />
+              <Bar dataKey="decide" name="Needs a decision" stackId="a" fill="var(--c-amb)" radius={[0, 0, 0, 0]} animationDuration={900}>
+                {byMonth.map((m) => <Cell key={m.key} fill="var(--c-amb)" />)}
+              </Bar>
+              <Bar dataKey="done" name="Decided" stackId="a" fill="var(--c-emr)" radius={[5, 5, 0, 0]} animationDuration={1200} />
+            </BarChart>
+          </ResponsiveContainer>
+        </section>
+      )}
+
+      {rows.length > 0 && (
+        <div className="rntools">
+          <div className="stabs" role="group" aria-label="Filter renewals" style={{ marginTop: 0 }}>
+            {([["decide", "Needs a decision", undecided.length, "vio"], ["soon", "Notice due soon", soon.length, "red"], ["done", "Decided", decided.length, "emr"], ["all", "All", rows.length, "ind"]] as const).map(([t, l, n, c]) => (
+              <button key={t} type="button" aria-pressed={tab === t} onClick={() => pickTab(t)} className={`stab${tab === t ? " on" : ""}`} style={{ ["--c" as string]: `var(--c-${c})` }}>
+                <i aria-hidden /><span className="tl">{l}</span><span className="tn num">{n}</span>
+              </button>
+            ))}
+          </div>
+          <div className="search" style={{ marginLeft: "auto" }}>
+            <Search className="ic" />
+            <input aria-label="Search renewals" value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} placeholder="Search request or contract…" />
+          </div>
         </div>
       )}
 
       {isLoading ? (
-        <div className="tablewrap">
-          <div className="grid" style={{ padding: 14 }}>
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="skel" />
-            ))}
-          </div>
+        <div className="grid" style={{ padding: "8px 0" }}>
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="skel" />
+          ))}
         </div>
       ) : error ? (
-        <div className="empty err">
+        <div className="rnempty err">
           {error instanceof Error ? error.message : "Couldn't load renewals."}
         </div>
       ) : rows.length === 0 ? (
-        <div className="empty">
-          <CalendarClock className="eicon" />
-          No renewal events. Renewal events are created as contracts approach their expiration
-          window.
+        <div className="rnempty rnin">
+          <div className="eic"><CalendarClock size={22} /></div>
+          <p className="et">{EMPTY.all.t}</p>
+          <p className="ed">{EMPTY.all.d}</p>
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="rnempty rnin">
+          <div className="eic"><CheckCircle2 size={22} /></div>
+          <p className="et">{q ? "No renewals match your search" : EMPTY[tab].t}</p>
+          <p className="ed">{q ? "Try a different word." : EMPTY[tab].d}</p>
         </div>
       ) : (
-        <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Contract</th>
-                <th>Expiration</th>
-                <th>Notice date</th>
-                <th>Window starts</th>
-                <th>Decision</th>
-                <th className="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const notice = noticeUrgency(r);
-                return (
-                  <tr key={r.id} className={notice ? `u-${notice.tone}` : undefined}>
-                    <td>
-                      <div className="ttl">
-                        <span className={`bar ${notice?.tone ?? "none"}`} />
-                        <div>
-                          {r.contract_title ?? "Untitled contract"}
-                          {r.dates_status && (
-                            <p className={`dst ${STATUS_TONE[r.dates_status]}`}>{STATUS_TEXT[r.dates_status]}</p>
-                          )}
-                          {r.date_conflict && <p className="fml">{conflictText(r.date_conflict, fmtDate)}</p>}
-                          {r.date_reason && <p className="fml">{r.date_reason}</p>}
-                        </div>
+        <div key={`${tab}-${cur}`}>
+          <ul className="rnlist">
+            {visible.map((r, i) => {
+              const notice = noticeUrgency(r);
+              const rq = reqByContract.get(r.contract_id);
+              const ct = contractById.get(r.contract_id);
+              const href = rq ? `/intake?open=${rq.id}` : `/contracts/${r.contract_id}`;
+              const heading = rq ? rq.subject || rq.type_label : r.contract_title ?? "Untitled contract";
+              const days = daysUntil(r.notice_date);
+              const exp = daysUntil(r.expiration_date);
+              const tone: Urgency | "none" = notice?.tone ?? "none";
+              return (
+                <li key={r.id} className={`rnrow st-${tone}${tone === "crit" ? " late" : ""}`} style={{ animationDelay: `${Math.min(i, 8) * 50}ms` }}>
+                  <div className="rngrid click" onClick={(e) => { if (!(e.target as HTMLElement).closest("a,button")) router.push(href); }}>
+                    <Ring days={r.decision === "undecided" ? days : null} tone={r.decision === "undecided" ? tone : "none"} />
+                    <div className="rnmain">
+                      <div className="rntitle">
+                        <Link href={href} className="lnk">{heading}</Link>
+                        {rq && <b className="rnref">{rq.ref}</b>}
                       </div>
-                    </td>
-                    <td>
-                      <span className="nowrap">{fmtDate(r.expiration_date)}</span>
-                      {r.formulas.expiration_date && <p className="fml">{r.formulas.expiration_date}</p>}
-                      {r.next_expiration_date && (
-                        <p className="fml">
-                          {r.formulas.next_expiration_date ?? `next term ends ${fmtDate(r.next_expiration_date)}`} (if not
-                          stopped)
-                        </p>
+                      <div className="rnmeta">
+                        <Link href={`/contracts/${r.contract_id}`} className="rnchip ct" title="Open the contract"><FileText size={11} /><span className="trunc">{r.contract_title ?? "Contract"}</span></Link>
+                        {ct?.counterparty_name && <span className="rnchip"><span className="trunc">{ct.counterparty_name}</span></span>}
+                        {r.dates_status && <span className={`rndst ${STATUS_TONE[r.dates_status]}`}>{STATUS_TEXT[r.dates_status]}</span>}
+                      </div>
+                      {(r.date_conflict || r.date_reason) && <p className="fml">{r.date_conflict ? conflictText(r.date_conflict, fmtDate) : r.date_reason}</p>}
+                    </div>
+                    <div className="rndates">
+                      <div className="rdate"><span>Expires</span><b>{fmtDate(r.expiration_date)}</b>{exp != null && <em>{exp < 0 ? `${-exp}d ago` : `in ${exp}d`}</em>}</div>
+                      <div className={`rdate${tone === "crit" ? " late" : ""}`}><span>Notice by</span><b>{fmtDate(r.notice_date)}</b>{notice && <em className={`tg ${notice.tone}`}>{notice.label}</em>}</div>
+                      <div className="rdate"><span>Window opens</span><b>{fmtDate(r.renewal_window_starts_at)}</b></div>
+                    </div>
+                    <div className="rndec"><span className={`tag ${DECISION_TONE[r.decision]}`}>{titleCase(r.decision)}</span></div>
+                    <div className="rnact">
+                      {r.dates_status && r.dates_status !== "confirmed" && (
+                        <button className="btn sm" onClick={() => setConfirming(r)}>{canConfirm(r) ? "Confirm dates" : "Set dates"}</button>
                       )}
-                    </td>
-                    <td>
-                      <span className="nowrap">
-                        {fmtDate(r.notice_date)}
-                        {notice && <span className={`tag ${notice.tone}`}>{notice.label}</span>}
-                      </span>
-                      {r.formulas.notice_date && <p className="fml">{r.formulas.notice_date}</p>}
-                    </td>
-                    <td>
-                      <span className="nowrap">{fmtDate(r.renewal_window_starts_at)}</span>
-                      {r.formulas.window_opens && <p className="fml">{r.formulas.window_opens}</p>}
-                    </td>
-                    <td className="nowrap">
-                      <span className={`tag ${DECISION_TONE[r.decision]}`}>
-                        {titleCase(r.decision)}
-                      </span>
-                    </td>
-                    <td className="right">
-                      <div className="rowacts">
-                        {r.dates_status && r.dates_status !== "confirmed" && (
-                          <button className="btn sm" onClick={() => setConfirming(r)}>
-                            {canConfirm(r) ? "Confirm dates" : "Set dates"}
-                          </button>
-                        )}
-                        <button className="btn sm" onClick={() => setDeciding(r)}>
-                          Decide
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <button className="btn sm pri" onClick={() => setDeciding(r)}><Gavel size={13} />Decide</button>
+                    </div>
+                  </div>
+                  {(r.formulas.expiration_date || r.formulas.notice_date || r.formulas.window_opens || r.next_expiration_date) && (
+                    <details className="rnhow" onClick={(e) => e.stopPropagation()}>
+                      <summary>How these dates were counted</summary>
+                      {r.formulas.expiration_date && <p className="fml">Expiry: {r.formulas.expiration_date}</p>}
+                      {r.formulas.notice_date && <p className="fml">Notice: {r.formulas.notice_date}</p>}
+                      {r.formulas.window_opens && <p className="fml">Window: {r.formulas.window_opens}</p>}
+                      {r.next_expiration_date && <p className="fml">{r.formulas.next_expiration_date ?? `Next term ends ${fmtDate(r.next_expiration_date)}`} (if not stopped)</p>}
+                    </details>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          <div className="rnpager">
+            <span className="num">{`${cur * pageSize + 1}–${Math.min((cur + 1) * pageSize, shown.length)} of ${shown.length}`}</span>
+            <nav className="pager" aria-label="Pagination">
+              <button type="button" className="pgb" disabled={cur === 0} onClick={() => setPage(cur - 1)} aria-label="Previous page"><ChevronDown className="ic prev" /></button>
+              {pageList(pageCount, cur).map((n, i) => n === -1
+                ? <span key={`e${i}`} className="pge">…</span>
+                : <button key={n} type="button" className={`pgb${n === cur ? " on" : ""}`} aria-current={n === cur ? "page" : undefined} onClick={() => setPage(n)}>{n + 1}</button>)}
+              <button type="button" className="pgb" disabled={cur >= pageCount - 1} onClick={() => setPage(cur + 1)} aria-label="Next page"><ChevronDown className="ic next" /></button>
+            </nav>
+            <label className="rpp">Rows <select aria-label="Rows per page" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(0); }}>{[5, 10, 25, 50].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+          </div>
         </div>
       )}
 
@@ -268,6 +380,7 @@ export default function RenewalsPage() {
         }}
       />
     </div>
+    </MockupShell>
   );
 }
 
@@ -533,39 +646,77 @@ function DecideModal({
 }
 
 const RENW_CSS = `
-.renw{--shadow:0 1px 2px rgba(20,26,40,.05),0 8px 22px rgba(20,26,40,.06);--sans:var(--font-sans);--mono:ui-monospace,SFMono-Regular,Menlo,monospace;padding:22px 24px 40px;color:var(--ink);font:400 13px/1.5 var(--sans)}
+.renw{--shadow:0 1px 2px rgba(20,26,40,.05),0 8px 22px rgba(20,26,40,.06);--sans:var(--font-sans);--mono:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--ink);font:400 13px/1.5 var(--sans)}
 .dark .renw{--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 26px rgba(0,0,0,.4)}
-.renw .hd{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:18px}
-.renw .hd h1{margin:0;font-size:19px;font-weight:680;letter-spacing:-.015em}
-.renw .hd .sub{margin:4px 0 0;font-size:13px;color:var(--ink-2);max-width:640px}
-.renw .acts{margin-left:auto;display:flex;gap:8px}
-.renw .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
-.renw .stat{display:flex;align-items:center;gap:12px;border:1px solid var(--border);border-radius:13px;background:var(--surface);box-shadow:var(--shadow);padding:14px 16px}
-.renw .si{flex:none;display:grid;place-items:center;width:38px;height:38px;border-radius:10px;background:var(--surface-2);color:var(--ink-2)}
-.renw .si.a{background:var(--accent-soft);color:var(--accent)} .renw .si.b{background:var(--accent-soft);color:var(--accent)} .renw .si.w{background:var(--warn-soft);color:var(--warn)} .renw .si.g{background:var(--good-soft);color:var(--good)}
-.renw .si .ic{width:19px;height:19px}
-.renw .sv{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1} .renw .sl{margin-top:3px;font-size:11.5px;color:var(--ink-2)}
-
-
-
-
-.renw .btn.sm{padding:5px 10px;font-size:12px}
-
+.renw *{box-sizing:border-box}
+.renw .btn.sm{padding:6px 11px;font-size:12px;display:inline-flex;align-items:center;gap:6px}
 .renw .sic{width:14px;height:14px}
-.renw .tablewrap{overflow-x:auto}
-.renw table{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px;min-width:760px}
-.renw thead th{text-align:left;font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:9px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-.renw thead th.right,.renw td.right{text-align:right}
-.renw tbody td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:top}
-.renw tbody tr:last-child td{border-bottom:0}
-.renw tbody tr:hover td{background:var(--inset)}
-.renw tbody tr.u-crit td{background:var(--crit-soft)}
-.renw tbody tr.u-crit:hover td{background:var(--crit-soft)}
-.renw td.nowrap{white-space:nowrap}
-.renw .ttl{font-weight:560;color:var(--ink);display:flex;align-items:flex-start;gap:8px}
-.renw .fml{display:block;margin:2px 0 0;font:400 11px var(--mono);color:var(--ink-3);max-width:280px;white-space:normal}
-.renw .dst{margin:2px 0 0;font-size:11px;font-weight:600}
-.renw .dst.good{color:var(--good)} .renw .dst.warn{color:var(--warn)} .renw .dst.crit{color:var(--crit)}
+.renw .trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.renw .kcard .ks{font-size:11px;color:var(--ink-3)}
+@keyframes rnin{from{opacity:0;transform:translateY(14px) scale(.99)}to{opacity:1;transform:none}}
+.renw .rnin{animation:rnin .5s cubic-bezier(.2,.8,.2,1) both}
+.renw .rnwarn{display:flex;gap:12px;align-items:flex-start;margin:14px 0 0;padding:12px 16px;border-radius:16px;border:1px solid color-mix(in srgb,var(--warn) 35%,var(--border));background:var(--warn-soft);font-size:12.5px;color:var(--ink-2)}
+.renw .rnwarn b{color:var(--ink)}
+.renw .wic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;background:var(--warn);color:#fff;flex:none}
+.renw .rncard{margin-top:14px;border-radius:20px;background:var(--surface);box-shadow:0 1px 2px rgba(20,26,40,.04),0 0 0 1px var(--border);padding:14px 16px 8px}
+.renw .rncard header{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.renw .rncard h3{margin:0;font-size:14px;font-weight:660;text-transform:none;letter-spacing:-.005em;color:var(--ink)}
+.renw .rnleg{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3)}
+.renw .rnleg i{width:9px;height:9px;border-radius:3px;margin-left:10px}.renw .rnleg i.d{background:var(--c-amb)}.renw .rnleg i.o{background:var(--c-emr)}
+.renw .rntools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0}
+.renw .rnlist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.renw .rnrow{--st:var(--border-strong);position:relative;border-radius:16px;background:var(--surface);box-shadow:0 1px 2px rgba(20,26,40,.04),0 0 0 1px var(--border);opacity:0;animation:rnin .55s cubic-bezier(.2,.8,.2,1) forwards;transition:transform .22s cubic-bezier(.2,.8,.2,1),box-shadow .22s}
+.renw .rnrow.st-crit{--st:var(--crit)}.renw .rnrow.st-warn{--st:var(--warn)}.renw .rnrow.st-good{--st:var(--good)}
+.renw .rnrow:hover{transform:translateY(-2px);box-shadow:0 16px 30px -22px rgba(20,26,40,.45),0 0 0 1px var(--border-strong)}
+.renw .rnrow.late{animation:rnin .55s cubic-bezier(.2,.8,.2,1) forwards,rnalert 2.6s 1.2s ease-in-out infinite}
+@keyframes rnalert{0%,100%{box-shadow:0 1px 2px rgba(20,26,40,.05),0 0 0 1px color-mix(in srgb,var(--crit) 40%,var(--border)),0 0 0 0 color-mix(in srgb,var(--crit) 30%,transparent)}50%{box-shadow:0 1px 2px rgba(20,26,40,.05),0 0 0 1px color-mix(in srgb,var(--crit) 65%,var(--border)),0 0 0 6px color-mix(in srgb,var(--crit) 0%,transparent)}}
+.renw .rngrid{display:grid;grid-template-columns:48px minmax(0,2.4fr) minmax(0,2.6fr) 96px auto;gap:16px;align-items:center;padding:12px 16px 12px 20px;border-radius:16px}
+.renw .rngrid.click{cursor:pointer}
+.renw .rngrid.click:hover .lnk{color:var(--accent)}
+.renw .rnring{position:relative;width:48px;height:48px;display:grid;place-items:center}
+.renw .rnring svg{position:absolute;inset:0}
+.renw .rnring .rt{fill:none;stroke:var(--surface-2);stroke-width:4}
+.renw .rnring .rv{fill:none;stroke-width:4;stroke-linecap:round;transition:stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1)}
+.renw .rnring b{position:relative;font-size:13px;font-weight:700;line-height:1;margin-top:-5px}
+.renw .rnring em{position:absolute;bottom:9px;font-style:normal;font-size:8.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)}
+.renw .rnring.crit b{color:var(--crit)}.renw .rnring.crit{animation:rnpulse 1.8s ease-in-out infinite}
+@keyframes rnpulse{50%{transform:scale(1.07)}}
+.renw .rnmain{min-width:0;display:flex;flex-direction:column;gap:5px}
+.renw .rntitle{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:670;min-width:0;letter-spacing:-.01em}
+.renw .rntitle .lnk{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.renw .lnk{color:var(--ink);text-decoration:none}
+.renw .rnref{flex:none;font:700 10px var(--mono);color:var(--accent);background:var(--accent-soft);padding:1px 7px;border-radius:99px}
+.renw .rnmeta{display:flex;align-items:center;gap:5px;min-width:0;overflow:hidden}
+.renw .rnchip{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0;max-width:200px;height:20px;padding:0 8px;border-radius:99px;font-size:11px;color:var(--ink-2);background:var(--surface-2);text-decoration:none;white-space:nowrap}
+.renw .rnchip svg{color:var(--ink-3);flex:none}
+.renw a.rnchip:hover{background:var(--accent-soft);color:var(--accent)}
+.renw .rndst{font-size:11px;font-weight:600;white-space:nowrap}
+.renw .rndst.good{color:var(--good)}.renw .rndst.warn{color:var(--warn)}.renw .rndst.crit{color:var(--crit)}
+.renw .rndates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.renw .rdate{display:flex;flex-direction:column;min-width:0;gap:1px}
+.renw .rdate span{font:600 9.5px var(--sans);letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3)}
+.renw .rdate b{font-size:12.5px;font-weight:650;color:var(--ink);white-space:nowrap}
+.renw .rdate em{font-style:normal;font-size:11px;color:var(--ink-3)}
+.renw .rdate.late b{color:var(--crit)}
+.renw .rdate em.tg{font-weight:700}.renw .rdate em.tg.crit{color:var(--crit)}.renw .rdate em.tg.warn{color:var(--warn)}.renw .rdate em.tg.good{color:var(--good)}
+.renw .rndec .tag{margin-left:0}
+.renw .rnact{display:flex;align-items:center;justify-content:flex-end;gap:6px;white-space:nowrap}
+.renw .rnhow{margin:0 16px 10px 84px;font-size:11.5px;color:var(--ink-3)}
+.renw .rnhow summary{cursor:pointer;font-weight:600;color:var(--accent);width:max-content}
+.renw .rnhow .fml{margin:3px 0 0;max-width:none}
+.renw .rnpager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:14px;padding:0 4px;font-size:12.5px;color:var(--ink-2)}
+.renw .rnempty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:56px 16px;border:1px dashed var(--border-strong);border-radius:18px;margin-top:14px}
+.renw .rnempty.err{color:var(--crit)}
+.renw .rnempty .eic{width:48px;height:48px;border-radius:14px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;margin-bottom:10px}
+.renw .rnempty .et{margin:0;font-weight:700;font-size:15px;color:var(--ink)}
+.renw .rnempty .ed{margin:3px 0 0;font-size:12.5px;color:var(--ink-2)}
+@media (max-width:1400px){
+  .renw .rngrid{grid-template-columns:48px minmax(0,1fr);row-gap:10px}
+  .renw .rngrid>.rndates,.renw .rngrid>.rndec,.renw .rngrid>.rnact{grid-column:2}
+  .renw .rnact{justify-content:flex-start}
+  .renw .rnhow{margin-left:20px}
+}
+@media (prefers-reduced-motion:reduce){.renw *{animation:none!important;transition:none!important}.renw .rnrow{opacity:1!important}}
 .renw .rowacts{display:flex;justify-content:flex-end;gap:6px}
 .renw .rowacts.pick{justify-content:flex-start;flex-wrap:wrap}
 .renw .note{margin:0;font-size:12.5px;color:var(--ink-2)}

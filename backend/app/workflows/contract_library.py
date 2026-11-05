@@ -90,7 +90,7 @@ def sign(sla=48):
 
 
 def activate():
-    return _step("ai_task", "Activate & track", None, _LOADED, 0, [], "File the contract and start obligation tracking.")
+    return _step("ai_task", stages.ACTIVATE_STEP_NAME, None, _LOADED, 0, [], stages.ACTIVATE_STEP_TEXT)
 
 
 def notify(name, message):

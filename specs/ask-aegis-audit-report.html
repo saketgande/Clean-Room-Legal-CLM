@@ -1,0 +1,364 @@
+<title>Ask Aegis Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column; summary and charts first, then findings as example cards grouped by area. */
+:root{
+  --bg:#f6f7fb; --surface:#ffffff; --surface2:#eef0f7; --fg:#171a2b; --muted:#5b6078; --line:#dfe2ee;
+  --accent:#3b44c4; --accent-soft:#e6e8fb;
+  --hi:#c2331f; --hi-soft:#fbe7e3; --med:#b26a00; --med-soft:#fbefd6; --lo:#2a6fb0; --lo-soft:#e1eefa;
+  --ok:#1c7a4f; --ok-soft:#dff3e8; --bad-bg:#fdeeea; --good-bg:#e6f5ec;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#12141f; --surface:#1b1e2e; --surface2:#242840; --fg:#e8eaf6; --muted:#a2a8c6; --line:#2e3354;
+  --accent:#8e97ff; --accent-soft:#2a2f5c;
+  --hi:#ff8a78; --hi-soft:#3a1f1c; --med:#f0b45a; --med-soft:#382a10; --lo:#7db8f0; --lo-soft:#162b40;
+  --ok:#6fd6a2; --ok-soft:#10301f; --bad-bg:#2f1d1b; --good-bg:#13281d; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#12141f; --surface:#1b1e2e; --surface2:#242840; --fg:#e8eaf6; --muted:#a2a8c6; --line:#2e3354;
+  --accent:#8e97ff; --accent-soft:#2a2f5c;
+  --hi:#ff8a78; --hi-soft:#3a1f1c; --med:#f0b45a; --med-soft:#382a10; --lo:#7db8f0; --lo-soft:#162b40;
+  --ok:#6fd6a2; --ok-soft:#10301f; --bad-bg:#2f1d1b; --good-bg:#13281d; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.55;
+  padding-block:32px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1{font-size:clamp(26px,4vw,38px);line-height:1.15;margin:0 0 8px;text-wrap:balance;letter-spacing:-.01em}
+h2{font-size:22px;margin:0 0 4px;text-wrap:balance}
+h3{font-size:16px;margin:0}
+p{margin:0}
+.lede{color:var(--muted);max-width:68ch}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;min-width:0}
+.tile b{display:block;font-size:30px;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile span{color:var(--muted);font-size:13px}
+.tile.hi b{color:var(--hi)}.tile.med b{color:var(--med)}.tile.lo b{color:var(--lo)}.tile.ok b{color:var(--ok)}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;min-width:0}
+.sect-head{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}
+.sect-head p{color:var(--muted);max-width:72ch}
+/* chart: stacked bar per area */
+.bars{display:flex;flex-direction:column;gap:10px}
+.barrow{display:grid;grid-template-columns:150px 1fr 34px;gap:10px;align-items:center;font-size:13px}
+.barrow .track{display:flex;height:20px;border-radius:4px;overflow:hidden;background:var(--surface2)}
+.barrow .track i{display:block;height:100%}
+.barrow .n{font-variant-numeric:tabular-nums;color:var(--muted);text-align:right}
+.seg-hi{background:var(--hi)}.seg-med{background:var(--med)}.seg-lo{background:var(--lo)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:12px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+@media(max-width:560px){.barrow{grid-template-columns:100px 1fr 28px}}
+/* diagrams */
+.diagram{overflow-x:auto}
+.diagram svg{display:block;min-width:640px;width:100%;height:auto}
+.diagram text{fill:var(--fg);font-family:var(--sans);font-size:13px}
+.diagram .m{fill:var(--muted)}
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:700px){.cmp{grid-template-columns:1fr}}
+.fieldbar{display:flex;gap:3px;margin:8px 0 6px}
+.fieldbar i{flex:1;height:14px;border-radius:2px;background:var(--surface2)}
+.fieldbar i.on{background:var(--accent)}
+/* filters */
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);padding-block:10px;z-index:5;border-bottom:1px solid var(--line)}
+.chip{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:99px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.search{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:6px 11px;border-radius:8px;min-width:0;flex:1 1 180px;max-width:280px}
+.count{font-size:13px;color:var(--muted);margin-left:auto}
+/* finding cards */
+.group{display:flex;flex-direction:column;gap:12px}
+.group>h3{font-size:18px;display:flex;align-items:baseline;gap:10px;margin-top:8px}
+.group>h3 small{font-family:var(--mono);font-size:12px;color:var(--muted);font-weight:400}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.card.hi{border-left:4px solid var(--hi)}.card.med{border-left:4px solid var(--med)}.card.lo{border-left:4px solid var(--lo)}
+.card header{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.card header h4{margin:0;font-size:16px;line-height:1.35;flex:1 1 260px;min-width:0}
+.id{font-family:var(--mono);font-size:12px;color:var(--muted);padding-top:2px}
+.pill{font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:99px;white-space:nowrap}
+.pill.hi{background:var(--hi-soft);color:var(--hi)}.pill.med{background:var(--med-soft);color:var(--med)}.pill.lo{background:var(--lo-soft);color:var(--lo)}
+.pill.inf{background:var(--surface2);color:var(--muted);font-weight:500}
+.pill.fixed{background:var(--ok-soft);color:var(--ok)}
+.chat{display:flex;flex-direction:column;gap:8px}
+.bub{max-width:min(100%,640px);padding:9px 13px;border-radius:12px;font-size:14px;line-height:1.5;overflow-wrap:anywhere}
+.bub small{display:block;font-family:var(--mono);font-size:11px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:3px;opacity:.75}
+.you{align-self:flex-end;background:var(--accent-soft);border-bottom-right-radius:4px}
+.now{align-self:flex-start;background:var(--bad-bg);border:1px solid color-mix(in srgb,var(--hi) 35%,transparent);border-bottom-left-radius:4px}
+.better{align-self:flex-start;background:var(--good-bg);border:1px solid color-mix(in srgb,var(--ok) 35%,transparent);border-bottom-left-radius:4px}
+.why{font-size:13px;color:var(--muted)}
+.why code,.where{font-family:var(--mono);font-size:12px}
+.where{color:var(--muted);overflow-wrap:anywhere}
+.done .card{border-left:4px solid var(--ok)}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.wave{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wave b{font-family:var(--mono);font-size:12px;color:var(--accent);letter-spacing:.06em}
+.wave ul{margin:6px 0 0;padding-left:18px;color:var(--muted);font-size:13.5px}
+footer{color:var(--muted);font-size:13px}
+@media (prefers-reduced-motion:no-preference){.card{transition:box-shadow .15s}.card:hover{box-shadow:0 2px 10px color-mix(in srgb,var(--fg) 10%,transparent)}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Legal CLM · Ask Aegis · audit of 30 Oct 2026</div>
+  <h1>Where Ask Aegis falls short as an in-app agent</h1>
+  <p class="lede">It answers general questions well. The gaps are in the finer details of acting inside the application: checking what already exists, filling every field, applying the same controls as the screens, and telling you what really happened. Every finding below has an example of what you type, what happens today, and what it should do.</p>
+</header>
+
+<section class="tiles" id="tiles"></section>
+
+<section class="panel">
+  <div class="sect-head"><h2>Where the problems are</h2><p>Open findings per area, split by how much damage they can do. High means a wrong action, a skipped control, or a false "done".</p></div>
+  <div class="bars" id="bars"></div>
+  <div class="legend"><span><i class="seg-hi"></i>High</span><span><i class="seg-med"></i>Medium</span><span><i class="seg-lo"></i>Low</span></div>
+</section>
+
+<section class="panel">
+  <div class="sect-head"><h2>Example: one request, two ways in</h2><p>The request form asks for everything Legal needs. The chat asked for four things and guessed the rest. That is the pattern behind many findings below.</p></div>
+  <div class="cmp">
+    <div><h3>Filed from the form</h3><div class="fieldbar" id="fb-form"></div><p class="why">15 of 15 answers: entity, counterparty from the register, their signer, term, governing law, payment terms, start date, value…</p></div>
+    <div><h3>Filed from the chat</h3><div class="fieldbar" id="fb-chat"></div><p class="why">4 of 15 answers: department, vendor name (typed), value, needed-by date. Everything else is missing, so Legal asks again.</p></div>
+  </div>
+</section>
+
+<section class="panel diagram">
+  <div class="sect-head"><h2>Example: what happens when you say "approve it"</h2><p>The screen runs three checks before an approval. The chat runs one.</p></div>
+  <svg viewBox="0 0 900 250" role="img" aria-label="Approval path in the app compared with the chat">
+    <text x="0" y="22" font-weight="600">Approvals page</text>
+    <g font-size="12">
+      <rect x="0" y="34" width="190" height="44" rx="8" fill="var(--accent-soft)"/><text x="14" y="61">Is this your approval?</text>
+      <rect x="230" y="34" width="210" height="44" rx="8" fill="var(--accent-soft)"/><text x="244" y="61">Within your authority limit?</text>
+      <rect x="480" y="34" width="230" height="44" rx="8" fill="var(--accent-soft)"/><text x="494" y="61">Open risks acknowledged?</text>
+      <rect x="750" y="34" width="150" height="44" rx="8" fill="var(--ok-soft)"/><text x="764" y="61" fill="var(--ok)">Approved + audit row</text>
+    </g>
+    <path d="M190 56h40M440 56h40M710 56h40" stroke="var(--muted)" stroke-width="2" fill="none"/>
+    <text x="0" y="138" font-weight="600">Ask Aegis chat</text>
+    <g font-size="12">
+      <rect x="0" y="150" width="190" height="44" rx="8" fill="var(--hi-soft)"/><text x="14" y="177" fill="var(--hi)">Takes the OLDEST pending one</text>
+      <rect x="230" y="150" width="210" height="44" rx="8" fill="var(--accent-soft)"/><text x="244" y="177">Within your authority limit?</text>
+      <rect x="480" y="150" width="230" height="44" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="494" y="177" fill="var(--hi)">Open-risk check: skipped</text>
+      <rect x="750" y="150" width="150" height="44" rx="8" fill="var(--hi-soft)"/><text x="764" y="177" fill="var(--hi)">Approved, no risk audit</text>
+    </g>
+    <path d="M190 172h40M440 172h40M710 172h40" stroke="var(--muted)" stroke-width="2" fill="none"/>
+    <text class="m" x="0" y="232">Findings 10 and 11 below. The card the chat shows before approving also hides the step, the value and the approver.</text>
+  </svg>
+</section>
+
+<section class="panel diagram">
+  <div class="sect-head"><h2>Example: a contract made in the chat vs one uploaded</h2><p>The upload route files a request and starts a workflow. A contract drafted in the chat stops after the file is saved.</p></div>
+  <svg viewBox="0 0 900 230" role="img" aria-label="Lifecycle of an uploaded contract compared with a chat drafted one">
+    <g font-size="12">
+      <text x="0" y="20" font-weight="600">Uploaded</text>
+      <rect x="0" y="30" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="14" y="55">Contract saved</text>
+      <rect x="160" y="30" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="174" y="55">Request filed</text>
+      <rect x="320" y="30" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="334" y="55">Owner assigned</text>
+      <rect x="480" y="30" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="494" y="55">Workflow runs</text>
+      <rect x="640" y="30" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="654" y="55">Approval</text>
+      <rect x="800" y="30" width="100" height="40" rx="8" fill="var(--ok-soft)"/><text x="814" y="55" fill="var(--ok)">Signature</text>
+      <path d="M130 50h30M290 50h30M450 50h30M610 50h30M770 50h30" stroke="var(--muted)" stroke-width="2"/>
+      <text x="0" y="128" font-weight="600">Drafted in chat</text>
+      <rect x="0" y="138" width="130" height="40" rx="8" fill="var(--accent-soft)"/><text x="14" y="163">Contract saved</text>
+      <rect x="160" y="138" width="130" height="40" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="174" y="163" fill="var(--hi)">no request</text>
+      <rect x="320" y="138" width="130" height="40" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="334" y="163" fill="var(--hi)">no owner</text>
+      <rect x="480" y="138" width="130" height="40" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="494" y="163" fill="var(--hi)">no workflow</text>
+      <rect x="640" y="138" width="130" height="40" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="654" y="163" fill="var(--hi)">no approval</text>
+      <rect x="800" y="138" width="100" height="40" rx="8" fill="var(--hi-soft)" stroke="var(--hi)" stroke-dasharray="5 4"/><text x="814" y="163" fill="var(--hi)">no path</text>
+      <path d="M130 158h30" stroke="var(--muted)" stroke-width="2"/>
+    </g>
+    <text class="m" x="0" y="210">Finding 1. The draft exists but is not in anyone's queue.</text>
+  </svg>
+</section>
+
+<section>
+  <div class="sect-head"><h2>Findings</h2><p>Filter by area or severity, or search. Red bubbles show what happens today, green shows what it should do. "Inferred" means read from code and not confirmed by running it.</p></div>
+  <div class="filters" id="filters" role="group" aria-label="Filters"></div>
+  <div id="list" class="wrapcol" style="display:flex;flex-direction:column;gap:28px;margin-top:20px"></div>
+</section>
+
+<section class="done" id="donewrap">
+  <div class="sect-head"><h2>Already fixed this session</h2><p>These came from your test sheet and are changed in code. They are covered by tests but have not been re-run against real Claude.</p></div>
+  <div class="group" id="done"></div>
+</section>
+
+<section>
+  <div class="sect-head"><h2>Suggested order of work</h2><p>Grouped so each wave can be built and checked on its own.</p></div>
+  <div class="waves">
+    <div class="wave"><b>WAVE 1 · STOP WRONG ACTIONS</b><h3>Controls the screens already have</h3><ul><li>Open-risk check and authority on approve and sign</li><li>Stage guard before edit or redraft</li><li>Honest "done" for advance and start workflow</li><li>Handle vs id on comment, signature, negotiation</li></ul></div>
+    <div class="wave"><b>WAVE 2 · COMPLETE RECORDS</b><h3>Everything the chat creates</h3><ul><li>Workflow for chat drafts</li><li>Counterparty and entity on drafts</li><li>Full form fields on requests</li><li>Remove unsafe request labels</li></ul></div>
+    <div class="wave"><b>WAVE 3 · TRUTHFUL LOOKUPS</b><h3>What the model sees</h3><ul><li>Today's date in the prompt</li><li>find_contracts, approvals, requests, renewals</li><li>Counts that say when a list was cut</li></ul></div>
+    <div class="wave"><b>WAVE 4 · ENGINE</b><h3>Confirmations and long chats</h3><ul><li>Parallel tool calls, two-step approve</li><li>Readable cards, reject with a reason</li><li>Newest messages, step limit message</li></ul></div>
+    <div class="wave"><b>WAVE 5 · NEW ABILITIES</b><h3>What users will ask next</h3><ul><li>Request actions, notices, notifications</li><li>Approver and authority lookups</li><li>Teams, users, counterparty register</li></ul></div>
+  </div>
+</section>
+
+<footer>Source: read-only review of backend/app/ai, backend/app/assistant and the chat screens, plus your 31-question test sheet. Full text with file and line references: specs/ask-aegis-audit-2026-10-30.md. Nothing in the open findings has been changed yet.</footer>
+</div>
+
+<script>
+/* h = high, m = medium, l = low. you = what the person types. now = what happens. fix = what it should do. */
+var F = [
+/* ---------- Raising requests ---------- */
+{a:"Requests",s:"m",t:"A request filed from chat has no workflow running",you:"Raise a request for 100 Diwali headsets from Logitech, 3 lakh, by 16 November.",now:"Request REQ-10384 is filed. The page shows \"Suggested: Vendor, small purchase\" and waits for someone to press Start it. Nothing runs.",fix:"Chat requests are free text, so only a person starts the suggested workflow. The chat should offer \"Start the suggested workflow?\" right after filing.",why:"By design: only an admin's \"Used for\" pick on a form request starts by itself.",w:"intake/service.py:963"},
+{a:"Requests",s:"h",t:"Only 4 of the form's 15 answers are captured",you:"We want to hire a consultant, Ravi Kumar, 6 months at 2 lakh a month.",now:"The request is filed with name, value and a date. Our legal entity, start date, scope, their signer and governing law are all blank.",fix:"Ask for the same required answers the form asks for, or file them as blank fields the lawyer can see.",why:"The tool has four inputs. The wizard has fifteen or more per agreement type.",w:"ai/tool_registry.py CreateIntakeRequestInput"},
+{a:"Requests",s:"h",t:"Renewal, Amendment, Termination and Novation labels are unsafe from chat",you:"I need to renew our contract with Infosys before it expires.",now:"If it files as \"Renewal Request\" there is no parent contract attached. Finishing the request never updates the Infosys contract.",fix:"Remove these four labels from chat until the chat can look up and attach the parent contract.",why:"These forms need a parent_contract_id. Added this session, so this one is on me.",w:"intake/chat_filing.py"},
+{a:"Requests",s:"m",t:"No check for an open request that already covers it",you:"Raise a request for Logitech headsets. (An hour later, in a new chat) Raise a request for Logitech headsets.",now:"Two requests, REQ-10384 and REQ-10391. The duplicate check only catches the same request within 2 minutes.",fix:"\"REQ-10384 for Logitech headsets is already open. Add to it or raise a new one?\"",why:"Contracts are checked for duplicates (the Acme NDAs). Requests are not.",w:"intake/service.py _recent_duplicate_request"},
+{a:"Requests",s:"m",t:"Some confirmation cards arrive with no sentence",you:"Can you file a request for a SaaS subscription to Notion for 200 seats?",now:"The chat shows an empty message and only the approval card. You are asked to approve something with no explanation.",fix:"One line before every card: \"I'll file this request for Notion, 200 seats, INR 15 lakh a year.\"",why:"The model sometimes calls the tool with no text. Seen in your sheet, test 8.",w:"sheet #8"},
+{a:"Requests",s:"m",t:"A request can be raised but not changed or cancelled",you:"Change the budget on REQ-10384 to 4 lakh.",now:"There is no tool. The chat can only say it cannot, or tries something else.",fix:"Update fields, cancel, and add a comment from the chat, with a confirm card.",why:"Only create, get, start, advance and reassign exist.",w:"ai/tool_registry.py"},
+/* ---------- Drafting ---------- */
+{a:"Drafting",s:"h",t:"A contract drafted in chat gets no request or workflow",you:"Draft an NDA with Acme.",now:"The contract is saved, but no request is filed, no owner is set, nothing appears in Legal Intake and no approval path exists.",fix:"File a request for it and start the workflow, as the upload route does.",why:"Only the upload route calls start_flow_for_contract. The draft tools do not.",w:"ai/tool_runtime.py _generate_contract_docx"},
+{a:"Drafting",s:"h",t:"Drafts take the other party as typed text and never ask which of our entities signs",you:"Draft an MSA with TechServe Pvt Ltd.",now:"\"TechServe\" is not looked up in the counterparty register. Our side reads as the organization name. The signature block lacks our entity's address and signatory.",fix:"Look up or add the counterparty, ask which legal entity signs, and fill the signature blocks.",why:"The template tool passes no register records into the template.",w:"ai/tool_runtime.py _draft_from_template"},
+/* ---------- Approvals ---------- */
+{a:"Approvals",s:"h",t:"Approving ignores the open-risk check the Approvals page enforces",you:"Approve the Globex MSA.",now:"The contract has 2 critical open risks. The page would refuse until you acknowledge them and would write an audit row. The chat approves silently.",fix:"Show the open risks first, require an explicit acknowledgement, and write the same audit row.",why:"The gate lives in the route, deliberately outside decide_in_app, so the tool bypasses it.",w:"approvals/routes.py:326"},
+{a:"Approvals",s:"h",t:"It approves the oldest pending approval on the request, not yours",you:"Approve REQ-55. (You are the approver on the second rung.)",now:"The tool picks the first rung, which is someone else's, and fails with \"You are not assigned\" even though you have one waiting.",fix:"Pick the approval assigned to you, and accept an approval id for contract-level approvals.",why:"The query filters by request and pending only, not by approver.",w:"ai/tool_runtime.py _decide_approval"},
+{a:"Approvals",s:"m",t:"You approve without seeing what you are approving",you:"Approve it.",now:"The card shows \"Request Id: 5f2c…, Decision: approve\". It does not show the step, who it is for, the deal value or your authority limit.",fix:"\"Approve MSA with TCS, INR 2.4 crore, Tax Approval step. Your limit: 5 crore.\"",why:"The card prints the model's raw inputs.",w:"ai/confirmations.py"},
+{a:"Approvals",s:"h",t:"\"What approvals are waiting for me?\" can say none when you have some",you:"What approvals are waiting for me?",now:"If you approve as a member of a team, nothing is listed. When something is listed it is bare ids, so two answers can name different contracts (your sheet, tests 21 and 28).",fix:"Include team approvals, and show the contract, counterparty, step, workflow and value.",why:"The query only matches approver_user_id.",w:"ai/tool_runtime.py _list_my_approvals"},
+{a:"Approvals",s:"h",t:"No way to ask who approves or what your limit is",you:"Can I approve a 2 crore deal? Who else needs to approve this contract?",now:"The chat cannot look it up. It only learns about a limit after a failed approve.",fix:"Read the approval chain and your authority limits.",why:"The routes exist. No tool reads them.",w:"approvals/routes.py /chain /eligible-approvers"},
+{a:"Approvals",s:"m",t:"Cannot delegate or escalate an approval",you:"I'm travelling, delegate my approvals to Sam.",now:"No tool. The only reassign tool changes the request owner, not the approver.",fix:"Delegate, escalate and reassign an approval with a confirm card.",why:"Reassign and delegations exist in the app only.",w:"approvals/routes.py:415"},
+/* ---------- Signatures ---------- */
+{a:"Signatures",s:"h",t:"Sending for signature skips the signing-authority check",you:"Send the vendor contract for signature to a@x.com and b@y.com.",now:"A user with no signing authority for a high-value contract can send it to DocuSign. The signatures page would refuse.",fix:"Apply the same contract:sign authority check as the page.",why:"The tool copies the route's checks but not enforce_authority.",w:"ai/tool_runtime.py _send_for_signature"},
+{a:"Signatures",s:"m",t:"If saving fails after sending, there is a live envelope and no record",you:"Send it for signature.",now:"Emails go out and DocuSign has the envelope. A later save error means the app has no record and tells you it failed. Email failures are swallowed, so \"sent to all signers\" may be false.",fix:"Void the envelope if the save fails, and report per-recipient email results.",why:"The route has compensation logic. The tool does not.",w:"ai/tool_runtime.py:2396"},
+{a:"Signatures",s:"m",t:"\"Give me the signing link\" returns a page, not a link",you:"Give me the link to sign the NDA.",now:"You get /contracts/abc… with \"open this to review and sign\", even for a draft or an already executed contract. Signing actually happens in DocuSign by email.",fix:"Check a signature request exists and you are a signer, then return the real signing step or say there is none.",why:"The tool never looks up a signature request.",w:"ai/tool_runtime.py:697"},
+{a:"Signatures",s:"l",t:"Signature status is thin and the signatures page has no tool",you:"Who still has to sign, and since when? Remind them.",now:"Only names and statuses come back. No emails, order, sent date or signed date. Sync, resend and void are not possible.",fix:"Return the full recipient table and offer refresh and resend.",why:"get_signature_status reads only the latest request and four fields.",w:"ai/tool_runtime.py:841"},
+/* ---------- Contracts ---------- */
+{a:"Contracts",s:"h",t:"Archive forces the move from any stage",you:"Archive the Globex MSA.",now:"It closes the contract even with a pending approval, an out-for-signature envelope, live obligations or a legal hold.",fix:"Refuse or warn on each of those, and ask for a reason.",why:"The tool hard-codes override=True.",w:"ai/tool_runtime.py _archive_contract"},
+{a:"Contracts",s:"h",t:"Sharing creates a link that never expires and has no recipient",you:"Send the Globex draft to their lawyer for negotiation.",now:"A view-only link is created with no expiry and no audit row, but the note says their redline will be recorded as the next round. Nobody is emailed.",fix:"Ask who it goes to, set an expiry and passcode, write the audit row, and open a negotiation round.",why:"The tool is a thin copy of the share route without its guardrails.",w:"ai/tool_runtime.py:714"},
+{a:"Contracts",s:"m",t:"Internal \"send for negotiation\" notifies people who cannot open the contract",you:"Send this to the Procurement team to review.",now:"Every active member is notified with the contract title, even one behind an ethical wall. An empty team still reports success.",fix:"Skip people without access, and warn when nobody was notified.",why:"Notifications are inserted directly with no access check.",w:"ai/tool_runtime.py:714"},
+{a:"Contracts",s:"h",t:"Editing or redrafting a contract already out for signature",you:"Tighten the liability cap in this contract. (It is in Signature.)",now:"A redraft silently becomes the authoritative version, replacing the approved text. The signature step then blocks unexpectedly.",fix:"Refuse or warn when the contract is in approval or signature, and say a new authoritative version was made.",why:"Neither tool checks the lifecycle stage.",w:"ai/tool_runtime.py:1732,1944"},
+{a:"Contracts",s:"m",t:"An AI outage is reported as \"your request was too broad\"",you:"Remove the non-compete clause.",now:"The provider times out. The chat says the model could not locate the language and to re-draft the contract.",fix:"\"The AI service did not respond. Try again.\"",why:"The skill call is wrapped in a bare except that only logs.",w:"ai/tool_runtime.py:1778"},
+{a:"Contracts",s:"m",t:"\"I proposed 6 edits\" when only 3 are in the redline",you:"Make this contract more balanced.",now:"6 edits are counted. 3 could not be placed and sit in the Review tab as open items that are not in the proposed version. Repeating the request stacks duplicates.",fix:"Count placed edits separately and skip clauses that already have a proposal.",why:"Unplaced edits are counted with the rest.",w:"ai/tool_runtime.py:1856"},
+{a:"Contracts",s:"h",t:"Comment, negotiation and signature tools fail on \"this contract\"",you:"Add a comment on this contract: please confirm the cap.",now:"The model only knows the contract as \"contract-0\", passes it as the id, and gets \"Contract not found\".",fix:"Accept handles on these tools like the others do.",why:"Those inputs bypass the only function that maps handles to ids.",w:"ai/tool_runtime.py:706,714,697,841"},
+{a:"Contracts",s:"m",t:"A tabular review can be queued with no size limit and no confirmation",you:"Compare governing law across all our contracts.",now:"100 contracts and 50 columns are queued at once, spending real AI money, with no card.",fix:"Apply the service's caps (100 contracts, 50 columns, 1000 cells) and confirm large runs.",why:"The tool skips the size check the service applies.",w:"ai/tool_runtime.py:2544"},
+{a:"Contracts",s:"m",t:"Write tools use read access, not edit access (inferred)",you:"Comment on the Globex contract. (You only have view access.)",now:"The comment may be allowed. Two other tools check edit access.",fix:"Check edit access on every write tool.",why:"_resolve_contract does not pass edit=True. The routes may do the same, so unconfirmed.",w:"ai/tool_runtime.py _resolve_contract",inf:1},
+{a:"Contracts",s:"m",t:"Reading and searching a contract hides what it cut",you:"Does it mention indemnification? What's the counterparty and value?",now:"Search stops at 10 hits with no total, and misses a phrase split across a line break. A scanned contract with no text reads as \"an empty contract\". Metadata like value and dates is not returned.",fix:"Return a total, a \"more\" flag, line-break tolerance, metadata, and say when there is no text.",why:"No count, no truncation flag, no normalization.",w:"ai/tool_runtime.py:971-1024"},
+{a:"Contracts",s:"l",t:"Suggested changes list stops at 25 and cuts text at 300 characters",you:"Show me the open suggestions.",now:"40 exist. You see 25, each cut mid-clause, with no way to see the rest.",fix:"Page the list and show the full clause.",why:"A fixed limit with no continuation.",w:"ai/tool_runtime.py:909"},
+{a:"Contracts",s:"l",t:"Copying a version adds a new one every time and does not tell you the number",you:"Duplicate the latest version.",now:"A new assistant-generated version appears. The reply cannot say \"version 5\" because the id is stripped and no number is returned.",fix:"Return the version number, say it is not the one in use, and do not repeat on re-ask.",why:"Internal ids are stripped from results.",w:"ai/tool_runtime.py:2146"},
+{a:"Contracts",s:"m",t:"Cannot start a workflow on an uploaded or standalone contract",you:"Run governance on this contract I just uploaded.",now:"The tools need a request id. The route exists but there is no tool for it.",fix:"Start-for-contract, and \"where is this contract in its workflow\".",why:"POST /workflows/start-for-contract has no tool.",w:"workflows/routes.py:180"},
+/* ---------- Workflow tools ---------- */
+{a:"Workflow & tasks",s:"h",t:"\"Advanced\" is reported when nothing moved",you:"Advance REQ-9. (The current step is an AI step.)",now:"The tool says advanced: true. The step did not change. The same happens for a counterparty step or a finished run.",fix:"Say what actually happened, and refuse for steps a person cannot complete.",why:"complete_human_step does nothing silently unless the step is waiting for a person.",w:"ai/tool_runtime.py:614"},
+{a:"Workflow & tasks",s:"m",t:"Cannot override, pick a parallel step, or reply to rework",you:"Complete the review step even though redlines are open.",now:"A raw 409 comes back with no way to override. Parallel steps are picked automatically.",fix:"Accept the step index, an override reason and a rework reply.",why:"The input has only a note.",w:"workflows/routes.py:212"},
+{a:"Workflow & tasks",s:"m",t:"\"Started\" is reported when a workflow was already running",you:"Start the NDA workflow on REQ-7. (Another workflow is running.)",now:"It says started and returns the old run, ignoring the workflow you named. A closed request is not checked.",fix:"\"REQ-7 already has Vendor small purchase running. Replace it?\"",why:"start_flow returns the existing run and the tool labels it started.",w:"workflows/service.py:529"},
+{a:"Workflow & tasks",s:"h",t:"\"Which workflows do we have?\" lists prompt-library items",you:"Which workflow should I start on REQ-123?",now:"It lists the Prompt library, not engine workflows. It can only guess a workflow id.",fix:"List the real workflows with their steps and when each applies.",why:"_list_workflows reads the Prompt table.",w:"ai/tool_runtime.py:1417"},
+{a:"Workflow & tasks",s:"m",t:"Creating a workflow does no checking and cannot be undone",you:"Create a workflow: draft, legal approval, sign.",now:"Free-form steps are accepted and some may be silently dropped. The workflow is enabled at once. No audit row, no edit, disable or delete tool.",fix:"Validate steps, show the result, create it disabled, and add update and disable.",why:"steps is a free dict. The tool needs a different permission from the route.",w:"ai/tool_registry.py:269"},
+{a:"Workflow & tasks",s:"m",t:"Reassigning matches only an exact full name",you:"Reassign REQ-12 to Priya.",now:"\"Priya\" finds nobody. With two Priyas it takes an arbitrary one. An inactive user or the requester can be chosen. The reply does not say who it was before.",fix:"Search by partial name, ask when several match, skip inactive users and show old and new owner.",why:"The query is an exact case-insensitive match with no active filter.",w:"ai/tool_runtime.py:662"},
+{a:"Workflow & tasks",s:"h",t:"\"Mark my task done\" cannot work",you:"Mark my \"collect W-9\" task done.",now:"There is no tool that lists tasks, but complete_task needs a task id you cannot give. The reply does not say which task was closed.",fix:"List my tasks, then complete one by title and say what was closed.",why:"Only complete_task exists.",w:"ai/tool_runtime.py:833"},
+{a:"Workflow & tasks",s:"m",t:"Completing an obligation does not mention the next one",you:"Mark the quarterly report obligation done.",now:"It says completed. Next quarter's obligation was created but you are not told. Its description was cut at 160 characters, so the model chose by id.",fix:"\"Done. The next one is due 31 Jan 2027.\"",why:"The result drops the successor.",w:"ai/tool_runtime.py:783"},
+{a:"Workflow & tasks",s:"m",t:"Obligations cannot be edited, reassigned or waived",you:"Move this obligation's due date to 15 March and give it to Ana.",now:"No tool. Only list, extract and complete exist.",fix:"Edit date and owner, mark not applicable, and show a summary and overdue count.",why:"The routes exist, the tools do not.",w:"obligations/routes.py"},
+/* ---------- Notices ---------- */
+{a:"Notices",s:"h",t:"A logged notice has no due date, owner or priority",you:"Log a termination notice received today from Acme. We must reply within 30 days.",now:"The notice is saved with a subject and a name. No received date, no due date, so it never goes overdue, gets no reminder and is listed as \"undated\". The reply does not warn you.",fix:"Capture dates, due date and basis, owner and priority, and say if any is missing.",why:"The tool has six fields. The service supports many more.",w:"notices/schemas.py:31"},
+{a:"Notices",s:"h",t:"Notices cannot be closed, escalated, annotated or deleted",you:"Mark notice N-12 as responded. Escalate N-14 to legal.",now:"No tools exist for status, escalate, notes, documents, delete or the summary.",fix:"Add status, escalate, notes and a summary count.",why:"Only list, read, create and draft exist.",w:"notices/routes.py"},
+{a:"Notices",s:"m",t:"The notice list is capped at 25 without saying so",you:"List all open notices received from Acme owned by me.",now:"Only status and overdue filters work. With 40 open, 25 are shown and the count says 25.",fix:"Filter by direction, type, owner and contract, search text, and report the true total.",why:"count is computed after the slice.",w:"ai/tool_runtime.py:756"},
+{a:"Notices",s:"m",t:"A drafted response overwrites yours and may be a template",you:"Draft a response to the Acme notice. (You already wrote a draft.)",now:"Your draft is overwritten. If the AI was unavailable, a boilerplate template is shown as if it were an AI draft.",fix:"Warn about the existing draft, and say when a template was used.",why:"The service returns draft_generated and the tool drops it.",w:"notices/service.py:759"},
+/* ---------- Lookups ---------- */
+{a:"Lookups",s:"h",t:"It does not know today's date",you:"Raise a request, needed by 16th November.",now:"The model guessed 2024. Anything like \"next 90 days\" or \"this month\" depends on it guessing.",fix:"Put today's date and timezone in the prompt each turn. A past needed-by date is now refused.",why:"The prompt never states the date.",w:"ai/prompt_versions.py"},
+{a:"Lookups",s:"h",t:"Finding a contract by words is unreliable",you:"What is the status of the vendor agreement with Globex?",now:"Only the whole phrase inside a title or counterparty matches, so this finds nothing. A plain \"Globex\" returns up to 8 in no order, so counts change between questions (4 in one answer, 7 in another).",fix:"Match each word, search type and reference, order results, and page with the true total.",why:"limit(8) with no ORDER BY.",w:"ai/tool_runtime.py:1214"},
+{a:"Lookups",s:"m",t:"\"My requests\" means only the ones you raised",you:"What is on my plate?",now:"Requests you own as the Legal owner are missing. Closed ones are mixed in and the list stops at 25.",fix:"Show requests you raised and requests you own, filter by status, and say if cut.",why:"The query filters on requester only.",w:"ai/tool_runtime.py:820"},
+{a:"Lookups",s:"m",t:"Request status leaves out the useful parts",you:"What is happening with REQ-10384?",now:"Status, stage, owner and suggested workflow. No requester, counterparty, value, due date, SLA, approval state, files or recent activity.",fix:"Return a full summary.",why:"The summary has about ten fields.",w:"ai/tool_runtime.py:533"},
+{a:"Lookups",s:"h",t:"A missed renewal notice date disappears from \"what needs my attention\"",you:"What needs my attention?",now:"An undecided renewal whose notice date has passed is not listed, while an overdue obligation is. The list also stops at 40 but reports the full count.",fix:"Add an overdue branch for renewals and report the true total.",why:"The rule only keeps dates from today forward.",w:"ai/tool_runtime.py:1121"},
+{a:"Lookups",s:"h",t:"The renewals list cannot answer \"when does notice close?\"",you:"What renewals are coming up and when does notice close?",now:"Rows have an id, a decision and a window start, often empty. No title, notice date, end date, value or auto-renew flag, and it includes empty rows the page hides.",fix:"Match the renewals page, and add recommendation and confirm dates.",why:"Four fields returned.",w:"ai/tool_runtime.py:799"},
+{a:"Lookups",s:"m",t:"\"Due in the next 30 days\" excludes overdue obligations",you:"What obligations are due this month?",now:"Overdue duties are left out of the window. The list has no cap, so a big book floods the model.",fix:"Show overdue first, and cap with a total.",why:"The filter is due_date >= today.",w:"ai/tool_runtime.py:1308"},
+{a:"Lookups",s:"m",t:"Answers from memory instead of checking again",you:"Which approvals are waiting for me? (Asked twice, in the same chat.)",now:"The second answer reuses earlier text. Your sheet shows 7 Globex contracts with no tool call, against 4 in another test.",fix:"Re-run the lookup for any count, status or list.",why:"Nothing forces a fresh tool call.",w:"sheet #6, #21, #24, #28"},
+{a:"Lookups",s:"l",t:"Contract status does not say who is holding it up",you:"Who is holding up the Globex MSA?",now:"Risk band and the workflow step. No owner, pending approvals, value or expiry.",fix:"Add owner, pending approvers, value and version.",why:"Thin result.",w:"ai/tool_runtime.py:1359"},
+{a:"Lookups",s:"l",t:"A tabular review's cells have no sources and no progress",you:"What does Acme's governing law column say?",now:"Only a count of citations. The model cannot tell if the table is still filling.",fix:"Return citation text, status and pending counts.",why:"Thin result.",w:"ai/tool_runtime.py:2615"},
+/* ---------- Chat engine ---------- */
+{a:"Chat engine",s:"h",t:"Two tool calls in one turn break approval",you:"Find the Globex NDA and add a comment saying we agree.",now:"The model calls find and comment together. After you approve, the earlier result is missing and the provider rejects the resume: \"couldn't finish\".",fix:"Run read-only calls first, then confirm, keeping every result.",why:"The loop returns at the first confirmation and drops the others.",w:"ai/controller.py:472"},
+{a:"Chat engine",s:"h",t:"Approving is two calls, so a dropped connection loses the action",you:"(You click Approve, then your wifi drops.)",now:"The approval is recorded but the run never resumes. No card comes back and the action never runs.",fix:"Make approve and resume one step, and recover a confirmed run on reload.",why:"Nothing picks up a run waiting on a confirmed card.",w:"assistant/routes.py:421"},
+{a:"Chat engine",s:"h",t:"Long tasks hit an 8-step limit and fail without saying why",you:"Summarise the 80-page Globex MSA.",now:"Each page of the contract costs one step. At step 8: \"couldn't finish, try again\". Trying again hits the same wall.",fix:"Tell the model it is on its last step so it can wrap up, and tell you it was a step limit.",why:"The prompt says to read to the end. The loop stops at 8.",w:"ai/controller.py:421"},
+{a:"Chat engine",s:"h",t:"Rejecting a card throws away your reason",you:"(Reject) The date is wrong, use 1 March.",now:"The reason is hard-coded as \"Rejected by user\". The model never hears it. You retype everything.",fix:"A reason box on reject, passed back to the model.",why:"Reject closes the run with no model turn.",w:"assistant-workspace.tsx:982"},
+{a:"Chat engine",s:"h",t:"The approval card shows raw inputs and cannot be edited",you:"Add a comment on the cap.",now:"The card says \"Contract Handle: contract-0\". Lists like recipients are dropped, long values cut at 300 characters, and the 30-minute expiry is not shown.",fix:"Show titles, counterparties and dates, allow edit, show expiry.",why:"Only scalar inputs are kept, at most 8.",w:"ai/confirmations.py:153"},
+{a:"Chat engine",s:"h",t:"The prompt tells it both to act on guesses and never to guess",you:"Move it to approval.",now:"\"Prefer acting over asking\" and \"proceed on the most reasonable interpretation\" fight with \"never guess\". It picks the contract, entity and dates itself.",fix:"Add: confirm entity, counterparty and dates, and name the contract, before any mutating call.",why:"Conflicting rules.",w:"ai/prompt_versions.py:2173"},
+{a:"Chat engine",s:"h",t:"Repeating an action replays an old, redacted result",you:"Send it for signature again. (Within 10 minutes.)",now:"The first result is replayed, with emails shown as <redacted-email>. The model says it worked. Nothing ran this time.",fix:"Run again, or say \"this was already done at 10:12\".",why:"Idempotent replay returns the stored redacted result.",w:"ai/tool_runtime.py:197"},
+{a:"Chat engine",s:"h",t:"Sources are everything retrieved, not what was quoted",you:"What is the liability cap?",now:"The answer quotes \"twelve months of fees\". The source chips show every excerpt the tools touched, duplicated per page. A tidied quote still looks verified. The contract tab shows no sources at all.",fix:"Cite only what was quoted, check the quote, and show valid or unverified.",why:"Validation is stored but the screen never reads it.",w:"assistant/runner.py:61"},
+{a:"Chat engine",s:"h",t:"In a long chat, new answers stop appearing",you:"(Message 52 in the permanent contract chat.)",now:"The screen loads the oldest 100 messages. The new answer is saved but never shown. \"Thinking…\" never ends.",fix:"Load the newest messages. Add New chat to the contract tab.",why:"ORDER BY created_at ASC LIMIT 100.",w:"assistant/service.py:338"},
+{a:"Chat engine",s:"m",t:"Saved text runs together, and some turns save nothing",you:"Check the Acme NDA.",now:"Stored as \"Let me check.Here is…\" and replayed to the model that way. A turn with only tool steps saves no message. Text before a confirmation is lost after reload.",fix:"Keep a break between parts and save steps and preface text.",why:"Parts are joined with an empty string.",w:"ai/controller.py:446"},
+{a:"Chat engine",s:"m",t:"Memory is cut silently, and results are unbounded",you:"(Turn 30 of a long chat.) Going back to what we discussed earlier…",now:"Only the last 20 messages or 24,000 characters are sent and tool results are not replayed. The model is not told it lost the earlier turns. One big contract page can fill the context.",fix:"Tell the model what was dropped, summarise old turns, and cap tool results.",why:"Hard limits with no notice.",w:"ai/controller.py:256"},
+{a:"Chat engine",s:"m",t:"Errors tell the model nothing it can fix",you:"(Any tool call with a bad input.)",now:"\"Tool input validation failed\" or \"Tool execution failed\". After you approve, a failure leaves the step \"running\" forever and the card cannot be retried. A single network blip on Approve removes the card until reload.",fix:"Return the field names and real reason, mark failed steps, and restore the card.",why:"Generic messages, and the confirmed action runs outside the try block.",w:"ai/controller.py:575,681"},
+{a:"Chat engine",s:"m",t:"Switching contracts keeps the old one as the main",you:"(Open the Acme chat, then switch the document to Globex.)",now:"The session may keep Acme as primary. Every contract touched adds up to 6,000 characters to every later turn.",fix:"Follow the screen's current contract and prune old ones.",why:"primary comes from the session's first contract.",w:"assistant/runner.py:266",inf:1},
+{a:"Chat engine",s:"m",t:"Smaller rough edges in the chat screens",you:"(Everyday use.)",now:"A green \"grounded\" badge is always on. The popup remembers nothing and shows only \"3 sources\" you cannot open. After 300 seconds the box re-enables while a run is still going. A long answer cut by the token limit is saved as complete. Cost is invisible. The card is not announced to screen readers. The prompt has no rules for lakh and crore, date format or whether to show \"contract-0\".",fix:"Tie the badge to real sources, give the popup history and links, extend the watchdog, flag truncation, show usage, and add the missing prompt rules.",why:"Collected from the runtime audit.",w:"assistant-workspace.tsx, ask-aegis-popup.tsx"},
+{a:"Chat engine",s:"l",t:"Full tool results, including contract text, are streamed to the browser",you:"Summarise this contract.",now:"The whole text is sent to the page and kept in memory and replay storage for an hour, far more than the screen shows.",fix:"Send a short summary of each step.",why:"tool_finished publishes the full result.",w:"assistant/runner.py:331",inf:1},
+/* ---------- Missing abilities ---------- */
+{a:"Missing abilities",s:"h",t:"Most things you do on a request page cannot be done in chat",you:"Add a note to REQ-10384. Attach this PDF. Show the activity. Who approves it? When is it due? Hand it back to the requester.",now:"None of these have a tool. \"Show all requests in the queue\" only shows ones you raised.",fix:"Comment, attach, activity, approval chain, SLA, hand back, promote to contract and the queue.",why:"Only create, get, start, advance and reassign exist.",w:"intake/routes.py"},
+{a:"Missing abilities",s:"m",t:"Notifications, my work and global search",you:"What is new for me? Mark all my notifications read.",now:"No tool. The closest is \"what needs my attention\".",fix:"Read and mark notifications, show my work queue and SLA, and search.",why:"The routes exist.",w:"notifications/routes.py"},
+{a:"Missing abilities",s:"m",t:"A contract's timeline and comments cannot be read",you:"Who changed this contract and when? What was the last comment? Reply to Sam and tag Legal.",now:"Comments can be added but not read, and there are no replies or mentions. There is no audit or timeline tool.",fix:"Read the timeline and comments, support reply and mention.",why:"Only add_contract_comment exists.",w:"contracts/comments_service.py"},
+{a:"Missing abilities",s:"m",t:"It cannot look up people, teams or counterparties",you:"Who is on the Procurement team? Is Logitech already one of our vendors?",now:"No team, user or counterparty lookup, so the model cannot resolve a team id or a person, and cannot say if a vendor exists. (Counterparties are now checked inside request filing only.)",fix:"Read-only search for teams, users and the counterparty register.",why:"These pages are admin-only and have no tools.",w:"intake teams, parties"},
+{a:"Missing abilities",s:"m",t:"Renewal decisions and recommendations",you:"What does Aegis recommend for the TCS renewal? Confirm the renewal dates.",now:"Renewals can be listed. Recommendation, confirm dates and decisions have no tool.",fix:"Add them with a confirm card.",why:"Routes exist, tools do not.",w:"renewals/routes.py"}
+];
+
+var FIXED = [
+{t:"Request filed with no questions asked",you:"Raise a request for headsets for Diwali gifts for 100 employees.",was:"Filed instantly, with no vendor, value, date or department.",is:"It asks for department, vendor, value (with currency) and date first. Tested on the real chat: it asked, then showed the card."},
+{t:"Wrong label \"Contract Review\" on a purchase",you:"We are buying 50 laptops from Dell for about 40 lakh.",was:"Label \"Contract Review\".",is:"Label \"New agreement · Buying from a vendor\", the form's own label for buying from a supplier. Invented labels are refused."},
+{t:"Drafting went straight to free AI",you:"Draft a mutual NDA with Acme.",was:"A free-text AI draft with \"[Our Company]\" placeholders, not our template.",is:"It asks first: our template or free AI drafting. Free drafting is refused until you choose it."},
+{t:"No way to draft from our template without a request",you:"Use our template.",was:"The only template route was to raise a request.",is:"New tool draft_from_template fills your saved NDA, MSA, consultancy, SOW, vendor, SaaS or DPA wording and saves the contract. No request is raised. Not run end to end, because it would write to your dev database."},
+{t:"Counterparty and value blank on the request page",you:"Vendor: Logitech, budget 300000.",was:"The page showed Counterparty \"—\" and Deal value \"Not stated\".",is:"The counterparty is looked up in the register (or added after asking for jurisdiction and contact email) and linked. The value is stored as a number."},
+{t:"A past date was filed as the deadline",you:"The deadline is 16th November.",was:"Filed as 2024-11-16 when today is 30 Oct 2026.",is:"A needed-by date in the past is refused and the model corrects the year."},
+{t:"Output looked like an info dump",you:"What is our standard position on limitation of liability?",was:"Dense paragraphs.",is:"Bold answer first, short sections, tables for lists, one-line bullets, one bold next step. Prompt change only, not yet seen in the live chat."}
+];
+
+var AREAS = ["Requests","Drafting","Approvals","Signatures","Contracts","Workflow & tasks","Notices","Lookups","Chat engine","Missing abilities"];
+var SEV = {h:"High",m:"Medium",l:"Low"};
+var state = {area:"All", sev:"All", q:""};
+
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+F.forEach(function(f,i){f.id = "#"+(i+1)});
+
+function tiles(){
+  var h=F.filter(x=>x.s==="h").length,m=F.filter(x=>x.s==="m").length,l=F.filter(x=>x.s==="l").length;
+  var d=document.getElementById("tiles");
+  d.innerHTML='<div class="tile"><b>'+F.length+'</b><span>open findings</span></div>'+
+   '<div class="tile hi"><b>'+h+'</b><span>high: wrong action or false "done"</span></div>'+
+   '<div class="tile med"><b>'+m+'</b><span>medium</span></div>'+
+   '<div class="tile lo"><b>'+l+'</b><span>low</span></div>'+
+   '<div class="tile ok"><b>'+FIXED.length+'</b><span>fixed this session</span></div>';
+}
+function bars(){
+  var max=Math.max.apply(null,AREAS.map(a=>F.filter(f=>f.a===a).length));
+  document.getElementById("bars").innerHTML=AREAS.map(function(a){
+    var rows=F.filter(f=>f.a===a),n=rows.length;
+    var seg=["h","m","l"].map(function(k){var c=rows.filter(r=>r.s===k).length;return c?'<i class="seg-'+({h:"hi",m:"med",l:"lo"}[k])+'" style="width:'+(c/max*100)+'%" title="'+SEV[k]+': '+c+'"></i>':""}).join("");
+    return '<div class="barrow"><span>'+esc(a)+'</span><div class="track">'+seg+'</div><span class="n">'+n+'</span></div>';
+  }).join("");
+}
+function fieldbars(){
+  function f(id,on){var s="";for(var i=0;i<15;i++)s+='<i'+(i<on?' class="on"':'')+'></i>';document.getElementById(id).innerHTML=s}
+  f("fb-form",15);f("fb-chat",4);
+}
+function filters(){
+  var box=document.getElementById("filters"),h="";
+  ["All"].concat(AREAS).forEach(function(a){h+='<button class="chip" data-k="area" data-v="'+esc(a)+'" aria-pressed="'+(state.area===a)+'">'+esc(a)+'</button>'});
+  h+='<span style="flex-basis:100%;height:0"></span>';
+  [["All","Any severity"],["h","High"],["m","Medium"],["l","Low"]].forEach(function(p){h+='<button class="chip" data-k="sev" data-v="'+p[0]+'" aria-pressed="'+(state.sev===p[0])+'">'+p[1]+'</button>'});
+  h+='<input class="search" id="q" type="search" placeholder="Search examples…" aria-label="Search findings" value="'+esc(state.q)+'"><span class="count" id="cnt"></span>';
+  box.innerHTML=h;
+  box.querySelectorAll(".chip").forEach(function(b){b.onclick=function(){state[b.dataset.k]=b.dataset.v;render()}});
+  var q=document.getElementById("q");q.oninput=function(){state.q=q.value.toLowerCase();renderList()};
+}
+function card(f){
+  return '<article class="card '+({h:"hi",m:"med",l:"lo"}[f.s])+'"><header><span class="id">'+f.id+'</span><h4>'+esc(f.t)+'</h4>'+
+   '<span class="pill '+({h:"hi",m:"med",l:"lo"}[f.s])+'">'+SEV[f.s]+'</span>'+(f.inf?'<span class="pill inf">Inferred</span>':'')+'</header>'+
+   '<div class="chat"><div class="bub you"><small>You type</small>'+esc(f.you)+'</div>'+
+   '<div class="bub now"><small>Today</small>'+esc(f.now)+'</div>'+
+   '<div class="bub better"><small>Should be</small>'+esc(f.fix)+'</div></div>'+
+   '<p class="why"><b>Why:</b> '+esc(f.why)+'</p><p class="where">'+esc(f.w)+'</p></article>';
+}
+function renderList(){
+  var out="",n=0;
+  AREAS.forEach(function(a){
+    if(state.area!=="All"&&state.area!==a)return;
+    var rows=F.filter(function(f){
+      if(f.a!==a)return false;
+      if(state.sev!=="All"&&f.s!==state.sev)return false;
+      if(state.q&&(f.t+f.you+f.now+f.fix+f.why).toLowerCase().indexOf(state.q)<0)return false;
+      return true});
+    if(!rows.length)return;
+    n+=rows.length;
+    out+='<div class="group"><h3>'+esc(a)+' <small>'+rows.length+' finding'+(rows.length>1?'s':'')+'</small></h3>'+rows.map(card).join("")+'</div>';
+  });
+  document.getElementById("list").innerHTML=out||'<div class="empty">No findings match. Clear a filter or the search.</div>';
+  var c=document.getElementById("cnt");if(c)c.textContent=n+" shown";
+}
+function render(){filters();renderList()}
+function done(){
+  document.getElementById("done").innerHTML=FIXED.map(function(f,i){
+    return '<article class="card"><header><span class="id">F'+(i+1)+'</span><h4>'+esc(f.t)+'</h4><span class="pill fixed">Fixed</span></header>'+
+    '<div class="chat"><div class="bub you"><small>You type</small>'+esc(f.you)+'</div><div class="bub now"><small>Before</small>'+esc(f.was)+'</div><div class="bub better"><small>Now</small>'+esc(f.is)+'</div></div></article>'}).join("");
+}
+tiles();bars();fieldbars();render();done();
+</script>

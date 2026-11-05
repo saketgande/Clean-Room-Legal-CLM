@@ -1,0 +1,1 @@
+{"task": "T007", "agent": "qa-engineer", "status": "done", "detail": "verification.md written: 21 pass, 5 partial, 3 not-run, 0 fail; defects D1 (pre-existing contract title in request payload), D2 (invite flow roles); test data cleaned", "updated": "2026-10-23T10:40:00Z"}

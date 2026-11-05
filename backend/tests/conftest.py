@@ -10,8 +10,9 @@ Two things matter here:
   ``DATABASE_URL`` as required (no hardcoded dev fallback). The suite opts the
   mocks back ON and supplies a local Postgres URL so tests don't reach out to
   real Claude/DocuSign/Reducto/Resend/SendGrid or a missing database.
-* ``DATABASE_URL``/``ENVIRONMENT`` use ``setdefault``: an explicit value already
-  exported (e.g. CI pointing at its own Postgres) still wins.
+* ``ENVIRONMENT`` uses ``setdefault``. ``DATABASE_URL`` is FORCED by
+  ``tests/_testdb.py``: a sibling ``*_test`` database outside CI (never the dev
+  database, which the suite used to fill with test rows), CI's own database on CI.
 * The mocks are FORCED on, not defaulted. The documented way to run the suite is
   ``docker compose exec backend pytest``, and the dev container exports
   ``MOCK_CLAUDE=false`` with real API keys — ``setdefault`` would let every test
@@ -43,12 +44,42 @@ os.environ["INTAKE_DEMO_AGENTS"] = "false"
 # local secret, which the production-config tests rightly refuse. CI has no
 # editor; tests that need one switch it on themselves (test_word_editor.py).
 os.environ.pop("ONLYOFFICE_URL", None)
-os.environ.setdefault(
-    "DATABASE_URL",
-    "postgresql+psycopg://legal_clm:legal_clm@localhost:5432/legal_clm",
-)
 
 import pytest
+
+from tests._testdb import resolve_test_database_url
+
+# The suite commits rows, so it must never run against the dev database. Outside CI it uses
+# a sibling '*_test' database (`make test-db` creates it) and refuses to start on anything
+# else. FORCED, not setdefault: the dev container exports DATABASE_URL for the dev database.
+_TEST_DB_ERROR: str | None = None
+try:
+    os.environ["DATABASE_URL"] = resolve_test_database_url(os.environ)
+except RuntimeError as _exc:
+    _TEST_DB_ERROR = str(_exc)
+
+
+def pytest_configure(config) -> None:
+    """Stop before any test runs when the database is unsafe or missing (nothing has connected yet)."""
+    if _TEST_DB_ERROR:
+        pytest.exit(_TEST_DB_ERROR, returncode=2)
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.pool import NullPool
+
+    engine = create_engine(os.environ["DATABASE_URL"], poolclass=NullPool)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("select 1"))
+    except OperationalError:
+        pytest.exit(
+            "the test database does not exist or is unreachable: run `make test-db` "
+            "(creates it, runs the migrations and seeds the dev admin).",
+            returncode=2,
+        )
+    finally:
+        engine.dispose()
+
 
 # --- Never hand jobs to the real background worker -------------------------
 # The suite runs inside the dev backend container, whose Celery broker is the

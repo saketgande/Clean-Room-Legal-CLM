@@ -102,6 +102,7 @@ class _FakeContract:
     org_id = "org-1"
     title = "Fake NDA"
     contract_type = None
+    review_playbook_id = None  # the column 006 added; the stub must match the real model
     lifecycle_stage = "intake"
     renewal_due = False
     archived = False

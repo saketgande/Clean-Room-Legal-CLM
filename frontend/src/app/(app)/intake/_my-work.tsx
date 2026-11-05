@@ -1,82 +1,41 @@
 "use client";
 
-// My Work board — a port of Screen 2: the "Your day" briefing, assigned-task
-// cards grouped by urgency, and the "Requests you raised" table. Wired to the
-// real intake API (myWork + mine). Scoped under `.mw` (reuses the `.li-board`
-// palette/brief/tiles/btn from the shell's injected CSS).
+// My Work — the same layout as Legal Intake: icon KPI cards, status pills, one table card (search +
+// rows with stage dots, status pill and due date) and insight cards on the right. Wired to the real
+// intake API (myWork + mine) and the approvals queue.
 
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, CheckSquare, ChevronRight, Clock, FileText, Inbox, Search, ShieldCheck, Zap, type LucideIcon } from "lucide-react";
 import { approvalsApi, intakeApi } from "@/lib/endpoints";
 import { dueText } from "@/lib/approval-due";
 import { contractDisplayName, plural } from "@/lib/utils";
 import { CenterSpinner, ErrorState } from "@/components/ui";
 import type { ApprovalRequest, IntakeRequest, IntakeTask } from "@/lib/types";
+import { FilterMenu, StageCell, counterpartyOf, dueOf, kindOf, stageOf } from "./_legal-intake";
+import { LIFECYCLE } from "@/components/lifecycle-view";
 
 // Refetch on window focus rather than poll — see the note on LIVE_POLL in
 // intake/page.tsx for the trade-off (sla_status won't advance on its own
 // while the tab sits unfocused).
 const POLL = { refetchOnWindowFocus: true } as const;
-function counterpartyOf(r: IntakeRequest): string | null {
-  const parties = (r.parties ?? []) as { name?: string; role?: string }[];
-  const cp = parties.find((p) => /counter|vendor|supplier|opposing|third|other/i.test(p.role ?? "")) ?? parties[0];
-  if (cp?.name) return cp.name;
-  const fv = (r.field_values ?? {}) as Record<string, unknown>;
-  for (const k of ["counterparty", "company", "vendor", "party"]) if (typeof fv[k] === "string" && fv[k]) return fv[k] as string;
-  return null;
-}
-const isMsa = (s: string) => /msa|master|service/i.test(s);
-function riskOf(r: IntakeRequest): "high" | "med" | "low" {
-  if (r.sla_status === "overdue" || r.priority === "Critical") return "high";
-  if (r.sla_status === "at_risk" || r.priority === "High") return "med";
-  return "low";
-}
-function urgency(r: IntakeRequest): "over" | "soon" | "later" {
-  if (r.sla_status === "overdue") return "over";
-  if (r.sla_status === "at_risk") return "soon";
-  return "later";
-}
-function dueLabel(r: IntakeRequest): string {
-  if (r.sla_status === "overdue") return "overdue";
-  if (r.sla_status === "at_risk") return "due soon";
-  return `${Math.max(0, Math.round(100 - (r.sla_pct ?? 0)))}% SLA left`;
-}
-function stageOf(r: IntakeRequest): { name: string; done: number; total: number } | null {
-  const steps = r.workflow ?? [];
-  if (!steps.length) return null;
-  const done = steps.filter((s) => s.done).length;
-  const active = steps.find((s) => s.active);
-  return { name: active?.label ?? (done === steps.length ? "Complete" : "In progress"), done, total: steps.length };
-}
 
-function AssignedCard({ r, onOpen }: { r: IntakeRequest; onOpen: (id: string) => void }) {
-  const cp = counterpartyOf(r);
-  const ask = (r.subject || r.description || "").split("\n")[0].trim() || r.type_label;
-  const st = stageOf(r);
-  const risk = riskOf(r);
-  const u = urgency(r);
-  return (
-    <div className={`tcard ${u === "over" ? "over" : ""}`}>
-      <div className={`ticon ${isMsa(r.type_label) ? "approval" : "review"}`}>
-        <svg className="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4-4" /></svg>
-      </div>
-      <div className="tmid">
-        <div className="tmatter"><span className="cp" onClick={() => onOpen(r.id)}>{cp ?? r.type_label}</span><span className="ref">{r.ref}</span></div>
-        <div className="ask">{ask}</div>
-        <div className="tdetail">{r.type_label}{r.requester_name ? ` · from ${r.requester_name}` : ""}</div>
-        <div className="tmeta">
-          {st ? <span className={`chip wf ${isMsa(r.type_label) ? "msa" : ""}`}>{st.name} · {st.done}/{st.total}</span> : <span className="chip">{r.stage}</span>}
-          <span className={`chip risk-${risk}`}>{risk} priority</span>
-        </div>
-      </div>
-      <div className="tright">
-        <span className={`due ${u === "over" ? "over" : u === "soon" ? "today" : ""}`}>{dueLabel(r)}</span>
-        <div className="actions"><button className="btn pri sm" onClick={() => onOpen(r.id)}>Open</button></div>
-      </div>
-    </div>
-  );
+type Tab = "action" | "over" | "soon" | "approvals" | "tasks" | "raised";
+type Urgency = "over" | "soon" | "later";
+
+const urgency = (r: IntakeRequest): Urgency => (r.sla_status === "overdue" ? "over" : r.sla_status === "at_risk" ? "soon" : "later");
+const created = (r: IntakeRequest) => r.created_at ?? r.submitted_at ?? "";
+const askOf = (r: IntakeRequest) => (r.subject || r.description || "").split("\n")[0].trim() || r.type_label;
+
+/** Where a request this person raised stands, in their words. */
+function raisedState(r: IntakeRequest): "done" | "stuck" | "progress" | "input" {
+  if (r.status === "closed" || r.status === "approved") return "done";
+  if (r.sla_status === "overdue") return "stuck";
+  return (r.workflow ?? []).some((s) => s.active) || r.contract_id ? "progress" : "input";
 }
+const RAISED_LABEL = { done: "executed", stuck: "overdue", progress: "in progress", input: "awaiting triage" } as const;
+const RAISED_PILL = { done: "done", stuck: "crit", progress: "ok", input: "risk" } as const;
 
 /** What an approval is about: the agreement, or the request when there is no contract. */
 function approvalSubject(a: ApprovalRequest): string {
@@ -84,46 +43,64 @@ function approvalSubject(a: ApprovalRequest): string {
   return [a.intake_ref, a.intake_title].filter(Boolean).join(" · ") || "Request";
 }
 
-function ApprovalCard({ a }: { a: ApprovalRequest }) {
+function DueCell({ r }: { r: IntakeRequest }) {
+  const d = dueOf(r, created(r));
+  return d ? <><div className="age num">{d.date.toLocaleDateString([], { day: "numeric", month: "short" })}</div><div className={`from${d.late ? " late" : ""}`}>{d.left}</div></> : <span className="dim">—</span>;
+}
+
+function RequestRow({ r, onOpen, raised }: { r: IntakeRequest; onOpen: (id: string) => void; raised?: boolean }) {
+  const kind = kindOf(r); const Icon = kind.Icon;
+  const cp = counterpartyOf(r);
+  const st = raised ? raisedState(r) : null;
+  const pill = st ? RAISED_PILL[st] : r.sla_status === "overdue" ? "crit" : r.sla_status === "at_risk" ? "risk" : "ok";
+  const label = st ? RAISED_LABEL[st] : r.sla_status === "overdue" ? "Overdue" : r.sla_status === "at_risk" ? "Due soon" : "On track";
+  const hasFlow = (r.workflow ?? []).length > 0;
   return (
-    <div className={`tcard ${a.overdue ? "over" : ""}`}>
-      <div className="ticon approval">
-        <svg className="ic" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5" /></svg>
-      </div>
-      <div className="tmid">
-        <div className="tmatter"><span className="cp">{approvalSubject(a)}</span></div>
-        <div className="ask">Waiting for your approval</div>
-        <div className="tdetail">{a.step_order ? `Step ${a.step_order}` : "Approval"}</div>
-      </div>
-      <div className="tright">
-        <span className={`due ${a.overdue ? "over" : ""}`}>{a.overdue ? "overdue · " : "due "}{dueText(a)}</span>
-        <div className="actions"><Link href="/approvals" className="btn pri sm">Review</Link></div>
-      </div>
-    </div>
+    <tr onClick={() => onOpen(r.id)}>
+      <td><div className="req">
+        <div className={`chan k-${kind.tone}`} title={kind.label}><Icon className="ic" /></div>
+        <div style={{ minWidth: 0 }}>
+          <button type="button" className="nm" title={askOf(r)} onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>{askOf(r)}</button>
+          <div className="prev"><span className="ref">{r.ref}</span>{raised ? "" : ` · from ${r.requester_name ?? "—"}`}</div>
+        </div>
+      </div></td>
+      <td>{cp ? <><div className="cp" title={cp}>{cp}</div><div className="ty">{r.type_label}</div></> : <div className="ty">{r.type_label}</div>}</td>
+      <td>{hasFlow ? <StageCell r={r} /> : <span className="dim">{r.contract_id ? "contract drafted" : "not started"}</span>}</td>
+      <td><div className="stbox"><div className="flags"><span className={`spill ${pill}`}>{label}</span></div></div></td>
+      <td className="cdue"><DueCell r={r} /></td>
+      <td><div className="rowact"><button className="btn sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>Open</button></div></td>
+    </tr>
   );
 }
 
-function RaisedRow({ r, i, onOpen }: { r: IntakeRequest; i: number; onOpen: (id: string) => void }) {
-  const cp = counterpartyOf(r);
-  const st = stageOf(r);
-  const stuck = r.sla_status === "overdue";
-  const status = r.status === "closed" || r.status === "approved" ? "done" : stuck ? "stuck" : (r.workflow ?? []).some((s) => s.active) || r.contract_id ? "progress" : "input";
-  const statlbl = status === "done" ? "executed" : status === "stuck" ? "overdue" : status === "progress" ? "in progress" : "awaiting triage";
-  const segs = st ? Array.from({ length: st.total }, (_, k) => {
-    const cls = k < st.done - 1 ? "done" : k === st.done - 1 ? "cur" : "";
-    return <span key={k} className={`sseg ${cls}${cls && stuck ? " st" : ""}`} />;
-  }) : null;
+function ApprovalRow({ a }: { a: ApprovalRequest }) {
   return (
-    <tr onClick={() => onOpen(r.id)}>
-      <td className="c-idx">{i + 1}</td>
-      <td><div className="req"><div className={`rico ${isMsa(r.type_label) ? "MSA" : "NDA"}`}>
-        <svg className="ic" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /></svg></div>
-        <div style={{ minWidth: 0 }}><div style={{ display: "flex", alignItems: "center", gap: 7 }}><span className="nm">{(r.subject || r.type_label)}</span><span className="ref">{r.ref}</span></div>
-        <div className="dim" style={{ fontSize: 11.5 }}>{r.type_label}</div></div></div></td>
-      <td><div style={{ fontWeight: 600 }}>{cp ?? "—"}</div></td>
-      <td className="stagecell">{st ? <><div className="stagenm">{st.name}<span className="cnt">{st.done}/{st.total}</span></div><div className="sbar">{segs}</div></> : <span className="dim">{r.contract_id ? "contract drafted" : "not started"}</span>}</td>
-      <td><span className={`rstat ${status}`}>{statlbl}</span></td>
-      <td><button className="btn sm" onClick={(e) => { e.stopPropagation(); onOpen(r.id); }}>Open →</button></td>
+    <tr>
+      <td><div className="req">
+        <div className="chan k-vio"><ShieldCheck className="ic" /></div>
+        <div style={{ minWidth: 0 }}><span className="nm">{approvalSubject(a)}</span><div className="prev">Waiting for your approval</div></div>
+      </div></td>
+      <td><div className="ty">{a.step_order ? `Step ${a.step_order}` : "Approval"}</div></td>
+      <td><span className="phase stg-approval">Approval</span></td>
+      <td><div className="stbox"><div className="flags"><span className={`spill ${a.overdue ? "crit" : "ok"}`}>{a.overdue ? "Overdue" : "On track"}</span></div></div></td>
+      <td className="cdue"><div className={`from${a.overdue ? " late" : ""}`}>{a.overdue ? "overdue · " : "due "}{dueText(a)}</div></td>
+      <td><div className="rowact"><Link href="/approvals" className="btn pri sm">Review</Link></div></td>
+    </tr>
+  );
+}
+
+function TaskRow({ t, onDone, busy }: { t: IntakeTask; onDone: (id: string) => void; busy: boolean }) {
+  return (
+    <tr>
+      <td><div className="req">
+        <div className="chan k-sky"><CheckSquare className="ic" /></div>
+        <div style={{ minWidth: 0 }}><span className="nm">{t.title}</span>{t.description ? <div className="prev">{t.description}</div> : null}</div>
+      </div></td>
+      <td><div className="ty">Task</div></td>
+      <td><span className="dim">—</span></td>
+      <td><div className="stbox"><div className="flags"><span className={`spill ${t.status === "done" ? "done" : "ok"}`}>{t.status}</span></div></div></td>
+      <td className="cdue"><span className="dim">—</span></td>
+      <td><div className="rowact"><button className="btn sm" disabled={t.status === "done" || busy} onClick={() => onDone(t.id)}>{t.status === "done" ? "Done" : "Mark done"}</button></div></td>
     </tr>
   );
 }
@@ -139,6 +116,10 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
     mutationFn: (id: string) => intakeApi.updateTask(id, { status: "done" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["intake-mywork"] }),
   });
+  const [tab, setTab] = useState<Tab>("action");
+  const [search, setSearch] = useState("");
+  // Lifecycle stages to show; approvals sit in Approval, tasks in no stage (so a stage filter hides them).
+  const [stageSel, setStageSel] = useState<Set<string>>(new Set());
 
   const assigned = useMemo(() => {
     const seen = new Set<string>();
@@ -147,163 +128,194 @@ export function MyWorkBoard({ onOpen }: { onOpen: (id: string) => void }) {
   const raised = useMemo(() => mineData ?? [], [mineData]);
   const tasks = mw?.my_tasks ?? [];
   // Waiting on this person right now: still pending, and theirs to decide (the same test as the Approvals page).
-  const approvals = useMemo(
-    () => (approvalData ?? []).filter((a) => a.status === "pending" && a.can_decide),
-    [approvalData],
-  );
+  const approvals = useMemo(() => (approvalData ?? []).filter((a) => a.status === "pending" && a.can_decide), [approvalData]);
 
   const over = assigned.filter((r) => urgency(r) === "over");
   const soon = assigned.filter((r) => urgency(r) === "soon");
-  const later = assigned.filter((r) => urgency(r) === "later");
   const onDesk = assigned.length + tasks.length + approvals.length;
   const overdueCount = over.length + approvals.filter((a) => a.overdue).length;
   const starter = over[0] ?? soon[0] ?? assigned[0];
-  const doneRecent = raised.filter((r) => r.status === "approved" || r.status === "closed").length;
+  const raisedBy = { done: 0, stuck: 0, progress: 0, input: 0 };
+  for (const r of raised) raisedBy[raisedState(r)]++;
 
-  const tiles: { n: number; l: string; c?: string }[] = [
-    { n: onDesk, l: "on your desk", c: "c" },
-    { n: overdueCount, l: "overdue", c: "c" },
-    { n: soon.length, l: "due soon", c: "w" },
-    { n: approvals.length, l: "approvals" },
-    { n: tasks.length, l: "tasks" },
-    { n: raised.length, l: "raised by you" },
+  const kcards: { tab: Tab; n: number; l: string; s: string; I: LucideIcon; t: string }[] = [
+    { tab: "action", n: onDesk, l: "On your desk", s: "all open work", I: Inbox, t: "ind" },
+    { tab: "over", n: overdueCount, l: "Overdue", s: "needs action now", I: AlertTriangle, t: "red" },
+    { tab: "soon", n: soon.length, l: "Due soon", s: "SLA at risk", I: Clock, t: "amb" },
+    { tab: "approvals", n: approvals.length, l: "Approvals", s: "waiting for you", I: ShieldCheck, t: "vio" },
+    { tab: "tasks", n: tasks.length, l: "Tasks", s: "to do", I: CheckSquare, t: "sky" },
+    { tab: "raised", n: raised.length, l: "Raised by you", s: `${raisedBy.done} executed`, I: FileText, t: "ind" },
+  ];
+  const pills: { tab: Tab; label: string; n: number; c: string }[] = [
+    { tab: "action", label: "On your desk", n: onDesk, c: "ind" },
+    { tab: "over", label: "Overdue", n: overdueCount, c: "red" },
+    { tab: "soon", label: "Due soon", n: soon.length, c: "amb" },
+    { tab: "approvals", label: "Approvals", n: approvals.length, c: "vio" },
+    { tab: "tasks", label: "Tasks", n: tasks.length, c: "sky" },
+    { tab: "raised", label: "Raised by you", n: raised.length, c: "emr" },
   ];
 
-  const group = (label: string, list: IntakeRequest[], cls: string) => list.length ? (
-    <>
-      <div className={`grouphd ${cls}`}>{label}<span className="gc">{list.length}</span></div>
-      {list.map((r) => <AssignedCard key={r.id} r={r} onOpen={onOpen} />)}
-    </>
-  ) : null;
+  const q = search.trim().toLowerCase();
+  const hit = (...s: (string | null | undefined)[]) => !q || s.some((x) => (x ?? "").toLowerCase().includes(q));
+  const stageHit = (st: string) => !stageSel.size || stageSel.has(st);
+  const reqHit = (r: IntakeRequest) => stageHit(stageOf(r)) && hit(r.ref, r.subject, r.type_label, counterpartyOf(r), r.requester_name);
+  const reqRows = (list: IntakeRequest[], isRaised = false) => list.filter(reqHit).map((r) => <RequestRow key={r.id} r={r} onOpen={onOpen} raised={isRaised} />);
+  const apRows = (list: ApprovalRequest[]) => list.filter((a) => stageHit("approval") && hit(approvalSubject(a))).map((a) => <ApprovalRow key={a.id} a={a} />);
+  const taskRows = () => tasks.filter((t) => !stageSel.size && hit(t.title, t.description)).map((t) => <TaskRow key={t.id} t={t} onDone={(id) => markDone.mutate(id)} busy={markDone.isPending} />);
 
-  const rstatOrder: Record<string, number> = { stuck: 0, input: 1, progress: 2, done: 3 };
-  const raisedSorted = [...raised].sort((a, b) => {
-    const s = (r: IntakeRequest) => r.status === "closed" || r.status === "approved" ? "done" : r.sla_status === "overdue" ? "stuck" : (r.workflow ?? []).some((x) => x.active) ? "progress" : "input";
-    return rstatOrder[s(a)] - rstatOrder[s(b)];
-  });
+  const rowsFor = (): { nodes: ReactNode[]; empty: string } => {
+    switch (tab) {
+      case "over": return { nodes: [...apRows(approvals.filter((a) => a.overdue)), ...reqRows(over)], empty: "Nothing overdue." };
+      case "soon": return { nodes: reqRows(soon), empty: "Nothing due soon." };
+      case "approvals": return { nodes: apRows(approvals), empty: "No approvals are waiting for you." };
+      case "tasks": return { nodes: taskRows(), empty: "No tasks assigned to you." };
+      case "raised": {
+        const order = { stuck: 0, input: 1, progress: 2, done: 3 };
+        return { nodes: reqRows([...raised].sort((a, b) => order[raisedState(a)] - order[raisedState(b)]), true), empty: raised.length ? "No requests match." : "You haven’t raised any requests yet." };
+      }
+      default:
+        return {
+          nodes: [...apRows(approvals), ...reqRows(over), ...reqRows(soon), ...reqRows(assigned.filter((r) => urgency(r) === "later")), ...taskRows()],
+          empty: onDesk ? "Nothing matches your search." : "Nothing on your desk — inbox zero 🎉",
+        };
+    }
+  };
 
-  if ((mwLoading || mineLoading) && !mw && !mineData)
-    return <CenterSpinner label="Loading your work…" />;
+  if ((mwLoading || mineLoading) && !mw && !mineData) return <CenterSpinner label="Loading your work…" />;
   if (mwError) return <ErrorState error={mwError} />;
+
+  const { nodes, empty } = rowsFor();
+  const attention = [...over, ...soon].slice(0, 4);
 
   return (
     <div className="li-board mw">
       <style dangerouslySetInnerHTML={{ __html: MW_CSS }} />
-
-      {/* briefing */}
-      <div className="brief">
-        <div className="briefhd"><div className="aiglyph">✦</div><div><b>Your day</b> <span className="when">· AI read your desk · updated just now</span></div></div>
-        <div className="briefbody">
-          <p className="summary">
-            <b>{plural(onDesk, "item")} on your desk.</b>{" "}
-            {overdueCount ? <><span className="c">{overdueCount} overdue</span>, </> : null}{soon.length} due soon.{" "}
-            {starter ? <>Start with <b>{starter.ref}</b> — {(starter.subject || starter.type_label)}. </> : null}
-            You&rsquo;ve raised <b>{raised.length}</b>{doneRecent ? <>, {doneRecent} executed</> : null}.
-          </p>
-          <div className="tiles">
-            {tiles.map((t) => <div key={t.l} className={`tile ${t.c ?? ""}`}><div className="tn num">{t.n}</div><div className="tl">{t.l}</div></div>)}
-          </div>
-          {starter ? (
-            <div className="starthere">
-              <div className="bolt"><svg className="ic" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-2 8 9-12h-7z" /></svg></div>
-              <div className="st-t"><span className="lbl">Start here</span> · <b>{starter.ref} — {counterpartyOf(starter) ?? starter.type_label}</b><br />{(starter.subject || starter.type_label)} · <span className={`due ${urgency(starter) === "over" ? "over" : urgency(starter) === "soon" ? "today" : ""}`}>{dueLabel(starter)}</span></div>
-              <span style={{ flex: 1 }} /><button className="btn pri" onClick={() => onOpen(starter.id)}>Open</button>
-            </div>
-          ) : null}
-        </div>
-      </div>
-
-      {/* assigned */}
-      {assigned.length === 0 && tasks.length === 0 && approvals.length === 0 ? (
-        <div className="grouphd" style={{ marginTop: 22 }}>Nothing on your desk — inbox zero 🎉</div>
-      ) : (
-        <>
-          {approvals.length ? (
-            <>
-              <div className={`grouphd ${approvals.some((a) => a.overdue) ? "crit" : "warn"}`}>Waiting for your approval<span className="gc">{approvals.length}</span></div>
-              {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
-            </>
-          ) : null}
-          {group("Overdue", over, "crit")}
-          {group("Due soon", soon, "warn")}
-          {group("Later", later, "")}
-          {tasks.length ? (
-            <>
-              <div className="grouphd">My tasks<span className="gc">{tasks.length}</span></div>
-              {tasks.map((t: IntakeTask) => (
-                <div key={t.id} className="tcard">
-                  <div className="ticon info"><svg className="ic" viewBox="0 0 24 24"><path d="M9 11l3 3 8-8" /><path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" /></svg></div>
-                  <div className="tmid"><div className="ask">{t.title}</div>{t.description ? <div className="tdetail">{t.description}</div> : null}<div className="tmeta"><span className="chip">{t.status}</span></div></div>
-                  <div className="tright"><div className="actions"><button className="btn sm" disabled={t.status === "done" || markDone.isPending} onClick={() => markDone.mutate(t.id)}>{t.status === "done" ? "Done" : "Mark done"}</button></div></div>
-                </div>
+      <div className="split">
+        <div className="maincol">
+          <section className="ov" aria-label="Your work at a glance">
+            <div className="kcards">
+              {kcards.map((k) => (
+                <button key={k.l} type="button" className={`kcard kc-${k.t}`} onClick={() => setTab(k.tab)} tabIndex={-1} aria-hidden="true" title={`Show ${k.l.toLowerCase()}`}>
+                  <span className="kic"><k.I className="ic" aria-hidden /></span>
+                  <span className="ktx"><span className="kl">{k.l}</span><b className="kn num">{k.n}</b><span className="ks">{k.s}</span></span>
+                </button>
               ))}
-            </>
-          ) : null}
-        </>
-      )}
+            </div>
+            <div className="stabs" role="group" aria-label="Filter your work">
+              {pills.map((p) => (
+                <button key={p.tab} type="button" aria-pressed={tab === p.tab} onClick={() => setTab(p.tab)} className={`stab${tab === p.tab ? " on" : ""}`} style={{ ["--c" as string]: `var(--c-${p.c})` }}>
+                  <i aria-hidden /><span className="tl">{p.label}</span><span className="tn num">{p.n}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-      {/* raised */}
-      <div className="grouphd" style={{ marginTop: 26 }}>Requests you raised<span className="gc">{raised.length}</span></div>
-      {raised.length === 0 ? (
-        <p className="raisedsum">You haven&rsquo;t raised any requests yet.</p>
-      ) : (
-        <div className="rtablewrap">
-          <table className="rt">
-            <thead><tr><th className="c-idx">#</th><th>Request</th><th>Counterparty</th><th>Stage / progress</th><th>Status</th><th /></tr></thead>
-            <tbody>{raisedSorted.map((r, i) => <RaisedRow key={r.id} r={r} i={i} onOpen={onOpen} />)}</tbody>
-          </table>
+          <div className="tcard">
+            <div className="toolbar">
+              <div className="search">
+                <Search className="ic" />
+                <input aria-label="Search your work" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search reference, subject or counterparty…" />
+              </div>
+              <FilterMenu label="Stage" options={LIFECYCLE.map((l) => ({ value: l.key, label: l.label }))} selected={stageSel} onToggle={(v) => setStageSel((p) => { const n = new Set(p); if (n.has(v)) n.delete(v); else n.add(v); return n; })} />
+              {stageSel.size ? <button type="button" className="clear" onClick={() => setStageSel(new Set())}>Clear</button> : null}
+              <span className="sp" />
+              <span className="dim num count">{nodes.length} {nodes.length === 1 ? "item" : "items"}</span>
+            </div>
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Item</th><th>Counterparty</th><th>Stage</th><th>Status</th><th className="cdue">Due</th><th><span className="sr-only">Actions</span></th></tr></thead>
+                <tbody>{nodes}</tbody>
+              </table>
+              {nodes.length === 0 && <div className="empty">{empty}</div>}
+            </div>
+          </div>
         </div>
-      )}
+
+        <aside className="side" aria-label="Work insights">
+          <section className="scard">
+            <header>
+              <span className="sic"><Zap className="ic" /></span>
+              <h3>Start here</h3>
+            </header>
+            {starter ? (
+              <>
+                <p className="mwlead"><b>{starter.ref}</b> — {counterpartyOf(starter) ?? starter.type_label}</p>
+                <p className="mwsub">{askOf(starter)}</p>
+                <button type="button" className="btn pri mwgo" onClick={() => onOpen(starter.id)}>Open request<ChevronRight className="ic" /></button>
+              </>
+            ) : <p className="allclear">No request is waiting on you.</p>}
+          </section>
+
+          <section className="scard attn">
+            <header>
+              <span className="sic crit"><AlertTriangle className="ic" /></span>
+              <h3>Needs attention</h3>
+            </header>
+            {attention.length === 0 ? <p className="allclear">Nothing overdue or at risk.</p> : (
+              <>
+                <div className="hero"><span className="hn crit num">{overdueCount}</span><span className="hl">overdue</span>{soon.length > 0 && <span className="hchip">{soon.length} at risk</span>}</div>
+                <ul className="alist">
+                  {attention.map((r) => (
+                    <li key={r.id} className="arow">
+                      <button type="button" onClick={() => onOpen(r.id)} className="amainbtn" aria-label={`Open ${r.ref}: ${askOf(r)}`}>
+                        <span className="amain">
+                          <span className="pt" title={askOf(r)}>{askOf(r)}</span>
+                          <span className="ps">{r.ref} · {r.type_label}</span>
+                        </span>
+                      </button>
+                      <span className="aside2"><button type="button" className="abtn" onClick={() => onOpen(r.id)}>Open</button></span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
+
+          <section className="scard">
+            <header>
+              <span className="sic"><FileText className="ic" /></span>
+              <h3>Requests you raised</h3>
+              <button type="button" className="slink" style={{ margin: 0 }} onClick={() => setTab("raised")}>View all</button>
+            </header>
+            {raised.length === 0 ? <p className="allclear">You haven&rsquo;t raised any requests yet.</p> : (
+              <ul className="mwstat">
+                <li><span>In progress</span><b className="num">{raisedBy.progress}</b></li>
+                <li><span>Awaiting triage</span><b className="num">{raisedBy.input}</b></li>
+                <li><span>Overdue</span><b className="num crit">{raisedBy.stuck}</b></li>
+                <li><span>Executed</span><b className="num">{raisedBy.done}</b></li>
+              </ul>
+            )}
+            {onDesk > 0 ? <p className="mwsub" style={{ marginTop: 10 }}>{plural(onDesk, "item")} on your desk.</p> : null}
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }
 
 const MW_CSS = `
-.mw .tiles{grid-template-columns:repeat(6,1fr)}
-.mw .starthere{display:flex;align-items:center;gap:11px;padding:11px 13px;border:1px solid color-mix(in srgb,var(--accent) 35%,var(--border));background:var(--accent-soft);border-radius:11px}
-.mw .starthere .bolt{width:26px;height:26px;border-radius:7px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:none}
-.mw .starthere .st-t{font-size:12.5px;color:var(--ink)} .mw .starthere .st-t b{font-weight:680} .mw .starthere .lbl{color:var(--accent);font-weight:700}
-.mw .grouphd{display:flex;align-items:center;gap:9px;margin:22px 2px 10px;font:600 11px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-.mw .grouphd .gc{font:700 10px var(--mono);background:var(--surface-2);color:var(--ink-2);border-radius:99px;padding:1px 7px}
-.mw .grouphd.crit{color:var(--crit)} .mw .grouphd.crit .gc{background:var(--crit-soft);color:var(--crit)}
-.mw .grouphd.warn{color:var(--warn)} .mw .grouphd.warn .gc{background:var(--warn-soft);color:var(--warn)}
-.mw .tcard{display:grid;grid-template-columns:38px 1fr auto;gap:14px;align-items:start;padding:14px 16px;border:1px solid var(--border);border-radius:12px;background:var(--surface);box-shadow:var(--shadow);margin-bottom:10px}
-.mw .tcard.over{border-left:3px solid var(--crit)}
-.mw .ticon{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;background:var(--surface-2);color:var(--ink-2)}
-.mw .ticon.review{background:var(--ai-soft);color:var(--ai)} .mw .ticon.approval{background:var(--accent-soft);color:var(--accent)} .mw .ticon.info{background:var(--warn-soft);color:var(--warn)}
-.mw .ticon .ic{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.mw .tmid{min-width:0}
-.mw .tmatter{display:flex;align-items:center;gap:8px}
-.mw .tmatter .cp{font-weight:680;font-size:14px;color:var(--ink);cursor:pointer} .mw .tmatter .cp:hover{text-decoration:underline}
-.mw .ref{font:600 10.5px var(--mono);color:var(--ink-3)}
-.mw .ask{font-weight:600;font-size:13px;margin-top:5px;color:var(--ink)}
-.mw .tdetail{color:var(--ink-2);font-size:12.5px;margin-top:2px}
-.mw .tmeta{display:flex;gap:7px;margin-top:9px;flex-wrap:wrap;align-items:center}
-.mw .chip{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:99px;font:600 10.5px var(--sans);white-space:nowrap;background:var(--surface-2);color:var(--ink-2)}
-.mw .chip.wf{background:var(--accent-soft);color:var(--accent)} .mw .chip.wf.msa{background:var(--ext-soft);color:var(--ext)}
-.mw .chip.risk-high{background:var(--crit-soft);color:var(--crit)} .mw .chip.risk-med{background:var(--warn-soft);color:var(--warn)} .mw .chip.risk-low{background:var(--good-soft);color:var(--good)}
-.mw .tright{display:flex;flex-direction:column;align-items:flex-end;gap:10px;white-space:nowrap}
-.mw .due{font:600 11.5px var(--sans);color:var(--ink-3)} .mw .due.over{color:var(--crit)} .mw .due.today{color:var(--warn)}
-.mw .actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-.mw .raisedsum{margin:6px 0 4px;font-size:13px;color:var(--ink-2)}
-.mw .rtablewrap{border:1px solid var(--border);border-radius:12px;overflow-x:auto;background:var(--surface);box-shadow:var(--shadow);margin-top:6px}
-.mw table.rt{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
-.mw table.rt thead th{text-align:left;font:600 10px var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);padding:10px 12px;border-bottom:1px solid var(--border);background:var(--inset);white-space:nowrap}
-.mw table.rt tbody td{padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
-.mw table.rt tbody tr:last-child td{border-bottom:0}
-.mw table.rt tbody tr{cursor:pointer} .mw table.rt tbody tr:hover td{background:var(--inset)}
-.mw table.rt td.c-idx,.mw table.rt th.c-idx{width:34px;text-align:right;color:var(--ink-3);font:600 11px var(--mono)}
-.mw .rt .req{display:flex;gap:10px;align-items:center;min-width:0}
-.mw .rt .rico{width:30px;height:30px;border-radius:8px;flex:none;display:grid;place-items:center}
-.mw .rt .rico.MSA{background:var(--ext-soft);color:var(--ext)} .mw .rt .rico.NDA{background:var(--accent-soft);color:var(--accent)}
-.mw .rt .rico .ic{width:15px;height:15px;stroke:currentColor;stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}
-.mw .rt .nm{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;display:inline-block;vertical-align:bottom}
-.mw .rt .stagecell{min-width:170px}
-.mw .rt .stagenm{font-weight:600;color:var(--ink);font-size:12.5px}
-.mw .rt .stagenm .cnt{color:var(--ink-3);font-weight:600;font-family:var(--mono);font-size:11px;margin-left:5px}
-.mw .sbar{display:flex;gap:2px;margin-top:7px;max-width:210px}
-.mw .sseg{height:7px;flex:1 1 0;min-width:3px;border-radius:2px;background:var(--surface-2)}
-.mw .sseg.done{background:color-mix(in srgb,var(--good) 42%,transparent)} .mw .sseg.cur{background:var(--good)}
-.mw .sseg.done.st{background:color-mix(in srgb,var(--crit) 42%,transparent)} .mw .sseg.cur.st{background:var(--crit)}
-.mw .rstat{font:600 11.5px var(--sans);white-space:nowrap} .mw .rstat.progress{color:var(--ai)} .mw .rstat.input{color:var(--warn)} .mw .rstat.stuck{color:var(--crit)} .mw .rstat.done{color:var(--good)}
+.mw .kcards{grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.mw .kcard{padding:12px;gap:10px}
+.mw .kcard .kic{width:36px;height:36px;border-radius:10px}
+.mw .kcard .kn{font-size:22px}
+.mw .kcard .kl{white-space:nowrap}
+.mw .kcard .ks{display:none}
+@media (max-width:1400px){.mw .kcards{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:640px){.mw .kcards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mw .kcard{cursor:pointer}
+.mw .kcard .kl{text-transform:none}
+.mw .mwlead{margin:0;font-size:13px;color:var(--ink)}
+.mw .mwsub{margin:4px 0 0;font-size:12.5px;color:var(--ink-2)}
+.mw .mwgo{margin-top:12px;width:100%;justify-content:center}
+.mw .mwstat{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.mw .mwstat li{display:flex;justify-content:space-between;padding:7px 2px;border-bottom:1px solid var(--border);font-size:12.5px;color:var(--ink-2)}
+.mw .mwstat li:last-child{border-bottom:0}
+.mw .mwstat b{color:var(--ink);font-weight:650} .mw .mwstat b.crit{color:var(--c-red)}
+.mw .tcard .tablewrap td .nm{display:block;max-width:300px;text-align:left}
+/* type labels and reference lines wrap instead of ending in "…" */
+.li-board td .ty,.li-board td .cp{white-space:normal;overflow:visible;text-overflow:clip;max-width:100%;word-break:break-word;line-height:1.3}
+.li-board .arow .ps,.li-board .scard .ps{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;line-height:1.35}
+.li-board .arow .pt,.li-board .scard .pt{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word;line-height:1.3}
+.li-board td .nm,.li-board td .prev{white-space:normal;overflow:visible;text-overflow:clip;word-break:break-word}
+.li-board tbody td{vertical-align:middle}
 `;

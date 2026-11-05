@@ -11,6 +11,7 @@ import anthropic
 import httpx
 
 from app.ai.cost_guard import reserve_tokens, settle_tokens
+from app.core import retry_policy
 from app.core.config import settings
 from app.integrations._claude_mock import select_mock_tool, structured_payload_by_tool
 from app.integrations._http_retry import resilient_call
@@ -155,6 +156,40 @@ _anthropic_clients: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, anthro
 )
 
 
+class _Progress:
+    """What one try saw: whether the stream began (any event at all, message_start included), which is what separates a
+    provider that said no at once from one that was part-way through an answer we would pay for again."""
+
+    started = False
+
+
+# Patched by tests, so a retry never really sleeps and the clock can be moved.
+_sleep = asyncio.sleep
+_clock = time.monotonic
+
+
+def _require_api_key() -> None:
+    if not settings.claude_api_key:
+        # Lazy: app.ai imports this module. A person pressing Retry cannot fix a missing key (SetupError).
+        from app.ai.outcomes import SetupError
+
+        raise SetupError("The AI service is not set up: CLAUDE_API_KEY is missing. An administrator needs to look.")
+
+
+def _sdk_transport_error(exc: httpx.TransportError) -> anthropic.APIConnectionError:
+    """The SDK wraps a failure to connect but not one while the answer is being read: a stalled stream (the 120 s
+    read timeout) or a dropped connection arrives as a bare httpx error, which reads as some other service's. Wrapped
+    here, at the one place that talks to Anthropic, so it is known as the AI provider's. Retried as before:
+    is_transient_error treats both types alike."""
+    try:
+        request = exc.request
+    except RuntimeError:  # httpx raises when the error was never tied to a request
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    if isinstance(exc, httpx.TimeoutException):
+        return anthropic.APITimeoutError(request=request)
+    return anthropic.APIConnectionError(request=request)
+
+
 def _anthropic_client() -> anthropic.AsyncAnthropic:
     loop = asyncio.get_running_loop()
     client = _anthropic_clients.get(loop)
@@ -163,6 +198,10 @@ def _anthropic_client() -> anthropic.AsyncAnthropic:
             api_key=settings.claude_api_key,
             timeout=_ANTHROPIC_TIMEOUT,
             max_retries=0,
+            # An organization-wide key must name the workspace on every request (400 otherwise).
+            default_headers=(
+                {"anthropic-workspace-id": settings.claude_workspace_id} if settings.claude_workspace_id else None
+            ),
         )
         _anthropic_clients[loop] = client
     return client
@@ -513,8 +552,7 @@ class ClaudeClient:
             yield {"type": "final", "response": response}
             return
 
-        if not settings.claude_api_key:
-            raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
+        _require_api_key()
 
         json_payload: dict[str, Any] = {
             "model": model or settings.claude_model,
@@ -557,6 +595,8 @@ class ClaudeClient:
                 },
             )
             raise
+        except httpx.TransportError as exc:
+            raise _sdk_transport_error(exc) from exc
         finally:
             settle_tokens(reservation, used)
             if exam_meter is not None:
@@ -573,8 +613,7 @@ class ClaudeClient:
         }
 
     async def _post_messages(self, *, org_id: str | None, json_payload: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
-        if not settings.claude_api_key:
-            raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
+        _require_api_key()
         client = _anthropic_client()
         if exam_meter is not None:
             # Outside the retry wrapper: one admission (and one replay lookup) per
@@ -583,8 +622,7 @@ class ClaudeClient:
             if replayed is not None:
                 return replayed
 
-        @resilient_call("claude")
-        async def _do_request() -> tuple[dict[str, Any], str | None]:
+        async def _attempt(progress: _Progress) -> tuple[dict[str, Any], str | None]:
             try:
                 # Always request via the streaming endpoint, even for callers
                 # that only want the final aggregated answer: draining the
@@ -594,8 +632,20 @@ class ClaudeClient:
                 # comment on _ANTHROPIC_TIMEOUT above.
                 async with client.messages.stream(**json_payload) as stream:
                     async for _event in stream:
-                        pass
-                    final_message = await stream.get_final_message()
+                        progress.started = True
+                    try:
+                        final_message = (await stream.get_final_message()).to_dict()
+                    except (AssertionError, AttributeError, RuntimeError) as exc:
+                        if progress.started:
+                            raise
+                        # A 200 that closed with no event at all: the SDK has no message to hand back and fails an
+                        # internal check instead of raising a connection error. The same as a dropped connection.
+                        raise anthropic.APIConnectionError(
+                            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")) from exc
+                    if final_message.get("stop_reason") is None:
+                        # The connection closed cleanly but the answer never finished: the same as a dropped one.
+                        raise anthropic.APIConnectionError(
+                            request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"))
                     # Message.to_dict() doesn't carry this — it's the SDK
                     # stream object's own property (from the response header).
                     request_id = stream.request_id
@@ -615,7 +665,31 @@ class ClaudeClient:
                     },
                 )
                 raise
-            return final_message.to_dict(), request_id
+            except httpx.TransportError as exc:
+                raise _sdk_transport_error(exc) from exc
+            return final_message, request_id
+
+        async def _do_request() -> tuple[dict[str, Any], str | None]:
+            """One logical call: as many tries as app/core/retry_policy.py allows. Catches Exception only, so the
+            exam's Deferred (a BaseException) passes straight through, and the metering around this stays one per
+            call however many tries it takes."""
+            began, tries, waited = _clock(), 0, 0.0
+            while True:
+                tries += 1
+                progress, tried_at = _Progress(), _clock()
+                try:
+                    return await _attempt(progress)
+                except Exception as exc:
+                    now = _clock()
+                    wait = retry_policy.client_wait(
+                        exc, tries=tries, waited=waited, elapsed=now - began, attempt_seconds=now - tried_at,
+                        started=progress.started)
+                    if wait is None:
+                        raise
+                    logger.warning("Claude call failed (%s); try %d of at most %d in %.1fs", type(exc).__name__, tries + 1,
+                                   retry_policy.limits()[0], wait)
+                    await _sleep(wait)
+                    waited += wait
 
         # Metered here, once around all retries, so no caller can skip the daily cap.
         reservation = reserve_tokens(org_id, _estimated_tokens(json_payload))
@@ -638,8 +712,7 @@ class ClaudeClient:
     def _batch_client() -> anthropic.AsyncAnthropic:
         if settings.mock_claude:
             raise RuntimeError("Message Batches are not available while MOCK_CLAUDE is on")
-        if not settings.claude_api_key:
-            raise RuntimeError("CLAUDE_API_KEY is required when mock Claude mode is disabled")
+        _require_api_key()
         return _anthropic_client()
 
     async def create_batch(self, requests: list[dict[str, Any]]) -> str:

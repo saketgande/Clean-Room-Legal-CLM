@@ -32,8 +32,14 @@ Run backend tests **inside the container** — they need Postgres, and the host
 Python is usually a different version than the image. The dev tools are
 installed as modules but their scripts aren't on the container's PATH, so use
 `python -m`. `conftest.py` forces every `MOCK_*` on, so the dev container's
-real API keys are never spent by a test run — but tests do write rows into
-the dev database.
+real API keys are never spent by a test run. Tests commit rows (many open their
+own sessions or drive the API), so they run against a **separate database**,
+`legal_clm_test`, never the dev one: `conftest.py` picks it via
+`tests/_testdb.py` and refuses to start on any database whose name doesn't end in
+`_test`. One-time setup: `make test-db` (creates it, runs the migrations, seeds
+the dev admin); re-run it after adding a migration, and `make test-db-reset`
+rebuilds it from scratch. `TEST_DATABASE_URL` overrides the target; on CI
+(`CI=true`) the workflow's own service database is used unchanged.
 
 ```bash
 docker compose exec backend python -m pytest -q                       # whole suite
@@ -52,6 +58,15 @@ head` → `pytest -q`. Match it locally before pushing.
 (real cost). It seeds golden fixtures then runs `eval/run_eval.py`.
 
 ### AI quality harness
+
+The obligation answer keys (`backend/eval/obligations/`, README there) move from draft to confirmed only by a lawyer: `--review-sheet`
+writes the page they read and sign (git-ignored: it holds the contract text), and `--confirm KEY` records it and **needs a person at a
+terminal** (the AI never confirms its own key; it asks for the lawyer's name, the key id and the fingerprint printed on the sheet they
+signed). The confirmation is bound to the key's fingerprint, so editing the text, parties, dates, atoms or not-duties makes it a draft
+again. `python -m eval.exam obligations --baseline NAME --runs 2` names a baseline only from
+confirmed, unchanged keys, with a ceiling of at most $5, never over an existing name, and only if every key answered in both passes;
+it writes `results/baseline-NAME/` (commit it) and `--check` re-scores it from its own files every time.
+
 
 ```bash
 docker compose exec backend python eval/run_eval.py                 # retrieval + taxonomy (free, no LLM)
@@ -183,6 +198,103 @@ Jobs take a `SELECT ... FOR UPDATE` lock and short-circuit if already
 RUNNING/SUCCEEDED, so a redelivered broker message can't double-spend AI calls.
 Idempotency keys are `{job_type}:{version_id}:{snapshot_id}`. Periodic work is
 in `celery_app.conf.beat_schedule`.
+
+**A failed job says why, in `backend/app/ai/outcomes.py`.** `classify(exc)` picks one outcome
+(truncated · refused · unusable · transient · permanent · save_failed · internal) by exception
+*type*, never by message text, and `failure_from_exception` builds the payload stored on
+`job_run.metadata_json["failure"]`. `job.error_message` is that payload's plain sentence — never
+`str(exc)`, because a failed insert prints the contract's own words (the stack stays in
+`error_stack`). Every writer that fails a job writes both, and a job that succeeds, is re-queued
+or starts RUNNING drops the old `failure`. "The AI service" wording is only for errors from the
+AI provider (`integrations/claude.py` wraps a stalled or dropped stream so it counts); other
+services read "a service this step depends on". A guard whose message is already a plain sentence
+raises `PlainError`; one a retry cannot fix (a switched-off skill, a missing key) raises
+`SetupError`. A failed model call is never replaced by a guessed answer. `python -m
+eval.ai_failure_report --days 30` reads the ledger for the failure rate.
+
+**How often anything retries is written once, in `app/core/retry_policy.py`** (its docstring is the budget table;
+`tests/test_claude_retry_policy.py` pins every number to the setting that produces it). The Claude client
+(`_post_messages` in `integrations/claude.py`) tries up to 5 times when the provider says no before any answer
+(HTTP 429/5xx/529), waiting the provider's `Retry-After` when it is 30 s or less, else 2·4·8·16 s with jitter, at most 45 s
+of sleeping. A `Retry-After` that does not fit is not slept on: the error goes up carrying `failure.retry_after_s`.
+Once the answer has started (any stream event), or a try ran 20 s or more, it is one retry and no more; no new try
+begins after 240 s (a try already under way is not cut short). Only calls made inside a background job are patient (`run_ai_job` sets `retry_policy.patient`); any
+other call gives up after 2 tries and 5 s, because a person or a held thread is waiting. Only the AI provider's own bad
+moments are retried, never `SoftTimeLimitExceeded` (an ordinary Exception: a loop that retried it would start a second
+paid call after the worker was told to stop). A stream that ends cleanly with no stop reason is treated as a dropped
+connection. Settings: `claude_retry_tries`, `claude_retry_budget_seconds`, `claude_retry_inline_tries`,
+`claude_retry_inline_budget_seconds`, `claude_retry_base_wait_seconds`, `claude_retry_deadline_seconds`;
+`claude_max_retries` and the two `claude_retry_*_backoff_seconds` now serve only DocuSign, SendGrid, Resend and the exam's
+batch calls. **A machine does not re-run a job that failed on a model call** (only a transport error, such as OCR or
+e-signature, goes through Celery's `autoretry_for`, 3 re-runs): a person presses Retry, and `auto_retry` is false for the
+soft limit and the daily budget. A job that hits Celery's soft time limit (`_mark_job_soft_limit`) is failed with a plain
+reason (a tabular job's cells are failed with it), except `template_check`, whose re-run after the lease ends the check
+as interrupted without a new paid review. Reclaim also closes every AI run still "running" past the lease
+(`_close_orphan_skill_runs`), whatever job it belonged to; a chat answer's run only once that answer has ended.
+Not done, on purpose: re-queuing a model-failed job by countdown (a review found it would strand jobs when the broker
+publish fails, override Cancel, leave tabular reviews finalized wrong and make auto-review read "interrupted"),
+retrying inside the chat stream, metering abandoned costly tries, the circuit breaker's removal.
+
+**Did an Active contract's obligations really get extracted? Ask `extraction_state(db, contract)`**
+(`app/obligations/extraction_audit.py`): no_text · done · none_found · running · failed · never · stale. It reads
+`job_run` only (every `obligation_extraction` job whose `metadata_json.contract_version_id` is the contract's current
+version, whatever the key suffix) and stores nothing. A succeeded job with no obligations is `none_found`, a valid
+answer, never a failure; a job queued for 2 h or running past its lease counts as failed, and a queued job's age counts
+from `updated_at`, because a retry re-queues the same row. The reason shown is the job's own plain `failure.reason`,
+never `error_message`. The lifecycle row (`workflows/lifecycle_rows.py`) and the Retry button
+(`POST /obligations/extract`: 409 when already read, no second job while one is in flight, restarts the job that ended
+badly) both use it; Retry is hidden when the failure says `retryable=false`.
+
+**Which obligations need a date? Ask `date_state(ob)`** (`app/obligations/dates.py`, pure, worked out on read, nothing
+stored): dated · not_read (no deadline block: extracted before dates were counted) · no_fixed_date (an ongoing duty
+whatever stopped its end being counted, an "if X happens" duty, or a date a person cleared) · waiting_event (the reason
+starts with `EVENT_WAIT`, which `obligation_deadline` writes) · needs_person (any other reason). "Needs a date" =
+needs_person + not_read, open obligations only; waiting and no-fixed-date are never alarms. The list, the tiles
+(`GET /obligations/summary`) and the `?date_state=` filter all read `visible_obligations(user)`, so they cannot
+disagree; the page reads `date_state` from the server and never matches reason text.
+
+**Ask Aegis speaks from the same two answers** (`app/obligations/assistant.py`; the tools are in
+`app/ai/tool_runtime.py`). `list_obligations` reads `visible_obligations` (a closed or archived contract's duties are
+out, as on the page) and each row carries `date_state` + `date_note`; the result adds the portfolio's `dates` /
+`needs_date` (over the whole set, not just the due window), `unread_contracts` (Active, accessible contracts whose
+`extraction_states` is failed / never / no_text / stale / running) and one `summary` sentence telling the model that no
+date is not "not due" and that an unread contract has no obligations *on file*, which is not "none". `my_attention_items`
+adds one item per contract with obligations that need a date and one per contract not read (not ones being read now).
+`extract_obligations` goes through `ObligationsService.extraction_job`, the same decision as Retry. The 409 refusals
+(already read, cancelled a moment ago, no readable version) come back as `status: "not_started"` with a sentence, never
+as an exception (the tool always runs after the user confirms, and a raise there ends the run FAILED with the model
+never hearing why); an in-flight job is `already_running`; otherwise the job is committed BEFORE `dispatch_job` (a
+worker that wins the race would strand it as "already running") and the answer is `queued`. `_replayed_call` does not
+replay a succeeded `extract_obligations`, so a repeat is asked again. `needs_reading` checks every Active contract (in
+batches), and the per-contract attention items are added after the signature items so the cut at 40 cannot drop
+"Awaiting signature". The system prompt is untouched: the tool descriptions and the `summary` sentence carry the wording.
+
+**A daily check makes sure every Active contract's obligations were read** (`app/obligations/extraction_sweep.py`,
+beat `audit-obligation-extraction` at 07:58 UTC, off the */5 reclaim tick; thin task `audit_obligation_extraction`). It
+acts only on `extraction_state`: `never` → starts ONE read (plain activation key, audit row + timeline event, commit before
+`dispatch_job`, then commit again to persist the task id), at most 6 a day, never past half of the day's AI budget
+(`cost_guard.tokens_left`; unknown = skip; each read already queued in the run counts as 120,000 tokens, since a queued read
+has spent nothing yet), never while 3 of its own reads in 48 h failed and none finished, and only when
+`obligation_audit_start_jobs` is on (**default off**: the dev stack has a real key; set it in production on purpose).
+`failed` (once SETTLED: an hour after it was given up on, because Celery's autoretry, reclaim and the Jobs page's reaper
+still work on the others), `no_text`, `stale` and a none-found read of poorly read text → the owner is told ONCE per
+(contract, version) through `notifications/once.py::notify_once` (de-dup on user + event type + key; the ~21 other places
+that write a `Notification` are left alone), at most 10 new notices to any one person a run (an owner, or an admin standing
+in for an owner who left; one already sent earlier is not counted), and each admin gets one digest a day, only when
+something happened. It never
+re-runs a failed job and never replaces a stale contract's obligations. The first run is a BASELINE: it stores the existing
+problems as `(contract, version)` pairs in `AdminSetting` `obligation_audit_baseline` (`is_secret`: it lists contract ids; pairs,
+not times, which a retry or the reaper would move), tells admins once, and starts and sends nothing else; those problems stay red on the page and are
+never pushed. A stored value that is not ours skips the run, it never re-baselines. Who is told is checked with
+`_contract_visible_silently` (the other check writes an `access.denied` audit row for people who never tried to open the
+contract); no recipient may see a title or reason for a contract they cannot open, and a notice quotes only the job's plain
+`failure.reason`. The notice's last sentence follows what the row offers (Retry only when `retryable`, Re-read for stale).
+Locks are `pg_try_advisory_xact_lock` in a key space of their own, never a lock on the Contract row (the audit chain's lock
+is taken first by contract edits, so a row lock here could deadlock with the 07:50 close batch). `ExtractionState` gained
+`failed_since` (always set: a lost or dead job has no finish time) and `cancelled`, and a snapshot with no text in it now
+reads as `no_text` in both loaders and in `extraction_job` (the Retry endpoint and the assistant's tool refuse to pay for
+it): "no text" is `has_text_clause()`, a database regex for one non-whitespace character, because a Python `.strip()` and
+Postgres' `trim()` disagree about newlines and a blank scan is stored as one newline per page.
 
 ### Suggested changes for playbook issues
 
@@ -337,6 +449,15 @@ tool were deleted (2026-09-29).
 Stages that aren't mostly workflow steps get their rows from their own tables —
 request events (Intake), signers (Signature), obligations + renewal (Active),
 expiry (Closed) — via `app/workflows/lifecycle_rows.py` (`GET /workflows/lifecycle`).
+**The last step of every starter workflow is "Activate"** (an agent-less `ai_task`, wording in `workflows/stages.py`
+`ACTIVATE_STEP_*`; it was "Activate & track" / "start obligation tracking" until migration 0078). It checks nothing:
+signing queues the reading of the obligations and the Active stage's row above says how it went, so a step called
+"track" showing a green Done over a red "Obligation extraction failed" was a lie. In the Active stage the engine writes a
+note on it that is true of the contract then (read on their own / not Active yet, nothing read / no contract linked):
+"Signed outside the system" has no signature step and reaches it with a contract that is not Active. Migration 0078
+rewrites the name and (only when still the old sentence) the instructions in `workflow.steps`, the pinned
+`workflow_run.steps` snapshots and `workflow_step_run.step_name`; nothing keys off the name. A step runs no yield or wait on the
+extraction (a provider outage would park every request signed that day, and the request's SLA would blame the requester).
 **Every contract gets a workflow:** one uploaded straight into the CLM has no
 request, so `start_flow_for_contract` files one (`file_request_for_contract`,
 source `upload`) and starts it; a `clm_draft` step on a run that already has a

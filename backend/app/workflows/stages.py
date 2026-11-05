@@ -14,6 +14,22 @@ parallel share a stage.
 from __future__ import annotations
 
 STAGES = ("intake", "drafting", "review", "approval", "signature", "active", "closed")
+
+# The last step of every starter workflow. It checks and does nothing itself: signing is what queues the reading of
+# the contract's obligations, and the Active stage's own row (workflows/lifecycle_rows.py, from the extraction state)
+# says how that went. It used to be called "Activate & track" and say "start obligation tracking", so a green "Done"
+# beside it claimed something nobody had looked at, above a red "Obligation extraction failed".
+ACTIVATE_STEP_NAME = "Activate"
+ACTIVATE_STEP_TEXT = (
+    "Closes out the workflow. Obligations are read on their own once the contract is Active, and the Active stage "
+    "shows how that went.")
+# On the step when it runs, by what is true of the contract then. A flow with no signature step ("Signed outside the
+# system") reaches this step with a contract that is not Active, and nothing reads its obligations until it becomes so.
+ACTIVATE_STEP_NOTE = (
+    "Nothing is checked here. The obligations are read on their own; the Active stage shows how that went.")
+ACTIVATE_STEP_NOTE_NOT_ACTIVE = (
+    "The contract is not Active yet, so nothing has been read. Its obligations are read when it becomes Active.")
+ACTIVATE_STEP_NOTE_NO_CONTRACT = "No contract is linked to this request, so there is nothing to read."
 _RANK = {s: i for i, s in enumerate(STAGES)}
 FIXED = {"clm_draft": "drafting", "approval": "approval", "signature": "signature"}
 ALLOWED = {**{t: (s,) for t, s in FIXED.items()}, "counterparty": ("drafting", "review")}

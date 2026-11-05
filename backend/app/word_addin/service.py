@@ -1,14 +1,16 @@
 import hashlib
 import logging
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.contract_files.models import ContractVersion, StorageObject
 from app.contract_files.service import _read_upload_with_limit, create_contract_from_upload
+from app.contracts.access import ContractAccessService
 from app.contracts.models import Contract
 from app.core.config import settings
+from app.core.rbac import has_permission
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +57,13 @@ class WordAddinService:
             ).first()
             if version is not None:
                 contract = db.get(Contract, version.contract_id)
-                if contract is not None and contract.deleted_at is None:
+                # A matching file is not a right to see its contract: another user's document with the
+                # same bytes, or one behind an ethical wall, must not hand back its id, title and stage.
+                if (
+                    contract is not None
+                    and contract.deleted_at is None
+                    and ContractAccessService(db).user_can_access_contract(contract=contract, user=user)
+                ):
                     return {
                         "contract_id": contract.id,
                         "title": contract.title,
@@ -63,8 +71,11 @@ class WordAddinService:
                         "created": False,
                     }
 
-        # No match — create a new contract from the document. Reset the stream
-        # first since we already consumed it to hash the bytes.
+        # No match - create a new contract from the document, as the upload route does only for a user who
+        # may add contracts (this route asked for a login alone). Reset the stream first since we
+        # already consumed it to hash the bytes.
+        if not has_permission(user.permission_values, "contract:create"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You do not have permission to add contracts")
         await upload.seek(0)
         result = await create_contract_from_upload(db, upload=upload, user=user, request_id=request_id)
         contract = result["contract"]

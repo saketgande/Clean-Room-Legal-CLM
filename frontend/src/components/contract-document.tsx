@@ -310,7 +310,13 @@ export function ContractDocument({
   // still undecided we render that base text with the changes on it. Once every
   // change is decided the backend has made a new version from the accepted ones
   // — show that plain, not the old base with struck-out words forever.
-  const pending = useMemo(() => (edits ?? []).filter((e) => e.status === "proposed"), [edits]);
+  // A file someone uploads over the contract starts it afresh: suggestions made against an older version
+  // describe text that is no longer the document, so they are not drawn on it.
+  const pending = useMemo(() => {
+    const num = (id: string) => (versions ?? []).find((v) => v.id === id)?.version_number ?? 0;
+    const fresh = Math.max(0, ...(versions ?? []).filter((v) => v.source === "manual_upload").map((v) => v.version_number));
+    return (edits ?? []).filter((e) => e.status === "proposed" && num(e.contract_version_id) >= fresh);
+  }, [edits, versions]);
   const baseVersionId = useMemo(() => {
     if (pending.length === 0) return null;
     const counts = new Map<string, number>();
@@ -338,7 +344,9 @@ export function ContractDocument({
       contractsApi.versionText(contractId, baseVersionId as string),
   });
 
-  const redlineMode = Boolean(baseVersionId && redlineBase?.text);
+  // A version the person picked themselves is shown as it is: the switcher used to do nothing while a
+  // suggestion was pending, which kept showing the old base text even on the newest version.
+  const redlineMode = Boolean(baseVersionId && redlineBase?.text && (!override || override === baseVersionId));
   const docText = redlineMode
     ? (redlineBase as ContractTextSnapshotResponse).text
     : resolved?.snap?.text;

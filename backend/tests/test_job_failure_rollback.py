@@ -60,7 +60,36 @@ def test_failed_flush_marks_job_failed_instead_of_stuck_running(monkeypatch):
     with pytest.raises(ValueError):
         asyncio.run(tasks._run_ai_job("job-1"))
     assert job.status == JobStatus.FAILED
-    assert "NUL" in job.error_message
+    # The job says what happened in a plain sentence (no raw error text: a failed insert prints the contract's
+    # own words); the raw text and the stack stay in error_stack for an administrator.
+    assert "NUL" not in job.error_message and job.metadata_json["failure"]["outcome"] == "internal"
+    assert job.metadata_json["failure"]["reason"] == job.error_message
+    assert "NUL" in job.error_stack
+
+
+def test_a_job_that_starts_running_again_shows_no_old_failure(monkeypatch):
+    """Guards a job that Celery retries sitting at 'running' while still carrying the last attempt's failure."""
+    from app.ai.outcomes import Outcome, failure_payload
+
+    job = SimpleNamespace(
+        id="job-2", job_type="metadata_extraction", resource_id="k-1", status=JobStatus.FAILED,
+        started_at=None, finished_at=None, attempt_count=1, progress=0,
+        metadata_json={"keep": 1, "failure": failure_payload(Outcome.TRANSIENT)}, error_message="old", error_stack=None,
+    )
+    db = BrokenFlushSession(job)
+    seen = []
+
+    async def skill(*_a, **_k):
+        seen.append(dict(job.metadata_json))
+
+    monkeypatch.setattr(tasks, "SessionLocal", lambda: db)
+    monkeypatch.setattr(tasks, "_should_run", lambda *_a: True)
+    monkeypatch.setattr(tasks.ai_controller, "run_job_skill", skill)
+    monkeypatch.setattr(tasks.ai_controller, "carry_forward_job", lambda *_a, **_k: None, raising=False)
+
+    asyncio.run(tasks._run_ai_job("job-2"))
+
+    assert seen and "failure" not in seen[0] and seen[0]["keep"] == 1
 
 
 def test_snapshot_text_strips_nul_bytes():

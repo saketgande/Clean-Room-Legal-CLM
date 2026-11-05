@@ -60,6 +60,9 @@ backend/docstudio_out/
 backend/eval/private/
 backend/eval/contracts/
 backend/eval/.work/
+backend/eval/obligations/results/scratch/
+# The lawyer's review sheet holds the full contract text; hand it over, do not commit it.
+backend/eval/obligations/review/
 backend/eval/**/*.xlsx
 
 # Local database / file backups (never commit)

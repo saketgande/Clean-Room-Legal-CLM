@@ -13,6 +13,7 @@ from app.contract_files.models import (
     ContractTextSnapshot,
     ContractVersion,
 )
+from app.contracts import contract_types as ct
 from app.contracts.access import ContractAccessService, accessible_contract_filter
 from app.contracts.blanks import find_blanks
 from app.contracts.models import Contract, ContractParty, ContractStageHistory
@@ -91,6 +92,9 @@ def same_text_version_ids(db: Session, contract: Contract) -> list[str]:
     return ids
 
 
+TYPE_NEEDED_CAP = 500
+
+
 class ContractService:
     """Contract read/update operations.
 
@@ -105,7 +109,9 @@ class ContractService:
         self.db = db
         self.access = access or ContractAccessService(db)
 
-    def get_contract_for_user(self, *, contract_id: str, user: User) -> Contract:
+    def get_contract_for_user(self, *, contract_id: str, user: User, edit: bool = False) -> Contract:
+        """The contract, or 404 when the user cannot open it. ``edit=True`` also needs the right to change
+        what hangs off it (owner, creator, admin or an update-level grant): 403 for a reader."""
         db = self.db
         contract = db.get(Contract, contract_id)
         if (
@@ -115,6 +121,8 @@ class ContractService:
             or not self.access.user_can_access_contract(contract=contract, user=user)
         ):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Contract not found")
+        if edit and not self.access.user_can_edit_contract(contract=contract, user=user):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "You can read this contract but not change it")
         return contract
 
     def list_contracts_for_user(
@@ -220,6 +228,93 @@ class ContractService:
         db.commit()
         db.refresh(contract)
         return contract
+
+    def set_contract_type(
+        self, *, contract: Contract, user: User, contract_type: str, request_id: str | None = None
+    ) -> Contract:
+        """A person picks the type from the fixed list. Touches the type and who chose it,
+        nothing else: no stage move, deadline recount, playbook re-pick or workflow call."""
+        if contract_type not in ct.VALUES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Pick a contract type from the list")
+        old = contract.contract_type
+        meta = dict(contract.metadata_json or {})
+        sources = dict(meta.get("field_sources") or {})
+        if old == contract_type and sources.get("contract_type") == "user":
+            return contract
+        sources["contract_type"] = "user"  # _persist_metadata never overwrites a person's value
+        meta["field_sources"] = sources
+        contract.contract_type = contract_type
+        contract.metadata_json = meta
+        contract.updated_by_user_id = user.id
+        label = ct.label_of(contract_type)
+        if not (old or "").strip():
+            title = f"Contract type set to {label} (was not set)"
+        elif old != contract_type:
+            title = f"Contract type changed from {old} to {label}"
+        else:
+            title = f"Contract type confirmed as {label}"
+        write_audit_log(
+            self.db,
+            action="contract.type_changed",
+            resource_type="contract",
+            resource_id=contract.id,
+            org_id=user.org_id,
+            actor_user_id=user.id,
+            request_id=request_id,
+            before={"contract_type": old},
+            after={"contract_type": contract_type},
+        )
+        write_timeline_event(
+            self.db,
+            org_id=contract.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.type_changed",
+            title=title,
+            actor_user_id=user.id,
+            request_id=request_id,
+            details={"from": old, "to": contract_type},
+        )
+        self.db.commit()
+        self.db.refresh(contract)
+        return contract
+
+    def list_type_needed(self, *, user: User) -> dict:
+        """Contracts the viewer can open whose type is unknown or looks wrong (newest first)."""
+        known = [v.lower() for v in ct.VALUES if v != "other"]
+        rows = self.db.scalars(
+            select(Contract)
+            .where(
+                Contract.org_id == user.org_id,
+                Contract.deleted_at.is_(None),
+                accessible_contract_filter(user),
+                Contract.archived.is_(False),
+                Contract.lifecycle_stage != "closed",
+                or_(
+                    Contract.contract_type.is_(None),
+                    func.trim(Contract.contract_type) == "",
+                    func.lower(Contract.contract_type).not_in(known),
+                ),
+            )
+            .order_by(Contract.created_at.desc())
+        ).all()
+        needed = [
+            c for c in rows
+            if ct.type_needed(c.contract_type, c.title, c.metadata_json, c.lifecycle_stage, c.archived)
+        ]
+        return {
+            "items": [
+                {
+                    "id": c.id, "title": c.title, "counterparty_name": c.counterparty_name,
+                    "stage": c.lifecycle_stage, "contract_type": c.contract_type,
+                    "suggested_type": ct.suggested_type(
+                        c.contract_type, c.title, c.metadata_json, c.lifecycle_stage, c.archived
+                    ),
+                }
+                for c in needed[:TYPE_NEEDED_CAP]
+            ],
+            "truncated": len(needed) > TYPE_NEEDED_CAP,
+        }
 
     def list_contract_stage_history(self, *, contract: Contract) -> list[ContractStageHistory]:
         return self.db.scalars(
@@ -700,8 +795,8 @@ def list_counterparty_directory(db: Session, *, org_id: str, q: str | None = Non
 # they're migrated to Depends(get_contract_service) in their own passes.
 # Tracked in backend/DI_MIGRATION.md — remove once no importers remain.
 
-def get_contract_for_user(db: Session, *, contract_id: str, user: User) -> Contract:
-    return ContractService(db).get_contract_for_user(contract_id=contract_id, user=user)
+def get_contract_for_user(db: Session, *, contract_id: str, user: User, edit: bool = False) -> Contract:
+    return ContractService(db).get_contract_for_user(contract_id=contract_id, user=user, edit=edit)
 
 
 def list_contracts_for_user(

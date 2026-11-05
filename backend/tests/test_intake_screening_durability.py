@@ -68,7 +68,7 @@ def quiet_intake(monkeypatch):
     monkeypatch.setattr(intake.IntakeService, "_next_ref", lambda self: "REQ-1")
     monkeypatch.setattr(
         intake.IntakeService, "serialize_request",
-        lambda self, r: {"id": r.id, "screening": r.screening},
+        lambda self, r, *a, **k: {"id": r.id, "screening": r.screening},
     )
 
 

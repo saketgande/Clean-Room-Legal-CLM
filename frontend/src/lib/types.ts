@@ -48,19 +48,133 @@ export interface Counterparty {
   active: boolean; source: string; external_ref: string | null; created_at: string; updated_at: string;
 }
 /** A request form's questions as the server validates them (agreement_forms.json). */
-export interface RequestFormRule { field: string; in: string[] }
+export interface RequestFormRule {
+  field: string; in: string[];
+  /** The rule matches when the answer is none of `in` (an unanswered question matches). */
+  not?: boolean;
+}
+export interface RequestFormColumn {
+  key: string;
+  label: string;
+  kind: "text" | "date" | "percent";
+  max_length?: number;
+  unique?: boolean;
+  no_blanks?: boolean;
+  /** Date columns: the two date questions of the same form the date must fall between, both included. */
+  within?: [string, string];
+  /** Date columns with `within`: only the start bound applies while the end answer is not a day. */
+  open_end?: boolean;
+  /** Percent columns: what the column must add up to across the rows. */
+  total?: number;
+  /** The column applies only when every rule matches the form's answers (same shape as a question's `show`). */
+  show?: RequestFormRule[];
+  /** Text columns: a cell equal to this (ignoring case and extra spaces) is refused. */
+  outside?: string;
+  /** Text columns: while `when` matches the form's answers, the cell must equal `value` (ignoring case and extra spaces). */
+  must_be?: { value: string; when: RequestFormRule };
+}
 export interface RequestFormField {
-  key: string; label: string; kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number";
+  key: string; label: string;
+  kind: "text" | "email" | "textarea" | "select" | "multiselect" | "date" | "number" | "rows";
   required: boolean; options?: string[]; show?: RequestFormRule[];
+  /** Options that replace `options` when every rule matches; first match wins. */
+  options_when?: { when: RequestFormRule[]; options: string[] }[];
   /** A date that must not come before the date answered under this key (an end date against its start date). */
   not_before?: string;
+  /** Text answers: refused when they hold a blank bracket such as "[TBD]". */
+  no_blanks?: boolean;
+  /** Number answers: must be more than this. */
+  min_exclusive?: number;
+  /** Text answers: at most this many characters after tidying. */
+  max_length?: number;
+  /** Number answers: at most this many decimal places. */
+  max_decimals?: number;
+  /** This question's own rules apply only when every rule matches. */
+  rules_when?: RequestFormRule[];
+  /** The template fields built from this answer (the request page shows these questions). */
+  fills?: string[];
+  /** Server-side update rules (older requests); the wizard ignores them. */
+  older_may_lack?: boolean;
+  legacy_single?: boolean;
+  /** `rows` questions only. */
+  columns?: RequestFormColumn[];
+  min_rows?: number;
+  max_rows?: number;
+  /** `rows` questions: [singular, plural] for "Add a …" and the cap; default ["deliverable", "deliverables"]. */
+  item?: [string, string];
+  /** `rows` questions: read-only reference prefix; default "D"; "" shows plain numbers. */
+  ref_prefix?: string;
+  /** `rows` questions: the key older requests kept a free-text answer under, and that question's label. */
+  legacy_key?: string;
+  legacy_label?: string;
 }
 export interface RequestFormDef { key: string; name: string; fields: RequestFormField[] }
+/** One row of a table question, by column key. Every cell is text (a stored share reads "40.00"). */
+export type FormRow = Record<string, string>;
+/** Any answer the wizard holds. */
+export type FormValue = string | string[] | FormRow[];
 /** A half-filled agreement-wizard form saved with "Save as Draft". */
 export interface IntakeDraft {
-  id: ID; form_key: string; title: string | null; values: Record<string, string | string[]>;
+  id: ID; form_key: string; title: string | null; values: Record<string, FormValue>;
   parent_contract_id: ID | null; page_index: number; visited: number;
+  summary_box?: SummaryBoxState | null;
   created_at: string; updated_at: string;
+}
+/** One answer an extra instruction disagrees with (FR-18/27). Rendered "This differs from your answer: {answer}". */
+export interface SummaryDiffers {
+  key: string;
+  label: string;
+  answer: string;                 // the current answer as text, or "no answer"
+}
+/** An extra instruction for Legal, in the requester's own words (FR-25..27). */
+export interface ExtraInstruction {
+  text: string;
+  differs: SummaryDiffers[];      // [] → no note
+}
+/** An "Update the answer?" offer the requester accepted (FR-17/20) — for the filing record only. */
+export interface AcceptedChange {
+  key: string;
+  label: string;
+  old: string | string[] | null;
+  new: string | string[] | null;
+}
+/** An open offer under a line of the editable box. */
+export interface SummaryOffer {
+  id: string;                     // `${line}:${keys.join("+")}`
+  line: string;                   // SummaryLine.id it came from
+  kind: "update" | "clear";
+  keys: string[];                 // the questions it changes (money: ["value","currency"])
+  label: string;                  // "Governing law"
+  oldText: string;                // "India"
+  newText: string;                // "England and Wales"
+  patch: Record<string, FormValue>;   // applied with the wizard's own `set` on accept
+}
+/** What the requester typed over one generated line, and what checking it found. */
+export interface SummaryEdit {
+  text: string;                   // their line as typed ("" = deleted)
+  base: string;                   // the generated line when they started editing
+  check: { templateMatched: boolean; differs: SummaryDiffers[]; declined: string[] } | null;  // null = not checked yet
+}
+/** The box's whole state: kept in the wizard, saved in drafts (summary_box), finalised on filing. */
+export interface SummaryBoxState {
+  edits: Record<string, SummaryEdit>;   // by SummaryLine.id
+  offers: SummaryOffer[];
+  instructions: ExtraInstruction[];
+  accepted: AcceptedChange[];
+  pending: string;                      // the "Anything else for Legal?" box, not yet added
+}
+/** Sent inside POST /intake/requests as `summary`. */
+export interface RequestSummaryFiling {
+  text: string | null;
+  instructions: ExtraInstruction[];
+  accepted: AcceptedChange[];
+}
+/** GET /intake/requests/{id}/summary */
+export interface RequestSummary {
+  text: string | null;
+  at: string | null;
+  by_name: string | null;
+  instructions: ExtraInstruction[];
 }
 export interface IntakeRequest {
   id: ID; ref: string; source: string;
@@ -127,6 +241,8 @@ export interface IntakeApprovalRung {
   chain_instance_id?: ID | null;    // NEW — the pair approvalChainsApi.decide needs
   explanation?: string | null;      // NEW — FR-7 text, null for a base requirement
   blocked?: boolean;                // NEW — mirrors requirement.is_unfulfillable (FR-19)
+  can_decide: boolean;
+  decisions: ApprovalDecisionEntry[];
 }
 export interface IntakeTask {
   id: ID; request_id: ID; title: string; description: string | null;
@@ -311,6 +427,17 @@ export interface ContractDeviation {
   suggested_fix: string | null;
   citation: Record<string, unknown> | null;
   status: string;
+}
+
+/** One version of a contract with what was reviewed and decided on it (GET /contracts/{id}/review-history). */
+export interface ReviewHistoryVersion {
+  version_id: ID; version_number: number; source: string; created_at: ISODateTime; is_current: boolean;
+  reviews: {
+    id: ID; status: string; created_at: ISODateTime;
+    findings: { id: ID; severity: string; clause_type: string | null; issue: string; status: string;
+      decision: string | null; rationale: string | null; decided_by: string | null; decided_at: ISODateTime | null }[];
+  }[];
+  edits: { id: ID; edit_type: string; status: string; original_text: string | null; replacement_text: string | null; rationale: string | null }[];
 }
 
 /** A requested AI review that has not finished (the server's contracts.auto_review.review_state). */
@@ -564,6 +691,8 @@ export interface ContractResponse {
   current_contract_file_id: ID | null;
   current_authoritative_version_id: ID | null;
   metadata_json: Record<string, unknown>;
+  type_needed: boolean;
+  suggested_type: string | null;
 }
 
 export interface ContractUploadResponse {
@@ -890,8 +1019,13 @@ export type LifecycleStage = "intake" | "drafting" | "review" | "approval" | "si
  * obligations, renewal, expiry (backend app/workflows/lifecycle_rows.py). */
 export interface LifecycleRow {
   name: string; kind: string; detail: string; who: string;
-  status: "done" | "waiting" | "planned" | "skipped"; when: string | null;
+  status: "done" | "waiting" | "planned" | "skipped" | "failed"; when: string | null;
+  /** Something to offer on this row (the server enforces who may do it; the page hints from the role). */
+  action?: LifecycleAction | null;
 }
+
+/** "Retry" on a failed obligation extraction, "Re-read" on one that comes from an earlier version. */
+export interface LifecycleAction { kind: "extract_obligations"; label: string; contract_id: ID }
 
 export interface Workflow {
   id: ID;
@@ -1180,6 +1314,21 @@ export type ObligationStatus =
   | "completed"
   | "cancelled";
 
+/** dated: has a due date · waiting_event: counts from an event nobody has logged · needs_person: code could not count
+ *  a date · no_fixed_date: ongoing or conditional by nature (or a person cleared it) · not_read: extracted before
+ *  dates were counted. "Needs a date" = needs_person + not_read. */
+export type DateState = "dated" | "waiting_event" | "needs_person" | "no_fixed_date" | "not_read";
+
+/** GET /obligations/summary: the tiles, over exactly the obligations the list shows. `dates` and `needs_date` count
+ *  OPEN obligations only. */
+export interface ObligationSummary {
+  total: number;
+  by_status: Record<ObligationStatus, number>;
+  dates: Record<DateState, number>;
+  needs_date: number;
+  line: string;
+}
+
 export interface Obligation {
   id: ID;
   org_id: ID;
@@ -1199,6 +1348,8 @@ export interface Obligation {
   metadata_json: Record<string, unknown>;
   /** How the date was counted (null for rows extracted before Step 3d). */
   deadline: ObligationDeadline | null;
+  /** Worked out by the server on read (backend app/obligations/dates.py): the page never guesses it from text. */
+  date_state: DateState;
   created_at: ISODateTime;
   updated_at: ISODateTime;
 }
@@ -2654,34 +2805,265 @@ export interface ContractClause {
 }
 
 // ---- Drafting templates ------------------------------------------------------
+export type TemplateSource = "default" | "text" | "docx" | "pdf" | "scan";
+export type TemplateStatusState =
+  | "passes" | "has_findings" | "checking" | "out_of_date"
+  | "partly_checked" | "couldnt_check" | "never_checked" | "no_playbook";
+export type TemplateCheckTrigger =
+  | "saved" | "uploaded" | "restored" | "reset" | "type_created" | "type_reactivated"
+  | "playbook_published" | "playbook_changed" | "manual" | "check_all" | "retry" | "sample";
+export type TemplateCheckState = "queued" | "running" | "completed" | "failed" | "superseded";
+export type TemplateCheckError =
+  | "ai_unavailable" | "cost_cap" | "no_rules" | "no_playbook" | "unfillable" | "wording_changed" | "interrupted";
+export type FindingSeverity = "low" | "medium" | "high" | "critical";
+export type TemplatePlace = "body" | "table" | "header" | "footer" | "text_box" | "footnote" | "endnote";
+
+export interface TemplateBinding { form_key: string; form_name: string; agreement_kind: string | null; label: string; }
+export interface TemplatePlaybookRef {
+  id: string;
+  name: string;
+  version_id: string | null;       // its latest published version (null when it has none)
+  version_number: number | null;
+  pinned: boolean;                 // false = today's name match, locked at the template's first check or draft
+  available: boolean;              // false = deleted, or no published version
+}
+export interface TemplateFileRef { id: string; filename: string; mime_type: string; size_bytes: number; }
+
+export interface TemplateCheckSummary {
+  id: string;
+  state: TemplateCheckState;
+  trigger: TemplateCheckTrigger;
+  unsaved: boolean;
+  template_version: number;
+  playbook_name: string | null;
+  playbook_version_number: number | null;
+  finding_count: number | null;        // null until completed
+  highest_severity: FindingSeverity | null;
+  text_was_truncated: boolean | null;
+  error_code: TemplateCheckError | null;
+  error_message: string | null;        // plain words
+  requested_by: string | null;         // display name of the person
+  on_behalf: boolean;                  // true = the system, on behalf of requested_by
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface TemplateCheckFinding {
+  index: number;                       // position in the check; what applied_findings names
+  rule_index: number | null;
+  clause_type: string;
+  severity: FindingSeverity;
+  issue: string;
+  quote: string | null;                // as the review quoted it (filled text)
+  quote_template: string | null;       // the same with sample values turned back into {codes}
+  suggested_fix: string | null;
+  suggested_fix_template: string | null;
+  suggestion_is_wording: boolean;      // false = advice, never applied
+  approval_required: boolean;
+}
+
+export interface TemplateCheck extends TemplateCheckSummary {
+  template_key: string;
+  trigger_detail: Record<string, unknown> | null;
+  wording_sha256: string;
+  playbook_id: string | null;
+  playbook_version_id: string | null;
+  rule_count: number | null;
+  findings: TemplateCheckFinding[];
+  summary: string | null;
+  text_length: number | null;
+  read_length: number | null;
+}
+
+export interface TemplateStatus {
+  state: TemplateStatusState;
+  label: string;                       // "Has findings"
+  reason: string;                      // "2 findings, highest High."
+  finding_count: number | null;
+  highest_severity: FindingSeverity | null;
+  changed: "wording" | "playbook" | "both" | null;   // out_of_date only
+  error_code: TemplateCheckError | null;             // couldnt_check only
+  results_vary: boolean;
+  decided_by: TemplateCheckSummary | null;
+  last_completed: TemplateCheckSummary | null;
+  active_check: TemplateCheckSummary | null;
+}
+
+// Mirrors DraftingTemplateSummaryOut.standard exactly
+export interface TemplateStandard {
+  revision: string;          // "014"
+  updated_on: string;        // "2026-10-27"
+  wording_behind: boolean;
+  playbook_behind: boolean;
+}
+
+export interface TemplateStandardAdopt { note?: string | null; }
+
 export interface DraftingTemplateSummary {
   key: string;
   name: string;
+  label: string;
   contract_type: string;
-  playbook: string | null; // the playbook that reviews contracts drafted from it
-  customized: boolean; // false = the shipped default text
-  version: number; // 0 = never edited
+  binding: TemplateBinding;
+  playbook: TemplatePlaybookRef | null;   // the playbook that reviews its drafts (null = none)
+  shipped: boolean;
+  active: boolean;
+  source: TemplateSource;
+  version: number;                        // 0 = shipped wording, never saved
+  original_filename: string | null;
   updated_at: string | null;
   updated_by: string | null;
+  editable: boolean;                      // false for a Word-based template (FR-40)
+  status: TemplateStatus;
+  standard: TemplateStandard | null;
 }
 
-export interface DraftingTemplatePlaceholder {
-  name: string;
-  about: string;
-  sample: string;
-}
+export interface DraftingTemplatePlaceholder { name: string; label: string; about: string; sample: string; }
+export interface TemplateFieldUse { name: string; label: string; place: TemplatePlace; count: number; }
 
 export interface DraftingTemplate extends DraftingTemplateSummary {
   body: string;
-  default_body: string;
+  default_body: string | null;            // null for a type that was not shipped
   placeholders: DraftingTemplatePlaceholder[];
+  fields: TemplateFieldUse[];
+  original_file: TemplateFileRef | null;
 }
+
+export interface AppliedFinding { check_id: string; finding_index: number; clause_type: string; severity: FindingSeverity; }
 
 export interface DraftingTemplateVersion {
   version: number;
   note: string | null;
+  source: TemplateSource;
   is_default: boolean;
   body: string;
-  created_at: string;
+  created_at: string | null;              // null for the synthetic version 0
   created_by: string | null;
+  original_file: TemplateFileRef | null;
+  applied_findings: AppliedFinding[];
+  restored_from_version: number | null;
+  ocr_confirmed_by: string | null;
+  ocr_confirmed_at: string | null;
+  checks: TemplateCheckSummary[];
+}
+
+export interface TemplateSavePayload {
+  body: string;
+  note?: string;
+  expected_version: number;
+  applied_findings?: { check_id: string; finding_index: number }[];
+  acknowledge_missing_parties?: boolean;
+}
+export interface TemplateVersionAction { note?: string; expected_version: number; }
+export interface TemplatePlaybookChange { playbook_id: string; note?: string; }
+export interface TemplateMutationResult { template: DraftingTemplate; changed: boolean; check: TemplateCheckSummary | null; }
+export interface CheckAllResult {
+  started: { key: string; check_id: string }[];
+  skipped: { key: string; reason: "checking" | "no_playbook" }[];
+}
+
+// Phase 1 (playbooks, for Change playbook) / Phase 2 (bindings, for New template type)
+export interface TemplateBindingOption {
+  form_key: string;
+  agreement_kind: string | null;
+  label: string;
+  contract_type: string;
+  held_by: { key: string; name: string } | null;
+  suggested_playbook: { id: string; name: string } | null;   // today's name match; preselect only
+}
+export interface TemplateTypeOptions { bindings: TemplateBindingOption[]; playbooks: { id: string; name: string; version_number: number }[]; }
+
+// Intake — POST /intake/requests/{id}/draft-contract
+export interface DraftContractResult extends IntakeRequest { template_notice: string | null; }
+
+// 009 — approve on the request page. Mirrors plan.md's interface freeze exactly.
+export type ApprovalView = "general" | "finance" | "legal";
+export type ApprovalFactSource = "verified" | "extracted" | "requester-stated";
+export type ApprovalFactKey =
+  | "value" | "term" | "payment_terms" | "liability" | "renewal"
+  | "playbook_risk" | "indemnity" | "termination" | "governing_law" | "non_standard"
+  | "overall_risk" | "top_issues";
+export interface ApprovalFact {
+  key: ApprovalFactKey;
+  label: string;
+  value: string | null;              // null → render "Not available"
+  source: ApprovalFactSource | null; // null iff value is null
+  quote: boolean;                    // clause wording: render as quoted text
+}
+export interface ApprovalSummary {
+  request_id: ID;
+  contract_id: ID | null;
+  approval_request_id: ID | null;
+  profile: ApprovalView;
+  fields: ApprovalFact[];
+  open_risk: { critical: number; high: number };
+}
+export interface ApprovalDecisionEntry {
+  approver_user_id: ID;
+  approver_name: string | null;
+  decision: "approve" | "reject";
+  comment: string | null;
+  decided_at: string;
+}
+/** The decision route's 422 when open critical/high risks were not acknowledged (exact server text). */
+export const RISK_ACK_REQUIRED_MESSAGE = "Open critical or high risks must be acknowledged before approving";
+
+// GET /intake/requests/{id}/activity — the request's and its contract's history, already in plain words.
+export interface RequestActivityItem {
+  id: string; // opaque React key; never displayed
+  at: string; // ISO-8601 with offset
+  sentence: string;
+  who: string; // a person's name, "AI", "Aegis" or "Counterparty"
+  source: "request" | "contract";
+  tone: "ai" | "stage" | "done" | "plain";
+  system: boolean; // hidden until "Show system details"
+}
+export interface RequestActivity {
+  items: RequestActivityItem[]; // newest first, at most 500
+  truncated: boolean;
+}
+
+// GET /intake/requests/{id}/counterparty — only what this viewer may see.
+export interface CounterpartyContractItem {
+  id: ID;
+  title: string;
+  contract_type: string | null;
+  stage: string; // Contract.lifecycle_stage
+  value: number | null;
+  currency: string | null;
+  created_at: string;
+  ended: boolean; // closed, archived or past its expiry date
+}
+export interface CounterpartyRequestItem {
+  id: ID;
+  ref: string;
+  type_label: string;
+  status: string; // IntakeStatus value
+  date: string | null;
+}
+export interface RequestCounterparty {
+  name: string | null;
+  summary: { contracts: number; active: number; requests: number };
+  note: string | null;
+  contracts: CounterpartyContractItem[]; // live first, then ended; newest first; at most 100
+  requests: CounterpartyRequestItem[]; // newest first; at most 100
+}
+
+// ---- Contract type (012) ----------------------------
+export interface ContractTypeOption {
+  value: string;
+  label: string;
+}
+export interface TypeNeededItem {
+  id: ID;
+  title: string;
+  counterparty_name: string | null;
+  stage: ContractLifecycleStage;
+  contract_type: string | null;
+  suggested_type: string | null;
+}
+export interface TypeNeededList {
+  items: TypeNeededItem[];
+  truncated: boolean;
 }

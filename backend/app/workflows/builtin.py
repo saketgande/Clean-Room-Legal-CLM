@@ -219,7 +219,7 @@ _MSA_STEPS = [
     _msa("counterparty", "Counterparty negotiation", None, _SPECIFIC, 120, ["approve", "request_changes"], "Exchange redlines with the counterparty until both sides agree."),
     _msa("approval", "Finance approval", "finance", _ANY, 24, ["approve", "reject", "escalate"], "Approve the contract value.", cond={"field": "contract_value", "op": "gte", "value": 10000}),
     _msa("signature", "Internal signature", "legal_counsel", _SPECIFIC, 24, ["sign", "decline"], "Sign the executed agreement."),
-    _msa("ai_task", "Activate & track", None, _LOADED, 0, [], "File the contract and start obligation tracking."),
+    _msa("ai_task", stages.ACTIVATE_STEP_NAME, None, _LOADED, 0, [], stages.ACTIVATE_STEP_TEXT),
 ]
 
 # NDA Fast-Track is the NDA workflow for the urgent case: our template, needed

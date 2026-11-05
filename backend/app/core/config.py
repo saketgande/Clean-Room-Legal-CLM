@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 50 * 1024 * 1024
 
     claude_api_key: str | None = None
+    # Needed only with an organization-wide API key (valid for all workspaces): Anthropic
+    # then refuses any request that doesn't name its workspace. A workspace key needs none.
+    claude_workspace_id: str | None = None
     claude_model: str = "claude-sonnet-4-6"
     # Mock integrations default OFF — production-safe. Local dev opts back in
     # explicitly via MOCK_* env (see .env.example / tests/conftest.py).
@@ -267,16 +270,33 @@ class Settings(BaseSettings):
     dev_seed_admin_email: str = "admin@example.com"
     dev_seed_admin_password: str = "local-dev-password"
 
-    # Anthropic / Claude resiliency knobs (tenacity retries).
+    # Retries for the OTHER providers (DocuSign, SendGrid, Resend: app/integrations/_http_retry.py) and the exam's batch
+    # calls. The Claude client does not use these: it has its own policy below.
     claude_max_retries: int = 3
     claude_retry_initial_backoff_seconds: float = 1.0
     claude_retry_max_backoff_seconds: float = 30.0
+
+    # The Claude client's retry policy (app/core/retry_policy.py has the whole budget in one table). A call made inside
+    # a background job is patient: its worker slot is already spoken for, and a failed job can be retried. Any other
+    # call (a person is waiting on a request, a thread is held) gives up fast.
+    claude_retry_tries: int = 5  # patient: total tries when the provider says no right away
+    claude_retry_budget_seconds: float = 45.0  # patient: the most one call may spend sleeping between tries
+    claude_retry_inline_tries: int = 2
+    claude_retry_inline_budget_seconds: float = 5.0
+    claude_retry_base_wait_seconds: float = 2.0  # waits double from here (2, 4, 8, 16) when no Retry-After is sent
+    claude_retry_deadline_seconds: float = 240.0  # no new try begins past this, counting time inside tries
+
+    # The daily check that every Active contract's obligations were really read (app/obligations/extraction_sweep.py).
+    # Telling people about a problem costs nothing and is on. STARTING a paid read of a contract nobody ever read spends
+    # real tokens, so it is off until someone chooses it (the dev stack uses a real key): set it in production on purpose.
+    obligation_audit_notify: bool = True
+    obligation_audit_start_jobs: bool = False
 
     # Claude spend guardrails. Per-org daily token budget (input+output) and a
     # hard ceiling on max_tokens for any single request so a runaway prompt
     # can't blow the budget in one call.
     claude_daily_token_cap_per_org: int = 5_000_000
-    claude_max_tokens_ceiling: int = 8000
+    claude_max_tokens_ceiling: int = 16000
 
     # Upload pipeline safety nets.
     upload_stream_chunk_bytes: int = 1024 * 1024  # 1 MB chunks
@@ -376,6 +396,19 @@ class Settings(BaseSettings):
 
 
 def validate_runtime_settings(settings: Settings) -> None:
+    # A ceiling under a skill's own budget cuts that skill's answers off, and a cut-off answer stores
+    # nothing (the env templates once shipped 8000 while extraction needs more). Every environment,
+    # not just production: dev copies the same template. Lazy import - the registry reads settings.
+    ceiling = settings.claude_max_tokens_ceiling
+    if ceiling > 0:
+        from app.ai.gateway.features import feature_registry
+
+        clamped = sorted(f.key for f in feature_registry.all() if f.max_tokens > ceiling)
+        if clamped:
+            raise RuntimeError(
+                f"CLAUDE_MAX_TOKENS_CEILING={ceiling} is below what {', '.join(clamped)} need; "
+                "raise it, or unset it for the default"
+            )
     env = settings.environment.lower()
     if env in {"local", "development", "dev", "test"}:
         return
@@ -478,6 +511,12 @@ def validate_runtime_settings(settings: Settings) -> None:
     # HMAC signature, otherwise anyone can forge envelope status callbacks.
     if not settings.mock_docusign and not settings.docusign_connect_hmac_key:
         problems.append("set DOCUSIGN_CONNECT_HMAC_KEY (required when MOCK_DOCUSIGN is off)")
+    # Reminders and renewal alerts are emailed through Resend. With no key every send raises, and the
+    # example.com sender is refused by Resend - either way owners hear nothing while the sweep runs.
+    if not settings.resend_api_key:
+        problems.append("set RESEND_API_KEY (reminders and renewal alerts are emailed through it)")
+    if settings.resend_from_email.lower().endswith("@example.com"):
+        problems.append("set RESEND_FROM_EMAIL to a sender on your verified domain")
     # Public links must not point at a developer's loopback address in prod.
     if settings.app_base_url.lower().startswith("http://localhost"):
         problems.append("set APP_BASE_URL to a public https URL (not http://localhost)")

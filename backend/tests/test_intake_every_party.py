@@ -63,7 +63,7 @@ def test_a_second_counterparty_is_recorded(db, actor):
     result = screening.compute_screening(db, r)
     assert result["counterparty"] == "Harmless Trading Ltd"
     assert "sanctions" not in result and "conflicts" not in result
-    assert result["relationship"]["note"]
+    assert "relationship" not in result
 
 
 def test_novation_parties_are_recorded(db, actor):

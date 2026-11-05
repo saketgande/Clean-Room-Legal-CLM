@@ -1,0 +1,130 @@
+STATEMENT OF WORK
+
+This Statement of Work (the "SOW") is entered into as of {effective_date} (the "SOW Effective Date") by and between {company} (the "Customer") and {counterparty} (the "Provider"), each a "Party" and together the "Parties", under the Master Agreement between the Parties (the "Master Agreement").
+
+1. RELATIONSHIP TO THE MASTER AGREEMENT
+
+1.1 This SOW is issued under, and is governed by and incorporated into, the Master Agreement. Capitalised terms used but not defined in this SOW have the meanings given in the Master Agreement.
+
+1.2 Nothing in this SOW amends the Master Agreement for any other statement of work.
+
+2. ORDER OF PRECEDENCE
+
+2.1 If there is any conflict or inconsistency between the Master Agreement and this SOW, the Master Agreement prevails, except in relation to the description of the scope of Services and Deliverables in Clause 4 and the Fees in Clause 8, where this SOW prevails for this SOW only.
+
+2.2 Any terms in the Provider's proposal, quotation, invoice or other document do not form part of this SOW, even if referred to in it or attached to it.
+
+3. TERM
+
+3.1 This SOW commences on the SOW Effective Date and {agreement_term}, unless terminated earlier in accordance with the Master Agreement. If the Master Agreement expires while this SOW is in effect, the Master Agreement continues to apply to this SOW until this SOW ends.
+
+4. SCOPE AND DELIVERABLES
+
+4.1 Background and objectives: [Describe the business need and the outcome the Customer expects.]
+
+4.2 Services. The Provider shall perform the following Services: [Describe each activity the Provider will carry out.]
+
+4.3 Deliverables. The Provider shall deliver each of the following Deliverables by its due date. Each Deliverable has a named owner responsible for its delivery:
+
+D1. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+
+D2. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+
+D3. [Deliverable name and description]. Due date: [YYYY-MM-DD]. Provider owner: [name]. Customer owner: [name].
+
+4.4 Out of scope. Any service, deliverable or activity not expressly listed in Clauses 4.2 and 4.3 is out of scope. The Provider shall not perform, and the Customer is not obliged to pay for, any out-of-scope work unless it is added through a Change Order under Clause 7. Without limiting this, the following are out of scope: [List known exclusions, if any.]
+
+4.5 Customer dependencies. The Customer shall provide the following, by the dates stated: [List the information, access, facilities or decisions the Provider needs from the Customer.] If the Customer fails to meet a listed dependency and that failure prevents the Provider from meeting a due date, the Provider shall notify the Customer promptly in writing and the affected due date shall be extended by a reasonable period agreed through a Change Order.
+
+4.6 Location and working hours: [State where and when the Services will be performed.]
+
+5. KEY PERSONNEL
+
+5.1 The following individuals are key personnel for this SOW (the "Key Personnel"):
+
+[Name] - [Role] - [Responsibilities]
+
+[Name] - [Role] - [Responsibilities]
+
+5.2 The Provider shall ensure that the Key Personnel devote the time necessary to perform their roles. The Provider shall not remove or replace any Key Personnel without the Customer's prior written consent, except where the individual leaves the Provider's employment or is unavailable through illness or other circumstances beyond the Provider's reasonable control.
+
+5.3 Where a member of the Key Personnel must be replaced, the Provider shall propose a replacement of equivalent skill and experience for the Customer's approval, shall bear the cost of any handover and knowledge transfer, and shall not charge for the replacement's time until the replacement is fully productive.
+
+5.4 The Customer may, acting reasonably, require the Provider to remove any individual from the Services, and the Provider shall promptly provide a suitable replacement approved by the Customer.
+
+6. ACCEPTANCE
+
+6.1 The Customer shall test each Deliverable against the acceptance criteria below within ten (10) working days of receiving it:
+
+D1: [Acceptance criteria]
+
+D2: [Acceptance criteria]
+
+D3: [Acceptance criteria]
+
+6.2 A Deliverable is accepted only when the Customer confirms acceptance in writing. Use of a Deliverable, payment of any invoice, or the passing of the testing period without a written confirmation does not constitute acceptance.
+
+6.3 If a Deliverable does not meet its acceptance criteria, the Customer shall notify the Provider in writing with reasonable details of the non-conformities. The Provider shall correct the Deliverable at no additional charge and resubmit it within five (5) working days, or such other period as the Customer agrees in writing, and the Customer shall test it again under Clause 6.1.
+
+6.4 If a Deliverable fails acceptance testing a second time, the Customer may, at its option, allow a further correction period, accept the Deliverable subject to an equitable reduction in the Fees, or terminate this SOW for material breach and recover the Fees paid for the Deliverables affected, without prejudice to its other rights under the Master Agreement.
+
+7. CHANGE CONTROL
+
+7.1 No change to the scope, Deliverables, due dates, Key Personnel or Fees of this SOW is effective unless it is set out in a written change order signed by authorised representatives of both Parties (a "Change Order").
+
+7.2 Either Party may request a change in writing. Within five (5) working days of a request, the Provider shall provide a written impact assessment describing the effect of the change on the scope, Deliverables, due dates and Fees.
+
+7.3 Until a Change Order is signed by both Parties, the Provider shall continue to perform this SOW unchanged. The Provider is not entitled to any additional payment or extension of time for work performed, or delay incurred, without a signed Change Order.
+
+7.4 Instructions given orally, by email or in meetings do not change this SOW unless and until they are recorded in a signed Change Order.
+
+8. FEES AND PRICING
+
+8.1 Pricing model: [Fixed fee / Time and materials] (delete as appropriate).
+
+8.2 Fixed fee. Where this SOW is priced as a fixed fee, the total fee for the Services and Deliverables is [currency and amount], inclusive of all Provider costs and exclusive only of applicable taxes.
+
+8.3 Time and materials. Where this SOW is priced on a time-and-materials basis, the Provider shall charge for time actually and properly worked at the rates set out in the Master Agreement, supported by timesheets approved by the Customer. Total charges under this SOW shall not exceed the not-to-exceed amount of [currency and amount]. The Provider shall notify the Customer in writing when seventy-five percent (75%) of that amount has been reached. The Customer is not liable for any charges above the not-to-exceed amount unless it is increased by a signed Change Order.
+
+8.4 Rates are as set out in the Master Agreement and are fixed for the term of this SOW. No rate increase applies to this SOW.
+
+8.5 Expenses are payable only where approved by the Customer in writing in advance, at cost and in accordance with the Customer's expenses policy, and count towards any not-to-exceed amount.{value_sentence}
+
+9. MILESTONES AND PAYMENT
+
+9.1 Payment under this SOW is tied to the Customer's written acceptance of Deliverables, not to calendar dates. The Provider may invoice each milestone payment only after the Customer has accepted in writing every Deliverable linked to that milestone under Clause 6:
+
+M1: Acceptance of D1. Payment: [amount or percentage of the fixed fee].
+
+M2: Acceptance of D2. Payment: [amount or percentage of the fixed fee].
+
+M3: Acceptance of D3. Payment: [amount or percentage of the fixed fee].
+
+9.2 Where this SOW is priced on a time-and-materials basis, the Provider shall invoice monthly in arrears for time worked, and the Customer may hold back ten percent (10%) of each invoice until it has accepted all Deliverables in writing.
+
+9.3 The Customer shall pay valid, undisputed invoices within {payment_days} days of receipt, and may withhold any amount it disputes in good faith in accordance with the Master Agreement. Each invoice must reference this SOW and the Customer's purchase order number.
+
+10. GOVERNANCE AND REPORTING
+
+10.1 The Provider shall report progress against the Deliverables, due dates and Fees to the Customer's owner [weekly / fortnightly], including risks, issues and any forecast delay.
+
+10.2 The Parties' representatives for this SOW are: Customer: [name, role, email]. Provider: [name, role, email].
+
+11. TERMINATION
+
+11.1 This SOW may be terminated in accordance with the Master Agreement. On termination, the Customer shall pay only for Deliverables accepted, and for time-and-materials Services properly performed, up to the date of termination, and the Provider shall deliver all Deliverables, whether complete or in progress, to the Customer.
+
+12. GENERAL
+
+12.1 All other terms of the Master Agreement, including those relating to confidentiality, data protection, intellectual property, indemnities, limitation of liability, insurance and governing law, apply to this SOW. This SOW is governed by the laws of {governing_law}, consistent with the Master Agreement.
+
+12.2 This SOW may be executed in counterparts, each of which is an original and which together constitute one instrument. Signatures delivered electronically or by any electronic signature service are binding.
+
+IN WITNESS WHEREOF, the Parties have executed this Statement of Work as of the SOW Effective Date.
+
+{company}                                    {counterparty}
+
+By: ______________________________          By: ______________________________
+Name:                                        Name:
+Title:                                       Title:
+Date:                                        Date:

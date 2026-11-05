@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from app.intake.agreement_forms import form_defs, form_fields
+from app.intake.agreement_forms import form_defs, form_fields, options_for
 from app.intake.service import _validate_field_values, looks_like_email
 
 MSA = {
@@ -26,16 +26,33 @@ MSA = {
 }
 
 
+def one_row(table, values):
+    """One row that passes every rule of a table question: a due date on the first day of its window and
+    a whole share (which is dropped again unless the share column applies)."""
+    return {c.key: (values[c.within[0]] if c.within else "2026-10-01") if c.kind == "date"
+            else "100" if c.kind == "percent" else "x" for c in table.columns}
+
+
 def complete(form, **over):
     """Every question of a form answered with something plausible, so a test fails only on the rule it is about."""
     values = {"request_form": form}
+    tables = []
     for f in form_fields(form):
         kind, options = f.kind, [o["value"] for o in (f.options or [])]
+        if kind == "rows":
+            tables.append(f)  # its rows are built last, from the dates the test may have changed
+            continue
         values[f.key] = (
             options[:1] if kind == "multiselect" else options[0] if options else
             "2026-10-01" if kind == "date" else "10" if kind == "number" else "a@example.com" if kind == "email" else "x"
         )
     values.update(over)
+    for f in form_fields(form):  # a choice that depends on another answer (payment terms) follows it
+        offered = [o["value"] for o in options_for(f, values) or []]
+        if f.kind == "select" and f.key not in over and offered and values.get(f.key) not in offered:
+            values[f.key] = offered[0]
+    for table in tables:
+        values.setdefault(table.key, [one_row(table, values)])
     return values
 
 
@@ -68,6 +85,13 @@ def test_an_end_date_on_the_start_date_is_allowed():
 def test_a_statement_of_work_cannot_end_before_it_starts():
     sow = complete("sow", services_start="2026-11-01", services_end="2026-10-01")
     assert '"Services end" cannot be before "Services start"' in refused(sow, "sow")
+
+
+def test_a_complete_statement_of_work_files_with_its_table():
+    """The helper's table is a real one: a request built with complete() reaches the rule under test, not
+    "must be a table of rows" for an answer that was never a table."""
+    out = check(complete("sow"), "sow")
+    assert out["deliverable_rows"] == [{"name": "x", "due": "2026-10-01", "their_owner": "x", "our_owner": "x"}]
 
 
 def test_an_end_date_that_is_not_asked_for_is_not_compared():

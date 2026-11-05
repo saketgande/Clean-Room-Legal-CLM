@@ -8,17 +8,20 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.outcomes import PlainError
 from app.ai.schemas import ObligationExtractionOutput
 from app.auth.models import User
+from app.contracts.access import ContractAccessService, accessible_contract_filter
 from app.contracts.models import Contract
 from app.contracts.service import get_contract_for_user
 from app.core.audit import write_audit_log, write_timeline_event
 from app.core.database import utcnow
 from app.core.deadlines import Period, _fmt, contract_anchors, date_in_quote, explain, nth, shift
-from app.core.enums import ObligationStatus
+from app.core.enums import ContractLifecycleStage, JobStatus, ObligationStatus, UserStatus
 from app.integrations.resend import EmailSender, resend_client
 from app.jobs.models import JobRun
 from app.jobs.service import create_job, dispatch_job
+from app.obligations.dates import EVENT_WAIT, STATES, date_counts, date_state, date_summary
 from app.obligations.models import Obligation, ObligationReminder
 
 logger = logging.getLogger(__name__)
@@ -58,8 +61,12 @@ def complete_and_schedule_next(db: Session, *, ob: Obligation, actor_user_id: st
     from the previous one, so monthly from 31 Jan runs 28 Feb, 31 Mar, 30 Apr
     instead of drifting to the 28th for good."""
     db.refresh(ob, with_for_update=True)  # two completions at once can't both add a successor
+    if ob.deleted_at is not None:  # re-extraction replaced it while this request was on its way
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
     if ob.status == ObligationStatus.COMPLETED:
         return None
+    if ob.status == ObligationStatus.CANCELLED:  # completing it would restart a series someone stopped
+        raise HTTPException(status.HTTP_409_CONFLICT, "This obligation was cancelled.")
     ob.status = ObligationStatus.COMPLETED
     ob.updated_by_user_id = actor_user_id
     months = _cadence_months(ob.recurrence)
@@ -191,7 +198,7 @@ def obligation_deadline(timing, anchors: dict, *, quote: str | None = None, even
             return block
         start, label = anchor.value, _ANCHOR_LABELS[anchor.name]
     elif event_date is None:
-        block["reason"] = f"starts when {facts.get('anchor_text') or 'the trigger happens'} - enter the date"
+        block["reason"] = f"{EVENT_WAIT}{facts.get('anchor_text') or 'the trigger happens'} - enter the date"
         return block
     else:
         start, label = event_date, _EVENT_LABELS.get(name, "started")
@@ -216,6 +223,17 @@ def obligation_deadline(timing, anchors: dict, *, quote: str | None = None, even
 
 def _quote(ob: Obligation) -> str:
     return (ob.source_citation or {}).get("quote") or ""
+
+
+def live_contract_ids():
+    """The contracts whose obligations are still followed: not deleted, archived or closed. The Close dialog
+    says a closed contract is "no longer tracked for obligations", but the sweeps looked at obligations alone
+    and never at their contract, so a deleted or closed one's duties kept being marked overdue and emailed."""
+    return select(Contract.id).where(
+        Contract.deleted_at.is_(None),
+        Contract.archived.is_(False),
+        Contract.lifecycle_stage != ContractLifecycleStage.CLOSED,
+    )
 
 
 def set_reminder(db: Session, ob: Obligation) -> None:
@@ -243,6 +261,95 @@ def set_reminder(db: Session, ob: Obligation) -> None:
             updated_by_user_id=ob.updated_by_user_id,
         )
     )
+
+
+def reminder_recipient(db: Session, ob: Obligation) -> User | None:
+    """Who a reminder goes to: the obligation's owner while they are active and can still open the
+    contract (a wall, a clearance change or a lapsed grant takes that away), else the contract's own
+    owner on the same terms, else nobody. Both sweeps emailed whoever the id pointed at, a deactivated
+    user or one walled off from the contract included, and marked the reminder sent."""
+    contract = db.get(Contract, ob.contract_id)
+    if contract is None:
+        return None
+    access = ContractAccessService(db)
+    for user_id in dict.fromkeys((ob.owner_user_id, contract.owner_user_id)):
+        user = db.get(User, user_id) if user_id else None
+        if (
+            user is not None
+            and user.org_id == ob.org_id
+            and user.status == UserStatus.ACTIVE
+            and access.user_can_access_contract(contract=contract, user=user)
+        ):
+            return user
+    return None
+
+
+async def send_due_reminders(
+    db: Session, resend: EmailSender, *, today: date, org_id: str | None = None,
+    limit: int | None = None, actor_user_id: str | None = None,
+) -> dict:
+    """Email every due, unsent reminder, and mark it sent only after the email was accepted - one reminder
+    per transaction. It used to be marked and committed first, so a crash or deploy mid-send lost that
+    reminder for good; now the worst a crash does is repeat the one in flight.
+
+    Each reminder is claimed by a row lock (SKIP LOCKED), so the nightly job and the manual button can
+    overlap without sending twice, and one whose date was edited meanwhile (its reminder replaced) is
+    skipped instead of crashing the batch. The recipient is checked here, at send time; with nobody
+    valid the reminder stays unsent (counted as skipped, retried next run).
+    ponytail: unsendable rows stay at the front of the queue, so more than `limit` of them would starve
+    the rest; dead-letter them then."""
+    due = (
+        select(ObligationReminder.id)
+        .where(
+            ObligationReminder.sent_at.is_(None),
+            ObligationReminder.remind_at <= today,
+            ObligationReminder.obligation_id.in_(
+                select(Obligation.id).where(Obligation.contract_id.in_(live_contract_ids()))
+            ),
+        )
+        .order_by(ObligationReminder.remind_at, ObligationReminder.id)
+    )
+    if org_id is not None:
+        due = due.where(ObligationReminder.org_id == org_id)
+    if limit is not None:
+        due = due.limit(limit)
+    sent = failed = skipped = 0
+    for reminder_id in db.scalars(due).all():
+        reminder = db.scalar(
+            select(ObligationReminder)
+            .where(ObligationReminder.id == reminder_id, ObligationReminder.sent_at.is_(None))
+            .with_for_update(skip_locked=True)
+        )
+        if reminder is None:  # sent, replaced by an edit, or in another run's hands
+            db.commit()
+            continue
+        ob = db.get(Obligation, reminder.obligation_id, populate_existing=True)
+        if ob is None or ob.deleted_at is not None or ob.status in _CLOSED:
+            db.commit()
+            continue
+        recipient = reminder_recipient(db, ob)
+        if recipient is None:
+            logger.warning("obligation reminder has no valid recipient", extra={"obligation_id": ob.id})
+            skipped += 1
+            db.commit()
+            continue
+        # Same wording as every reminder, incl. "calculated - not yet confirmed".
+        subject, html = reminder_email(ob)
+        try:
+            await resend.send_email(to=recipient.email, subject=subject, html=html)
+        except Exception:
+            logger.exception(
+                "obligation reminder email failed",
+                extra={"obligation_id": ob.id, "reminder_id": reminder.id},
+            )
+            failed += 1
+            db.commit()  # not delivered: still unsent, the next run retries it
+            continue
+        reminder.sent_at = today
+        reminder.updated_by_user_id = actor_user_id
+        db.commit()
+        sent += 1
+    return {"reminders_sent": sent, "reminders_failed": failed, "reminders_skipped": skipped}
 
 
 def is_confirmed(ob: Obligation) -> bool:
@@ -288,9 +395,10 @@ def _refresh_deadline(db: Session, ob: Obligation, anchors: dict) -> None:
     ob.metadata_json = meta
 
 
-def _kept_by_a_person(ob: Obligation) -> bool:
+def _kept(ob: Obligation) -> bool:
+    """A row a re-extraction must not replace: a person edited or confirmed it, or a legal hold covers it."""
     meta = ob.metadata_json or {}
-    return bool(meta.get("edited_by") or (meta.get("deadline") or {}).get("confirmed_by"))
+    return bool(ob.legal_hold or meta.get("edited_by") or (meta.get("deadline") or {}).get("confirmed_by"))
 
 
 def apply_extracted_obligations(
@@ -322,12 +430,25 @@ def apply_extracted_obligations(
             Obligation.deleted_at.is_(None),
         )
     ).all()
+    ai_open = [
+        ob for ob in existing
+        if (ob.metadata_json or {}).get("source") == "ai_extraction" and ob.status not in _CLOSED
+    ]
+    # Checked before anything is deleted (the job's failure path commits). A re-run that returns nothing,
+    # or under half of what it would replace (the model gave up early, or a cut-off list still
+    # validated), must not wipe the list: the job fails visibly and the old rows stay, as the clause
+    # index does for an empty result (_replace_clauses). ponytail: half is a guess; make it a setting
+    # if legitimate rewrites trip it.
+    replaced = [ob for ob in ai_open if not _kept(ob)]
+    if replaced and len(extracted.obligations) * 2 < len(replaced):
+        raise PlainError(
+            f"The new reading found {len(extracted.obligations)} obligations where {len(replaced)} exist, "
+            "so the existing ones were kept."
+        )
     anchors = contract_anchors(db, contract)
     kept_quotes: set[str] = set()
-    for ob in existing:
-        if (ob.metadata_json or {}).get("source") != "ai_extraction" or ob.status in _CLOSED:
-            continue
-        if _kept_by_a_person(ob):
+    for ob in ai_open:
+        if _kept(ob):
             # An empty quote would match every new item that has no quote either.
             if quote := _quote(ob).strip():
                 kept_quotes.add(quote)
@@ -476,6 +597,25 @@ def retire_ai_computed_obligation_dates(db: Session, *, org_id: str | None = Non
     return retired
 
 
+def visible_obligations(user: User, *, live_only: bool = True):
+    """The obligations this person may see on the tracking list, with their contract's title and counterparty.
+    ONE query for the list and the summary, so a tile can never disagree with the list under it: this
+    organisation, not deleted, a contract that is not deleted and that the person may open and, unless
+    `live_only` is off (one contract asked for by id, as history), a contract that is still followed
+    (not archived or closed)."""
+    query = (
+        select(Obligation, Contract.title, Contract.counterparty_name)
+        .join(Contract, Contract.id == Obligation.contract_id)
+        .where(
+            Obligation.org_id == user.org_id,
+            Obligation.deleted_at.is_(None),
+            Contract.deleted_at.is_(None),
+            accessible_contract_filter(user),
+        )
+    )
+    return query.where(Obligation.contract_id.in_(live_contract_ids())) if live_only else query
+
+
 def _deadline_view(ob) -> dict | None:
     """What the page shows beside the date: how it was counted (formula) or why
     there is none (reason), and whether a person has confirmed it."""
@@ -519,6 +659,9 @@ def serialize_obligation(ob, *, contract_title=None, counterparty_name=None, own
         "source_citation": ob.source_citation,
         "metadata_json": ob.metadata_json or {},
         "deadline": _deadline_view(ob),
+        # Worked out on read from what is stored (app/obligations/dates.py), so the list, the summary and the page
+        # can never disagree about which obligations need a date.
+        "date_state": date_state(ob),
         "created_at": ob.created_at.isoformat() if ob.created_at else None,
         "updated_at": ob.updated_at.isoformat() if ob.updated_at else None,
     }
@@ -528,6 +671,27 @@ class ObligationsService:
     def __init__(self, db: Session, *, resend: EmailSender | None = None):
         self.db = db
         self.resend = resend or resend_client
+
+    def summary(self, *, user: User) -> dict:
+        """What the Obligations page's tiles show, over the same obligations as the list: how many in each status,
+        and how many OPEN ones are dated, waiting for an event, need a date or have no fixed date.
+
+        ponytail: counted in Python over three columns, like Notices. Fine to tens of thousands of obligations;
+        past that, a SQL CASE over the JSON."""
+        rows = self.db.execute(
+            visible_obligations(user).with_only_columns(Obligation.status, Obligation.due_date, Obligation.metadata_json)
+        ).all()
+        by_status = {s: 0 for s in ("open", "due_soon", "overdue", "completed", "cancelled")}
+        for row in rows:
+            by_status[row.status] = by_status.get(row.status, 0) + 1
+        dates = date_counts(rows)
+        return {
+            "total": len(rows),
+            "by_status": by_status,
+            "dates": {state: dates[state] for state in STATES},
+            "needs_date": dates["needs_date"],
+            "line": date_summary(dates),
+        }
 
     def serialize_one(self, ob) -> dict:
         """Single-obligation enrichment (get/update/complete) — one extra lookup."""
@@ -547,12 +711,37 @@ class ObligationsService:
     def update_obligation(self, *, ob: Obligation, payload, current_user: User) -> dict:
         db = self.db
         updates = payload.model_dump(exclude_unset=True)
+        expected = updates.pop("expected_updated_at", None)
+        # Take the row lock and read the row as it is NOW: this request loaded it before anyone else's
+        # save or the re-extraction job committed, and its metadata is rewritten from this copy.
+        db.refresh(ob, with_for_update=True)
+        if ob.deleted_at is not None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Obligation not found")
+        if expected is not None and ob.updated_at is not None and ob.updated_at.isoformat() != expected:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This obligation was changed since you opened it. Reload and try again.",
+            )
+        reopening = updates.get("status") not in (None, *_CLOSED)
+        if ob.status in _CLOSED and not reopening and {"due_date", "anchor_date", "confirm"} & updates.keys():
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                "This obligation is closed; reopen it before changing its date.",
+            )
         if "owner_user_id" in updates and updates["owner_user_id"] is not None:
             owner = db.get(User, updates["owner_user_id"])
             if owner is None or owner.org_id != current_user.org_id:
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_CONTENT,
                     "Owner user must belong to this organization",
+                )
+            # An owner who cannot open the contract would be emailed about it and could not act on it.
+            if owner.status != UserStatus.ACTIVE or not ContractAccessService(db).user_can_access_contract(
+                contract=db.get(Contract, ob.contract_id), user=owner
+            ):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    "That user is not active or cannot open this contract",
                 )
         anchor_date_set = "anchor_date" in updates
         anchor_date = updates.pop("anchor_date", None)
@@ -638,38 +827,99 @@ class ObligationsService:
         db.refresh(ob)
         return self.serialize_one(ob)
 
-    def trigger_extraction(self, *, contract_id: str, current_user: User) -> dict:
-        db = self.db
-        contract = get_contract_for_user(db, contract_id=contract_id, user=current_user)
-        from app.contract_files.models import ContractTextSnapshot, ContractVersion
+    def extraction_job(self, *, contract: Contract, user: User, suffix: str = "manual") -> tuple[JobRun, bool, bool]:
+        """The job that will (re)read this contract's current version, shared by the Retry button and the assistant's
+        extract tool so the two cannot differ: `(job, existed, in_flight)`.
 
-        version = (
-            db.get(ContractVersion, contract.current_authoritative_version_id)
-            if contract.current_authoritative_version_id
-            else None
-        )
-        snapshot = (
-            db.get(ContractTextSnapshot, version.text_snapshot_id)
-            if version and version.text_snapshot_id
-            else None
-        )
+        Refuses (409) when the version was already read, or the last attempt was cancelled a moment ago. When a job
+        is already on its way it is returned as it is (`in_flight`), so a second request stacks nothing. Otherwise it
+        returns the job that ended badly (failed, cancelled, lost, died), made restartable, or a new one when there
+        is none; the caller dispatches it. `contract` must already be one the user may edit."""
+        db = self.db
+        from app.contract_files.models import ContractTextSnapshot, ContractVersion
+        from app.jobs.tasks import JOB_LEASE
+        from app.obligations.extraction_audit import dead, version_jobs
+
+        version = db.get(ContractVersion, contract.current_authoritative_version_id) if contract.current_authoritative_version_id else None
+        snapshot = db.get(ContractTextSnapshot, version.text_snapshot_id) if version and version.text_snapshot_id else None
         if version is None or snapshot is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "Contract has no extractable authoritative version")
-        job = create_job(
+        from app.obligations.extraction_audit import has_text_clause
+
+        if not db.scalar(select(has_text_clause()).where(ContractTextSnapshot.id == snapshot.id)):
+            # The page shows "no readable text" and no Retry button for this: a read would be paid for and change nothing.
+            raise HTTPException(status.HTTP_409_CONFLICT, "The contract has no readable text, so there is nothing to read.")
+        jobs = version_jobs(db, contract=contract, version_id=version.id)
+        if any(j.status == JobStatus.SUCCEEDED for j in jobs):
+            # Not a silent no-op: whoever asked must be told why nothing happened. A changed document is a new
+            # version, and a new version is read again.
+            raise HTTPException(status.HTTP_409_CONFLICT, "Obligations were already read for this version.")
+        now = utcnow()
+        in_flight = [j for j in jobs if j.status in (JobStatus.QUEUED, JobStatus.RUNNING) and not dead(j, now, JOB_LEASE)]
+        if in_flight:  # already on its way: a second request must not stack another
+            return in_flight[-1], True, True
+        job = jobs[-1] if jobs else None
+        if job is None:
+            job = create_job(
+                db,
+                org_id=user.org_id,
+                job_type="obligation_extraction",
+                resource_type="contract",
+                resource_id=contract.id,
+                created_by_user_id=user.id,
+                idempotency_key=f"obligation_extraction:{version.id}:{snapshot.id}:{suffix}",
+                metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
+            )
+            db.flush()  # the id is assigned here; an audit row written next must name the job it started
+        elif job.status == JobStatus.CANCELLED:
+            # Cancelling only flips the status: a worker that had already started may still be finishing, and a new
+            # run beside it would pay twice.
+            if job.started_at is not None and job.started_at > now - JOB_LEASE:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    "That reading was cancelled a moment ago and may still be finishing. Try again in a few minutes.",
+                )
+            job.status = JobStatus.FAILED  # dispatch_job restarts only FAILED
+        elif job.status == JobStatus.RUNNING:
+            job.status = JobStatus.FAILED  # its worker died (it is past its lease): dispatch_job restarts only FAILED
+        elif job.status == JobStatus.QUEUED:
+            job.celery_task_id = None  # lost: it was dispatched once and never started, so it must be sent again
+        return job, bool(jobs), False
+
+    def trigger_extraction(self, *, contract_id: str, current_user: User) -> dict:
+        db = self.db
+        contract = get_contract_for_user(db, contract_id=contract_id, user=current_user, edit=True)
+        job, existed, in_flight = self.extraction_job(contract=contract, user=current_user)
+        if in_flight:
+            return {"job_id": job.id, "status": job.status, "started": False}
+        write_audit_log(
             db,
-            org_id=current_user.org_id,
-            job_type="obligation_extraction",
+            action="obligation.extraction_requested",
             resource_type="contract",
             resource_id=contract.id,
-            created_by_user_id=current_user.id,
-            idempotency_key=f"obligation_extraction:{version.id}:{snapshot.id}:manual",
-            metadata={"contract_version_id": version.id, "text_snapshot_id": snapshot.id},
+            org_id=current_user.org_id,
+            actor_user_id=current_user.id,
+            after={
+                "job_id": job.id, "contract_version_id": contract.current_authoritative_version_id,
+                "restarted_existing": existed,
+            },
+        )
+        write_timeline_event(
+            db,
+            org_id=current_user.org_id,
+            resource_type="contract",
+            resource_id=contract.id,
+            event_type="contract.obligations_extraction_requested",
+            title="Obligation extraction restarted" if existed else "Obligation extraction requested",
+            actor_user_id=current_user.id,
+            job_id=job.id,
+            details={"contract_version_id": contract.current_authoritative_version_id},
         )
         db.commit()
         job = db.get(JobRun, job.id)
         dispatch_job(db, job=job)
         db.commit()
-        return {"job_id": job.id, "status": job.status}
+        return {"job_id": job.id, "status": job.status, "started": True}
 
     async def run_reminders(self, *, current_user: User, request_id: str | None) -> dict:
         db = self.db
@@ -679,6 +929,7 @@ class ObligationsService:
             select(Obligation).where(
                 Obligation.org_id == current_user.org_id,
                 Obligation.deleted_at.is_(None),
+                Obligation.contract_id.in_(live_contract_ids()),
                 Obligation.status.in_(["open", "due_soon", "overdue"]),
                 Obligation.due_date.is_not(None),
             )
@@ -694,41 +945,13 @@ class ObligationsService:
             else:
                 ob.status = "open"
 
-        due_reminders = db.scalars(
-            select(ObligationReminder).where(
-                ObligationReminder.org_id == current_user.org_id,
-                ObligationReminder.sent_at.is_(None),
-                ObligationReminder.remind_at <= today,
-            )
-        ).all()
-        sent = 0
-        failed = 0
-        for reminder in due_reminders:
-            ob = db.get(Obligation, reminder.obligation_id)
-            if ob is None or ob.deleted_at is not None or ob.status in {"completed", "cancelled"}:
-                continue
-            owner = db.get(User, ob.owner_user_id) if ob.owner_user_id else None
-            if owner is not None:
-                # Don't leak the raw obligation text (an extracted contract excerpt /
-                # possible PII) into the email body. Send a minimal notice — type +
-                # due date — and point the owner to the app to read the detail behind
-                # the auth boundary.
-                subject, html = reminder_email(ob)
-                try:
-                    await self.resend.send_email(to=owner.email, subject=subject, html=html)
-                except Exception:
-                    # A single failed send must not abort the whole reminder sweep or
-                    # roll back the status recomputation above. Skip marking this one
-                    # as sent so it is retried on the next run.
-                    logger.exception(
-                        "obligation reminder email failed",
-                        extra={"obligation_id": ob.id, "reminder_id": reminder.id},
-                    )
-                    failed += 1
-                    continue
-            reminder.sent_at = today
-            reminder.updated_by_user_id = current_user.id
-            sent += 1
+        # The status recompute is committed on its own, as the nightly job does, so a slow email batch
+        # neither loses it nor holds its row locks while it sends.
+        db.commit()
+        result = await send_due_reminders(
+            db, self.resend, today=today, org_id=current_user.org_id, actor_user_id=current_user.id
+        )
+        sent, failed = result["reminders_sent"], result["reminders_failed"]
         write_audit_log(
             db,
             action="obligation.reminders_run",
@@ -740,14 +963,14 @@ class ObligationsService:
             after={
                 "reminders_sent": sent,
                 "reminders_failed": failed,
+                "reminders_skipped": result["reminders_skipped"],
                 "overdue": overdue,
                 "due_soon": due_soon,
             },
         )
         db.commit()
         return {
-            "reminders_sent": sent,
-            "reminders_failed": failed,
+            **result,
             "marked_overdue": overdue,
             "marked_due_soon": due_soon,
         }

@@ -45,6 +45,7 @@ from sqlalchemy.orm import Session
 from app.ai.agent_catalog import UNTRUSTED_INPUT_GUARD
 from app.ai.gateway.features import AIFeature, FeatureRegistry, PromptLayout, feature_registry
 from app.ai.gateway.ledger import AICallContext, record_call
+from app.ai.outcomes import Outcome, failure_from_exception, ledger_text
 from app.ai.prompt_versions import PromptBundle, get_active_prompt_bundle
 from app.core.config import settings
 from app.core.enums import AICallStatus, AIValidationStatus
@@ -63,7 +64,14 @@ class AIGatewayError(Exception):
 
 
 class AIOutputInvalid(AIGatewayError):
-    """Claude answered, but not with something the feature can use."""
+    """Claude answered, but not with something the feature can use. ``outcome`` says which way it failed
+    (truncated, refused or unusable; app/ai/outcomes.py) and ``stop_reason`` is what the reply ended with."""
+
+    def __init__(self, message: str, *, feature_key: str, call_id: str | None,
+                 outcome: Outcome = Outcome.UNUSABLE, stop_reason: str | None = None) -> None:
+        super().__init__(message, feature_key=feature_key, call_id=call_id)
+        self.outcome = outcome
+        self.stop_reason = stop_reason
 
 
 @dataclass(frozen=True)
@@ -164,6 +172,9 @@ class AIGateway:
     # -- steps 6-8 -------------------------------------------------------
     def _record_failure(self, db: Session, plan: _Plan, ctx: AICallContext, log_input: dict, exc: Exception, started: float) -> None:
         try:
+            # The class name was all a failed row kept. Now it also says which way it failed, in a plain
+            # sentence, with the provider's status code and request id (what support asks for).
+            failure = failure_from_exception(exc)
             record_call(
                 sessions=self._ledger_sessions, on=plan.record_on,
                 feature=plan.feature,
@@ -173,7 +184,9 @@ class AIGateway:
                 log_input=log_input,
                 status=AICallStatus.FAILED,
                 validation_status=AIValidationStatus.NOT_VALIDATED,
+                validation_error=ledger_text(failure),
                 error_class=type(exc).__name__,
+                provider_request_id=failure.get("request_id"),
                 latency_ms=(time.perf_counter() - started) * 1000,
             )
         except Exception:
@@ -185,9 +198,16 @@ class AIGateway:
     ) -> AIResult:
         feature = plan.feature
         error: str | None = None
+        outcome = Outcome.UNUSABLE
         data: Any = None
         if response.stop_reason == "max_tokens":
-            error = f"answer cut off at max_tokens ({plan.max_tokens})"
+            error, outcome = f"answer cut off at max_tokens ({plan.max_tokens})", Outcome.TRUNCATED
+        elif response.stop_reason is None:
+            # A stream that ends without its stop signal was cut by the connection. The SDK hands back whatever it
+            # had gathered (half a tool call reads as a valid-looking dict), so it must not pass as an answer.
+            error = "the reply ended without a stop signal (the connection was cut)"
+        elif response.stop_reason == "refusal":
+            error, outcome = "the model declined to answer", Outcome.REFUSED
         else:
             block = next((b for b in response.tool_use_blocks if b.get("name") == feature.tool_name), None)
             raw = block.get("input") if block else None
@@ -205,9 +225,10 @@ class AIGateway:
             row = record_call(
                 sessions=self._ledger_sessions, on=plan.record_on, feature=feature, ctx=ctx, prompt=plan.prompt, model=plan.model, log_input=log_input,
                 status=AICallStatus.VALIDATION_FAILED, validation_status=AIValidationStatus.INVALID,
-                response=response, validation_error=error,
+                response=response, validation_error=f"{outcome.value}: {error}",
             )
-            raise AIOutputInvalid(f"{feature.key}: {error}", feature_key=feature.key, call_id=row.id)
+            raise AIOutputInvalid(f"{feature.key}: {error}", feature_key=feature.key, call_id=row.id,
+                                  outcome=outcome, stop_reason=response.stop_reason)
 
         validated = data.model_dump(mode="json") if isinstance(data, BaseModel) else data
         row = record_call(

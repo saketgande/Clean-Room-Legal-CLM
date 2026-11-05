@@ -1,0 +1,1 @@
+{"task": "T006", "agent": "frontend-dev", "status": "done", "detail": "P2-1 fixed: needsDraftAnswers + RequestAnswers read a missing paper as Our template (editor offered, saved with paper: Our template); typecheck clean (2 stale .next errors); vitest 65 files / 1750 tests", "updated": "2026-10-15T16:50:15Z"}

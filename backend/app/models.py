@@ -53,7 +53,11 @@ from app.core.models import (
     ResourceTimelineEvent,
     UsageRecord,
 )
-from app.drafting_templates.models import DraftingTemplateVersion
+from app.drafting_templates.models import (
+    DraftingTemplateCheck,
+    DraftingTemplateType,
+    DraftingTemplateVersion,
+)
 from app.grants.models import ResourceGrant
 from app.intake.models import (
     IntakeDocument,
@@ -133,6 +137,8 @@ __all__ = [
     "Counterparty",
     "Delegation",
     "DocumentExtract",
+    "DraftingTemplateCheck",
+    "DraftingTemplateType",
     "DraftingTemplateVersion",
     "EthicalWall",
     "EthicalWallPrincipal",

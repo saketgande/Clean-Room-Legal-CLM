@@ -138,7 +138,7 @@ def quiet_intake(monkeypatch):
     # Both are IntakeService methods since the DI refactor.
     monkeypatch.setattr(intake.IntakeService, "_next_ref", lambda self: "REQ-1")
     monkeypatch.setattr(
-        intake.IntakeService, "serialize_request", lambda self, r: {"id": r.id, "ai_triage": r.ai_triage}
+        intake.IntakeService, "serialize_request", lambda self, r, *a, **k: {"id": r.id, "ai_triage": r.ai_triage}
     )
 
 

@@ -1,14 +1,16 @@
 """The NDA's first recital reads as a sentence whatever the purpose was typed as (round 2, bug 49).
 
-The template says "The Parties wish to {purpose_phrase} (the "Purpose")." and the form's purpose is a free-text
+The template says "The Parties wish to {purpose_phrase} (the "Purpose")." and a purpose was a free-text
 answer to "What is this agreement for?", so "Managed hosting services." came out as
-"The Parties wish to Managed hosting services.".
+"The Parties wish to Managed hosting services.". That question is gone from the form, so new requests
+always draft the fallback wording; requests filed before it went still carry a purpose and must keep using it.
 """
 
 from __future__ import annotations
 
 import pytest
 
+from app.intake.agreement_forms import form_fields
 from app.intake.drafting import render_document
 
 
@@ -42,3 +44,8 @@ def test_the_recital_is_still_a_single_paragraph_after_it():
     text = render_document("nda", company="Us Ltd", counterparty="Them Ltd", effective="x", fields={"purpose": "A\nB"})
     lines = text.splitlines()
     assert lines[lines.index(next(line for line in lines if line.startswith("A. "))) + 1] == ""
+
+
+def test_the_new_agreement_form_no_longer_asks_what_the_agreement_is_for():
+    """A question put back on the form would start filling the recital again with text nobody reviewed."""
+    assert "purpose" not in {f.key for f in form_fields("new_agreement")}

@@ -1,0 +1,1 @@
+{"task": "T004", "agent": "backend-dev", "status": "done", "detail": "docx_fields.py + test_docx_fields.py done: 58 tests pass, ruff clean (whole backend); engine not wired to any route", "updated": "2026-10-15T07:50:20Z"}

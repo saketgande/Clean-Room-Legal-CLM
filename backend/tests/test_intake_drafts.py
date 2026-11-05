@@ -92,3 +92,22 @@ def test_unknown_form_is_refused(db, users):
     with pytest.raises(HTTPException) as exc:
         drafts.save(db, actor=users[0], payload=_payload(form_key="not_a_form"))
     assert exc.value.status_code == 422
+
+
+def test_summary_box_round_trips_and_is_replaced(db, users):
+    """The defect: a half-edited summary box vanished on resume. It must come back as saved, and a
+    later save must replace it rather than merge."""
+    me = users[0]
+    box = {"edits": {}, "offers": [], "instructions": [{"text": "Copy procurement", "differs": []}],
+           "accepted": [], "pending": "half typed"}
+    saved = drafts.save(db, actor=me, payload=_payload(summary_box=box))
+    listed = next(d for d in drafts.list_mine(db, actor=me) if d["id"] == saved["id"])
+    assert listed["summary_box"] == box
+    again = drafts.save(db, actor=me, payload=_payload(summary_box={"pending": "x"}), draft_id=saved["id"])
+    assert again["summary_box"] == {"pending": "x"}
+
+
+def test_a_draft_saved_without_a_summary_box_has_none(db, users):
+    """Older clients send no summary_box; the draft must save and read back null, not fail."""
+    saved = drafts.save(db, actor=users[0], payload=_payload())
+    assert saved["summary_box"] is None

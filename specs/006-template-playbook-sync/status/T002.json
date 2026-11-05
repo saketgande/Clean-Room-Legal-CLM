@@ -1,0 +1,1 @@
+{"task": "T002", "agent": "frontend-dev", "status": "done", "detail": "types.ts, endpoints.ts, lib/templates.ts + 36 unit tests done; typecheck errors only in old templates page files (expected); full suite 61 files / 896 tests pass", "updated": "2026-10-15T07:40:10Z"}

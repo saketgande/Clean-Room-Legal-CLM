@@ -1,0 +1,1576 @@
+{
+  "date": "2026-10-27",
+  "batch": "20037dfd-2fbd-43ab-b5be-c3670d3ab73c",
+  "as": "admin@example.com",
+  "runs_per_combination": 3,
+  "runs": [
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|mutual|nda_term=3 years|governing_law=India|personal_data=No|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/We share|nda_term=2 years|governing_law=England and Wales|personal_data=Yes|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "governing_law_and_jurisdiction",
+          "severity": "medium",
+          "issue": "The governing law clause selects 'the laws of the State of Delaware' \u2014 this uses the prohibited phrase 'the State of' in the governing law selection, and Delaware is not one of the preferred governing law choices (Indian law, England and Wales, Singapore, New York, or Delaware as a named jurisdiction without the 'State of' formulation). The jurisdiction clause itself (courts at Aegis Pharma Ltd's registered office city) meets the preferred position, but the governing law selection deviates from the preferred list and uses prohibited phrasing.",
+          "quote": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "quote_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "governing_law_and_jurisdiction",
+          "severity": "medium",
+          "issue": "The governing law clause selects 'the laws of the State of Delaware' \u2014 this uses the prohibited phrase 'the State of' in the governing law selection, and Delaware is not one of the preferred governing law choices (Indian law, England and Wales, Singapore, New York, or Delaware as a named jurisdiction without the 'State of' formulation). The jurisdiction clause itself (courts at Aegis Pharma Ltd's registered office city) meets the preferred position, but the governing law selection deviates from the preferred list and uses prohibited phrasing.",
+          "quote": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "quote_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "nda",
+      "combination": "nda|one-way/They share|nda_term=5 years|governing_law=Delaware|personal_data=No|ctx=foreign",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "governing_law_and_jurisdiction",
+          "severity": "medium",
+          "issue": "The governing law clause selects 'the laws of the State of Delaware' \u2014 this uses the prohibited phrase 'the State of' in the governing law selection, and Delaware is not one of the preferred governing law choices (Indian law, England and Wales, Singapore, New York, or Delaware as a named jurisdiction without the 'State of' formulation). The jurisdiction clause itself (courts at Aegis Pharma Ltd's registered office city) meets the preferred position, but the governing law selection deviates from the preferred list and uses prohibited phrasing.",
+          "quote": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "quote_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of the State of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggested_fix_template": "This Agreement and any dispute arising out of or in connection with it are governed by the laws of Delaware, without regard to its conflict of laws principles.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 2,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The liability cap is calculated on fees paid or payable 'under this Agreement' in the preceding 12 months, not on fees paid or payable 'in the preceding 12 months' as the preferred position requires; because the Agreement has a stated ceiling of INR 4,500,000 the cap could be measured against the full contract value rather than a rolling 12-month slice, potentially exposing the Customer to a higher cap than intended. Legal Counsel approval is required.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable under this Agreement in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable under this Agreement for the first twelve (12) months after the Effective Date.",
+          "suggested_fix": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggested_fix_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the greater of (a) the total Fees paid or payable in the twelve (12) months immediately preceding the event giving rise to the claim and (b) the total Fees payable for the first twelve (12) months after the Effective Date.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 4,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "Clause 6.3A references the Micro, Small and Medium Enterprises Development Act, 2006 and the 45-day payment obligation for MSMED-registered suppliers, satisfying the required language. However, the required language 'Micro, Small and Medium Enterprises Development Act, 2006' appears only in Clause 6.3A and not in the body of the main payment clause (6.3), and the clause does not expressly state that the 45-day MSMED limit overrides any longer period that might be set in a Statement of Work. This creates a gap in MSMED compliance visibility for SOW-level payment schedules.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in Clause 6.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in Clause 6.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Notwithstanding any period stated in a Statement of Work or elsewhere in this Agreement, the Customer shall pay each valid, undisputed invoice from such a Provider within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this period shall prevail over any longer period in a Statement of Work.",
+          "suggested_fix_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Notwithstanding any period stated in a Statement of Work or elsewhere in this Agreement, the Customer shall pay each valid, undisputed invoice from such a Provider within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this period shall prevail over any longer period in a Statement of Work.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 2,
+          "rule_index": 8,
+          "clause_type": "service_levels",
+          "severity": "low",
+          "issue": "Clause 5.3 states that service credits 'are without prejudice to the Customer's other rights and remedies,' which is consistent with the playbook. However, the clause does not contain the prohibited phrase 'sole and exclusive remedy' \u2014 no prohibited language issue. The 15% monthly cap and termination right for repeated/critical failure are present. One residual concern: Clause 5.3 describes credits as 'a price adjustment reflecting the reduced value of the Services, not an estimate of loss' \u2014 this characterisation could be read as limiting the Customer's ability to claim damages beyond the credit, which approaches the prohibited 'sole and exclusive remedy' concept in practical effect, even though the exact phrase is absent.",
+          "quote": "Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.",
+          "quote_template": "Service credits shall be deducted from the next invoice and are a price adjustment reflecting the reduced value of the Services, not an estimate of loss, and are without prejudice to the Customer's other rights and remedies.",
+          "suggested_fix": "Service credits shall be deducted from the next invoice. They are without prejudice to the Customer's other rights and remedies, including the right to claim damages.",
+          "suggested_fix_template": "Service credits shall be deducted from the next invoice. They are without prejudice to the Customer's other rights and remedies, including the right to claim damages.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=45 days|term=Fixed end date|personal_data=No|gxp=No|currency=INR|value=given|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The professional indemnity and cyber liability insurance limits are stated as USD 600,000 per claim and in the aggregate. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). The fees currency is USD (Clause 6.6), so a USD equivalent is permissible, but USD 600,000 is approximately INR 5 crore only at a specific exchange rate and is not expressed as such; if the INR/USD rate moves, the cover may fall below the required floor. No escalation is required by the rule, but the amount should be confirmed or expressed as the higher of USD 600,000 and INR 5 crore (or its USD equivalent at the date of each renewal).",
+          "quote": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "suggested_fix": "professional indemnity (errors and omissions) insurance with a limit of not less than the higher of INR 5,00,00,000 (Indian Rupees five crore) and USD 600,000 (or the equivalent in the currency of the Fees at the date of each annual renewal) per claim, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than the higher of INR 5,00,00,000 (Indian Rupees five crore) and USD 600,000 (or the equivalent in the currency of the Fees at the date of each annual renewal) per claim",
+          "suggested_fix_template": "professional indemnity (errors and omissions) insurance with a limit of not less than the higher of INR 5,00,00,000 (Indian Rupees five crore) and USD 600,000 (or the equivalent in the currency of the Fees at the date of each annual renewal) per claim, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than the higher of INR 5,00,00,000 (Indian Rupees five crore) and USD 600,000 (or the equivalent in the currency of the Fees at the date of each annual renewal) per claim",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The governing law is Indian law (preferred position met), but the arbitration seat is Singapore under SIAC Rules. The playbook's preferred position for an Indian provider is an Indian seat under an Indian institution (e.g., MCIA); SIAC/Singapore is only the preferred position for a provider outside India. Globex Corporation's place of incorporation or domicile is not stated in the contract, so it cannot be confirmed whether the Singapore seat meets the preferred or fallback position. If Globex is an Indian entity, this deviates from the preferred position and requires Legal Counsel approval. Senior counsel should confirm Globex's domicile before execution.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If Globex Corporation is an Indian entity: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is [Mumbai / the city of the Customer's registered office], the language is English, and the award is final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.\"\n\nIf Globex Corporation is a provider outside India, the current wording meets the preferred position and no change is required.",
+          "suggested_fix_template": "If {counterparty} is an Indian entity: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is [Mumbai / the city of the Customer's registered office], the language is English, and the award is final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.\"\n\nIf {counterparty} is a provider outside India, the current wording meets the preferred position and no change is required.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The professional indemnity and cyber liability insurance limits are stated as USD 600,000 per claim and in the aggregate. The playbook requires at least INR 5 crore per claim (approximately USD 600,000 at current rates, but the INR equivalent fluctuates and the contract is denominated in USD without an INR floor). More critically, the cover is expressed as 'per claim and in the aggregate', meaning aggregate exposure is also capped at USD 600,000 \u2014 the playbook preferred position requires a per-claim amount and permits 'and in the aggregate' alongside it, so the per-claim amount is met. However, the playbook requires the amount to be at least INR 5 crore or the equivalent in the currency of the fees; the contract states USD 600,000 without tying it to INR 5 crore equivalence, creating a currency-mismatch risk if the INR depreciates. Additionally, the prohibited phrase 'limits of cover appropriate to' does not appear. The per-claim structure is present. This is a borderline fallback: the USD amount may be below INR 5 crore depending on exchange rates, and no INR floor or equivalence mechanism is stated.",
+          "quote": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "suggested_fix": "professional indemnity (errors and omissions) insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the RBI reference rate on the date of each renewal), or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the RBI reference rate on the date of each renewal)",
+          "suggested_fix_template": "professional indemnity (errors and omissions) insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the RBI reference rate on the date of each renewal), or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the RBI reference rate on the date of each renewal)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The contract is governed by the laws of India (meeting the required language). However, Clause 19.3 provides for SIAC arbitration seated in Singapore. The playbook preferred position permits SIAC/Singapore only for a provider outside India; for an Indian provider, an Indian institution seated in a named Indian city is preferred. Globex Corporation's domicile is not stated in the contract. If Globex is an Indian entity, the Singapore seat deviates from the preferred position and requires Legal Counsel approval. The prohibited phrase 'exclusive jurisdiction of the courts of' does not appear. This is assessed as a fallback (SIAC/Singapore is the playbook's named fallback for a non-Indian provider) pending confirmation of Globex's domicile; Legal Counsel approval is required given the approval flag on this rule.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If Globex Corporation is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [named Indian city], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996. If Globex Corporation is a non-Indian entity: the existing SIAC/Singapore wording meets the playbook fallback and may be retained subject to Legal Counsel approval.",
+          "suggested_fix_template": "If {counterparty} is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [named Indian city], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996. If {counterparty} is a non-Indian entity: the existing SIAC/Singapore wording meets the playbook fallback and may be retained subject to Legal Counsel approval.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "msa",
+      "combination": "msa|payment_terms=60 days|term=Renews automatically/2 years/30 days|personal_data=Yes|gxp=Yes|currency=USD|value=given|ctx=foreign",
+      "run": 3,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The contract seats arbitration in Singapore under SIAC Rules, which the playbook permits only for a provider outside India. Globex Corporation's domicile or place of incorporation is not stated anywhere in the contract, so it cannot be confirmed that the SIAC/Singapore seat is permissible; if Globex is an Indian entity, this deviates from the preferred position (Indian institution, Indian seat) and requires Legal Counsel approval.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If the Provider is incorporated or resident in India: 'Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Customer's registered office], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.' If the Provider is outside India, the existing SIAC/Singapore wording is permissible subject to Legal Counsel approval.",
+          "suggested_fix_template": "If the Provider is incorporated or resident in India: 'Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Customer's registered office], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.' If the Provider is outside India, the existing SIAC/Singapore wording is permissible subject to Legal Counsel approval.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 4,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The general payment period is 60 days from receipt of a valid, undisputed invoice, which is the playbook's fallback position (not the preferred 45-day period); this favours the Customer as payer but still requires tracking as a fallback.",
+          "quote": "The Customer shall pay valid, undisputed invoices within 60 days of receipt.",
+          "quote_template": "The Customer shall pay valid, undisputed invoices within 60 days of receipt.",
+          "suggested_fix": "The Customer shall pay valid, undisputed invoices within forty-five (45) days of receipt.",
+          "suggested_fix_template": "The Customer shall pay valid, undisputed invoices within forty-five (45) days of receipt.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 2,
+          "rule_index": 7,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "Professional indemnity and cyber liability insurance limits are stated as USD 600,000 per claim 'and in the aggregate', whereas the playbook requires at least INR 5 crore per claim (approximately USD 600,000 at current rates but subject to exchange-rate movement). The 'and in the aggregate' qualifier for professional indemnity is expressly permitted by the playbook, so that element is not a deviation. However, the USD denomination means the INR 5 crore floor may not be met if the USD/INR rate moves, and the playbook requires the equivalent in the currency of the fees (here USD), so the amount must equal INR 5 crore or more in USD at the time of the contract. At an exchange rate of approximately INR 83\u201384 per USD, INR 5 crore equals approximately USD 595,000\u2013600,000, making USD 600,000 marginally compliant but with no buffer. This is a low-severity tracking item.",
+          "quote": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity (errors and omissions) insurance with a limit of not less than USD 600,000 per claim and in the aggregate, or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than USD 600,000 per claim",
+          "suggested_fix": "professional indemnity (errors and omissions) insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the rate published by the Reserve Bank of India on the Effective Date), or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the rate published by the Reserve Bank of India on the Effective Date)",
+          "suggested_fix_template": "professional indemnity (errors and omissions) insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the rate published by the Reserve Bank of India on the Effective Date), or any higher amount specified in a Statement of Work; and (c) where it processes Personal Data or has access to the Customer's systems, cyber liability insurance with a limit of not less than INR 5,00,00,000 (Indian Rupees Five Crore) per claim (or the equivalent in USD at the rate published by the Reserve Bank of India on the Effective Date)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Fixed fee|personal_data=No|gxp=No|currency=INR|parent=chosen|signer=named",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "medium",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories rather than granular, defined work items; this creates ambiguity about what is actually in scope and increases dispute risk over deliverable boundaries.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a numbered list of discrete work items, each with a description of the specific activity, the responsible party, and any measurable output. For example:\n\n4.2 Services. The Provider shall perform the following Services:\n(a) User research: conduct [X] user interviews and produce a research findings report;\n(b) Visual design: deliver wireframes and high-fidelity mockups for [Y] portal screens;\n(c) Build: develop and unit-test the portal in accordance with the technical specification agreed in writing by the Parties;\n(d) Testing: conduct integration and user-acceptance testing against the acceptance criteria in Clause 6.1;\n(e) Launch support: provide [Z] weeks of hypercare support following go-live.\n\nAny activity not listed above is out of scope.",
+          "suggested_fix_template": "Replace with a numbered list of discrete work items, each with a description of the specific activity, the responsible party, and any measurable output. For example:\n\n4.2 Services. The Provider shall perform the following Services:\n(a) User research: conduct [X] user interviews and produce a research findings report;\n(b) Visual design: deliver wireframes and high-fidelity mockups for [Y] portal screens;\n(c) Build: develop and unit-test the portal in accordance with the technical specification agreed in writing by the Parties;\n(d) Testing: conduct integration and user-acceptance testing against the acceptance criteria in Clause 6.1;\n(e) Launch support: provide [Z] weeks of hypercare support following go-live.\n\nAny activity not listed above is out of scope.",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "medium",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories (user research, visual design, build, testing, launch support) without specifying the detailed work to be performed under each category, the methodology, volume, or any measurable definition of 'done' beyond the Deliverable descriptions in Clause 4.3. This creates a meaningful risk of scope disputes about what work is included within the fixed fee, which could require Legal Counsel escalation.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a detailed description of each service activity, for example: 'The Provider shall perform the following Services: (a) User Research: [describe scope, number of user interviews/sessions, research methods, outputs]; (b) Visual Design: [describe deliverables, number of design iterations, design system scope]; (c) Build: [describe technology stack, components to be built, integration points]; (d) Testing: [describe testing types, environments, pass/fail criteria]; (e) Launch Support: [describe duration, activities, handover scope].' Each activity description must be specific enough that both Parties can determine without dispute whether the work is in or out of scope.",
+          "suggested_fix_template": "Replace with a detailed description of each service activity, for example: 'The Provider shall perform the following Services: (a) User Research: [describe scope, number of user interviews/sessions, research methods, outputs]; (b) Visual Design: [describe deliverables, number of design iterations, design system scope]; (c) Build: [describe technology stack, components to be built, integration points]; (d) Testing: [describe testing types, environments, pass/fail criteria]; (e) Launch Support: [describe duration, activities, handover scope].' Each activity description must be specific enough that both Parties can determine without dispute whether the work is in or out of scope.",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 3,
+          "clause_type": "fees_and_pricing",
+          "severity": "high",
+          "issue": "Clause 8.1 states the fixed fee is 'exclusive only of applicable taxes' but does not specify which taxes, the applicable tax rate, or the mechanism for determining and invoicing taxes. This ambiguity could result in disputed tax charges being added to the fixed fee without a change order, creating a bounded but meaningful financial exposure for the Customer (Aegis Pharma Ltd).",
+          "quote": "The total fee for the Services and Deliverables is USD 1,200,000.00, inclusive of all Provider costs and exclusive only of applicable taxes, payable in the instalments set out in Clause 9.1, each only after the Customer has accepted in writing the Deliverable it is linked to.",
+          "quote_template": "The total fee for the Services and Deliverables is USD 1,200,000.00, inclusive of all Provider costs and exclusive only of applicable taxes, payable in the instalments set out in Clause 9.1, each only after the Customer has accepted in writing the Deliverable it is linked to.",
+          "suggested_fix": "After 'exclusive only of applicable taxes' insert: ', being [specify applicable taxes, e.g., GST/HST/VAT as applicable under the law of the Master Agreement], which shall be invoiced separately at the applicable statutory rate and supported by a valid tax invoice. No other taxes, duties, levies or withholdings shall be added to the fixed fee.'",
+          "suggested_fix_template": "After 'exclusive only of applicable taxes' insert: ', being [specify applicable taxes, e.g., GST/HST/VAT as applicable under the law of the Master Agreement], which shall be invoiced separately at the applicable statutory rate and supported by a valid tax invoice. No other taxes, duties, levies or withholdings shall be added to the fixed fee.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "high",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories rather than a granular description of the real work to be performed; this creates ambiguity about what is actually in scope and increases dispute risk over deliverable content and out-of-scope claims.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a detailed description of the Services, specifying for each activity category (user research, visual design, build, testing, launch support) the specific tasks, methodologies, inputs, outputs, and any assumptions, so that the scope of work is unambiguous and any work not described is clearly out of scope.",
+          "suggested_fix_template": "Replace with a detailed description of the Services, specifying for each activity category (user research, visual design, build, testing, launch support) the specific tasks, methodologies, inputs, outputs, and any assumptions, so that the scope of work is unambiguous and any work not described is clearly out of scope.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Milestones|personal_data=Yes|gxp=No|currency=USD|parent=chosen|signer=named",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "medium",
+          "issue": "The Services description in Clause 4.2 uses a single high-level summary sentence ('Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support') rather than a granular, itemised description of the real work to be performed. This creates ambiguity about what activities are included, increasing the risk of scope disputes and overruns; no senior-counsel escalation is required but the scope should be expanded.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace Clause 4.2 with a numbered list of discrete activities, each describing the specific work to be performed, the method or approach, any applicable standards or constraints, and the team or role responsible. For example:\n\n4.2 Services. The Provider shall perform the following Services:\n(a) User research: [describe specific research activities, number of sessions, participants, outputs];\n(b) Visual design: [describe design artefacts, design system, number of rounds of review];\n(c) Build: [describe technology stack, components to be built, integration points];\n(d) Testing: [describe testing types, environments, entry and exit criteria];\n(e) Launch support: [describe go-live activities, duration of hypercare, support scope].",
+          "suggested_fix_template": "Replace Clause 4.2 with a numbered list of discrete activities, each describing the specific work to be performed, the method or approach, any applicable standards or constraints, and the team or role responsible. For example:\n\n4.2 Services. The Provider shall perform the following Services:\n(a) User research: [describe specific research activities, number of sessions, participants, outputs];\n(b) Visual design: [describe design artefacts, design system, number of rounds of review];\n(c) Build: [describe technology stack, components to be built, integration points];\n(d) Testing: [describe testing types, environments, entry and exit criteria];\n(e) Launch support: [describe go-live activities, duration of hypercare, support scope].",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 1,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "high",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories rather than a granular description of the real work; this creates ambiguity about what is actually in scope and increases dispute risk over deliverable boundaries.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggested_fix_template": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "high",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories rather than a granular description of the real work; this creates ambiguity about what is actually in scope and increases dispute risk over deliverable boundaries.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggested_fix_template": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "sow",
+      "combination": "sow|pricing=Time and materials|personal_data=No|gxp=No|currency=INR|parent=none|signer=blank",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 1,
+          "clause_type": "scope_and_deliverables",
+          "severity": "high",
+          "issue": "The Services description in Clause 4.2 is a single high-level sentence listing activity categories rather than a granular description of the real work; this creates ambiguity about what is actually in scope and increases dispute risk over deliverable boundaries.",
+          "quote": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "quote_template": "Redesign and rebuild the customer self-service portal, including user research, visual design, build, testing and launch support.",
+          "suggested_fix": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggested_fix_template": "Replace with a detailed description of the Services that specifies, for each activity category (user research, visual design, build, testing, launch support): the specific tasks to be performed, the inputs required, the outputs to be produced, and any applicable standards or constraints. For example: 'User research: conduct [X] stakeholder interviews and [Y] user sessions, produce a research findings report. Visual design: produce wireframes and high-fidelity mockups for [Z] screen templates to be agreed in writing before D1. Build: develop and unit-test the portal against the technical specification agreed in writing before D2. Testing: conduct functional, performance and accessibility testing against criteria agreed in writing before D2. Launch support: provide [N] days of hypercare support following go-live, as further described in D3.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract uses the 'no personal data expected' fallback path (Clause 7.2 says the parties do not expect personal data to be processed and will sign a DPA before any processing starts) rather than the preferred position of a DPA on the Company's template signed with this Agreement and applying from the Effective Date. This means there is no DPA in force from day one, creating a gap if personal data is inadvertently processed before a DPA is executed. Compliance escalation is required.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace Clause 7.2 with: \"A data processing agreement on the Company's standard template (the \"DPA\") is signed together with this Agreement, applies from the Effective Date, forms part of this Agreement and prevails over it on the processing of personal data. The Vendor shall not process any personal data until the DPA has been signed.\"",
+          "suggested_fix_template": "Replace Clause 7.2 with: \"A data processing agreement on the Company's standard template (the \"DPA\") is signed together with this Agreement, applies from the Effective Date, forms part of this Agreement and prevails over it on the processing of personal data. The Vendor shall not process any personal data until the DPA has been signed.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "The insurance clause does not include a professional indemnity insurance requirement. Although the Background indicates this is a goods supply agreement (making the professional indemnity line less immediately critical), the contract does not expressly exclude services, and Orders could include services. The absence of a stated professional indemnity amount means the playbook's required 'per claim' coverage for services is not addressed.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim. The Vendor shall provide evidence of cover on request.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 10,000,000 (one crore rupees) per claim and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than {insurance_minimum} per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix": "Add the following sentence after the cyber liability sentence: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity (errors and omissions) insurance of not less than INR 50,000,000 (five crore rupees) per claim for the term of this Agreement and one (1) year after it ends.\"",
+          "suggested_fix_template": "Add the following sentence after the cyber liability sentence: \"Where the Vendor supplies services under any Order, it shall also maintain professional indemnity (errors and omissions) insurance of not less than {insurance_minimum} per claim for the term of this Agreement and one (1) year after it ends.\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=45 days|buying=Goods|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 2,
+          "clause_type": "indemnification",
+          "severity": "medium",
+          "issue": "The indemnification clause does not expressly state that the Vendor controls the defence of third-party claims; Clause 10.2 gives the Company a right to participate with its own counsel and withholds settlement consent, but the Vendor's right to lead and control the defence is not stated, which is the fallback position under Rule 2 and leaves the defence-control mechanism ambiguous.",
+          "quote": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's consent (not to be unreasonably withheld). The Vendor shall not settle any claim in a way that imposes any obligation or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice.",
+          "quote_template": "The Company shall notify the Vendor promptly of any claim, provide reasonable cooperation at the Vendor's cost, and not settle the claim without the Vendor's consent (not to be unreasonably withheld). The Vendor shall not settle any claim in a way that imposes any obligation or admission on the Company without the Company's prior written consent. The Company may participate in the defence with counsel of its choice.",
+          "suggested_fix": "Insert after the first sentence of Clause 10.2: \"The Vendor shall have the right to assume sole control of the defence and settlement of any such claim, provided that the Vendor shall not settle any claim in a way that imposes any obligation, restriction or admission on the Company without the Company's prior written consent. The Company may, at its own cost, participate in the defence with counsel of its choice.\"",
+          "suggested_fix_template": "Insert after the first sentence of Clause 10.2: \"The Vendor shall have the right to assume sole control of the defence and settlement of any such claim, provided that the Vendor shall not settle any claim in a way that imposes any obligation, restriction or admission on the Company without the Company's prior written consent. The Company may, at its own cost, participate in the defence with counsel of its choice.\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "The insurance clause covers a services supplier (professional indemnity and cyber liability at INR 5 crore per claim) but does not include product liability or public liability insurance; if goods are ever supplied under an Order the preferred position requires product and public liability cover of at least the greater of the contract value and INR 1 crore per claim, and that cover is entirely absent from the contract.",
+          "quote": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, professional indemnity insurance with a limit of not less than INR 50,000,000 (five crore rupees) per claim and in the aggregate and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 50,000,000 (five crore rupees) per claim. The Vendor shall provide evidence of cover on request.",
+          "quote_template": "The Vendor shall maintain with reputable insurers, during the term of this Agreement and for one (1) year after it ends, professional indemnity insurance with a limit of not less than {insurance_minimum} per claim and in the aggregate and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than {insurance_minimum} per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix": "Add the following sentence to Clause 12.1 after the professional indemnity sentence: \"Where the Vendor supplies goods under any Order, it shall also maintain product liability and public liability insurance with a limit of not less than the greater of the total Fees payable under the relevant Order and INR 10,000,000 (one crore rupees) per claim.\"",
+          "suggested_fix_template": "Add the following sentence to Clause 12.1 after the professional indemnity sentence: \"Where the Vendor supplies goods under any Order, it shall also maintain product liability and public liability insurance with a limit of not less than the greater of the total Fees payable under the relevant Order and INR 10,000,000 (one crore rupees) per claim.\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=60 days|buying=Services|term=Renews automatically/1 year/30 days|personal_data=Yes|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 1,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The contract states the Parties do not expect personal data to be processed and requires a DPA on the Company's standard template before any processing starts, which meets the preferred position for a no-personal-data scenario. The 24-hour and 6-hour CERT-In breach notification windows are present. The Digital Personal Data Protection Act, 2023 is referenced in the definitions. However, the contract does not expressly require the DPA to be signed simultaneously with this Agreement or to apply from the Effective Date, and does not bar any processing of personal data until it is signed \u2014 the preferred position's specific safe-harbour wording ('A clause requiring our DPA to be signed with this Agreement, to apply from the Effective Date, and barring any processing of personal data until it is signed') is not met. This is a fallback position requiring Compliance escalation.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "Replace clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Parties shall sign a data processing agreement on the Company's standard template simultaneously with this Agreement, to apply from the Effective Date. The Vendor shall not process any personal data of the Company until that data processing agreement has been signed.\"",
+          "suggested_fix_template": "Replace clause 7.2 with: \"The Parties do not expect the Vendor to process personal data under this Agreement. The Parties shall sign a data processing agreement on the Company's standard template simultaneously with this Agreement, to apply from the Effective Date. The Vendor shall not process any personal data of the Company until that data processing agreement has been signed.\"",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause states amounts in EUR rather than INR. The playbook preferred position requires product and public liability of at least the greater of the contract value and INR 1 crore per claim, professional indemnity of at least INR 5 crore per claim, and cyber liability of at least INR 5 crore per claim. EUR 110,000 (approx. INR 1 crore) for product/public liability is borderline compliant on the floor but is not expressed as the greater of contract value and INR 1 crore. EUR 550,000 (approx. INR 5 crore) for professional indemnity and cyber liability is approximately equivalent to INR 5 crore at current rates but is denominated in EUR, creating currency risk. Additionally, professional indemnity is stated 'per claim and in the aggregate', whereas the playbook states that cover of the stated amount per claim (with or without 'and in the aggregate') meets the position \u2014 so the aggregate qualifier does not itself cause a deviation. The EUR denomination and the product/public liability floor not being expressed as the greater of contract value and INR 1 crore are deviations from the preferred position. The contract does meet the 'per claim' requirement and the 1-year post-term tail. This is assessed as a fallback.",
+          "quote": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "quote_template": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "suggested_fix": "Replace the insurance limits with: \"public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim; professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim; and, where the Vendor processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in the currency of the Fees at the rate published by the Reserve Bank of India on the Effective Date).\"",
+          "suggested_fix_template": "Replace the insurance limits with: \"public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim; professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim; and, where the Vendor processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in the currency of the Fees at the rate published by the Reserve Bank of India on the Effective Date).\"",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 2,
+          "rule_index": 11,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The contract is governed by Indian law (meeting the required language), but the arbitration seat is Singapore under SIAC Rules. The playbook preferred position permits SIAC/Singapore only for a provider outside India; for an Indian provider the preferred position requires an Indian institution (such as MCIA) seated in a named Indian city. The contract does not identify whether Globex Corporation is inside or outside India, so it cannot be confirmed that SIAC/Singapore is the correct fallback. If Globex Corporation is an Indian entity, this is a deviation from the preferred position requiring Legal Counsel approval. The prohibited language 'exclusive jurisdiction of the courts of', 'laws of the State of Delaware', and 'laws of the State of New York' are absent. This is assessed as a fallback (SIAC/Singapore is the named fallback for a non-Indian provider) pending confirmation of Globex Corporation's domicile; Legal Counsel approval is required.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If Globex Corporation is an Indian entity, replace with: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is [Mumbai / the city of the Company's registered office], the language is English, and the award is final and binding on the Parties.\" If Globex Corporation is confirmed to be outside India, the existing SIAC/Singapore clause meets the fallback position and no change is required.",
+          "suggested_fix_template": "If {counterparty} is an Indian entity, replace with: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is [Mumbai / the city of the Company's registered office], the language is English, and the award is final and binding on the Parties.\" If {counterparty} is confirmed to be outside India, the existing SIAC/Singapore clause meets the fallback position and no change is required.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 2,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 11,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The arbitration seat is Singapore under SIAC Rules, not an Indian institution/Indian city seat. For a vendor that may be Indian, this departs from the preferred position and requires Legal Counsel approval. The governing law is correctly Indian law, but the seat and institution do not meet the preferred position for an Indian provider.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is Mumbai, the language is English, and the award is final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.",
+          "suggested_fix_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA) in force when the arbitration starts. The seat of arbitration is Mumbai, the language is English, and the award is final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 8,
+          "clause_type": "data_protection",
+          "severity": "high",
+          "issue": "The data protection clause anticipates that no personal data will be processed and requires a DPA before processing starts, but does not expressly bar any processing of personal data until the DPA is signed. The preferred position requires the contract to bar any processing until the DPA is signed. This is a gap in the required protective language and requires Compliance escalation.",
+          "quote": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "quote_template": "The Parties do not expect the Vendor to process personal data under this Agreement. Before any personal data is processed, the Parties shall sign a data processing agreement on the Company's standard template, which will then form part of this Agreement and prevail over it on the processing of personal data.",
+          "suggested_fix": "The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been duly signed by both Parties and forms part of this Agreement. For the avoidance of doubt, no processing of personal data shall commence before such data processing agreement is in effect.",
+          "suggested_fix_template": "The Parties do not expect the Vendor to process personal data under this Agreement. The Vendor shall not process any personal data of the Company until a data processing agreement on the Company's standard template has been duly signed by both Parties and forms part of this Agreement. For the avoidance of doubt, no processing of personal data shall commence before such data processing agreement is in effect.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The professional indemnity insurance limit is stated as 'EUR 550,000 per claim and in the aggregate.' The playbook states that cover of the stated amount per claim, with or without the words 'and in the aggregate', meets the preferred position. The per-claim amount is stated. However, the insurance amounts are denominated in EUR rather than INR as the playbook specifies (INR 1 crore / INR 5 crore), and the contract fees are also in EUR. The playbook allows 'the equivalent in the currency of the fees' for cyber liability but does not expressly extend this to product/public liability or professional indemnity. EUR 550,000 is approximately INR 5 crore at current rates but this cannot be confirmed from the contract text alone. The deviation is that the amounts are not stated in INR or confirmed as equivalent, creating ambiguity against the playbook's INR benchmarks.",
+          "quote": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "quote_template": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "suggested_fix": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim, professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim. The Vendor shall provide evidence of cover on request.",
+          "suggested_fix_template": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim, professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim. The Vendor shall provide evidence of cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "vendor",
+      "combination": "vendor|payment_terms=90 days|buying=Goods and services|term=Fixed end date|personal_data=No|currency=EUR|ctx=foreign",
+      "run": 3,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 11,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The arbitration clause seats the arbitration in Singapore under SIAC Rules regardless of whether the Vendor is Indian or foreign. The playbook requires an Indian institution (e.g., MCIA) seated in India for an Indian provider; SIAC/Singapore is only the fallback for a provider outside India and requires Legal Counsel approval. Because Globex Corporation's domicile is not stated in the contract, it is unclear whether the preferred or fallback position applies, but the contract does not distinguish between the two scenarios and defaults to Singapore in all cases, which is outside the preferred position for an Indian provider and requires Legal Counsel approval even as a fallback.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Company's registered office], the language English, and the award final and binding on the Parties. [Where the Vendor is incorporated or resident outside India, replace with: under the Arbitration Rules of the Singapore International Arbitration Centre (SIAC), with the seat of arbitration in Singapore, the language English, and the award final and binding on the Parties.] Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.",
+          "suggested_fix_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Company's registered office], the language English, and the award final and binding on the Parties. [Where the Vendor is incorporated or resident outside India, replace with: under the Arbitration Rules of the Singapore International Arbitration Centre (SIAC), with the seat of arbitration in Singapore, the language English, and the award final and binding on the Parties.] Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause states the product and public liability limit as 'the greater of the total Fees under this Agreement and EUR 110,000 per claim'. The playbook requires cover of at least the greater of the contract value and INR 1 crore per claim for a goods supplier, and INR 5 crore per claim for professional indemnity and cyber liability. The contract uses EUR amounts (EUR 110,000 \u2248 INR ~1 crore; EUR 550,000 \u2248 INR ~5 crore at current rates) which may be equivalent, but the playbook specifies INR amounts and the contract currency is EUR, creating ambiguity as to whether the INR floor is met if exchange rates move. Additionally, the professional indemnity and cyber liability limits are stated 'per claim and in the aggregate', which the playbook expressly permits. The product/public liability limit references 'total Fees under this Agreement' rather than 'contract value per claim', which is ambiguous.",
+          "quote": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "quote_template": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and EUR 110,000 per claim, professional indemnity insurance with a limit of not less than EUR 550,000 per claim and in the aggregate, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than EUR 550,000 per claim.",
+          "suggested_fix": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim, professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim.",
+          "suggested_fix_template": "public and product liability insurance with a limit of not less than the greater of the total Fees under this Agreement and INR 1,00,00,000 (INR 1 crore) per claim, professional indemnity insurance with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim, and employer's liability or workmen's compensation insurance as required by Applicable Law. Where the Vendor processes the Company's personal data or has access to its systems, it shall also maintain cyber liability insurance of not less than INR 5,00,00,000 (INR 5 crore) per claim.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The contract does not independently state a 45-day maximum payment period for micro or small enterprise suppliers as a standalone obligation; instead clause 4.7 makes the MSMED Act cap operative only where it is shorter than the clause 4.3 period (which is itself 45 days), creating an ambiguity as to whether the mandatory statutory cap is clearly and separately acknowledged as the playbook requires. This is a low-severity administrative gap with no immediate financial exposure but could create compliance ambiguity under the MSMED Act.",
+          "quote": "the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, as required by that Act, regardless of any longer period that might otherwise apply under this Agreement.",
+          "suggested_fix_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, as required by that Act, regardless of any longer period that might otherwise apply under this Agreement.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=India|term=Renews automatically/1 year/30 days|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 1,
+      "finding_count": 4,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer Data is hosted in the European Union, not in India (the preferred location). Although the EU is listed as a permissible region in the preferred position, the contract does not reference an Order Form approval for this choice, and the required privacy-function written approval is stated as a condition in clause 9.1 but the location itself is already fixed in the Agreement body rather than left to the Order Form \u2014 meaning the privacy function's approval is presented as a formality rather than a genuine gate. This requires Compliance escalation.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India, unless the Order Form specifies an alternative location (being the EU, the US or another region named in the Order Form) that has received the prior written approval of the Customer's privacy function before any Customer Data is stored there. The Provider shall never store or process Customer Data in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, any transfer outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by the applicable law.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India, unless the Order Form specifies an alternative location (being the EU, the US or another region named in the Order Form) that has received the prior written approval of the Customer's privacy function before any Customer Data is stored there. The Provider shall never store or process Customer Data in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, any transfer outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by the applicable law.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is EUR 550,000, not the required INR 5 crore (or equivalent in the currency of the fees). The contract's fees are stated in EUR, so the INR 5 crore floor (approximately EUR 550,000 at current rates) may be approximately equivalent, but the contract does not express it as INR 5 crore or an equivalent, creating ambiguity as to whether the floor is met if exchange rates move. Additionally, clause 15.4(a) carves out 'breach of clause 11 (Confidentiality), other than a Data Breach Claim' from the caps, but the preferred position requires confidentiality breaches (other than those covered by the Data Breach Cap) to be uncapped \u2014 this is met. However, the IP indemnity (clause 14.1(a)) and the negligence/fraud/misconduct indemnity (clause 14.1(c)) are uncapped via clause 15.4(b)\u2013(f), which meets the preferred position. The sole material gap is the Data Breach Cap floor denomination. Legal Counsel escalation is required.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (Indian Rupees five crore) or the equivalent amount in EUR at the rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (Indian Rupees five crore) or the equivalent amount in EUR at the rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Professional indemnity and cyber liability insurance are each set at EUR 550,000 per claim, not at least INR 5 crore (or the equivalent in the currency of the fees) per claim as required by the preferred position. The fees are in EUR, so the equivalent of INR 5 crore should be stated or cross-referenced; the fixed EUR amount may fall below INR 5 crore if exchange rates move, and the contract does not include a currency-equivalence mechanism. This is a medium-severity gap that should be corrected.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim",
+          "suggested_fix": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (Indian Rupees five crore) or the equivalent in EUR at the rate published by the Reserve Bank of India on the first day of each policy year, per claim,",
+          "suggested_fix_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (Indian Rupees five crore) or the equivalent in EUR at the rate published by the Reserve Bank of India on the first day of each policy year, per claim,",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 3,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The MSMED Act 45-day payment obligation in clause 4.7 is triggered only if the Provider self-declares its Udyam registration number on each invoice and notifies the Customer of its status. The contract places no independent obligation on the Customer to verify the Provider's MSMED status, meaning the statutory 45-day cap could be missed if the Provider fails to self-identify. The required language 'Micro, Small and Medium Enterprises Development Act, 2006' is present, and 'undisputed invoice' is present in clause 4.3, so this is a low-severity administrative gap rather than a fundamental deviation.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "If the Provider is or becomes a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. The Customer shall, in any event, pay each valid, undisputed invoice within forty-five (45) days of acceptance of the goods or services invoiced where the Provider is a micro or small enterprise, regardless of whether the Provider has stated its Udyam number, if the Customer is otherwise aware of that status.",
+          "suggested_fix_template": "If the Provider is or becomes a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. The Customer shall, in any event, pay each valid, undisputed invoice within forty-five (45) days of acceptance of the goods or services invoiced where the Provider is a micro or small enterprise, regardless of whether the Provider has stated its Udyam number, if the Customer is otherwise aware of that status.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 2,
+      "finding_count": 3,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer Data is hosted in the European Union, not in India (the preferred location). The EU is not listed as an approved region in the Order Form, and no evidence of the privacy function's written pre-approval for the EU location appears in the Agreement itself \u2014 only a forward-looking approval mechanism is stated. This is a material deviation from the preferred position and requires Compliance escalation and approval.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "Replace 'the European Union' with 'India' as the primary hosting location. If the EU must be retained, add an express recital or schedule confirming the Customer's privacy function has given written approval prior to the Effective Date, and confirm that no country restricted under section 16 of the DPDP Act is used. Example: 'The Provider shall host, store and process Customer Data only in data centres located in India. Any hosting outside India requires the prior written approval of the Customer's privacy function and shall not include any country restricted under section 16 of the Digital Personal Data Protection Act, 2023.'",
+          "suggested_fix_template": "Replace 'the European Union' with 'India' as the primary hosting location. If the EU must be retained, add an express recital or schedule confirming the Customer's privacy function has given written approval prior to the Effective Date, and confirm that no country restricted under section 16 of the DPDP Act is used. Example: 'The Provider shall host, store and process Customer Data only in data centres located in India. Any hosting outside India requires the prior written approval of the Customer's privacy function and shall not include any country restricted under section 16 of the Digital Personal Data Protection Act, 2023.'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap is set at EUR 550,000 (or 3x the General Cap, whichever is greater), but the playbook requires the higher of 3x the General Cap and INR 5 crore (or the currency equivalent). EUR 550,000 is approximately INR 4.9\u20135.0 crore at current rates but is not expressed as INR 5 crore or its currency equivalent, creating a risk that the floor falls short if the EUR/INR rate moves adversely. This requires Legal Counsel approval.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "Replace 'EUR 550,000' with 'INR 5,00,00,000 (INR 5 crore) or the equivalent in the currency of the Fees at the rate published by the Reserve Bank of India on the date the claim arises' to ensure the playbook floor is met regardless of exchange-rate movement. Example: '\u2026shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (five crore Indian Rupees) or the equivalent in the currency of the Fees at the RBI reference rate on the date the claim arises (the \"Data Breach Cap\").'",
+          "suggested_fix_template": "Replace 'EUR 550,000' with 'INR 5,00,00,000 (INR 5 crore) or the equivalent in the currency of the Fees at the rate published by the Reserve Bank of India on the date the claim arises' to ensure the playbook floor is met regardless of exchange-rate movement. Example: '\u2026shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (five crore Indian Rupees) or the equivalent in the currency of the Fees at the RBI reference rate on the date the claim arises (the \"Data Breach Cap\").'",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The insurance clause requires professional indemnity and cyber liability cover of EUR 550,000 per claim, whereas the playbook requires at least INR 5 crore per claim (or the currency equivalent). As with the Data Breach Cap, EUR 550,000 may fall short of INR 5 crore if the exchange rate moves, and the amount is not expressed as INR 5 crore or its equivalent.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim",
+          "suggested_fix": "Replace 'EUR 550,000 per claim' with 'INR 5,00,00,000 (INR 5 crore) per claim, or the equivalent in the currency of the Fees at the RBI reference rate on the date the policy is placed or renewed'. Example: '\u2026professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (five crore Indian Rupees) per claim, or the equivalent in the currency of the Fees at the Reserve Bank of India reference rate on the date the relevant policy is placed or renewed\u2026'",
+          "suggested_fix_template": "Replace 'EUR 550,000 per claim' with 'INR 5,00,00,000 (INR 5 crore) per claim, or the equivalent in the currency of the Fees at the RBI reference rate on the date the policy is placed or renewed'. Example: '\u2026professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (five crore Indian Rupees) per claim, or the equivalent in the currency of the Fees at the Reserve Bank of India reference rate on the date the relevant policy is placed or renewed\u2026'",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=60 days|hosting=European Union|term=Fixed end date|personal_data=Yes|currency=EUR|ctx=registered",
+      "run": 3,
+      "finding_count": 4,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer Data is hosted in the European Union, not in India (the preferred location). Although the EU is a named region and the privacy function's written approval is required before data is stored there, the contract does not confirm that approval has been or will be given, and the EU is listed as a secondary region requiring approval rather than the preferred India location. This is a material deviation from the preferred position and requires Compliance sign-off.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the European Union. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India. Any hosting outside India, and in any event in the European Union, the United States or any other region, requires the prior written approval of the Customer's privacy function and shall never be in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, transfers outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India. Any hosting outside India, and in any event in the European Union, the United States or any other region, requires the prior written approval of the Customer's privacy function and shall never be in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, transfers outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is EUR 550,000, which may be materially lower than INR 5 crore (the playbook minimum floor) depending on the prevailing exchange rate; the contract currency is EUR and there is no INR equivalent or conversion mechanism. Additionally, clause 15.4(a) carves out 'breach of clause 11 (Confidentiality), other than a Data Breach Claim' from the caps, meaning confidentiality breaches that are not Data Breach Claims are uncapped \u2014 which is consistent with the playbook \u2014 but the carve-out for the IP indemnity (clause 14.1(a)) and the negligence/fraud/death carve-outs are present. The structure is largely compliant but the EUR 550,000 floor requires Legal Counsel approval to confirm it is equivalent to or exceeds INR 5 crore.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 or INR 5,00,00,000 (INR 5 crore), whichever is higher, converted at the exchange rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) EUR 550,000 or INR 5,00,00,000 (INR 5 crore), whichever is higher, converted at the exchange rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The contract references the Micro, Small and Medium Enterprises Development Act, 2006 and the 45-day cap in clause 4.7, but the obligation is conditional on the Provider self-declaring its MSME status on each invoice. The contract does not affirmatively state whether the Provider is a micro or small enterprise, so the 45-day cap may never be triggered. The required language 'Micro, Small and Medium Enterprises Development Act, 2006' is present, but the practical protection is contingent and may not bind the Provider if it does not self-identify. This is a low-severity administrative gap.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "The Provider represents and warrants whether or not it is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006 as at the Effective Date, and shall notify the Customer promptly of any change in that status. If the Provider is or becomes such an enterprise, it shall state its Udyam registration number on each invoice, and the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, or the period in clause 4.3, whichever is shorter.",
+          "suggested_fix_template": "The Provider represents and warrants whether or not it is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006 as at the Effective Date, and shall notify the Customer promptly of any change in that status. If the Provider is or becomes such an enterprise, it shall state its Udyam registration number on each invoice, and the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, or the period in clause 4.3, whichever is shorter.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 3,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Insurance cover is set at EUR 550,000 per claim for both professional indemnity and cyber liability. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). EUR 550,000 may be materially below INR 5 crore depending on the exchange rate, and no conversion mechanism or INR floor is stated. This requires verification and, if below the INR 5 crore equivalent, negotiation of a higher limit.",
+          "quote": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim, and shall provide evidence of cover on request.",
+          "quote_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 or INR 5,00,00,000 (INR 5 crore), whichever is higher (converted at the Reserve Bank of India reference rate on the date the policy is placed or renewed), per claim, and shall provide certificates of insurance evidencing such cover on request.",
+          "suggested_fix_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than EUR 550,000 or INR 5,00,00,000 (INR 5 crore), whichever is higher (converted at the Reserve Bank of India reference rate on the date the policy is placed or renewed), per claim, and shall provide certificates of insurance evidencing such cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 5,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer Data is hosted exclusively in the United States, not India (the preferred location). Although the Customer's privacy function approval is required before data is stored there, the US is the sole named location and India is not mentioned; this creates regulatory exposure under the DPDP Act and requires Compliance approval.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India. Customer Data may be hosted in the United States of America or another region named in the applicable Order Form only with the prior written approval of the Customer's privacy function, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, transfers outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India. Customer Data may be hosted in the United States of America or another region named in the applicable Order Form only with the prior written approval of the Customer's privacy function, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. For personal data subject to the GDPR or the UK GDPR, transfers outside the EEA or UK shall be made only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is USD 600,000, not the playbook-required INR 5 crore (or equivalent in the currency of the fees); given the contract is denominated in USD, the INR 5 crore equivalent (approximately USD 600,000 at current rates) may or may not satisfy the floor depending on the exchange rate at the time of a claim, creating potential shortfall; Legal Counsel approval is required for any deviation from the preferred cap structure.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) the greater of INR 5,00,00,000 (INR 5 crore) and USD 600,000 (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) the greater of INR 5,00,00,000 (INR 5 crore) and USD 600,000 (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "Indian law governs the Agreement (preferred position met) but arbitration is seated in Singapore under SIAC Rules; this is the playbook fallback for a provider outside India. If Globex Corporation is an Indian entity, the preferred position requires an Indian seat and an Indian institution (e.g. MCIA); if it is a foreign entity the fallback is met. The contract does not state the Provider's jurisdiction of incorporation, so the correct position cannot be confirmed without that information. Legal Counsel approval is required if this is a deviation.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If the Provider is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [named Indian city], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996. If the Provider is outside India, the existing Singapore/SIAC wording meets the fallback and may be retained subject to Legal Counsel approval.",
+          "suggested_fix_template": "If the Provider is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [named Indian city], the language English, and the award final and binding on the Parties. Nothing in this clause prevents either Party from seeking urgent interim or injunctive relief from any court of competent jurisdiction, including under section 9 of the Arbitration and Conciliation Act, 1996. If the Provider is outside India, the existing Singapore/SIAC wording meets the fallback and may be retained subject to Legal Counsel approval.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 3,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Insurance cover is stated at USD 600,000 per claim for both professional indemnity and cyber liability; the playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). Because the fees are in USD, the USD 600,000 figure may or may not equal INR 5 crore depending on the prevailing exchange rate, creating a potential shortfall against the playbook floor.",
+          "quote": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "quote_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than the greater of INR 5,00,00,000 (INR 5 crore) and USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than the greater of INR 5,00,00,000 (INR 5 crore) and USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 4,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The MSME provision in clause 4.7 is conditional on the Provider self-declaring MSME status; the contract does not affirmatively state whether the Provider is or is not a micro or small enterprise at signing, meaning the 45-day MSMED Act obligation may not be visible on the face of the contract if the Provider later claims that status. The playbook requires the contract to state the MSME payment obligation where applicable.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "The Parties confirm that as at the Effective Date the Provider [is / is not] a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006. If the Provider is, or subsequently becomes, such an enterprise, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, or the period in clause 4.3, whichever is shorter.",
+          "suggested_fix_template": "The Parties confirm that as at the Effective Date the Provider [is / is not] a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006. If the Provider is, or subsequently becomes, such an enterprise, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, or the period in clause 4.3, whichever is shorter.",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 2,
+      "finding_count": 5,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer Data is hosted exclusively in the United States, not in India (the preferred location). Although the Customer's privacy function approval is required before data is stored there, the US is not a location named in an order form and the contract does not restrict storage to India as the default. This is a material deviation requiring Compliance approval.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "The Provider shall host, store and process Customer Data only in data centres located in India. Customer Data may be hosted in the European Union, the United States or another region named in the applicable Order Form only with the prior written approval of the Customer's privacy function, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. Personal data subject to the GDPR or the UK GDPR may be transferred outside the EEA or the United Kingdom only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggested_fix_template": "The Provider shall host, store and process Customer Data only in data centres located in India. Customer Data may be hosted in the European Union, the United States or another region named in the applicable Order Form only with the prior written approval of the Customer's privacy function, and never in a country or territory restricted by the Central Government under section 16 of the Digital Personal Data Protection Act, 2023. Personal data subject to the GDPR or the UK GDPR may be transferred outside the EEA or the United Kingdom only under the Standard Contractual Clauses or another safeguard recognised by that law.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap is fixed at USD 600,000 rather than the greater of 3\u00d7 the General Cap and INR 5 crore (or currency equivalent). Depending on the fees and the USD/INR exchange rate, USD 600,000 may be materially lower than INR 5 crore (~INR 5 crore \u2248 USD 600,000 at ~83 INR/USD, but the playbook requires the higher of the two, not a fixed USD amount). Additionally, clause 15.4(a) carves out breach of confidentiality from the caps but expressly excludes Data Breach Claims from that carve-out, meaning a data breach that is also a confidentiality breach is capped at the Data Breach Cap rather than uncapped \u2014 the playbook requires confidentiality breaches to be uncapped. This deviation requires Legal Counsel approval.",
+          "quote": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\").",
+          "quote_template": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (Indian Rupees five crore) or the equivalent amount in the currency in which the Fees are stated, converted at the rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\"). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it. For the avoidance of doubt, where a Data Breach Claim also constitutes a breach of clause 11 (Confidentiality), the Data Breach Cap applies and clause 15.4(a) does not.",
+          "suggested_fix_template": "Subject to clauses 15.4(c) to 15.4(f) and 15.5, the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (Indian Rupees five crore) or the equivalent amount in the currency in which the Fees are stated, converted at the rate published by the Reserve Bank of India on the date the claim arises (the \"Data Breach Cap\"). The Data Breach Cap replaces the General Cap for Data Breach Claims and is not in addition to it. For the avoidance of doubt, where a Data Breach Claim also constitutes a breach of clause 11 (Confidentiality), the Data Breach Cap applies and clause 15.4(a) does not.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The agreement is governed by Indian law (meeting the preferred position) but arbitration is seated in Singapore under SIAC Rules. The playbook permits SIAC/Singapore only for a provider outside India, and that fallback requires Legal Counsel approval. The contract does not state whether Globex Corporation is outside India; if it is an Indian entity, this seat is impermissible. Even if Globex is outside India, the fallback requires Legal Counsel sign-off.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If Globex Corporation is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Customer's registered office], the language English, and the award final and binding on the Parties. If Globex Corporation is outside India: retain the SIAC/Singapore wording but obtain Legal Counsel approval before execution.",
+          "suggested_fix_template": "If {counterparty} is an Indian entity: Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in [Mumbai / the city of the Customer's registered office], the language English, and the award final and binding on the Parties. If {counterparty} is outside India: retain the SIAC/Singapore wording but obtain Legal Counsel approval before execution.",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 3,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Insurance cover is stated at USD 600,000 per claim for both professional indemnity and cyber liability. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). At current exchange rates these amounts are approximately equal, but the contract fixes a USD amount rather than INR 5 crore or its currency equivalent, creating a risk that the cover falls below the playbook floor if the exchange rate moves. The playbook's fallback (certificates on request) is already met, but the amount threshold is not clearly satisfied.",
+          "quote": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "quote_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim, or the equivalent amount in USD (or the currency of the Fees) converted at the rate published by the Reserve Bank of India on the inception date of each policy, and shall provide certificates of insurance evidencing such cover on request.",
+          "suggested_fix_template": "The Provider shall maintain with reputable insurers, during the Subscription Term and for one (1) year after it ends, professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim, or the equivalent amount in USD (or the currency of the Fees) converted at the rate published by the Reserve Bank of India on the inception date of each policy, and shall provide certificates of insurance evidencing such cover on request.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 4,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "medium",
+          "issue": "The 45-day MSMED Act payment cap is conditional on the Provider self-declaring its Udyam registration number on each invoice and notifying the Customer of any change in status. The contract does not independently impose a 45-day cap; if the Provider fails to declare its status, the Customer could inadvertently breach the MSMED Act by paying within 90 days. The playbook requires the contract to state the 45-day limit for micro or small enterprises.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Regardless of whether the Provider has stated its Udyam registration number, if the Provider is or becomes a micro or small enterprise within the meaning of the Micro, Small and Medium Enterprises Development Act, 2006, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this period shall prevail over clause 4.3 to the extent of any inconsistency.",
+          "suggested_fix_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status. Regardless of whether the Provider has stated its Udyam registration number, if the Provider is or becomes a micro or small enterprise within the meaning of the Micro, Small and Medium Enterprises Development Act, 2006, the Customer shall pay each valid, undisputed invoice within forty-five (45) days from the day of acceptance of the goods or services invoiced, and this period shall prevail over clause 4.3 to the extent of any inconsistency.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=90 days|hosting=United States|term=Renews automatically/1 year/90 days|personal_data=No|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 5,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 3,
+          "clause_type": "data_location",
+          "severity": "high",
+          "issue": "Customer data is hosted in the United States, not India (the preferred location). The contract requires the Customer's privacy function to give written approval before data is stored there, but that approval is not recorded in the agreement itself; if it has not been given, data storage is non-compliant and Compliance escalation is required.",
+          "quote": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "quote_template": "The Provider shall host, store and process Customer Data only in data centres located in the United States of America. That location is subject to the written approval of the Customer's privacy function, which shall be given before any Customer Data is stored there.",
+          "suggested_fix": "Replace clause 9.1 with: \"The Provider shall host, store and process Customer Data only in data centres located in India. Any change to that location requires the prior written approval of the Customer's privacy function and an amendment to this Agreement, and shall never be to a country or territory restricted under section 16 of the Digital Personal Data Protection Act, 2023.\" If the US location is retained, attach the privacy function's written approval as a schedule to this Agreement before execution.",
+          "suggested_fix_template": "Replace clause 9.1 with: \"The Provider shall host, store and process Customer Data only in data centres located in India. Any change to that location requires the prior written approval of the Customer's privacy function and an amendment to this Agreement, and shall never be to a country or territory restricted under section 16 of the Digital Personal Data Protection Act, 2023.\" If the US location is retained, attach the privacy function's written approval as a schedule to this Agreement before execution.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap is set at USD 600,000 (or 3x the General Cap, whichever is greater), whereas the playbook preferred position requires the higher of 3x the General Cap and INR 5 crore. At current exchange rates USD 600,000 is approximately INR 5 crore, but currency fluctuation means the USD floor may fall below INR 5 crore; Legal Counsel approval is required for any deviation from the preferred cap structure.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\")",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) USD 600,000 (the \"Data Breach Cap\")",
+          "suggested_fix": "Replace \"USD 600,000\" with \"INR 5,00,00,000 (Indian Rupees five crore) or the equivalent in the currency of the Fees\" so that the floor aligns with the playbook regardless of exchange-rate movements.",
+          "suggested_fix_template": "Replace \"USD 600,000\" with \"INR 5,00,00,000 (Indian Rupees five crore) or the equivalent in the currency of the Fees\" so that the floor aligns with the playbook regardless of exchange-rate movements.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 2,
+          "rule_index": 8,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "Clause 4.7 addresses micro or small enterprise suppliers and references the 45-day payment obligation, but does not name the Micro, Small and Medium Enterprises Development Act, 2006 by its full statutory title as required by the playbook, creating a gap in the required language.",
+          "quote": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "quote_template": "If the Provider is a micro or small enterprise registered under the Micro, Small and Medium Enterprises Development Act, 2006, it shall state its Udyam registration number on each invoice and promptly notify the Customer of any change in that status, and the Customer shall pay each valid, undisputed invoice within the period in clause 4.3 or forty-five (45) days from the day of acceptance of the goods or services invoiced, whichever is shorter.",
+          "suggested_fix": "No change to the substantive text is required; the Act is already named. However, the required language check for \"Micro, Small and Medium Enterprises Development Act, 2006\" is satisfied by the existing clause 4.7. This item should be treated as met \u2014 see review notes.",
+          "suggested_fix_template": "No change to the substantive text is required; the Act is already named. However, the required language check for \"Micro, Small and Medium Enterprises Development Act, 2006\" is satisfied by the existing clause 4.7. This item should be treated as met \u2014 see review notes.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 3,
+          "rule_index": 13,
+          "clause_type": "governing_law",
+          "severity": "high",
+          "issue": "The governing law is Indian law (preferred), but arbitration is seated in Singapore under SIAC Rules. The playbook permits SIAC/Singapore only for a provider outside India; the contract does not confirm whether Globex Corporation is outside India. If the Provider is Indian, the seat and institution should be an Indian city and an Indian institution (e.g. MCIA). Legal Counsel approval is required if this is a deviation.",
+          "quote": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "quote_template": "Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the Arbitration Rules of the Singapore International Arbitration Centre in force when the arbitration starts. The seat of arbitration is Singapore, the language is English, and the award is final and binding on the Parties.",
+          "suggested_fix": "If the Provider is incorporated or resident in India, replace with: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in Mumbai, India, and the language of the arbitration being English.\" If the Provider is outside India, the SIAC/Singapore seat is the permitted fallback and Legal Counsel approval should be documented.",
+          "suggested_fix_template": "If the Provider is incorporated or resident in India, replace with: \"Any dispute that is not resolved by negotiation within that period shall be finally resolved by arbitration by a sole arbitrator under the rules of the Mumbai Centre for International Arbitration (MCIA), with the seat of arbitration in Mumbai, India, and the language of the arbitration being English.\" If the Provider is outside India, the SIAC/Singapore seat is the permitted fallback and Legal Counsel approval should be documented.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 4,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Insurance limits are stated as USD 600,000 per claim rather than INR 5 crore (or the equivalent in the currency of the fees) as required by the playbook. Currency fluctuation may cause the USD amount to fall below INR 5 crore, leaving the Customer under-protected.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than USD 600,000 per claim",
+          "suggested_fix": "Replace \"USD 600,000 per claim\" with \"INR 5,00,00,000 (Indian Rupees five crore) per claim, or the equivalent in the currency of the Fees\".",
+          "suggested_fix_template": "Replace \"USD 600,000 per claim\" with \"INR 5,00,00,000 (Indian Rupees five crore) per claim, or the equivalent in the currency of the Fees\".",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is GBP 475,000, not INR 5 crore (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be materially below INR 5 crore (approximately INR 5.3 crore at current rates), meaning the minimum floor for data-breach liability could be lower than the playbook requires. Legal Counsel approval is required for any deviation from the preferred Data Breach Cap.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "Insurance limits are stated as GBP 475,000 per claim rather than INR 5 crore per claim (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be below the INR 5 crore preferred floor, meaning the insurance backstop for the Provider's indemnities could be insufficient.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "suggested_fix": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggested_fix_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is GBP 475,000, not INR 5 crore (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be materially below INR 5 crore (approximately INR 5.3 crore at current rates), meaning the minimum floor for data-breach liability could be lower than the playbook requires. Legal Counsel approval is required for any deviation from the preferred Data Breach Cap.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "Insurance limits are stated as GBP 475,000 per claim rather than INR 5 crore per claim (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be below the INR 5 crore preferred floor, meaning the insurance backstop for the Provider's indemnities could be insufficient.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "suggested_fix": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggested_fix_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "saas",
+      "combination": "saas|payment_terms=45 days|hosting=Several regions|term=No end date (evergreen)|personal_data=No|currency=GBP|ctx=registered",
+      "run": 3,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 7,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Data Breach Cap floor is GBP 475,000, not INR 5 crore (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be materially below INR 5 crore (approximately INR 5.3 crore at current rates), meaning the minimum floor for data-breach liability could be lower than the playbook requires. Legal Counsel approval is required for any deviation from the preferred Data Breach Cap.",
+          "quote": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "quote_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) GBP 475,000 (the \"Data Breach Cap\").",
+          "suggested_fix": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggested_fix_template": "the Provider's total aggregate liability for all Data Breach Claims shall not exceed the greater of (a) three (3) times the General Cap and (b) INR 5,00,00,000 (INR 5 crore) (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term) (the \"Data Breach Cap\").",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 15,
+          "clause_type": "insurance",
+          "severity": "low",
+          "issue": "Insurance limits are stated as GBP 475,000 per claim rather than INR 5 crore per claim (or the equivalent in the currency of the fees). Depending on the GBP/INR exchange rate, GBP 475,000 may be below the INR 5 crore preferred floor, meaning the insurance backstop for the Provider's indemnities could be insufficient.",
+          "quote": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "quote_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than GBP 475,000 per claim",
+          "suggested_fix": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggested_fix_template": "professional indemnity insurance and cyber liability insurance, each with a limit of not less than INR 5,00,00,000 (INR 5 crore) per claim (or the equivalent in GBP at the rate published by the Reserve Bank of India on the first day of the Subscription Term)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Fees amount in the Engagement Schedule is blank, making the liability cap (\"total Fees paid or payable under this Agreement\") incalculable at contract execution; this creates ambiguity about the maximum exposure for both parties and should be resolved before signing.",
+          "quote": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum Fees figure, e.g.: \"The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggested_fix_template": "Insert the agreed maximum Fees figure, e.g.: \"The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 6,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The Fees amount in the Engagement Schedule is blank, so the 20% advance cap in Clause 6.5 cannot be calculated; this is an ambiguity with limited but real commercial effect and should be resolved before signing.",
+          "quote": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum Fees figure so that the 20% advance cap in Clause 6.5 is calculable: \"The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggested_fix_template": "Insert the agreed maximum Fees figure so that the 20% advance cap in Clause 6.5 is calculable: \"The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 8,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The Fees amount in the Engagement Schedule is blank, so the liability cap in Clause 12.1 ('total Fees paid or payable under this Agreement') is currently unquantifiable; until the Fees are inserted, the cap is ambiguous and could be argued to be zero or unlimited, requiring Legal Counsel review and approval before execution.",
+          "quote": "Fees:  The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "Fees:  The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum Fees figure, e.g.: \"Fees: The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggested_fix_template": "Insert the agreed maximum Fees figure, e.g.: \"Fees: The Fees shall not exceed INR [\u25cf] ([amount in words]) except by a written amendment signed by both Parties.\"",
+          "suggestion_is_wording": false,
+          "approval_required": true
+        },
+        {
+          "index": 1,
+          "rule_index": 6,
+          "clause_type": "payment_terms",
+          "severity": "medium",
+          "issue": "The Fees amount in the Engagement Schedule is blank, so the 20% advance cap in Clause 6.5 ('shall not exceed twenty percent (20%) of the total Fees') is unquantifiable until the Fees are populated; this is an administrative gap that should be resolved before execution.",
+          "quote": "Fees:  The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "Fees:  The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum Fees figure in the Engagement Schedule so that the 20% advance cap in Clause 6.5 is calculable.",
+          "suggested_fix_template": "Insert the agreed maximum Fees figure in the Engagement Schedule so that the 20% advance cap in Clause 6.5 is calculable.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=45 days|fee_basis=Fixed fee|deliverables=advice|term=Fixed end date|personal_data=No|currency=INR|ctx=registered",
+      "run": 3,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 6,
+          "clause_type": "payment_terms",
+          "severity": "medium",
+          "issue": "Clause 6.3A references the MSMED Act using the abbreviated name 'Micro, Small and Medium Enterprises Development Act, 2006' \u2014 this actually matches the required language. However, the Fees amount in the Engagement Schedule is entirely blank ('The Fees shall not exceed [blank] except by a written amendment'), meaning the total contract value against which the 20% advance cap (Clause 6.5) and the payment terms operate is undefined, creating a material commercial ambiguity that limits the Company's ability to enforce the advance cap and budget controls.",
+          "quote": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum Fees amount: 'The Fees shall not exceed [INR X,XX,XXX] except by a written amendment signed by both Parties.'",
+          "suggested_fix_template": "Insert the agreed maximum Fees amount: 'The Fees shall not exceed [INR X,XX,XXX] except by a written amendment signed by both Parties.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 8,
+          "clause_type": "limitation_of_liability",
+          "severity": "high",
+          "issue": "The prohibited phrase 'Company shall have unlimited liability' does not appear in the contract. The cap is set at total fees paid or payable (preferred position) and the carve-outs in Clause 12.3 match the required carve-outs. However, the required language 'paid or payable' is present and the cap structure meets the preferred position \u2014 this item is raised only because the Engagement Schedule's blank Fees figure means the cap amount is currently undefined, making the effective ceiling of the Company's liability indeterminate until the Fees are populated.",
+          "quote": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement.",
+          "quote_template": "each Party's total aggregate liability arising out of or in connection with this Agreement, whether in contract, tort (including negligence), breach of statutory duty or otherwise, shall not exceed the total Fees paid or payable under this Agreement.",
+          "suggested_fix": "Populate the Fees amount in the Engagement Schedule so that the liability cap has a determinable monetary ceiling.",
+          "suggested_fix_template": "Populate the Fees amount in the Engagement Schedule so that the liability cap has a determinable monetary ceiling.",
+          "suggestion_is_wording": true,
+          "approval_required": true
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 1,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 6,
+          "clause_type": "payment_terms",
+          "severity": "medium",
+          "issue": "Clause 6.3A references the MSMED Act obligation and the 45-day cap correctly in substance, but the full statutory name 'Micro, Small and Medium Enterprises Development Act, 2006' is used only in Clause 6.3A; the required language 'undisputed invoice' appears in Clause 6.3. Both required language strings are present across the clause. However, the Engagement Schedule contains a blank fee cap ('The Fees shall not exceed [blank] except by a written amendment'), which creates an ambiguity about the total contract value and could affect the MSMED 45-day calculation and advance-payment cap. This is an ambiguous or conflicting text issue with low-to-medium commercial impact.",
+          "quote": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum fee cap figure: 'The Fees shall not exceed [USD X,XXX,XXX] except by a written amendment signed by both Parties.'",
+          "suggested_fix_template": "Insert the agreed maximum fee cap figure: 'The Fees shall not exceed [USD X,XXX,XXX] except by a written amendment signed by both Parties.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "Clause 12.5 states professional indemnity and cyber liability cover of 'not less than USD 600,000 per claim'. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). The fees are denominated in USD; USD 600,000 is approximately INR 5 crore at current rates, but the contract does not confirm equivalence and exchange-rate movement could cause the cover to fall below the INR 5 crore floor. The amount is stated per claim (meeting that required language), but the currency equivalence is unconfirmed, creating a medium-severity gap.",
+          "quote": "The Consultant shall maintain, during the term and for two (2) years after it ends, professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "quote_template": "The Consultant shall maintain, during the term and for two (2) years after it ends, professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim, and shall provide evidence of cover on request.",
+          "suggested_fix": "Replace 'USD 600,000 per claim' with 'INR 5,00,00,000 (five crore Indian Rupees) per claim, or the equivalent in USD at the rate published by the Reserve Bank of India on the date the policy is placed or renewed, whichever is higher' in both instances.",
+          "suggested_fix_template": "Replace 'USD 600,000 per claim' with 'INR 5,00,00,000 (five crore Indian Rupees) per claim, or the equivalent in USD at the rate published by the Reserve Bank of India on the date the policy is placed or renewed, whichever is higher' in both instances.",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 2,
+      "finding_count": 2,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract states professional indemnity and cyber liability cover at USD 600,000 per claim. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). At current exchange rates USD 600,000 is materially below INR 5 crore (approximately INR 5.0 crore \u2248 USD 600,000 at ~83\u201384 INR/USD, making this borderline), but the contract does not confirm equivalence and the exchange rate is not fixed in the agreement, creating ongoing uncertainty as to whether the threshold is met. No senior-counsel escalation is required but the amount should be fixed or confirmed as equivalent.",
+          "quote": "professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim",
+          "suggested_fix": "professional indemnity insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or, where the Fees are denominated in a currency other than INR, the equivalent amount in that currency calculated at the RBI reference rate on the Effective Date and adjusted annually on each anniversary thereof), public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or equivalent as above)",
+          "suggested_fix_template": "professional indemnity insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or, where the Fees are denominated in a currency other than INR, the equivalent amount in that currency calculated at the RBI reference rate on the Effective Date and adjusted annually on each anniversary thereof), public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or equivalent as above)",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        },
+        {
+          "index": 1,
+          "rule_index": 6,
+          "clause_type": "payment_terms",
+          "severity": "low",
+          "issue": "The Engagement Schedule contains an apparent drafting gap \u2014 the Fees cap reads 'shall not exceed [blank]' \u2014 leaving the total fee ceiling undefined. This is an ambiguous or conflicting text issue with low substantive effect on the payment-terms rule itself but creates commercial uncertainty and should be completed before execution. No escalation is required.",
+          "quote": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "quote_template": "The Fees shall not exceed  except by a written amendment signed by both Parties.",
+          "suggested_fix": "Insert the agreed maximum total Fees figure: 'The Fees shall not exceed [USD X,XXX,XXX] except by a written amendment signed by both Parties.'",
+          "suggested_fix_template": "Insert the agreed maximum total Fees figure: 'The Fees shall not exceed [USD X,XXX,XXX] except by a written amendment signed by both Parties.'",
+          "suggestion_is_wording": false,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "consultancy",
+      "combination": "consultancy|payment_terms=60 days|fee_basis=Day rate|deliverables=rows|term=Fixed end date|personal_data=Yes|currency=USD|ctx=foreign",
+      "run": 3,
+      "finding_count": 1,
+      "findings": [
+        {
+          "index": 0,
+          "rule_index": 10,
+          "clause_type": "insurance",
+          "severity": "medium",
+          "issue": "The contract specifies professional indemnity and cyber liability insurance at USD 600,000 per claim. The playbook requires at least INR 5 crore per claim (or the equivalent in the currency of the fees). The fees are denominated in USD; USD 600,000 is approximately INR 5.0 crore at current rates but this equivalence is not confirmed in the contract and may fall short if exchange rates move adversely. The contract does not contain a mechanism to maintain equivalence over the two-year post-termination tail period, creating potential under-insurance exposure for the Company.",
+          "quote": "professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim",
+          "quote_template": "professional indemnity insurance of not less than USD 600,000 per claim, public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than USD 600,000 per claim",
+          "suggested_fix": "professional indemnity insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or, where the Fees are denominated in a currency other than Indian Rupees, the equivalent amount in that currency calculated at the RBI reference rate on the Effective Date and reviewed annually), public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than the same amount per claim",
+          "suggested_fix_template": "professional indemnity insurance of not less than INR 5,00,00,000 (Indian Rupees five crore) per claim (or, where the Fees are denominated in a currency other than Indian Rupees, the equivalent amount in that currency calculated at the RBI reference rate on the Effective Date and reviewed annually), public liability insurance, and, where it processes the Company's personal data or has access to its systems, cyber liability insurance of not less than the same amount per claim",
+          "suggestion_is_wording": true,
+          "approval_required": false
+        }
+      ]
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=['Employees']|data_types=['Contact and identity']|transfer=No|subprocessors=No|parent=none",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 1,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 2,
+      "finding_count": 0,
+      "findings": []
+    },
+    {
+      "template": "dpa",
+      "combination": "dpa|data_subjects=all|data_types=all|transfer=Yes|subprocessors=Yes|parent=chosen",
+      "run": 3,
+      "finding_count": 0,
+      "findings": []
+    }
+  ],
+  "negatives": [
+    {
+      "playbook": "consultancy",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "governing_law",
+        "insurance",
+        "data_protection",
+        "non_compete"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "non_compete"
+      ],
+      "finding_count": 5
+    },
+    {
+      "playbook": "dpa",
+      "expected_clause_types": [
+        "breach_notification",
+        "international_transfers",
+        "return_or_deletion",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "breach_notification",
+        "governing_law",
+        "international_transfers",
+        "return_or_deletion"
+      ],
+      "finding_count": 4
+    },
+    {
+      "playbook": "msa",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "insurance",
+        "service_levels",
+        "data_protection",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "service_levels"
+      ],
+      "finding_count": 5
+    },
+    {
+      "playbook": "nda",
+      "expected_clause_types": [
+        "definition_of_confidential_information",
+        "permitted_use_and_standard_of_care",
+        "compelled_disclosure_and_legal_process",
+        "return_or_destruction_of_information",
+        "term_and_duration_of_confidentiality",
+        "governing_law_and_jurisdiction",
+        "remedies_and_injunctive_relief",
+        "non_compete_and_exclusivity",
+        "indemnity",
+        "residuals"
+      ],
+      "found_clause_types": [],
+      "finding_count": 0
+    },
+    {
+      "playbook": "saas",
+      "expected_clause_types": [
+        "data_security",
+        "data_location",
+        "limitation_of_liability",
+        "suspension",
+        "data_use",
+        "governing_law",
+        "insurance"
+      ],
+      "found_clause_types": [
+        "data_location",
+        "data_security",
+        "data_use",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability",
+        "suspension"
+      ],
+      "finding_count": 7
+    },
+    {
+      "playbook": "sow",
+      "expected_clause_types": [
+        "acceptance",
+        "fees_and_pricing",
+        "milestone_payments",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "acceptance",
+        "fees_and_pricing",
+        "governing_law",
+        "milestone_payments"
+      ],
+      "finding_count": 4
+    },
+    {
+      "playbook": "vendor",
+      "expected_clause_types": [
+        "limitation_of_liability",
+        "data_protection",
+        "delivery_and_acceptance",
+        "insurance",
+        "governing_law"
+      ],
+      "found_clause_types": [
+        "data_protection",
+        "delivery_and_acceptance",
+        "governing_law",
+        "insurance",
+        "limitation_of_liability"
+      ],
+      "finding_count": 6
+    }
+  ],
+  "totals": {
+    "main_runs": 57,
+    "main_with_findings": 35,
+    "risky_runs": 7,
+    "failures": 36
+  }
+}

@@ -4,9 +4,14 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { notificationsApi } from "@/lib/endpoints";
-import { Bell, Menu, X } from "lucide-react";
+import { useState } from "react";
+import { Bell, Menu, Moon, X } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { AegisRail } from "./aegis-rail";
+import { NotificationDrawer } from "./notification-drawer";
+import { AccountMenu } from "./account-menu";
+import { GlobalSearch } from "./global-search";
+import { AskAegisPopup } from "./ask-aegis-popup";
 import { needsOldChrome as usesOldChrome } from "@/lib/shell-layout";
 
 import { useLayout } from "@/lib/layout";
@@ -31,6 +36,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const mobileUnread = useUnreadCount();
   const pathname = usePathname();
   const notifActive = pathname.startsWith("/notifications");
+  const [notifOpen, setNotifOpen] = useState(false);
   // The redesigned mockup screens fill the whole content area with their own
   // full-height layout (topbar + body) and manage their own scroll, so the main
   // area is overflow-hidden for them. They share the one AegisRail like every
@@ -65,6 +71,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         Skip to main content
       </a>
+      <AskAegisPopup />
+      <NotificationDrawer open={notifOpen} onClose={() => setNotifOpen(false)} />
+
       {/* Desktop sidebar — the one shared rail for every route. */}
       <div className="hidden lg:block">
         <AegisRail />
@@ -121,9 +130,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </span>
             )}
           </Link>
+          <AccountMenu compact />
         </header>
 
-        <main id="main-content" className={cn("flex flex-1 flex-col min-h-0 bg-slate-50", mockupRoute ? "overflow-hidden" : "overflow-y-auto")}>
+        {/* Desktop top nav: tools only. Each page shows its own title, with the breadcrumb under it. */}
+        <header className="hidden h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-slate-100 px-6 lg:flex">
+          <GlobalSearch />
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setNotifOpen(true)}
+              aria-haspopup="dialog"
+              aria-label={mobileUnread ? `Notifications, ${mobileUnread} unread` : "Notifications"}
+              title="Notifications"
+              className={cn("relative flex h-8 w-8 items-center justify-center rounded-lg transition-colors", notifActive ? "bg-brand-50 text-brand-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900")}
+            >
+              <Bell className="h-[17px] w-[17px]" />
+              {mobileUnread > 0 && (
+                <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[9px] font-bold text-white ring-2 ring-slate-100">
+                  {mobileUnread > 99 ? "99+" : mobileUnread}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              aria-label="Toggle theme"
+              title="Toggle theme"
+              onClick={() => document.documentElement.classList.toggle("dark")}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-900"
+            >
+              <Moon className="h-[17px] w-[17px]" />
+            </button>
+            <span className="ml-2 border-l border-slate-200 pl-3"><AccountMenu /></span>
+          </div>
+        </header>
+
+        <main id="main-content" className={cn("flex flex-1 flex-col min-h-0 bg-slate-50", mockupRoute ? "overflow-hidden" : "overflow-y-auto", !pathname.startsWith("/trademarks") && "clmx")}>
           {fullBleed ? (
             // Full-height app screens (intake, contract workspace, assistant, etc.)
             // manage their own flex layout and must stay direct flex children.

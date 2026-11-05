@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -15,20 +15,24 @@ from app.intake.dependencies import (
     get_screening_service,
     get_team_service,
 )
-from app.intake.drafting import DraftingService
+from app.intake.drafting import DraftingService, template_notice_of
 from app.intake.gmail_sync import GmailSyncService
 from app.intake.ingest import IngestService
 from app.intake.schemas import (
     AssigneeResponse,
+    DraftContractResponse,
     DraftResponse,
     DraftSave,
     HandoffCreate,
     HandoffResponse,
     PartiesUpdate,
     PromoteRequest,
+    RequestActivityResponse,
+    RequestCounterpartyResponse,
     RequestCreate,
     RequestCreateResponse,
     RequestResponse,
+    RequestSummaryResponse,
     RequestUpdate,
     TaskCreateReq,
     TaskResponse,
@@ -243,9 +247,23 @@ def approval_preview(payload: _ApprovalPreview,
 def approval_chain(
     request_id: str,
     intake_service: IntakeService = Depends(get_intake_service),
-    current_user=Depends(_READ),
+    current_user=Depends(_CREATE),
 ):
     return intake_service.get_approval_chain(actor=current_user, request_id=request_id)
+
+
+@router.get("/requests/{request_id}/approval-summary")
+def approval_summary(
+    request_id: str,
+    approval_request_id: str | None = None,
+    intake_service: IntakeService = Depends(get_intake_service),
+    current_user=Depends(_CREATE),
+):
+    from app.intake.approval_summary import build_summary
+
+    r = intake_service.get_request(user=current_user, request_id=request_id)
+    return build_summary(intake_service.db, actor=current_user, request=r,
+                         approval_request_id=approval_request_id)
 
 
 # ---- handoff / custody ----------------------------------------------------
@@ -269,6 +287,41 @@ def list_handoffs(
 ):
     r = intake_service.get_request(user=current_user, request_id=request_id)
     return intake_service.list_handoffs(request=r)
+
+
+@router.get("/requests/{request_id}/activity", response_model=RequestActivityResponse)
+def request_activity(
+    request_id: str,
+    intake_service: IntakeService = Depends(get_intake_service),
+    current_user=Depends(_CREATE),
+):
+    from app.intake.activity import request_activity as build
+
+    r = intake_service.get_request(user=current_user, request_id=request_id)
+    return build(intake_service.db, user=current_user, request=r)
+
+
+@router.get("/requests/{request_id}/counterparty", response_model=RequestCounterpartyResponse)
+def request_counterparty(
+    request_id: str,
+    intake_service: IntakeService = Depends(get_intake_service),
+    screening_service: ScreeningService = Depends(get_screening_service),
+    current_user=Depends(_CREATE),
+):
+    r = intake_service.get_request(user=current_user, request_id=request_id)
+    return screening_service.visible_counterparty(current_user, r)
+
+
+@router.get("/requests/{request_id}/summary", response_model=RequestSummaryResponse)
+def request_summary(
+    request_id: str,
+    intake_service: IntakeService = Depends(get_intake_service),
+    current_user=Depends(_CREATE),
+):
+    from app.intake.request_summary import read
+
+    r = intake_service.get_request(user=current_user, request_id=request_id)
+    return read(intake_service.db, r)
 
 
 # ---- tasks ----------------------------------------------------------------
@@ -359,7 +412,7 @@ def promote(
                            http_request_id=_req_id(request))
 
 
-@router.post("/requests/{request_id}/draft-contract", response_model=RequestResponse)
+@router.post("/requests/{request_id}/draft-contract", response_model=DraftContractResponse)
 async def draft_contract(
     request_id: str,
     request: Request,
@@ -369,13 +422,16 @@ async def draft_contract(
     _screen=Depends(_INTAKE_EDIT),
 ):
     """Render a draft contract from an intake request and link it back — the
-    intake → contract-lifecycle bridge. Idempotent."""
+    intake → contract-lifecycle bridge. Idempotent. The draft is never held back by its template's
+    status; ``template_notice`` says when the template does not currently pass its playbook."""
     r = intake_service.get_request(user=current_user, request_id=request_id)
-    await drafting_service.draft_contract_for_request(
+    if intake_service.contract_hidden_from(current_user, r):
+        raise HTTPException(404, "Contract not found")  # never a second contract, never its id
+    contract = await drafting_service.draft_contract_for_request(
         actor=current_user, request=r, http_request_id=_req_id(request)
     )
     r = intake_service.get_request(user=current_user, request_id=request_id)
-    return intake_service.serialize_request(r)
+    return {**intake_service.serialize_request(r), "template_notice": template_notice_of(contract)}
 
 
 @router.post("/requests/{request_id}/ingest-attachment", response_model=RequestResponse)
@@ -390,6 +446,8 @@ async def ingest_attachment(
     """Use the request's attached document as the contract (the 'review an
     existing contract' path) instead of drafting from a template. Idempotent."""
     r = intake_service.get_request(user=current_user, request_id=request_id)
+    if intake_service.contract_hidden_from(current_user, r):
+        raise HTTPException(404, "Contract not found")  # never a second contract, never its id
     await drafting_service.ingest_attachment_as_contract(
         actor=current_user, request=r, http_request_id=_req_id(request)
     )

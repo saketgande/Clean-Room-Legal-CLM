@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.intake import request_summary as rs
 
 # ---- requests -------------------------------------------------------------
 
@@ -10,6 +13,83 @@ class AttachmentIn(BaseModel):
     filename: str = Field(min_length=1, max_length=300)
     mime_type: str = "application/octet-stream"
     content_b64: str
+
+
+def _cut(v, n):
+    return rs.clean_text(v)[:n] if isinstance(v, str) else ""
+
+
+def _answer(v):
+    if isinstance(v, str):
+        return _cut(v, rs.ANSWER_CUT)
+    if isinstance(v, list):
+        return [_cut(x, 200) for x in v[:20] if isinstance(x, str)]
+    return None
+
+
+def _dicts(v, cap):
+    return [x for x in v if isinstance(x, dict)][:cap] if isinstance(v, list) else []
+
+
+class SummaryDiffers(BaseModel):
+    key: str = Field(max_length=60)
+    label: str = ""  # replaced by the form's label on filing
+    answer: str = ""
+
+
+class ExtraInstruction(BaseModel):
+    text: str
+    differs: list[SummaryDiffers] = Field(default_factory=list)
+
+
+class AcceptedChange(BaseModel):
+    key: str = Field(max_length=60)
+    label: str = ""
+    old: str | list[str] | None = None
+    new: str | list[str] | None = None
+
+
+class RequestSummaryFiling(BaseModel):
+    """The box as filed. Malformed parts are dropped, never refused (FR-9); the only refusal is the
+    word limit (FR-32)."""
+
+    text: str | None = None
+    instructions: list[ExtraInstruction] = Field(default_factory=list)
+    accepted: list[AcceptedChange] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _clean(cls, v):
+        if not isinstance(v, dict):
+            return {}
+        text = _cut(v.get("text"), rs.TEXT_CUT) if isinstance(v.get("text"), str) else None
+        instructions = []
+        for i in _dicts(v.get("instructions"), rs.MAX_INSTRUCTIONS + 1):
+            t = _cut(i.get("text"), rs.CHAR_LIMIT + 1)
+            if t:
+                instructions.append({"text": t, "differs": [
+                    {"key": _cut(d.get("key"), 60), "label": _cut(d.get("label"), 200),
+                     "answer": _cut(d.get("answer"), rs.ANSWER_CUT)}
+                    for d in _dicts(i.get("differs"), rs.MAX_DIFFERS) if _cut(d.get("key"), 60)]})
+        accepted = [{"key": _cut(a.get("key"), 60), "label": _cut(a.get("label"), 200),
+                     "old": _answer(a.get("old")), "new": _answer(a.get("new"))}
+                    for a in _dicts(v.get("accepted"), rs.MAX_ACCEPTED) if _cut(a.get("key"), 60)]
+        return {"text": text or None, "instructions": instructions, "accepted": accepted}
+
+    @model_validator(mode="after")
+    def _limit(self):
+        if (len(self.instructions) > rs.MAX_INSTRUCTIONS
+                or sum(len(i.text.split()) for i in self.instructions) > rs.WORD_LIMIT
+                or sum(len(i.text) for i in self.instructions) > rs.CHAR_LIMIT):
+            raise ValueError(rs.LIMIT_MESSAGE)
+        return self
+
+
+class RequestSummaryResponse(BaseModel):
+    text: str | None
+    at: datetime | None
+    by_name: str | None
+    instructions: list[ExtraInstruction]
 
 
 class RequestCreate(BaseModel):
@@ -27,6 +107,7 @@ class RequestCreate(BaseModel):
     # A retry with the same key returns the original request instead of filing a
     # second one (external agents retry on timeouts they cannot see the outcome of).
     idempotency_key: str | None = Field(default=None, pattern=r"^[A-Za-z0-9._:-]{8,128}$")
+    summary: RequestSummaryFiling | None = None
 
 
 class DraftSave(BaseModel):
@@ -36,6 +117,7 @@ class DraftSave(BaseModel):
     parent_contract_id: str | None = None
     page_index: int = Field(default=0, ge=0, le=7)
     visited: int = Field(default=1, ge=1, le=8)
+    summary_box: dict | None = None
 
 
 class DraftResponse(BaseModel):
@@ -46,6 +128,7 @@ class DraftResponse(BaseModel):
     parent_contract_id: str | None = None
     page_index: int
     visited: int
+    summary_box: dict | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -252,3 +335,62 @@ class RequestResponse(BaseModel):
 class RequestCreateResponse(RequestResponse):
     # True when the idempotency_key matched an earlier filing and nothing new was made.
     idempotent_repeat: bool = False
+    
+class DraftContractResponse(RequestResponse):
+    """The request after "Draft contract", plus the not-passing notice of the template it was drafted
+    from (FR-47): None when the template passes, or when the contract was not drafted from a template."""
+
+    template_notice: str | None = None
+
+
+# ---- request activity ------------------------------------------------------
+
+class ActivityItem(BaseModel):
+    id: str
+    at: datetime
+    sentence: str
+    who: str
+    source: Literal["request", "contract"]
+    tone: Literal["ai", "stage", "done", "plain"]
+    system: bool
+
+
+class RequestActivityResponse(BaseModel):
+    items: list[ActivityItem]
+    truncated: bool
+
+
+# ---- counterparty files (only what the viewer may see) ----------------------
+
+class CounterpartySummary(BaseModel):
+    contracts: int
+    active: int
+    requests: int
+
+
+class CounterpartyContractItem(BaseModel):
+    id: str
+    title: str
+    contract_type: str | None
+    stage: str
+    value: float | None
+    currency: str | None
+    created_at: datetime
+    ended: bool
+
+
+class CounterpartyRequestItem(BaseModel):
+    id: str
+    ref: str
+    type_label: str
+    status: str
+    date: datetime | None
+
+
+class RequestCounterpartyResponse(BaseModel):
+    name: str | None
+    summary: CounterpartySummary
+    note: str | None
+    contracts: list[CounterpartyContractItem]
+    requests: list[CounterpartyRequestItem]
+    

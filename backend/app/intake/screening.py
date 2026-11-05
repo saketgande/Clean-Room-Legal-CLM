@@ -1,5 +1,5 @@
 """Counterparty relationship enrichment for intake: what we already have on file
-with the parties a request names (prior contracts, NDAs, requests).
+with the parties a request names (contracts and requests the viewer may see).
 
 Sanctions and conflict screening used to live here too. They were removed
 (2026-09-28): matching was name-only against one US list, and a hit blocked
@@ -13,8 +13,11 @@ from __future__ import annotations
 
 import re
 
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.auth.models import User
+from app.contracts.contract_types import canonical_contract_type, contract_status
 from app.contracts.models import Contract
 from app.core.audit import write_audit_log
 from app.core.database import utcnow
@@ -86,6 +89,19 @@ def gather_parties(r: IntakeRequest) -> list[dict]:
     return parties
 
 
+def _primary(parties: list[dict]) -> dict:
+    return next((p for p in parties if p["role"] == "counterparty"), parties[0])
+
+
+def primary_counterparty(r: IntakeRequest) -> str | None:
+    """The party the relationship note is about: the first counterparty, else the first party."""
+    parties = gather_parties(r)
+    return _primary(parties)["name"] if parties else None
+
+
+_CAP = 100  # list length on the request page; the summary still counts the whole visible set
+
+
 class ScreeningService:
     """Counterparty relationship enrichment (the part of screening that's left).
 
@@ -100,37 +116,79 @@ class ScreeningService:
 
     # ---- relationship ---------------------------------------------------------
 
-    def counterparty_relationship(self, org_id: str, name: str) -> dict:
-        """A relationship dossier: prior contracts (count, stage
-        mix, total value), prior NDAs, and prior intake requests — canonically matched."""
-        contracts = [c for c in self.db.query(Contract).filter(Contract.org_id == org_id).all()
-                     if c.counterparty_name and _name_match(name, c.counterparty_name)]
-        ndas = [c for c in contracts if "nda" in (c.title or "").lower()
-                or "non-disclosure" in (c.title or "").lower()]
-        total_value = sum((c.value_amount or 0) for c in contracts)
-        stages: dict[str, int] = {}
-        for c in contracts:
-            s = c.lifecycle_stage or "unknown"
-            stages[s] = stages.get(s, 0) + 1
-        reqs = [rq for rq in self.db.query(IntakeRequest).filter(IntakeRequest.org_id == org_id).all()
-                if any(_name_match(name, n) for n in request_party_names(rq))]
+    def visible_counterparty(self, user: User, r: IntakeRequest) -> dict:
+        """What THIS viewer may see of the request's primary counterparty, computed at read time
+        (never stored): contracts through the contract access rules, earlier requests through the
+        intake queue rule minus any tied to a contract the viewer is walled off from. Counts and
+        the note come only from that visible set, so a hidden file cannot be inferred."""
+        db = self.db
+        name = primary_counterparty(r)
+        empty = {"name": name, "summary": {"contracts": 0, "active": 0, "requests": 0},
+                 "note": None, "contracts": [], "requests": []}
+        if not name:
+            return empty
+        # Imported here: intake.service imports this module at call time, not import time.
+        from app.contracts.access import accessible_contract_filter, sealed_off_filter
+        from app.core.rbac import has_permission
+        from app.intake.service import _accessible
 
+        contracts: list[Contract] = []
+        tokens = normalize_party_name(name).split()
+        if tokens and has_permission(user.permission_values, "contract:read"):
+            q = select(Contract).where(
+                Contract.org_id == user.org_id, accessible_contract_filter(user),
+                Contract.deleted_at.is_(None), Contract.counterparty_name.is_not(None),
+                # Tokens are [a-z0-9] only, so no LIKE escaping; a shared token is always a substring.
+                or_(*[Contract.counterparty_name.ilike(f"%{t}%") for t in tokens]))
+            if r.contract_id:
+                q = q.where(Contract.id != r.contract_id)
+            contracts = [c for c in db.scalars(q) if _name_match(name, c.counterparty_name)]
+        today = utcnow().date()  # one notion of today (UTC), see tests/test_one_today.py
+
+        def ended(c: Contract) -> bool:
+            return contract_status(c, today) is None
+
+        contracts.sort(key=lambda c: c.created_at, reverse=True)
+        contracts.sort(key=ended)  # stable: live first, newest first within each
+
+        walled_ok = select(Contract.id).where(Contract.org_id == user.org_id, sealed_off_filter(user))
+        # ponytail: Python name match over the viewer's visible requests (68 rows today); add a
+        # normalized party-name column if a counterparty page gets slow.
+        reqs = [rq for rq in db.scalars(select(IntakeRequest).where(
+                    _accessible(user), IntakeRequest.id != r.id,
+                    or_(IntakeRequest.contract_id.is_(None), IntakeRequest.contract_id.in_(walled_ok))))
+                if any(_name_match(name, n) for n in request_party_names(rq))]
+        reqs.sort(key=lambda rq: rq.submitted_at or rq.created_at, reverse=True)
+
+        ndas = [c for c in contracts if canonical_contract_type(c.contract_type) == "NDA"
+                and contract_status(c, today) == "in_force"]
         if not contracts and not reqs:
-            note = "New counterparty — no prior contracts or requests on file."
+            note = "New counterparty. No other contracts or requests on file."
         else:
             parts = []
             if contracts:
-                parts.append(f"{len(contracts)} prior contract(s)"
-                             + (f" (~${round(total_value / 1000)}K)" if total_value else ""))
+                parts.append(f"{len(contracts)} prior contract(s)")
             if ndas:
-                parts.append(f"{len(ndas)} NDA on file")
+                parts.append(f"{len(ndas)} NDA in force")
             if reqs:
                 parts.append(f"{len(reqs)} prior request(s)")
             note = "Known counterparty: " + ", ".join(parts) + "."
-        return {"prior_contracts": len(contracts), "contract_stages": stages,
-                "total_value": round(total_value) if total_value else None,
-                "prior_ndas": len(ndas), "prior_nda_id": ndas[0].id if ndas else None,
-                "prior_requests": len(reqs), "note": note}
+        return {
+            "name": name,
+            "summary": {"contracts": len(contracts),
+                        "active": sum(1 for c in contracts
+                                      if c.lifecycle_stage == "active" and not ended(c)),
+                        "requests": len(reqs)},
+            "note": note,
+            "contracts": [{"id": c.id, "title": c.title, "contract_type": c.contract_type,
+                           "stage": c.lifecycle_stage,
+                           "value": float(c.value_amount) if c.value_amount is not None else None,
+                           "currency": c.currency, "created_at": c.created_at,
+                           "ended": ended(c)} for c in contracts[:_CAP]],
+            "requests": [{"id": rq.id, "ref": rq.ref, "type_label": rq.type_label,
+                          "status": rq.status, "date": rq.submitted_at or rq.created_at}
+                         for rq in reqs[:_CAP]],
+        }
 
     # ---- orchestrator ------------------------------------------------------------
 
@@ -141,11 +199,9 @@ class ScreeningService:
         if not parties:
             return {"status": "skipped", "note": "No parties captured on this request.",
                     "checked_at": utcnow().isoformat()}
-        primary = next((p for p in parties if p["role"] == "counterparty"), parties[0])
         return {
-            "counterparty": primary["name"],
+            "counterparty": _primary(parties)["name"],
             "parties": parties,
-            "relationship": self.counterparty_relationship(r.org_id, primary["name"]),
             "checked_at": utcnow().isoformat(),
             "status": "done",
         }
@@ -163,8 +219,7 @@ class ScreeningService:
             try:
                 write_audit_log(db, action="intake.relationship.checked", resource_type="intake_request",
                                 resource_id=r.id, org_id=r.org_id, actor_user_id=actor_user_id,
-                                after={"counterparty": result.get("counterparty"),
-                                       "prior_contracts": result["relationship"]["prior_contracts"]})
+                                after={"counterparty": result.get("counterparty")})
                 db.commit()
             except Exception:
                 db.rollback()  # result already persisted; only the audit row is lost
@@ -174,10 +229,6 @@ class ScreeningService:
 # --- DI-MIGRATION: temporary wrappers ---------------------------------------
 # Imported directly by app.intake.service, app.jobs.tasks and tests. Tracked
 # in backend/DI_MIGRATION.md.
-
-def counterparty_relationship(db: Session, org_id: str, name: str) -> dict:
-    return ScreeningService(db).counterparty_relationship(org_id, name)
-
 
 def compute_screening(db: Session, r: IntakeRequest) -> dict:
     return ScreeningService(db).compute_screening(r)

@@ -1,7 +1,7 @@
 """The exam's paid-run machinery and the exam run itself (specs/005-ai-eval-baseline/plan.md,
 "Component design" -> ``runner.py``).
 
-Part 1 is everything a paid command shares (``exam``, ``ocr``, ``prefill``, ``draft-routing``):
+Part 1 is everything a paid command shares (``exam``, ``ocr``, ``prefill``, ``draft-routing``, ``obligations``):
 ``Estimate`` and its plain-language dialogue, ``Meter`` (the one object installed as
 ``app.integrations.claude.exam_meter``), the interactive ``approve_paid_run`` / ``finish_paid_run``
 pair that writes the audit trail, and the copy of the exam's AI call records into the live ledger.
@@ -111,7 +111,7 @@ _RUN_OUTCOMES = frozenset({"complete", "incomplete", "stopped"})
 # The kinds of paid run (PaidRun.kind). The kind is written into an immutable audit row and
 # decides whether the exam database's call records are claimed on crash recovery, so a typo must
 # fail before anything is written.
-_RUN_KINDS = frozenset({"exam", "ocr", "prefill", "draft_routing"})
+_RUN_KINDS = frozenset({"exam", "ocr", "prefill", "draft_routing", "obligations"})
 
 # Rows copied to the live ledger per INSERT: ~25 bound parameters each, well under the
 # 65,535-parameter limit of one statement.
@@ -303,7 +303,7 @@ class Meter:
 @dataclass
 class PaidRun:
     run_id: str
-    kind: Literal["exam", "ocr", "prefill", "draft_routing"]
+    kind: Literal["exam", "ocr", "prefill", "draft_routing", "obligations"]
     owner: Owner
     live: LiveDB
     estimate: Estimate

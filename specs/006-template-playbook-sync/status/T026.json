@@ -1,0 +1,1 @@
+{"task": "T026", "agent": "frontend-dev", "status": "done", "detail": "P2-1 summary no longer rendered; P3-4 (version n) wording in list, detail, check table, history chips; typecheck only 2 stale validator.ts errors; vitest 994 passed", "updated": "2026-10-15T09:40:09Z"}

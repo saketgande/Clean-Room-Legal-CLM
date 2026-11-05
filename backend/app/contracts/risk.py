@@ -82,15 +82,34 @@ def _unknown_note(rows, version_ids: list[str], playbook_name: str) -> str:
     return "No completed AI review of this text yet."
 
 
+def _no_playbook_note(db: Session, contract: Contract) -> str:
+    """Why no playbook reviews this contract. A pinned contract is not about its type, so it names
+    the playbook it was drafted with and what happened to it (never one from another org)."""
+    from app.playbooks.models import Playbook
+
+    if contract.review_playbook_id is None:
+        return "No playbook covers this contract type, so it can't be reviewed yet."
+    pinned = db.get(Playbook, contract.review_playbook_id)
+    if pinned is None or pinned.org_id != contract.org_id:
+        return "The playbook this contract was drafted with no longer exists, so it can't be reviewed."
+    why = "was deleted" if pinned.deleted_at is not None else "has no published version"
+    return (
+        f"{pinned.name} reviews this contract, but it {why}, so it can't be reviewed. "
+        "Publish it again to resume reviews."
+    )
+
+
 def _review_runs(db: Session, contract: Contract):
     """(playbook, same-text version ids, every run of this contract against that playbook,
-    the runs that qualify). playbook is None when none covers this contract type; the run
-    lists are then empty (the version ids are still given). The ONE place that decides which reviews count: the band, the list of
+    the runs that qualify). playbook is None when none covers this contract (nothing matches
+    its type, or the playbook it was pinned to is gone); the run lists are then empty (the
+    version ids are still given). The ONE place that decides which reviews count: the band, the list of
     open findings and the checklist all read it, so they cannot disagree.
 
     A qualifying review: a succeeded Claude run, on a version with the current
-    text (same_text_version_ids), of the playbook this contract type is reviewed
-    against, at that playbook's latest PUBLISHED rules. validation_status 'valid'
+    text (same_text_version_ids), of the playbook this contract is reviewed against (its
+    pin, else the one its type matches; PlaybooksService.playbook_for_contract), at that
+    playbook's latest PUBLISHED rules. validation_status 'valid'
     or 'needs_review' -- the latter's findings are floored at medium rather than
     dropped, since a run's validation never changes and dropping would leave the
     contract unknown until someone paid for a re-run. Findings of ALL qualifying
@@ -101,9 +120,7 @@ def _review_runs(db: Session, contract: Contract):
     from app.playbooks.models import PlaybookRun
     from app.playbooks.service import PlaybooksService, latest_published_version_id
 
-    playbook = PlaybooksService(db).pick_playbook_for_contract(
-        org_id=contract.org_id, contract_type=contract.contract_type
-    )
+    playbook = PlaybooksService(db).playbook_for_contract(contract)
     version_ids = same_text_version_ids(db, contract)
     if playbook is None:
         return None, version_ids, [], []
@@ -198,11 +215,27 @@ def contract_risk(db: Session, contract: Contract) -> dict:
     }
     playbook, version_ids, rows, qualifying = _review_runs(db, contract)
     if playbook is None:
-        summary["note"] = "No playbook covers this contract type, so it can't be reviewed yet."
+        summary["note"] = _no_playbook_note(db, contract)
         return summary
     summary["playbook_id"] = playbook.id
     if not qualifying:
-        summary["note"] = _unknown_note(rows, version_ids, playbook.name)
+        note = _unknown_note(rows, version_ids, playbook.name)
+        if note.startswith("The text changed") and rows:
+            # Say which versions: "changed" alone read as a mistake when the person saw no edit.
+            from app.contract_files.models import ContractVersion
+
+            nos = dict(db.execute(
+                select(ContractVersion.id, ContractVersion.version_number).where(
+                    ContractVersion.id.in_([contract.current_authoritative_version_id, rows[0].contract_version_id])
+                )
+            ).all())
+            cur, last = nos.get(contract.current_authoritative_version_id), nos.get(rows[0].contract_version_id)
+            if cur and last:
+                note = (
+                    f"The text changed since the last review: the current text is version {cur}, "
+                    f"the last review was on version {last}. Re-run the playbook review."
+                )
+        summary["note"] = note
         return summary
 
     unverified_runs = {r.id for r in qualifying if r.validation_status == "needs_review"}

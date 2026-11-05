@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Wrench, Quote, ShieldAlert, Check, X, Sparkles, Wand2, ChevronRight, ChevronDown, ArrowUp, FileText, ShieldCheck, ListChecks, PanelLeft, Upload, Search, Pencil } from "lucide-react";
+import { ArrowUpRight, History, MessageSquare, Paperclip, RefreshCw, Plus, Wrench, Quote, ShieldAlert, Check, X, Sparkles, Wand2, ChevronRight, ChevronDown, ArrowUp, FileText, ShieldCheck, ListChecks, PanelLeft, Upload, Search, Pencil } from "lucide-react";
 import {
   assistantApi,
   contractsApi,
@@ -18,14 +18,18 @@ import { runNoticeFor, type RunNotice } from "@/lib/assistant-run";
 import { Badge, Button, CenterSpinner, Input, Modal, Select, Spinner } from "@/components/ui";
 import { ContractDocument } from "@/components/contract-document";
 import { Markdown } from "@/components/markdown";
+import { ScopePicker, scopeContractIds, scopePrefix, splitScope } from "@/components/ask-scope";
 import { ImportContractModal } from "@/components/import-contract-modal";
 import { useLayout } from "@/lib/layout";
-import { cn, fmtRelative, titleCase } from "@/lib/utils";
+import { cn, fmtRelative, riskBand, titleCase } from "@/lib/utils";
+import { dueText } from "@/lib/approval-due";
+import { isExpiringSoon } from "@/lib/expiry";
 import { useToast } from "@/components/toast";
 import { useAuth } from "@/lib/auth";
 import type {
   AssistantSession,
   Citation,
+  IntakeRequest,
   ContractEditResponse,
   ContractResponse,
   Prompt,
@@ -143,32 +147,12 @@ export function AssistantWorkspace() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   })();
-  // Front-page starters organised by what the agents can DO, each with a real
-  // portfolio-shaped example — this is the command surface, not generic prompts.
-  const capabilities = [
-    {
-      verb: "Ask · research",
-      icon: Sparkles,
-      prompt:
-        "What's our exposure if a key counterparty terminates their MSA early? Ground it in the contract.",
-    },
-    {
-      verb: "Draft",
-      icon: Wand2,
-      prompt: "Draft a mutual NDA with Acme Corp — 2-year term, governed by EU law.",
-    },
-    {
-      verb: "Review · redline",
-      icon: ShieldCheck,
-      prompt: "Find a Globex MSA and redline it against our negotiation playbook.",
-    },
-    {
-      verb: "Find",
-      icon: ListChecks,
-      prompt: "Which contracts in the portfolio auto-renew within the next 30 days?",
-    },
-  ];
-
+  // The composer's hint rotates through real examples while it is empty.
+  const [phIdx, setPhIdx] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setPhIdx((i) => (i + 1) % ASK_PLACEHOLDERS.length), 3800);
+    return () => clearInterval(t);
+  }, []);
   const [activeSession, setActiveSession] = useState<AssistantSession | null>(
     null,
   );
@@ -180,6 +164,17 @@ export function AssistantWorkspace() {
   const [wfModalOpen, setWfModalOpen] = useState(false);
   const [docPickerOpen, setDocPickerOpen] = useState(false);
   const [railOpen, setRailOpen] = useState(false);
+  // What a new question is about: empty = the whole portfolio, else only these requests.
+  const [scopeReqs, setScopeReqs] = useState<IntakeRequest[]>([]);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // The box grows with what is typed, up to a limit.
+  useEffect(() => {
+    const t = composerRef.current;
+    if (!t) return;
+    t.style.height = "auto";
+    t.style.height = `${Math.min(t.scrollHeight, 224)}px`;
+  }, [input]);
+  const openChats = () => setRailOpen(true);
   const [generatedDocs, setGeneratedDocs] = useState<
     { id: string; contractId: string; kind: "draft" | "redline" }[]
   >([]);
@@ -435,6 +430,11 @@ export function AssistantWorkspace() {
     queryFn: () => renewalsApi.list(),
     enabled: homeActive,
   });
+  const { data: homeContracts } = useQuery({
+    queryKey: ["contracts-list"],
+    queryFn: contractsApi.list,
+    enabled: homeActive,
+  });
   const attention = useMemo(() => {
     const out: { text: string; pill: string; due: boolean; href: string }[] = [];
     const waiting = (homeApprovals ?? []).filter(
@@ -460,6 +460,8 @@ export function AssistantWorkspace() {
     return out.slice(0, 3);
   }, [homeApprovals, homeRenewals]);
   const recents = (sessions ?? []).slice(0, 3);
+  const deskApprovals = (homeApprovals ?? []).filter((a) => a.status === "pending" || a.status === "waiting").length;
+  const deskRenewals = (homeRenewals ?? []).filter((r) => r.decision === "undecided").length;
 
   // Seed an assistant workflow when arrived via /assistant?workflow=<id>.
   useEffect(() => {
@@ -775,9 +777,10 @@ export function AssistantWorkspace() {
       setStreaming(true);
       startWatch(s.id);
       beginTurn(t);
+      const scoped = cid ? [] : scopeReqs;
       await follow(`/assistant/sessions/${s.id}/stream`, {
-        message: t,
-        contract_ids: cid ? [cid] : [],
+        message: scopePrefix(scoped) + t,
+        contract_ids: cid ? [cid] : scopeContractIds(scoped),
       });
     } catch (e) {
       // Only reached when the chat could not be created (streaming errors are
@@ -940,9 +943,10 @@ export function AssistantWorkspace() {
     beginTurn(message);
     const wfBody = wf ? workflowPrompt(wf) : "";
     const wfPrompt = wf && wfBody ? `[Prompt: ${wf.name}]\n${wfBody}\n\n` : "";
+    const scoped = activeContractId ? [] : scopeReqs;
     await follow(`/assistant/sessions/${activeSession.id}/stream`, {
-      message: wfPrompt + message,
-      contract_ids: activeContractId ? [activeContractId] : [],
+      message: scopePrefix(scoped) + wfPrompt + message,
+      contract_ids: activeContractId ? [activeContractId] : scopeContractIds(scoped),
       ...(wf ? { workflow_id: wf.id } : {}),
     });
   }
@@ -994,226 +998,139 @@ export function AssistantWorkspace() {
 
   const hasDoc = !!activeContractId;
 
+  // The chat list: one body, shown in the docked column on wide screens and in the drawer on narrow ones.
+  const chatBody = (afterPick: () => void) => (
+    <>
+      <div className="px-4 pb-2">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={chatSearch}
+            onChange={(e) => setChatSearch(e.target.value)}
+            placeholder="Search chats"
+            style={{ outline: "none" }}
+            className="h-10 w-full rounded-xl border border-slate-200 bg-slate-100 pl-9 pr-3 text-[13px] text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/15"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 pb-4">
+        {isLoading ? (
+          <CenterSpinner />
+        ) : sessions?.length ? (
+          chatGroups(uniqById(sessions)).map((g) => (
+            <div key={g.label}>
+              <p className="px-2 pb-1 pt-3 text-[10.5px] font-semibold uppercase tracking-[0.08em] text-slate-400">{g.label}</p>
+              {g.items.map((s, i) => (
+                <div key={s.id} className="aa-up group relative mb-0.5" style={{ animationDelay: `${Math.min(i, 8) * 25}ms` }}>
+                  {renamingSessionId === s.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => void commitRename(s.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.currentTarget.blur();
+                        if (e.key === "Escape") setRenamingSessionId(null);
+                      }}
+                      style={{ outline: "none" }}
+                      className="w-full rounded-xl border border-brand-300 bg-slate-100 px-3 py-2.5 text-[13px] font-medium text-slate-800 outline-none"
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { void selectSession(s); afterPick(); }}
+                      className={cn("flex w-full items-center gap-3 rounded-xl px-2.5 py-2 pr-9 text-left transition-colors", activeSession?.id === s.id ? "bg-brand-50" : "hover:bg-slate-100")}
+                    >
+                      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", s.contract_id ? "bg-info/15 text-info" : "bg-slate-200 text-slate-500")}>
+                        {s.contract_id ? <FileText className="h-4 w-4" /> : <MessageSquare className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-medium text-slate-800">{s.title ?? "Untitled"}</span>
+                        <span className="block text-[11.5px] text-slate-400">{fmtRelative(s.updated_at)}</span>
+                      </span>
+                    </button>
+                  )}
+                  {renamingSessionId !== s.id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setRenameValue(s.title ?? ""); setRenamingSessionId(s.id); }}
+                      title="Rename chat"
+                      aria-label="Rename chat"
+                      className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-700 group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))
+        ) : (
+          <p className="p-6 text-center text-sm text-slate-400">No chats yet.</p>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col bg-slate-50">
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Conversation column */}
         <section className="relative flex min-w-0 flex-1 flex-col">
-          {/* Floating controls — replaces the removed top bar */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-2">
-            <div className="pointer-events-auto flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50/85 p-1 shadow-pop backdrop-blur">
-              <button
-                onClick={() => setRailOpen(true)}
-                title="Chats"
-                aria-label="Chats"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-              >
-                <PanelLeft className="h-4 w-4" />
-              </button>
-              <button
-                onClick={newSession}
-                title="New chat"
-                aria-label="New chat"
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </div>
+          {/* Top bar */}
+          <div className="relative z-20 flex shrink-0 items-center gap-2 px-5 pb-1 pt-4">
+            <style dangerouslySetInnerHTML={{ __html: AA_CSS }} />
+            <button onClick={openChats} className="aa-btn"><History className="h-4 w-4" />Chat history</button>
+            <button onClick={newSession} className="aa-btn aa-btn-pri"><Plus className="h-4 w-4" />New chat</button>
             {activeContractId && (
-              <Link
-                href={`/contracts/${activeContractId}`}
-                className="pointer-events-auto flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50/85 px-2.5 py-1.5 text-xs font-medium text-brand-600 shadow-pop backdrop-blur transition-colors hover:bg-brand-50"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Open contract page
-              </Link>
+              <Link href={`/contracts/${activeContractId}`} className="aa-btn ml-auto"><FileText className="h-4 w-4" />Open contract page</Link>
             )}
           </div>
           {!activeSession ? (
-            <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto w-full max-w-[720px] px-6 py-8">
-                {/* grounding strip — this is your desk, grounded in your data */}
-                <div className="flex items-center gap-3 text-[12.5px] text-slate-400">
-                  <span className="inline-flex items-center gap-1.5 font-mono text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    Grounded in your portfolio
-                  </span>
-                  {attention.length > 0 && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="font-mono text-warning">
-                        {attention.length} need{attention.length === 1 ? "s" : ""} your attention
-                      </span>
-                    </>
-                  )}
+            <div className="aa flex-1 overflow-y-auto">
+              <div className="mx-auto flex min-h-full w-full max-w-[860px] flex-col justify-center px-6 pb-6 pt-2">
+                {/* the chat is the page */}
+                <div className="aa-up text-center">
+                  <span className="aa-orb mx-auto" aria-hidden><Sparkles className="h-5 w-5" /></span>
+                  <p className="mt-5 text-[14px] font-medium text-slate-500">{greeting}, <span className="aa-grad font-semibold">{firstName}</span></p>
+                  <h1 className="mt-1 text-[clamp(30px,4.6vw,48px)] font-semibold leading-[1.08] tracking-[-0.03em] text-slate-900">How can I help today?</h1>
                 </div>
 
-                <h1 className="answer-serif mt-4 animate-rise-in text-[clamp(28px,4vw,38px)] font-normal leading-[1.1] tracking-[-0.01em] text-slate-900">
-                  {greeting}, {firstName}.{" "}
-                  <span className="text-slate-400">What are we working on?</span>
-                </h1>
-                <p className="mt-3 max-w-[56ch] animate-rise-in text-[15px] leading-relaxed text-slate-500">
-                  Ask about a contract, a clause, or the whole portfolio — every
-                  answer is grounded in your own documents, with the sources to open.
-                </p>
-
-                {workflow && (
-                  <div className="mt-5 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
-                    <Wand2 className="h-3.5 w-3.5" />
-                    <span className="font-medium">Prompt:</span>
-                    {workflow.name}
-                    <button
-                      onClick={() => setWorkflow(null)}
-                      className="ml-auto text-brand-500 hover:text-brand-700"
-                    >
-                      <X className="h-3.5 w-3.5" />
+                {/* starters: short, under the box */}
+                <div className="aa-up mx-auto mt-8 flex w-full max-w-[780px] flex-wrap justify-center gap-2" style={{ animationDelay: "100ms" }}>
+                  {[
+                    { I: Wand2, t: "Draft a contract", fill: "Draft a ", cls: "aa-t-violet" },
+                    { I: ShieldCheck, t: "Review and redline", fill: "Review and redline ", cls: "aa-t-good" },
+                    { I: Search, t: "Find in the portfolio", fill: "Which contracts ", cls: "aa-t-warn" },
+                    { I: FileText, t: "Summarise a contract", fill: "Summarise ", cls: "aa-t-brand" },
+                  ].map((q) => (
+                    <button key={q.t} onClick={() => { setInput(q.fill); requestAnimationFrame(() => { const t = composerRef.current; t?.focus(); t?.setSelectionRange(q.fill.length, q.fill.length); }); }} className={cn("aa-starter", q.cls)}>
+                      <q.I className="h-4 w-4" />{q.t}
                     </button>
+                  ))}
+                </div>
+
+                {/* small, quiet: where things stand and where you left off */}
+                <div className="aa-up mx-auto mt-12 flex w-full max-w-[780px] flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[12.5px] text-slate-500" style={{ animationDelay: "230ms" }}>
+                  <Link href="/approvals" className="aa-meta"><ShieldAlert className="h-4 w-4 text-warning" /><CountUp n={deskApprovals} className="font-semibold text-slate-800" /> approvals waiting</Link>
+                  <Link href="/renewals" className="aa-meta"><RefreshCw className="h-4 w-4 text-info" /><CountUp n={deskRenewals} className="font-semibold text-slate-800" /> renewals to decide</Link>
+                  <Link href="/contracts" className="aa-meta"><FileText className="h-4 w-4 text-brand-600" /><CountUp n={(homeContracts ?? []).length} className="font-semibold text-slate-800" /> contracts</Link>
+                </div>
+                {recents.length > 0 && (
+                  <div className="aa-up mx-auto mt-4 flex w-full max-w-[780px] flex-wrap items-center justify-center gap-2" style={{ animationDelay: "290ms" }}>
+                    <span className="text-[12px] text-slate-400">Recent</span>
+                    {recents.map((c) => (
+                      <button key={c.id} onClick={() => selectSession(c)} className="aa-sug max-w-[240px]">
+                        <MessageSquare className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{c.title || "Untitled chat"}</span>
+                      </button>
+                    ))}
+                    <button onClick={openChats} className="text-[12px] font-medium text-brand-600 hover:underline">All chats</button>
                   </div>
                 )}
 
-                {/* hero composer */}
-                <div className="mt-6 rounded-2xl border border-slate-300 bg-slate-100 p-3 shadow-pop transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
-                  <textarea
-                    rows={1}
-                    aria-label="Ask Aegis about a contract, a clause, or your whole portfolio"
-                    placeholder="Ask about a contract, a clause, or your whole portfolio…"
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" &&
-                      !e.shiftKey &&
-                      (e.preventDefault(), startConversation(input, pendingHandoff ?? undefined))
-                    }
-                    className="block max-h-44 w-full resize-none bg-transparent px-2 pb-2 pt-1.5 text-[16px] leading-6 text-slate-800 placeholder:text-slate-400 focus:outline-none"
-                  />
-                  <div className="mt-1 flex items-center gap-1">
-                    <button
-                      onClick={() => setDocPickerOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Documents
-                    </button>
-                    <button
-                      onClick={() => setWfModalOpen(true)}
-                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
-                    >
-                      <Wand2 className="h-4 w-4" />
-                      Prompts
-                    </button>
-                    <span className="ml-auto mr-1.5 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                      grounded in your portfolio
-                    </span>
-                    <button
-                      onClick={() => startConversation(input, pendingHandoff ?? undefined)}
-                      disabled={!input.trim() || streaming}
-                      className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white transition hover:bg-brand-700 disabled:opacity-30"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* capability starters — what the agents can do */}
-                <p className="mb-3 mt-8 font-mono text-[11px] uppercase tracking-[0.1em] text-slate-400">
-                  Start with what Aegis can do
-                </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {capabilities.map((c) => {
-                    const Icon = c.icon;
-                    return (
-                      <button
-                        key={c.verb}
-                        onClick={() => startConversation(c.prompt)}
-                        disabled={streaming}
-                        className="flex gap-3 rounded-2xl border border-slate-200 bg-slate-100 p-4 text-left transition hover:-translate-y-0.5 hover:border-brand-300 disabled:opacity-50"
-                      >
-                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600">
-                          <Icon className="h-[18px] w-[18px]" />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block font-mono text-[10.5px] font-semibold uppercase tracking-[0.06em] text-brand-600">
-                            {c.verb}
-                          </span>
-                          <span className="answer-serif mt-0.5 block text-[15px] leading-snug text-slate-800">
-                            {c.prompt}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* recents + attention — real portfolio data */}
-                <div className="mt-8 grid grid-cols-1 gap-6 sm:grid-cols-2">
-                  <div>
-                    <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-slate-400">
-                      Pick up where you left off
-                    </p>
-                    {recents.length ? (
-                      recents.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => selectSession(s)}
-                          className="flex w-full items-center gap-3 border-b border-slate-200 py-2.5 text-left text-[13.5px] text-slate-600 last:border-0 hover:text-slate-900"
-                        >
-                          <span className="flex-1 truncate">
-                            {s.title || "Untitled chat"}
-                          </span>
-                          <span className="shrink-0 font-mono text-[11px] text-slate-400">
-                            {fmtRelative(s.updated_at)}
-                          </span>
-                        </button>
-                      ))
-                    ) : (
-                      <p className="py-2.5 text-[13px] text-slate-400">
-                        No chats yet — ask something above.
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <p className="mb-1.5 font-mono text-[11px] uppercase tracking-[0.08em] text-slate-400">
-                      Needs your attention
-                    </p>
-                    {attention.length ? (
-                      attention.map((a, i) => (
-                        <Link
-                          key={i}
-                          href={a.href}
-                          className="flex w-full items-center gap-3 border-b border-slate-200 py-2.5 text-left text-[13.5px] text-slate-600 last:border-0 hover:text-slate-900"
-                        >
-                          <span className="flex-1 truncate">{a.text}</span>
-                          <span
-                            className={cn(
-                              "shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px]",
-                              a.due
-                                ? "border-warning/40 text-warning"
-                                : "border-slate-200 text-slate-400",
-                            )}
-                          >
-                            {a.pill}
-                          </span>
-                        </Link>
-                      ))
-                    ) : (
-                      <p className="py-2.5 text-[13px] text-slate-400">
-                        All clear — nothing needs you right now.
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <p className="mt-9 pb-6 text-center text-[11px] text-slate-400">
-                  Aegis can err. Verify material conclusions with counsel — not
-                  legal advice.
-                </p>
               </div>
             </div>
           ) : (
-            <>
               <div className="flex-1 overflow-y-auto">
-                <div className="mx-auto w-full max-w-5xl space-y-8 px-6 py-10">
+                <div className="mx-auto w-full max-w-[820px] space-y-7 px-6 py-8">
                   {items.length === 0 && !streaming && (
                     <div className="flex items-center gap-2 text-sm text-slate-400">
                       <Sparkles className="h-4 w-4" />
@@ -1402,78 +1319,76 @@ export function AssistantWorkspace() {
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-slate-200 bg-slate-100">
-                <div className="mx-auto w-full max-w-5xl px-6 py-4">
-                  {workflow && (
-                    <div className="mb-2 flex items-center gap-2 rounded border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
-                      <Wand2 className="h-3.5 w-3.5" />
-                      <span className="font-medium">Prompt:</span>
-                      {workflow.name}
-                      <button
-                        onClick={() => setWorkflow(null)}
-                        className="ml-auto text-brand-500 hover:text-brand-700"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
-                  <div className="rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 transition focus-within:border-brand-500 focus-within:ring-2 focus-within:ring-brand-500/20">
+          )}
+
+          {/* One composer for the empty page and for every chat: the chat is always the focus */}
+          <div className="relative z-10 shrink-0 px-5 pb-4 pt-2">
+            <div className="mx-auto w-full max-w-[820px]">
+              {workflow && (
+                <div className="mb-2 flex items-center gap-2 rounded-xl border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs text-brand-700">
+                  <Wand2 className="h-3.5 w-3.5" />
+                  <span className="font-medium">Prompt:</span>
+                  {workflow.name}
+                  <button onClick={() => setWorkflow(null)} aria-label="Remove prompt" className="ml-auto text-brand-500 hover:text-brand-700"><X className="h-3.5 w-3.5" /></button>
+                </div>
+              )}
+              <div className="aa-composer">
+                <div className="aa-composer-in">
+                  <div className="relative">
                     <textarea
+                      ref={composerRef}
                       rows={1}
                       aria-label="Ask Aegis about a contract, a clause, or your whole portfolio"
                       placeholder={
-                        activeSession?.session_type === LEGAL_QUESTION_SESSION_TYPE
-                          ? "Add detail, ask a follow-up, or say \u201csend it to Legal\u201d…"
-                          : "Ask about a contract, a clause, or your whole portfolio…"
+                        !activeSession
+                          ? ""
+                          : activeSession.session_type === LEGAL_QUESTION_SESSION_TYPE
+                            ? "Add detail, ask a follow-up, or say \u201csend it to Legal\u201d…"
+                            : "Ask a follow-up, or something new…"
                       }
                       value={input}
-                      onChange={(e) => setInput(e.target.value)}
+                      onChange={(e) => {
+                        // "/" on an empty box opens the prompt list.
+                        if (e.target.value === "/") { setInput(""); setWfModalOpen(true); return; }
+                        setInput(e.target.value);
+                      }}
                       onKeyDown={(e) =>
                         e.key === "Enter" &&
                         !e.shiftKey &&
-                        (e.preventDefault(), send())
+                        (e.preventDefault(), activeSession ? send() : startConversation(input, pendingHandoff ?? undefined))
                       }
-                      disabled={streaming || !!pending}
-                      className="block max-h-44 w-full resize-none bg-transparent py-1.5 text-[15px] leading-6 text-slate-800 placeholder:text-slate-500 focus:outline-none disabled:opacity-60"
+                      disabled={!!activeSession && (streaming || !!pending)}
+                      style={{ outline: "none" }}
+                      className={cn(
+                        "block max-h-64 w-full resize-none bg-transparent px-6 pb-2 pt-5 leading-7 text-slate-800 outline-none placeholder:text-slate-400 focus:outline-none disabled:opacity-60",
+                        activeSession ? "min-h-[76px] text-[16px]" : "min-h-[112px] text-[17px]",
+                      )}
                     />
-                    <div className="mt-2 flex items-center gap-4">
-                      <button
-                        onClick={() => setDocPickerOpen(true)}
-                        disabled={streaming || !!pending}
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 disabled:opacity-40"
-                      >
-                        <Plus className="h-4 w-4" />
-                        Documents
-                      </button>
-                      <button
-                        onClick={() => setWfModalOpen(true)}
-                        disabled={streaming || !!pending}
-                        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800 disabled:opacity-40"
-                      >
-                        <Wand2 className="h-4 w-4" />
-                        Prompts
-                      </button>
-                      <span className="ml-auto mr-1 hidden items-center gap-1.5 font-mono text-[11px] text-success sm:inline-flex">
-                        <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                        grounded
+                    {!input && !activeSession && (
+                      <span key={phIdx} className="aa-ph pointer-events-none absolute left-6 top-5 text-[17px] leading-7 text-slate-400">
+                        {ASK_PLACEHOLDERS[phIdx]}
                       </span>
-                      <button
-                        onClick={send}
-                        aria-label="Send"
-                        disabled={streaming || !!pending || !input.trim()}
-                        className="flex h-9 w-9 items-center justify-center rounded-full bg-brand-600 text-white transition-colors hover:bg-brand-700 disabled:opacity-30"
-                      >
-                        <ArrowUp className="h-4 w-4" />
-                      </button>
-                    </div>
+                    )}
                   </div>
-                  <p className="mt-2 text-center text-xs text-slate-400">
-                    AI can make mistakes. Answers are not legal advice.
-                  </p>
+                  <div className="flex flex-wrap items-center gap-2 px-3.5 pb-3.5 pt-1">
+                    <button onClick={() => setDocPickerOpen(true)} disabled={!!activeSession && (streaming || !!pending)} className="aa-tool disabled:opacity-40"><Paperclip className="h-4 w-4" />Add documents</button>
+                    <button onClick={() => setWfModalOpen(true)} disabled={!!activeSession && (streaming || !!pending)} className="aa-tool disabled:opacity-40"><Wand2 className="h-4 w-4" />Prompts<kbd className="aa-kbd">/</kbd></button>
+                    {!activeContractId && <ScopePicker value={scopeReqs} onChange={setScopeReqs} disabled={!!activeSession && (streaming || !!pending)} up />}
+                    <span className="ml-auto hidden text-[11.5px] text-slate-400 md:inline">Enter to send</span>
+                    <button
+                      onClick={() => (activeSession ? send() : startConversation(input, pendingHandoff ?? undefined))}
+                      aria-label="Send"
+                      disabled={!input.trim() || streaming || !!pending}
+                      className="aa-go !h-10 !px-5"
+                    >
+                      Ask <ArrowUp className="h-4 w-4" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </>
-          )}
+              <p className="mt-2 text-center text-[11px] text-slate-400">Aegis can err. Verify material conclusions with counsel. This is not legal advice.</p>
+            </div>
+          </div>
         </section>
 
         {/* Document side panel (slides in) */}
@@ -1551,112 +1466,23 @@ export function AssistantWorkspace() {
         )}
       </div>
 
-      {/* Sessions drawer */}
+      {/* Chat history drawer */}
       {railOpen && (
         <div className="fixed inset-0 z-40 flex">
-          <div
-            className="absolute inset-0 bg-slate-900/20"
-            onClick={() => setRailOpen(false)}
-          />
-          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-slate-200 bg-slate-100 shadow-xl">
-            <div className="flex items-center justify-between border-b border-slate-100 p-3">
-              <span className="text-sm font-semibold text-slate-900">
-                Your chats
-              </span>
-              <button
-                onClick={() => setRailOpen(false)}
-                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <div className="space-y-2 border-b border-slate-100 p-3">
-              <Button
-                size="sm"
-                className="w-full"
-                onClick={() => {
-                  void newSession();
-                  setRailOpen(false);
-                }}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                New chat
-              </Button>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                <Input
-                  value={chatSearch}
-                  onChange={(e) => setChatSearch(e.target.value)}
-                  placeholder="Search chats..."
-                  className="h-8 pl-8 text-xs"
-                />
+          <div className="aa-scrim absolute inset-0 bg-slate-900/30 backdrop-blur-[2px]" onClick={() => setRailOpen(false)} />
+          <aside className="aa-drawer relative z-10 flex h-full w-[340px] max-w-[92vw] flex-col border-r border-slate-200 bg-slate-50 shadow-2xl">
+            <div className="flex items-center gap-2 px-4 pb-3 pt-4">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-50 text-brand-600"><History className="h-[18px] w-[18px]" /></span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[14.5px] font-semibold text-slate-900">Your chats</p>
+                <p className="text-[11.5px] text-slate-400">{sessions?.length ?? 0} conversations</p>
               </div>
+              <button onClick={() => setRailOpen(false)} aria-label="Close chats" className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"><X className="h-4 w-4" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto p-2">
-              {isLoading ? (
-                <CenterSpinner />
-              ) : sessions?.length ? (
-                uniqById(sessions).map((s) => (
-                  <div key={s.id} className="group relative mb-1">
-                    {renamingSessionId === s.id ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onBlur={() => void commitRename(s.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") e.currentTarget.blur();
-                          if (e.key === "Escape") setRenamingSessionId(null);
-                        }}
-                        className="w-full rounded-lg border border-brand-300 bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 outline-none"
-                      />
-                    ) : (
-                      <button
-                        onClick={() => {
-                          void selectSession(s);
-                          setRailOpen(false);
-                        }}
-                        className={cn(
-                          "w-full rounded-lg px-3 py-2 pr-8 text-left transition-colors",
-                          activeSession?.id === s.id
-                            ? "bg-brand-50"
-                            : "hover:bg-slate-50",
-                        )}
-                      >
-                        <p className="truncate text-sm font-medium text-slate-800">
-                          {s.title ?? "Untitled"}
-                        </p>
-                        <div className="mt-0.5 flex items-center gap-1.5">
-                          {s.contract_id && (
-                            <FileText className="h-3 w-3 text-slate-400" />
-                          )}
-                          <span className="text-xs text-slate-400">
-                            {fmtRelative(s.updated_at)}
-                          </span>
-                        </div>
-                      </button>
-                    )}
-                    {renamingSessionId !== s.id && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRenameValue(s.title ?? "");
-                          setRenamingSessionId(s.id);
-                        }}
-                        title="Rename chat"
-                        className="absolute right-1.5 top-1.5 rounded p-1 text-slate-300 opacity-0 hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="p-4 text-center text-sm text-slate-400">
-                  No chats yet.
-                </p>
-              )}
+            <div className="px-4 pb-3">
+              <button onClick={() => { void newSession(); setRailOpen(false); }} className="aa-go w-full justify-center"><Plus className="h-4 w-4" /> New chat</button>
             </div>
+            {chatBody(() => setRailOpen(false))}
           </aside>
         </div>
       )}
@@ -1761,6 +1587,171 @@ const TOOL_LABELS: Record<string, [string, string]> = {
 // return {id, ref} → /intake?open=<id>; contract-read tools return {contract_id}
 // → /contracts/<id>. We surface a click-through so the chat hands off to the
 // real page instead of the model inventing a (dead) link.
+const EXAMPLES: { label: string; icon: typeof Sparkles; prompts: string[] }[] = [
+  {
+    label: "Ask",
+    icon: Sparkles,
+    prompts: [
+      "What's our exposure if a key counterparty terminates their MSA early?",
+      "Which contracts have uncapped liability?",
+      "Summarise the termination rights in our Globex MSA.",
+    ],
+  },
+  {
+    label: "Draft",
+    icon: Wand2,
+    prompts: [
+      "Draft a mutual NDA with Acme Corp, 2-year term, governed by EU law.",
+      "Draft a consultancy agreement for a 6-month engagement.",
+      "Write a data processing addendum for a SaaS vendor.",
+    ],
+  },
+  {
+    label: "Review",
+    icon: ShieldCheck,
+    prompts: [
+      "Find a Globex MSA and redline it against our negotiation playbook.",
+      "Review the latest counterparty revision and list what changed.",
+      "Check our standard NDA against the playbook.",
+    ],
+  },
+  {
+    label: "Find",
+    icon: ListChecks,
+    prompts: [
+      "Which contracts in the portfolio auto-renew within the next 30 days?",
+      "List contracts expiring this quarter with a value above 1M.",
+      "Show contracts with no governing law clause.",
+    ],
+  },
+];
+
+const ASK_PLACEHOLDERS = [
+  "Ask about a contract, a clause, or your whole portfolio…",
+  "Which contracts auto-renew in the next 30 days?",
+  "Summarise the termination rights in our Globex MSA…",
+  "Draft a mutual NDA with Acme Corp, 2-year term…",
+  "What changed in the latest counterparty revision?",
+];
+
+const AA_TONES = [
+  { cls: "aa-t-brand" },
+  { cls: "aa-t-violet" },
+  { cls: "aa-t-good" },
+  { cls: "aa-t-warn" },
+];
+
+/** Chats grouped by how recently they were touched, newest first (the list arrives newest first). */
+function chatGroups(list: AssistantSession[]): { label: string; items: AssistantSession[] }[] {
+  const day = 86_400_000;
+  const start = new Date().setHours(0, 0, 0, 0);
+  const out = new Map<string, AssistantSession[]>();
+  for (const s of list) {
+    const t = new Date(s.updated_at).getTime();
+    const label = t >= start ? "Today" : t >= start - day ? "Yesterday" : t >= start - 7 * day ? "Previous 7 days" : "Older";
+    out.set(label, [...(out.get(label) ?? []), s]);
+  }
+  return ["Today", "Yesterday", "Previous 7 days", "Older"].filter((l) => out.has(l)).map((l) => ({ label: l, items: out.get(l)! }));
+}
+
+// Ask Aegis landing + chats drawer: staggered rise-in, soft hover lifts, a calm focus state on the box.
+// All motion is switched off for people who ask for reduced motion.
+const AA_CSS = `
+.aa{position:relative;background:radial-gradient(900px 340px at 50% -80px,rgb(var(--color-brand-500) / .10),transparent 70%)}
+@keyframes aa-up{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.aa-up{animation:aa-up .55s cubic-bezier(.2,.7,.2,1) both}
+@keyframes aa-slide{from{transform:translateX(-24px);opacity:0}to{transform:none;opacity:1}}
+.aa-drawer{animation:aa-slide .26s cubic-bezier(.2,.7,.2,1) both}
+@keyframes aa-fade{from{opacity:0}to{opacity:1}}
+.aa-scrim{animation:aa-fade .2s ease both}
+.aa-pill{display:inline-flex;align-items:center;gap:8px;padding:5px 13px;border-radius:99px;font-size:12px;font-weight:600;color:rgb(var(--color-success));background:rgb(var(--color-success) / .12)}
+.aa-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;animation:aa-pulse 2s ease-in-out infinite}
+@keyframes aa-pulse{50%{opacity:.35;transform:scale(.8)}}
+.aa-grad{background:linear-gradient(100deg,rgb(var(--color-brand-500)),rgb(139 92 246),rgb(var(--color-brand-500)));background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:aa-shift 6s ease-in-out infinite}
+@keyframes aa-shift{50%{background-position:100% 0}}
+.aa-box{border-radius:22px;border:1px solid rgb(var(--color-slate-200));background:rgb(var(--color-slate-100));box-shadow:0 1px 2px rgb(0 0 0 / .04),0 18px 40px -26px rgb(0 0 0 / .35);transition:border-color .2s,box-shadow .25s,transform .25s}
+.aa-box:focus-within{border-color:rgb(var(--color-brand-500) / .7);box-shadow:0 0 0 4px rgb(var(--color-brand-500) / .12),0 22px 46px -26px rgb(var(--color-brand-500) / .55);transform:translateY(-1px)}
+.aa-ph{animation:aa-ph .5s ease both}
+@keyframes aa-ph{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+.aa-tool{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 12px;border-radius:10px;font-size:13px;font-weight:500;color:rgb(var(--color-slate-600));background:rgb(var(--color-slate-200) / .55);transition:background .15s,color .15s}
+.aa-tool:hover{background:rgb(var(--color-slate-200));color:rgb(var(--color-slate-900))}
+.aa-scope{align-items:center;gap:6px;height:34px;padding:0 11px;border-radius:10px;font-size:12px;font-weight:500;color:rgb(var(--color-slate-500));border:1px dashed rgb(var(--color-slate-300))}
+.aa-sans,.aa-sans p,.aa-sans li,.aa-sans blockquote{font-family:var(--font-sans)}
+.aa-sans p,.aa-sans li{font-size:15px;line-height:1.7}
+.aa-tool-on{color:rgb(var(--color-brand-600));background:rgb(var(--color-brand-500) / .13)}
+@keyframes aa-pop{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+.aa-pop{animation:aa-pop .18s cubic-bezier(.2,.7,.2,1) both}
+.aa-wide{display:none!important}
+@media (min-width:1280px){.aa-wide{display:inline-flex!important}.aa-narrow,.aa-hide-wide{display:none!important}}
+.aa-btn-on{background:rgb(var(--color-brand-500) / .12);border-color:rgb(var(--color-brand-500) / .35);color:rgb(var(--color-brand-600))}
+.aa-dock{animation:aa-slide .3s cubic-bezier(.2,.7,.2,1) both}
+.aa-kbd{margin-left:2px;padding:0 6px;border-radius:6px;font:600 11px/18px var(--font-sans);color:rgb(var(--color-slate-500));background:rgb(var(--color-slate-100));border:1px solid rgb(var(--color-slate-300))}
+.aa-seg{position:relative;display:grid;grid-template-columns:repeat(4,1fr);padding:4px;border-radius:14px;background:rgb(var(--color-slate-200) / .6)}
+.aa-seg-pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc((100% - 8px) / 4);border-radius:10px;background:rgb(var(--color-slate-100));box-shadow:0 1px 3px rgb(0 0 0 / .12);transform:translateX(calc(var(--i,0) * 100%));transition:transform .3s cubic-bezier(.3,.8,.2,1)}
+.aa-seg-btn{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;border-radius:10px;font-size:13px;font-weight:500;color:rgb(var(--color-slate-500));transition:color .2s}
+.aa-seg-btn.on{color:rgb(var(--color-slate-900));font-weight:600}
+.aa-ex{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border-radius:14px;border:1px solid rgb(var(--color-slate-200));background:rgb(var(--color-slate-100));font-size:14px;color:rgb(var(--color-slate-700));transition:transform .2s,border-color .2s,box-shadow .2s,color .2s}
+.aa-ex:hover{transform:translateX(4px);border-color:rgb(var(--color-brand-500) / .5);color:rgb(var(--color-slate-900));box-shadow:0 10px 24px -18px rgb(var(--color-brand-500) / .7)}
+.aa-ex-go{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:rgb(var(--color-brand-600));opacity:0;transform:translateX(-6px);transition:opacity .2s,transform .2s}
+.aa-ex:hover .aa-ex-go{opacity:1;transform:none}
+.aa-stat{display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 15px;border-radius:99px;font-size:13px;color:rgb(var(--color-slate-600));background:rgb(var(--t) / .10);border:1px solid rgb(var(--t) / .18);transition:transform .2s,background .2s,box-shadow .2s;--t:var(--color-brand-500)}
+.aa-stat svg{color:rgb(var(--t))}
+.aa-stat b{color:rgb(var(--color-slate-900));font-weight:700}
+.aa-stat:hover{transform:translateY(-2px);background:rgb(var(--t) / .18);box-shadow:0 10px 20px -14px rgb(var(--t) / .8)}
+.aa-pi{--t:var(--color-brand-500);transition:transform .18s,border-color .18s}
+.aa-pi:hover{transform:translateX(3px)}
+.aa-pi .aa-ic{color:rgb(var(--t));background:rgb(var(--t) / .13)}
+.aa-tile{position:relative;overflow:hidden;border-radius:22px;border:1px solid rgb(var(--color-slate-200));background:rgb(var(--color-slate-100));transition:border-color .2s,box-shadow .25s}
+.aa-tile::before{content:"";position:absolute;inset:0;pointer-events:none;opacity:0;transition:opacity .3s;background:radial-gradient(260px circle at var(--mx,50%) var(--my,0%),rgb(var(--color-brand-500) / .10),transparent 62%)}
+.aa-tile:hover::before{opacity:1}
+.aa-tile:hover{border-color:rgb(var(--color-slate-300));box-shadow:0 18px 40px -30px rgb(0 0 0 / .4)}
+.aa-tile>*{position:relative}
+.aa-hero{background:linear-gradient(160deg,rgb(var(--color-brand-500) / .07),transparent 55%),rgb(var(--color-slate-100))}
+.aa-sug{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:99px;font-size:12px;color:rgb(var(--color-slate-600));background:rgb(var(--color-slate-200) / .55);transition:background .15s,color .15s,transform .15s}
+.aa-sug:hover{background:rgb(var(--color-brand-500) / .14);color:rgb(var(--color-brand-600));transform:translateY(-1px)}
+.aa-qs{--t:var(--color-brand-500);transition:background .15s,transform .2s,border-color .2s}
+.aa-qs:hover{background:rgb(var(--color-slate-200) / .55);transform:translateX(3px)}
+.aa-qs .aa-ic{color:rgb(var(--t));background:rgb(var(--t) / .13);transition:transform .25s,background .2s,color .2s}
+.aa-qs:hover .aa-ic{background:rgb(var(--t));color:#fff;transform:rotate(-6deg) scale(1.06)}
+.aa-qs .aa-arrow{opacity:0;transform:translateX(-6px);transition:opacity .2s,transform .2s}
+.aa-qs:hover .aa-arrow{opacity:1;transform:none}
+.aa-mix{display:flex;gap:3px;height:12px;border-radius:7px;overflow:hidden;background:rgb(var(--color-slate-200))}
+.aa-mix i{display:block;transform-origin:left;animation:aa-grow .8s cubic-bezier(.2,.7,.2,1) both}
+@keyframes aa-grow{from{transform:scaleX(0)}to{transform:none}}
+.aa-orb{position:relative;display:grid;place-items:center;width:46px;height:46px;border-radius:15px;color:#fff;background:linear-gradient(135deg,rgb(var(--color-brand-500)),rgb(139 92 246));box-shadow:0 10px 26px -10px rgb(var(--color-brand-500) / .75)}
+.aa-orb::after{content:"";position:absolute;inset:-6px;border-radius:19px;border:1.5px solid rgb(var(--color-brand-500) / .4);animation:aa-ping 3s ease-out infinite}
+@keyframes aa-ping{0%{transform:scale(.92);opacity:.9}100%{transform:scale(1.28);opacity:0}}
+.aa-composer{border-radius:26px;padding:1.5px;background:rgb(var(--color-slate-300) / .7);box-shadow:0 24px 50px -34px rgb(0 0 0 / .45);transition:box-shadow .3s,background .3s}
+.aa-composer-in{border-radius:25px;background:rgb(var(--color-slate-100))}
+.aa-composer:focus-within{background:linear-gradient(110deg,rgb(var(--color-brand-500)),rgb(139 92 246),rgb(56 189 248),rgb(var(--color-brand-500)));background-size:300% 100%;animation:aa-edge 6s linear infinite;box-shadow:0 26px 60px -30px rgb(var(--color-brand-500) / .7)}
+@keyframes aa-edge{to{background-position:300% 0}}
+.aa-starter{--t:var(--color-brand-500);display:inline-flex;align-items:center;gap:8px;height:38px;padding:0 16px;border-radius:99px;font-size:13px;font-weight:500;color:rgb(var(--color-slate-700));background:rgb(var(--color-slate-100));border:1px solid rgb(var(--color-slate-200));transition:transform .2s,border-color .2s,background .2s,box-shadow .2s}
+.aa-starter svg{color:rgb(var(--t))}
+.aa-starter:hover{transform:translateY(-2px);border-color:rgb(var(--t) / .55);background:rgb(var(--t) / .08);box-shadow:0 12px 22px -16px rgb(var(--t) / .8)}
+.aa-meta{display:inline-flex;align-items:center;gap:7px;transition:color .15s}
+.aa-meta:hover{color:rgb(var(--color-slate-900))}
+.aa-go{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 16px;border-radius:11px;font-size:13.5px;font-weight:600;color:#fff;background:rgb(var(--color-brand-600));transition:transform .15s,box-shadow .2s,opacity .2s}
+.aa-go:disabled{opacity:.35}
+.aa-go:not(:disabled):hover{transform:translateY(-1px);box-shadow:0 8px 18px -6px rgb(var(--color-brand-500) / .8)}
+.aa-go:not(:disabled):active{transform:scale(.96)}
+.aa-btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 13px;border-radius:11px;font-size:13px;font-weight:500;color:rgb(var(--color-slate-700));background:rgb(var(--color-slate-100));border:1px solid rgb(var(--color-slate-200));transition:background .15s,transform .15s,border-color .15s}
+.aa-btn:hover{background:rgb(var(--color-slate-200) / .7);transform:translateY(-1px)}
+.aa-btn-pri{color:#fff;background:rgb(var(--color-brand-600));border-color:transparent}
+.aa-btn-pri:hover{background:rgb(var(--color-brand-700))}
+.aa-card{--t:var(--color-brand-500);transition:transform .22s cubic-bezier(.2,.7,.2,1),border-color .2s,box-shadow .22s}
+.aa-card:hover{transform:translateY(-4px);border-color:rgb(var(--t) / .55);box-shadow:0 18px 34px -20px rgb(var(--t) / .6)}
+.aa-t-brand{--t:var(--color-brand-500)} .aa-t-violet{--t:139 92 246} .aa-t-good{--t:var(--color-success)} .aa-t-warn{--t:var(--color-warning)} .aa-t-info{--t:56 130 246}
+.aa-card .aa-ic,.aa-card .aa-kic{color:rgb(var(--t));background:rgb(var(--t) / .13);transition:transform .25s,background .2s,color .2s}
+.aa-card:hover .aa-ic,.aa-card:hover .aa-kic{background:rgb(var(--t));color:#fff;transform:rotate(-6deg) scale(1.06)}
+.aa-card .aa-try{color:rgb(var(--t));opacity:.8;transition:transform .2s,opacity .2s}
+.aa-card:hover .aa-try{opacity:1;transform:translateX(3px)}
+.aa-arrow{opacity:0;transform:translateX(-6px);transition:opacity .2s,transform .2s}
+.aa-card:hover .aa-arrow{opacity:1;transform:none}
+.aa-row{transition:background .15s,transform .15s}
+.aa-row:hover{background:rgb(var(--color-slate-200) / .6);transform:translateX(2px)}
+@media (prefers-reduced-motion:reduce){.aa *,.aa-drawer,.aa-scrim,.aa-up{animation:none!important;transition:none!important}}
+`;
+
 const REQUEST_RESULT_TOOLS = new Set([
   "create_intake_request",
   "get_intake_request",
@@ -2235,17 +2226,20 @@ function AssistantTimeline({
     }
   }
   return (
-    <div className="space-y-3">
-      {groups.map((g, i) =>
-        g.k === "steps" ? (
-          <TimelineStepCard key={i} tools={g.tools} />
-        ) : (
-          <div className="answer-serif" key={i}>
-            <Markdown>{g.text}</Markdown>
-          </div>
-        ),
-      )}
-      {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
+    <div className="aa-up flex gap-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-sm"><Sparkles className="h-4 w-4" /></span>
+      <div className="min-w-0 flex-1 space-y-3">
+        {groups.map((g, i) =>
+          g.k === "steps" ? (
+            <TimelineStepCard key={i} tools={g.tools} />
+          ) : (
+            <div className="answer-serif aa-sans" key={i}>
+              <Markdown>{g.text}</Markdown>
+            </div>
+          ),
+        )}
+        {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
+      </div>
     </div>
   );
 }
@@ -2442,7 +2436,7 @@ function ChatBubble({
 }) {
   if (item.role === "tool") {
     return (
-      <div className="flex items-center gap-2 text-xs text-slate-400">
+      <div className="aa-up ml-11 inline-flex w-fit items-center gap-2 rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs text-slate-500">
         <Wrench className="h-3.5 w-3.5" />
         <span>
           {toolLabel(item.text, item.tool?.status !== "running")}
@@ -2467,8 +2461,9 @@ function ChatBubble({
     );
 
   if (item.role === "user") {
+    const { scope, body } = splitScope(item.text);
     return (
-      <div data-user-msg className="flex justify-end scroll-mt-6">
+      <div data-user-msg className="aa-up flex scroll-mt-6 justify-end">
         <div className="max-w-[80%] space-y-1.5">
           {item.workflow && (
             <div className="flex justify-end">
@@ -2478,34 +2473,42 @@ function ChatBubble({
               </span>
             </div>
           )}
-          <div className="whitespace-pre-wrap rounded-2xl bg-slate-900 px-4 py-2.5 text-[15px] leading-7 text-white">
-            {item.text}
+          {scope && (
+            <div className="flex justify-end">
+              <span className="inline-flex max-w-full items-center gap-1.5 truncate rounded-full bg-slate-200 px-2.5 py-1 text-[11.5px] font-medium text-slate-600" title={scope}>
+                <ListChecks className="h-3 w-3 shrink-0" />
+                <span className="truncate">{scope}</span>
+              </span>
+            </div>
+          )}
+          <div className="whitespace-pre-wrap rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-[15px] leading-7 text-white shadow-sm">
+            {body}
           </div>
         </div>
       </div>
     );
   }
 
-  // assistant — borderless prose, Claude style
+  // assistant: an avatar and borderless prose
   return (
-    <div className="space-y-3">
-      {item.workflow && (
-        <button
-          onClick={onReopenWorkflow}
-          className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100"
-        >
-          <Wand2 className="h-3 w-3" />
-          {item.workflow.name}
-        </button>
-      )}
-      {item.text ? (
-        <div className="answer-serif">
-          <Markdown>{item.text}</Markdown>
-        </div>
-      ) : (
-        <span className="text-slate-300">…</span>
-      )}
-      {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
+    <div className="aa-up flex gap-3">
+      <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-violet-500 text-white shadow-sm"><Sparkles className="h-4 w-4" /></span>
+      <div className="min-w-0 flex-1 space-y-3">
+        {item.workflow && (
+          <button onClick={onReopenWorkflow} className="inline-flex items-center gap-1.5 rounded-full bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700 hover:bg-brand-100">
+            <Wand2 className="h-3 w-3" />
+            {item.workflow.name}
+          </button>
+        )}
+        {item.text ? (
+          <div className="answer-serif aa-sans">
+            <Markdown>{item.text}</Markdown>
+          </div>
+        ) : (
+          <span className="text-slate-300">…</span>
+        )}
+        {item.citations && <CitationList citations={item.citations} onCite={onCite} />}
+      </div>
     </div>
   );
 }
@@ -2629,6 +2632,24 @@ function workflowPrompt(wf: Prompt): string {
   return "";
 }
 
+/** A number that counts up to its value, so a fresh page feels alive. */
+function CountUp({ n, className }: { n: number; className?: string }) {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) { setV(n); return; }
+    let raf = 0;
+    const t0 = performance.now();
+    const tick = (t: number) => {
+      const k = Math.min(1, (t - t0) / 700);
+      setV(Math.round(n * (1 - Math.pow(1 - k, 3))));
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [n]);
+  return <span className={className}>{v}</span>;
+}
+
 function WorkflowModal({
   open,
   onClose,
@@ -2645,150 +2666,149 @@ function WorkflowModal({
   });
   const [selected, setSelected] = useState<Prompt | null>(null);
   const [hovered, setHovered] = useState<Prompt | null>(null);
-  const preview = hovered ?? selected;
+  const [filter, setFilter] = useState<"all" | "assistant" | "tabular_review" | "other">("all");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    const k = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [open, onClose]);
+  if (!open) return null;
+
   const all = workflows ?? [];
-  const groups = [
-    {
-      label: "Assistant prompts",
-      items: all.filter((w) => w.workflow_type === "assistant"),
-    },
-    {
-      label: "Document review prompts",
-      items: all.filter((w) => w.workflow_type === "tabular_review"),
-    },
-    {
-      label: "Other prompts",
-      items: all.filter(
-        (w) =>
-          w.workflow_type !== "assistant" &&
-          w.workflow_type !== "tabular_review",
-      ),
-    },
-  ].filter((g) => g.items.length > 0);
+  const kindOf = (w: Prompt): "assistant" | "tabular_review" | "other" =>
+    w.workflow_type === "assistant" ? "assistant" : w.workflow_type === "tabular_review" ? "tabular_review" : "other";
+  const KIND = {
+    assistant: { label: "Assistant", I: Sparkles, tone: "aa-t-brand" },
+    tabular_review: { label: "Document review", I: ListChecks, tone: "aa-t-violet" },
+    other: { label: "Other", I: Wand2, tone: "aa-t-warn" },
+  } as const;
+  const tabs = [
+    { k: "all" as const, l: "All", n: all.length },
+    { k: "assistant" as const, l: "Assistant", n: all.filter((w) => kindOf(w) === "assistant").length },
+    { k: "tabular_review" as const, l: "Document review", n: all.filter((w) => kindOf(w) === "tabular_review").length },
+    { k: "other" as const, l: "Other", n: all.filter((w) => kindOf(w) === "other").length },
+  ].filter((t) => t.k === "all" || t.n > 0);
+  const needle = q.trim().toLowerCase();
+  const list = all.filter((w) => (filter === "all" || kindOf(w) === filter) && (!needle || `${w.name} ${w.description ?? ""}`.toLowerCase().includes(needle)));
+  const preview = hovered ?? selected ?? list[0] ?? null;
+  const use = (w: Prompt) => onPick(w);
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title="Apply a prompt"
-      size="lg"
-      footer={
-        <>
-          <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            disabled={!selected}
-            onClick={() => selected && onPick(selected)}
-          >
-            <Wand2 className="h-4 w-4" />
-            Use prompt
-          </Button>
-        </>
-      }
-    >
-      {isLoading ? (
-        <CenterSpinner />
-      ) : (
-        <div className="grid grid-cols-2 gap-4">
-          <div
-            className="max-h-[60vh] space-y-4 overflow-y-auto pr-1"
-            onMouseLeave={() => setHovered(null)}
-          >
-            {all.length === 0 && (
-              <p className="p-4 text-center text-sm text-slate-400">
-                No prompts available.
-              </p>
-            )}
-            {groups.map((g) => (
-              <div key={g.label} className="space-y-1.5">
-                <p className="px-1 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                  {g.label} · {g.items.length}
-                </p>
-                {g.items.map((w) => (
-                  <button
-                    key={w.id}
-                    onClick={() => setSelected(w)}
-                    onMouseEnter={() => setHovered(w)}
-                    onFocus={() => setHovered(w)}
-                    className={cn(
-                      "w-full rounded-lg border p-3 text-left transition-colors",
-                      selected?.id === w.id
-                        ? "border-brand-400 bg-brand-50"
-                        : preview?.id === w.id
-                          ? "border-slate-300 bg-slate-50"
-                          : "border-slate-200 hover:bg-slate-50",
-                    )}
-                  >
-                    <p className="text-sm font-medium text-slate-900">{w.name}</p>
-                    <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                      {w.description}
-                    </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="aa-scrim absolute inset-0 bg-slate-900/40 backdrop-blur-[3px]" onClick={onClose} />
+      <div role="dialog" aria-label="Apply a prompt" className="aa-pop relative flex h-[min(720px,92vh)] w-full max-w-[1060px] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-slate-50 shadow-2xl">
+        {/* header */}
+        <div className="flex items-center gap-3 border-b border-slate-200 px-6 py-4">
+          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600"><Wand2 className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <h2 className="text-[16px] font-semibold text-slate-900">Apply a prompt</h2>
+            <p className="text-[12px] text-slate-400">Start your question from a ready-made prompt.</p>
+          </div>
+          <div className="relative ml-auto hidden w-[300px] sm:block">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Search prompts" style={{ outline: "none" }}
+              className="h-10 w-full rounded-xl border border-slate-200 bg-slate-100 pl-9 pr-3 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 focus:border-brand-400 focus:ring-2 focus:ring-brand-500/15" />
+          </div>
+          <button onClick={onClose} aria-label="Close" className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"><X className="h-4 w-4" /></button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex-1"><CenterSpinner /></div>
+        ) : (
+          <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[380px_minmax(0,1fr)]">
+            {/* list */}
+            <div className="flex min-h-0 flex-col border-r border-slate-200">
+              <div className="flex flex-wrap gap-1.5 px-4 pb-2 pt-3">
+                {tabs.map((t) => (
+                  <button key={t.k} onClick={() => setFilter(t.k)} className={cn("inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition", filter === t.k ? "bg-brand-600 text-white" : "bg-slate-200/70 text-slate-600 hover:bg-slate-200")}>
+                    {t.l}<span className={cn("text-[10.5px]", filter === t.k ? "text-white/80" : "text-slate-400")}>{t.n}</span>
                   </button>
                 ))}
               </div>
-            ))}
+              <ul className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-3 pb-4 pt-1" onMouseLeave={() => setHovered(null)}>
+                {list.length === 0 && <li className="p-6 text-center text-sm text-slate-400">{all.length ? "No prompts match." : "No prompts available."}</li>}
+                {list.map((w, i) => {
+                  const k = KIND[kindOf(w)];
+                  const on = selected?.id === w.id;
+                  return (
+                    <li key={w.id} className="aa-up" style={{ animationDelay: `${Math.min(i, 10) * 22}ms` }}>
+                      <button onClick={() => setSelected(w)} onDoubleClick={() => use(w)} onMouseEnter={() => setHovered(w)} onFocus={() => setHovered(w)}
+                        className={cn("aa-pi flex w-full items-center gap-3 rounded-2xl border p-3 text-left", k.tone, on ? "border-brand-500 bg-brand-50" : "border-slate-200 bg-slate-100 hover:border-slate-300")}>
+                        <span className="aa-ic flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"><k.I className="h-[18px] w-[18px]" /></span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13.5px] font-semibold text-slate-900">{w.name}</span>
+                          <span className="block truncate text-[11.5px] text-slate-400">{w.description || k.label}</span>
+                        </span>
+                        {on && <Check className="h-4 w-4 shrink-0 text-brand-600" />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            {/* preview */}
+            <div className="hidden min-h-0 overflow-y-auto p-6 md:block">
+              {preview ? (
+                (() => {
+                  const k = KIND[kindOf(preview)];
+                  const cols = workflowColumns(preview);
+                  const prompt = (preview.definition as { prompt?: string })?.prompt;
+                  return (
+                    <div key={preview.id} className="aa-up">
+                      <div className={cn("flex items-start gap-4", k.tone)}>
+                        <span className="aa-ic flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"><k.I className="h-6 w-6" /></span>
+                        <div className="min-w-0">
+                          <h3 className="text-[19px] font-semibold leading-tight text-slate-900">{preview.name}</h3>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <span className="rounded-full bg-slate-200 px-2.5 py-0.5 text-[11px] font-medium text-slate-600">{k.label}</span>
+                            {preview.is_builtin && <span className="rounded-full bg-brand-50 px-2.5 py-0.5 text-[11px] font-medium text-brand-700">Built in</span>}
+                            {preview.description && <span className="text-[12px] text-slate-400">{preview.description}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      {prompt ? (
+                        <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-100 p-5">
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">What it does</p>
+                          <div className="answer-serif aa-sans text-[14px]"><Markdown>{prompt}</Markdown></div>
+                        </div>
+                      ) : cols.length ? (
+                        <div className="mt-5">
+                          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Extracts {cols.length} field{cols.length === 1 ? "" : "s"}</p>
+                          <ul className="grid gap-2 sm:grid-cols-2">
+                            {cols.map((c, i) => (
+                              <li key={i} className="rounded-xl border border-slate-200 bg-slate-100 p-3">
+                                <span className="block text-[13px] font-semibold text-slate-800">{c.name}</span>
+                                {c.prompt && <span className="mt-0.5 line-clamp-3 block text-[12px] text-slate-500">{c.prompt}</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <p className="mt-5 text-sm text-slate-400">This prompt has no preview.</p>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center text-center text-slate-400">
+                  <Wand2 className="mb-2 h-8 w-8" />
+                  <p className="text-sm">Pick a prompt to see what it does.</p>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-4">
-            {preview ? (
-              (() => {
-                const cols = workflowColumns(preview);
-                const prompt = (preview.definition as { prompt?: string })
-                  ?.prompt;
-                return (
-                  <>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {preview.name}
-                    </p>
-                    {preview.description && (
-                      <p className="mt-0.5 text-xs text-slate-500">
-                        {preview.description}
-                      </p>
-                    )}
-                    {prompt ? (
-                      <>
-                        <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                          What it does
-                        </p>
-                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
-                          {prompt}
-                        </p>
-                      </>
-                    ) : cols.length ? (
-                      <>
-                        <p className="mt-3 text-[11px] font-medium uppercase tracking-[0.06em] text-slate-500">
-                          Extracts {cols.length} field
-                          {cols.length === 1 ? "" : "s"}
-                        </p>
-                        <ul className="mt-1 space-y-1.5">
-                          {cols.map((c, i) => (
-                            <li key={i} className="text-sm text-slate-700">
-                              <span className="font-medium">{c.name}</span>
-                              {c.prompt && (
-                                <span className="mt-0.5 block text-xs text-slate-500">
-                                  {c.prompt}
-                                </span>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </>
-                    ) : (
-                      <p className="mt-3 text-sm text-slate-400">
-                        This workflow has no preview.
-                      </p>
-                    )}
-                  </>
-                );
-              })()
-            ) : (
-              <p className="text-sm text-slate-400">
-                Hover a prompt to preview its details, then click to select it.
-              </p>
-            )}
-          </div>
+        )}
+
+        {/* footer */}
+        <div className="flex items-center gap-3 border-t border-slate-200 px-6 py-3.5">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-slate-400">{selected ? <>Selected: <span className="font-medium text-slate-700">{selected.name}</span></> : "Click a prompt to select it, double-click to use it."}</p>
+          <button onClick={onClose} className="aa-btn">Cancel</button>
+          <button disabled={!selected} onClick={() => selected && use(selected)} className="aa-go"><Wand2 className="h-4 w-4" />Use prompt</button>
         </div>
-      )}
-    </Modal>
+      </div>
+    </div>
   );
 }

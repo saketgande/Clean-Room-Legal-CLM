@@ -50,6 +50,7 @@ AcceptInvitationRequest, ApiKeyCreate, ApiKeyResponse, ApprovalRequest, LoginReq
 - `0021_authority_grants` (backend/alembic/versions/0021_authority_grants.py)
 - `0030_auth_hash_indexes` (backend/alembic/versions/0030_auth_hash_indexes.py)
 - `0045_backfill_role_permissions` (backend/alembic/versions/0045_backfill_role_permissions.py)
+- `0077_obligation_edit_roles` (backend/alembic/versions/0077_obligation_edit_roles.py)
 
 ## Frontend counterpart
 

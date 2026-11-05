@@ -1,0 +1,218 @@
+<title>Template and Playbook Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column of cards on the AEGIS canvas; findings as tables with fix-side chips. */
+:root{
+  --canvas:#f4f6f9; --panel:#ffffff; --line:#ece9e3; --line-2:#e0ddd5;
+  --ink:#1a1c22; --ink-2:#3e424b; --ink-3:#565a63; --mute:#8a8d95;
+  --brand:#3b4aa0; --brand-2:#313e88; --brand-soft:#eaecf8;
+  --ok:#1c7a54; --ok-soft:#e7f3ec; --warn:#a9720f; --warn-soft:#fbf0dd;
+  --crit:#b23a30; --crit-soft:#fbe9e7; --info:#2455c4; --info-soft:#eaeffb;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --canvas:#141518; --panel:#1c1e23; --line:#272a30; --line-2:#34383f;
+  --ink:#e3e6eb; --ink-2:#a8aeb8; --ink-3:#8c929c; --mute:#6e747e;
+  --brand:#8290e6; --brand-2:#9aa6ec; --brand-soft:#1f2740;
+  --ok:#42c88c; --ok-soft:#14261e; --warn:#e2a854; --warn-soft:#2b2114;
+  --crit:#e87a70; --crit-soft:#2e1a1a; --info:#7896fa; --info-soft:#18203a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --canvas:#141518; --panel:#1c1e23; --line:#272a30; --line-2:#34383f;
+  --ink:#e3e6eb; --ink-2:#a8aeb8; --ink-3:#8c929c; --mute:#6e747e;
+  --brand:#8290e6; --brand-2:#9aa6ec; --brand-soft:#1f2740;
+  --ok:#42c88c; --ok-soft:#14261e; --warn:#e2a854; --warn-soft:#2b2114;
+  --crit:#e87a70; --crit-soft:#2e1a1a; --info:#7896fa; --info-soft:#18203a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--canvas);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.6;font-variant-numeric:tabular-nums;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:32px 64px}
+.wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+h1,h2,h3{text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:26px;font-weight:700} h2{font-size:18px;font-weight:600} h3{font-size:14px;font-weight:600}
+p{margin:0;max-width:70ch}
+.eyebrow{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--brand-2)}
+.lede{color:var(--ink-3);font-size:15px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.pill{display:inline-flex;align-items:center;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;border-radius:999px;padding:2px 9px;white-space:nowrap}
+.p-ok{background:var(--ok-soft);color:var(--ok)} .p-warn{background:var(--warn-soft);color:var(--warn)}
+.p-crit{background:var(--crit-soft);color:var(--crit)} .p-info{background:var(--info-soft);color:var(--info)}
+.p-mute{background:var(--canvas);color:var(--ink-3);border:1px solid var(--line-2)}
+.t{background:var(--brand-soft);color:var(--brand-2)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.stat{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.stat b{display:block;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.stat span{font-size:12px;color:var(--ink-3)}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:560px}
+th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-3);background:var(--canvas);padding:8px 12px;border-bottom:1px solid var(--line)}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:0}
+td:first-child{color:var(--ink);font-weight:500}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px;max-width:72ch}
+.small{font-size:12.5px} .muted{color:var(--ink-3)}
+code{font-family:var(--mono);font-size:12px;background:var(--canvas);border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--ink-2)}
+.quote{border-left:3px solid var(--line-2);padding:6px 12px;font-size:13px;color:var(--ink-2);background:var(--canvas);border-radius:0}
+.callout{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--canvas);font-size:13px;color:var(--ink-2)}
+.legend{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--ink-3);align-items:center}
+details{border:1px solid var(--line);border-radius:10px;padding:10px 14px}
+summary{cursor:pointer;font-weight:600;font-size:13.5px}
+summary:focus-visible,a:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+details[open] summary{margin-bottom:10px}
+.steps{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.step{display:grid;grid-template-columns:30px 1fr;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.step:last-child{border-bottom:0}
+.num{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--brand);color:var(--panel)}
+.step p{font-size:13px;color:var(--ink-3)}
+</style>
+
+<div class="wrap">
+
+<header class="card" style="gap:10px">
+  <div class="eyebrow">Aegis · Drafting templates · review of 27 Oct 2026</div>
+  <h1>Do our templates pass our own playbooks?</h1>
+  <p class="lede">Not reliably. Contracts drafted from our own templates were redlined 17 times by their own playbooks in the last two weeks. We reviewed all seven templates and eight playbooks against market practice for an Indian company that is usually the customer. Most fixes need the template and its rule changed together.</p>
+  <div class="stats">
+    <div class="stat"><b>17</b><span>redlines on our own paper (MSA 11, SOW 4, NDA 2)</span></div>
+    <div class="stat"><b>~87</b><span>template issues found across 7 templates</span></div>
+    <div class="stat"><b>~45</b><span>playbook rules to fix or add</span></div>
+    <div class="stat"><b>7 of 7</b><span>templates can fall back to Delaware law</span></div>
+  </div>
+  <p class="small muted">A drafting review produced by AI reviewers reading the template text, the playbook rules and the real findings. It is not legal advice. Items marked <span class="pill p-warn">Lawyer</span> need counsel to decide before anything changes.</p>
+</header>
+
+<section class="card">
+  <div class="eyebrow">Why our own paper gets redlined</div>
+  <h2>Four causes, in this order</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Cause</th><th>Example</th><th>Where</th></tr></thead>
+    <tbody>
+      <tr><td>The form offers answers the playbook rejects</td><td>Payment terms of 30 or 60 days; an NDA term of 2 years</td><td>MSA ×3, NDA ×2</td></tr>
+      <tr><td>The template leaves out something the rule needs</td><td>No service levels or credits anywhere (MSA defers to SOW, SOW has no section); no insurance amounts</td><td>MSA ×5</td></tr>
+      <tr><td>A template bug</td><td>SOW prints both the fixed-fee and the time-and-materials clauses; day rates are defined nowhere</td><td>SOW ×2</td></tr>
+      <tr><td>The rule is unclear, so the AI reviewer misreads</td><td>"Fees paid or payable in the preceding 12 months" read as total contract value; an unsigned DPA flagged when the form said no personal data</td><td>MSA ×3</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">The other 2 SOW findings came from test input ("This is a test"). The last automatic template check (15 Oct) also quoted bracket placeholders that are not in today's SOW, so it read an old version and needs re-running.</p>
+</section>
+
+<section class="card">
+  <div class="eyebrow">Problems in every template</div>
+  <h2>Fix these once, everywhere</h2>
+  <div class="legend">Fix side: <span class="pill t">Template</span> <span class="pill p-info">Rule</span> <span class="pill p-mute">Form / code</span></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Problem</th><th>Fix</th><th>Side</th></tr></thead>
+    <tbody>
+      <tr><td>Governing law falls back to "the State of Delaware"; only NDAs ask the question; "courts of India" names no city; no arbitration</td><td>Fall back to India; ask governing law and a dispute seat on every type; arbitration under the Arbitration and Conciliation Act 1996 (SIAC for foreign parties); SOW and DPA follow their parent agreement; add a dispute rule</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span> <span class="pill p-mute">Form</span></td></tr>
+      <tr><td>Signature blocks have blank Name and Title; notices go to an address that isn't in the contract</td><td>Print their signer from the form and ours from the entity register; add party addresses, CIN and GSTIN from the registers</td><td><span class="pill t">Template</span> <span class="pill p-mute">Form</span></td></tr>
+      <tr><td>Payment terms ignore the MSME law (45 days for micro and small suppliers); rules read "exactly 45 days"</td><td>Add an MSME clause and question; offer 45 or 60 days only; rules read "at least 45 days, 60 for non-MSME with approval"</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span> <span class="pill p-mute">Form</span></td></tr>
+      <tr><td>GST clauses don't protect our input tax credit or handle reverse charge for foreign suppliers</td><td>GST-compliant invoices, credit reimbursement, reverse charge, tax residency certificate and Form 10F</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>Breach notice of 72 hours leaves us no time for our own 72-hour report under the DPDP Rules</td><td>24 hours (6 hours where CERT-In applies) in templates and rules <span class="pill p-warn">Lawyer</span></td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Data-protection text ignores the form's personal-data answer</td><td>Personal data Yes: DPA clause; No: "sign our DPA before any processing", which the rule accepts</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>No insurance amounts</td><td>Minimum cover (e.g. INR 5 crore professional indemnity and cyber) in template and rule <span class="pill p-warn">Lawyer</span></td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Rule keywords pass on any contract ("terminate", "confidential") and miss DPDP wording ("Data Principal", "erasure")</td><td>Replace with meaningful required wording; drop prohibited phrases that also match protective text</td><td><span class="pill p-info">Rule</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="row"><div class="eyebrow">NDA</div><span class="pill p-warn">2 real redlines</span></div>
+  <h2>NDA template and playbook</h2>
+  <p>Both redlines come from the playbook: its term rule flags the 2-year option our own form offers, though a 2-year term with 5 years' confidentiality afterwards is market standard. Much of the template's strict wording was copied from the playbook's required text, so in a mutual NDA it binds us too.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Issue</th><th>Fix</th><th>Side</th></tr></thead>
+    <tbody>
+      <tr><td>Term rule mixes up the agreement term and the survival period</td><td>Accept a 2–5 year term with at least 3 years' survival (5 preferred); trade secrets protected while they remain secret</td><td><span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Disclosure to any service provider needs written consent (email and cloud vendors breach it on day one)</td><td>Representatives include affiliates, contractors and service providers bound in writing</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>"Clear and convincing" evidence and a "high degree of care"</td><td>"As shown by its written records"; "no less than reasonable care"</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Backups must be permanently deleted</td><td>Automated backups kept, overwritten in the normal cycle, still confidential</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Clause 7.4 survives indefinitely, contradicting the 5-year limit; five duplicated clause pairs</td><td>Make 7.4 subject to 7.2–7.3; keep one of each pair</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>No DPDP Act, freedom to develop, merger assignment, stamp duty or IT Act e-signature line</td><td>Add each (stamp duty <span class="pill p-warn">Lawyer</span>)</td><td><span class="pill t">Template</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="callout">The purpose recital now always reads "explore a potential business relationship", because the purpose question was removed today. The reviewer recommends asking it again for NDAs. You decide.</div>
+</section>
+
+<section class="card">
+  <div class="row"><div class="eyebrow">MSA and SOW</div><span class="pill p-crit">15 real redlines</span></div>
+  <h2>Master services agreement and statement of work</h2>
+  <p>The MSA is a solid customer paper; the problems are gaps between it and the SOW. The MSA defers service levels, credits, rates, insurance and transition rates to the SOW, and the SOW supplies none of them.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Issue</th><th>Fix</th><th>Side</th></tr></thead>
+    <tbody>
+      <tr><td>Service levels and credits exist nowhere (4 redlines)</td><td>MSA default credit 5%, at-risk cap 15%; SOW service-level section, "none apply" for project work; rule accepts SOW-defined levels <span class="pill p-warn">Lawyer</span></td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>SOW always prints both pricing models; day rates defined nowhere</td><td>One pricing clause built for the chosen model; a rate card in the SOW</td><td><span class="pill t">Template</span> <span class="pill p-mute">Code</span></td></tr>
+      <tr><td>Liability cap misread (2 redlines)</td><td>Rule states "paid or payable in the preceding 12 months" passes</td><td><span class="pill p-info">Rule</span></td></tr>
+      <tr><td>IP assignment can lapse under Indian copyright law</td><td>Worldwide, full term, Copyright Act s.19(4) excluded</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>SOW doesn't name its MSA, and has its own law and payment days that can contradict the MSA</td><td>Name the parent from the form; follow the MSA's law and payment period</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>No security clause; business continuity referred to but never defined</td><td>ISO 27001 / SOC 2 clause; tested continuity plan</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>MSA asks scope but never uses it</td><td>One background sentence, or drop the question for MSA</td><td><span class="pill p-mute">Form</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="row"><div class="eyebrow">Vendor and SaaS</div><span class="pill p-info">0 redlines yet</span></div>
+  <h2>Vendor agreement and software / SaaS</h2>
+  <p>No redlines on our paper so far, but specific form answers would trigger them. Both are strong customer papers with a few real gaps.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Issue</th><th>Fix</th><th>Side</th></tr></thead>
+    <tbody>
+      <tr><td>SaaS: the data-breach cap never applies, because customer data is confidential and confidentiality is uncapped</td><td>Breach liability governed only by the super-cap, with a floor <span class="pill p-warn">Lawyer</span></td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>SaaS: hosting always says India, whatever the form answer</td><td>Hosting clause built from the answer, with privacy approval outside India</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>SaaS: auto-renew notice is 30 days on the form, 60 in the text; continuity and suspension clauses missing</td><td>Use the larger of the two; add continuity, narrow suspension and sub-processor exit</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>SaaS rule allows hosting only in India or the EU; bans advance billing</td><td>Named location with privacy approval; allow billing in advance with refund</td><td><span class="pill p-info">Rule</span></td></tr>
+      <tr><td>Vendor: "what we're buying" is asked but unused; no delivery terms, delay damages or labour-dues clause</td><td>Goods / services wording from the answer; Incoterms delivery; delay damages; contract-labour compliance</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>Both: liability cap near zero in the first year</td><td>Greater of trailing and first-year fees</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="row"><div class="eyebrow">Consultancy and DPA</div><span class="pill p-info">0 redlines yet</span></div>
+  <h2>Consultancy agreement and data processing agreement</h2>
+  <p>Both pass their playbooks today, partly because the playbooks don't check governing law at all. The DPA's transfer clause is the most serious gap.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Issue</th><th>Fix</th><th>Side</th></tr></thead>
+    <tbody>
+      <tr><td>Consultancy: clause 3.2 says the consultant bears GST, clause 6.6 says we pay it</td><td>Rewrite both, with credit protection</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>Consultancy: no insurance, no re-performance or acceptance, contract-labour exposure</td><td>Add each clause and matching rules</td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>DPA: transfer clause effectively demands SCCs for Indian-only data, which the DPDP Act doesn't require</td><td>Separate DPDP (no restricted country) and GDPR/UK (SCCs, Addendum) regimes <span class="pill p-warn">Lawyer</span></td><td><span class="pill t">Template</span> <span class="pill p-info">Rule</span></td></tr>
+      <tr><td>DPA: main agreement unnamed; term "until terminated" contradicts its annex</td><td>Name the parent from the form; tie the term to it</td><td><span class="pill t">Template</span></td></tr>
+      <tr><td>DPA: nothing on children's data; data lists have no "Other"</td><td>DPDP s.9 clause; "Other" options on the form</td><td><span class="pill t">Template</span> <span class="pill p-mute">Form</span></td></tr>
+      <tr><td>DPA rule's 72-hour fallback; consultancy 72h vs DPA 48h</td><td>No 72-hour fallback; one breach window across playbooks</td><td><span class="pill p-info">Rule</span></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="eyebrow">What each template needs from the form</div>
+  <h2>Input for the per-type forms</h2>
+  <p>These are the questions each form would need to fill its template completely. They become the next step once the templates are fixed.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Template</th><th>Add</th><th>Drop or stop using</th></tr></thead>
+    <tbody>
+      <tr><td>All</td><td>Governing law, dispute seat, our signer, signer titles, MSME status, party addresses from the registers</td><td>—</td></tr>
+      <tr><td>NDA</td><td>Purpose (again), survival period (optional), stamp duty (optional)</td><td>—</td></tr>
+      <tr><td>MSA</td><td>—</td><td>Scope (or one background line)</td></tr>
+      <tr><td>SOW</td><td>Rate card for time and materials, service levels for ongoing work, their project lead</td><td>Payment days and law (follow the MSA)</td></tr>
+      <tr><td>Vendor</td><td>Use "what we're buying"</td><td>—</td></tr>
+      <tr><td>SaaS</td><td>Use hosting, privacy approval outside India, billing period</td><td>—</td></tr>
+      <tr><td>Consultancy</td><td>Consultant outside India? Individual or firm? How a fixed fee is invoiced</td><td>—</td></tr>
+      <tr><td>DPA</td><td>Privacy contact, EU/UK data involved?, children and "Other" options</td><td>Its own dates and law (follow the parent)</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="card">
+  <div class="eyebrow">Proposed order</div>
+  <h2>How we'd do it</h2>
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div><b>Counsel signs off the positions.</b><p>The items marked Lawyer: breach window, insurance amounts, SLA cap, arbitration seat and institution, data-breach super-cap, stamp duty, DPA transfers.</p></div></div>
+    <div class="step"><div class="num">2</div><div><b>Fix templates and playbooks together.</b><p>One change per template–rule pair, then re-run the template check with every form option, not just the defaults. Done when every filled template passes its playbook with zero findings.</p></div></div>
+    <div class="step"><div class="num">3</div><div><b>Build the per-type forms from what each template needs.</b><p>Every blank in a template has a question, and every question either fills the draft or says what it's for. A test keeps them in step.</p></div></div>
+  </div>
+</section>
+
+</div>
