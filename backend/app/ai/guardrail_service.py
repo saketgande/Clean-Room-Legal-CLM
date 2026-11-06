@@ -114,6 +114,44 @@ def _register_fence_tolerant_parsers(rails) -> None:
     )
 
 
+def _register_remote_sensitive_data_actions(rails) -> None:
+    """Run NeMo's sensitive-data rail on the host's guardrail-models server instead of in this
+    process, so the spaCy/Presidio model is not loaded here. Same detect/mask semantics as NeMo's
+    own actions (detect: the rail's score threshold; mask: NeMo's 0.4 default)."""
+    import httpx
+    from nemoguardrails.actions import action
+    from nemoguardrails.library.sensitive_data_detection.actions import (
+        _mask_sensitive_data_outcome,
+        _sensitive_data_detection_outcome,
+    )
+
+    base_url = settings.guardrail_models_url.rstrip("/")
+
+    async def _post(path: str, payload: dict) -> dict:
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(f"{base_url}{path}", json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    @action(is_system_action=True)
+    async def detect_sensitive_data(source: str, text: str, config, **kwargs):
+        options = getattr(config.rails.config.sensitive_data_detection, source)
+        found = await _post(
+            "/pii/detect",
+            {"text": text, "entities": options.entities, "score_threshold": options.score_threshold},
+        )
+        return _sensitive_data_detection_outcome(found["has_sensitive_data"])
+
+    @action(is_system_action=True)
+    async def mask_sensitive_data(source: str, text: str, config, **kwargs):
+        options = getattr(config.rails.config.sensitive_data_detection, source)
+        masked = await _post("/pii/mask", {"text": text, "entities": options.entities})
+        return _mask_sensitive_data_outcome(source, text, masked["text"])
+
+    rails.register_action(detect_sensitive_data, "detect_sensitive_data")
+    rails.register_action(mask_sensitive_data, "mask_sensitive_data")
+
+
 @lru_cache(maxsize=1)
 def get_rails_instance():
     # Imported lazily: nemoguardrails is heavy and not needed under MOCK_GUARDRAILS.
@@ -128,8 +166,10 @@ def get_rails_instance():
     config = RailsConfig.from_path(str(CONFIG_PATH))
     for model in config.models:
         model.model = settings.guardrails_model
+    config.rails.config.hf_classifier["toxicity"].base_url = settings.guardrail_models_url.rstrip("/")
     rails = LLMRails(config)
     _register_fence_tolerant_parsers(rails)
+    _register_remote_sensitive_data_actions(rails)
     return rails
 
 

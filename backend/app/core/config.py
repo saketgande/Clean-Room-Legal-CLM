@@ -136,6 +136,8 @@ class Settings(BaseSettings):
     # on (CI/dev without a key). fail_closed: a rail error BLOCKS the request.
     mock_guardrails: bool = False
     guardrails_fail_closed: bool = True
+    # Host-side server for the local guardrail models (toxicity, sensitive data); see guardrail-models/.
+    guardrail_models_url: str = "http://127.0.0.1:8001"
     # Claude model the NeMo guardrails run on; no default: set GUARDRAILS_MODEL in .env.
     guardrails_model: str
     ai_store_raw_outputs: bool = False

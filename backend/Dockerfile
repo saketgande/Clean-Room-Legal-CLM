@@ -64,6 +64,9 @@ from fastembed.rerank.cross_encoder import TextCrossEncoder; \
 TextEmbedding(model_name='BAAI/bge-small-en-v1.5'); \
 TextCrossEncoder(model_name='Xenova/ms-marco-MiniLM-L-6-v2')"
 
+# The NeMo guardrail models (toxicity, sensitive data) are not in this image: they run in the
+# guardrail-models server on the host machine (GUARDRAIL_MODELS_URL), so no model loads in a container.
+
 # App source. The package is importable via PYTHONPATH=/app (no editable
 # install needed); alembic/celery/uvicorn run from this working directory.
 COPY . .
