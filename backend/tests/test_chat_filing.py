@@ -1,12 +1,14 @@
 """The chat must ask before it files. A request filed on the first message, labelled
 "Contract Review" with no vendor, value or date, is what these tests guard against."""
 
+from datetime import date, timedelta
+
 from app.intake.agents import BUILTIN_EXTRA_TYPES
 from app.intake.chat_filing import canonical_label, details_block, refusal
 
 FULL = dict(type_label="Other", subject="Diwali headsets", department="Research",
             description="Buy 100 headsets as Diwali gifts for the research team.",
-            counterparty="Boat Lifestyle", estimated_value="INR 3,00,000", needed_by="2026-11-05")
+            counterparty="Boat Lifestyle", estimated_value="INR 3,00,000", needed_by=(date.today() + timedelta(days=90)).isoformat())  # a fixed date goes stale: filing refuses past dates
 
 
 def test_invented_label_is_refused_and_lists_the_real_ones():
